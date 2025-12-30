@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "Legacy Golf",
+    "slug": "legacy-golf",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0E3A5A"
+    },
+    "plugins": [
+    ]
+  }
+}
