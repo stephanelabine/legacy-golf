@@ -1,173 +1,246 @@
-import React, { useMemo, useState } from "react";
-import { View, Text, Pressable, StyleSheet, TextInput, ScrollView, Alert } from "react-native";
-import { saveRound } from "../storage/rounds";
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  SafeAreaView,
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  FlatList,
+  Pressable,
+  Alert,
+} from "react-native";
 
-export default function ScoreEntryScreen({ navigation, route }) {
-  const [round, setRound] = useState(route.params?.round);
+import { getRounds, saveRound } from "../storage/rounds";
+import { ROUTES } from "../navigation/routes";
 
-  if (!round) {
-    return (
-      <View style={[styles.container, { justifyContent: "center", alignItems: "center" }]}>
-        <Text style={{ color: "#fff", fontWeight: "800" }}>No round data found.</Text>
-        <Pressable onPress={() => navigation.navigate("NewRound")} style={styles.primaryBtn}>
-          <Text style={styles.primaryText}>Start a new round</Text>
-        </Pressable>
-      </View>
-    );
-  }
+const BG = "#0B1220";
+const BORDER = "rgba(255,255,255,0.2)";
+const PRIMARY = "#2E7DFF";
+const TEXT = "#FFFFFF";
 
-  const holeCount = round.holes;
-  const holeIndex = round.currentHoleIndex ?? 0;
+export default function ScoreEntryScreen({ route, navigation }) {
+  const roundId = route?.params?.roundId ?? null;
 
-  const totals = useMemo(() => {
-    const out = {};
-    for (const p of round.players) {
-      const arr = round.scores[p.id] || [];
-      out[p.id] = arr.reduce((sum, v) => sum + (typeof v === "number" ? v : 0), 0);
+  const [round, setRound] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function load() {
+      if (!roundId) {
+        Alert.alert("Error", "Missing round id.");
+        navigation.goBack();
+        return;
+      }
+
+      const rounds = await getRounds();
+      const found = rounds.find((r) => r.id === roundId);
+
+      if (!found) {
+        Alert.alert("Error", "Round not found.");
+        navigation.goBack();
+        return;
+      }
+
+      if (mounted) setRound(found);
     }
-    return out;
-  }, [round]);
 
-  function setStroke(playerId, value) {
-    const num = value === "" ? null : Number(value);
-    if (value !== "" && (!Number.isFinite(num) || num < 0 || num > 25)) return;
+    load();
 
+    return () => {
+      mounted = false;
+    };
+  }, [roundId, navigation]);
+
+  const players = useMemo(() => round?.players || [], [round]);
+
+  function updateScore(holeIndex, playerId, value) {
     setRound((prev) => {
-      const nextScores = { ...prev.scores };
-      const arr = [...nextScores[playerId]];
-      arr[holeIndex] = value === "" ? null : num;
-      nextScores[playerId] = arr;
-      return { ...prev, scores: nextScores };
+      if (!prev) return prev;
+
+      const nextHoles = prev.holes.map((h, i) => {
+        if (i !== holeIndex) return h;
+
+        const trimmed = (value || "").trim();
+        const parsed =
+          trimmed === "" ? null : Number.parseInt(trimmed, 10);
+
+        return {
+          ...h,
+          scores: {
+            ...h.scores,
+            [playerId]: Number.isFinite(parsed) ? parsed : null,
+          },
+        };
+      });
+
+      return { ...prev, holes: nextHoles };
     });
   }
 
-  function prevHole() {
-    setRound((p) => ({ ...p, currentHoleIndex: Math.max(0, holeIndex - 1) }));
+  async function saveProgress() {
+    if (!round || saving) return;
+
+    setSaving(true);
+    const ok = await saveRound({
+      ...round,
+      updatedAt: new Date().toISOString(),
+    });
+    setSaving(false);
+
+    if (!ok) {
+      Alert.alert("Error", "Could not save.");
+      return;
+    }
+
+    Alert.alert("Saved", "Progress saved.");
   }
 
-  function nextHole() {
-    setRound((p) => ({ ...p, currentHoleIndex: Math.min(holeCount - 1, holeIndex + 1) }));
-  }
-
-  function saveToHistory() {
-    Alert.alert("Save round?", "This will save the round to your phone history.", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Save",
-        onPress: async () => {
-          const toSave = { ...round, completedAt: Date.now() };
-          await saveRound(toSave);
-          navigation.replace("History");
-        },
-      },
-    ]);
+  if (!round) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <Text style={styles.loading}>Loading…</Text>
+      </SafeAreaView>
+    );
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>{round.name}</Text>
-      <Text style={styles.sub}>
-        Hole {holeIndex + 1} of {holeCount}
+    <SafeAreaView style={styles.safe}>
+      <Text style={styles.title}>{round.courseName}</Text>
+      <Text style={styles.subtitle}>
+        {round.format} • {round.tees}
       </Text>
 
-      <View style={styles.card}>
-        {round.players.map((p) => {
-          const value = round.scores[p.id]?.[holeIndex];
-          return (
-            <View key={p.id} style={styles.row}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.player}>{p.name}</Text>
-                <Text style={styles.mini}>Total: {totals[p.id]}</Text>
+      <FlatList
+        data={round.holes}
+        keyExtractor={(item) => String(item.hole)}
+        contentContainerStyle={{ paddingBottom: 120 }}
+        keyboardShouldPersistTaps="handled"
+        renderItem={({ item, index }) => (
+          <View style={styles.holeCard}>
+            <Text style={styles.holeTitle}>Hole {item.hole}</Text>
+
+            {players.map((p) => (
+              <View key={p.id} style={styles.row}>
+                <Text style={styles.playerName}>{p.name}</Text>
+                <TextInput
+                  style={styles.input}
+                  keyboardType="number-pad"
+                  value={item.scores?.[p.id] != null ? String(item.scores[p.id]) : ""}
+                  onChangeText={(v) => updateScore(index, p.id, v)}
+                  placeholder=""
+                  placeholderTextColor="rgba(255,255,255,0.35)"
+                />
               </View>
+            ))}
+          </View>
+        )}
+      />
 
-              <TextInput
-                value={value === null || value === undefined ? "" : String(value)}
-                onChangeText={(t) => setStroke(p.id, t.replace(/[^\d]/g, ""))}
-                keyboardType="numeric"
-                placeholder="Strokes"
-                placeholderTextColor="rgba(255,255,255,0.45)"
-                style={styles.input}
-              />
-            </View>
-          );
-        })}
-      </View>
-
-      <View style={styles.navRow}>
-        <Pressable onPress={prevHole} disabled={holeIndex === 0} style={[styles.navBtn, holeIndex === 0 && styles.disabled]}>
-          <Text style={styles.navText}>Prev</Text>
+      <View style={styles.footer}>
+        <Pressable
+          style={[styles.btnSecondary, saving && styles.disabled]}
+          onPress={saveProgress}
+          disabled={saving}
+        >
+          <Text style={styles.btnText}>{saving ? "Saving…" : "Save"}</Text>
         </Pressable>
 
         <Pressable
-          onPress={nextHole}
-          disabled={holeIndex === holeCount - 1}
-          style={[styles.navBtn, holeIndex === holeCount - 1 && styles.disabled]}
+          style={styles.btnPrimary}
+          onPress={() => navigation.navigate(ROUTES.HOME)}
         >
-          <Text style={styles.navText}>Next</Text>
+          <Text style={styles.btnText}>Done</Text>
         </Pressable>
       </View>
-
-      <Pressable onPress={saveToHistory} style={styles.primaryBtn}>
-        <Text style={styles.primaryText}>Save to history</Text>
-      </Pressable>
-    </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 18, paddingTop: 52, backgroundColor: "#0b1320", flexGrow: 1 },
-  title: { color: "#fff", fontSize: 24, fontWeight: "900" },
-  sub: { color: "rgba(255,255,255,0.7)", marginTop: 6, marginBottom: 14, fontWeight: "700" },
-
-  card: {
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.05)",
-    padding: 12,
-  },
-
-  row: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10 },
-  player: { color: "#fff", fontWeight: "900", fontSize: 16 },
-  mini: { color: "rgba(255,255,255,0.65)", marginTop: 4, fontWeight: "700" },
-
-  input: {
-    width: 110,
-    height: 44,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    textAlign: "center",
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    color: "#fff",
-    fontWeight: "900",
-    fontSize: 16,
-  },
-
-  navRow: { flexDirection: "row", gap: 10, marginTop: 14 },
-  navBtn: {
+  safe: {
     flex: 1,
-    height: 46,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.18)",
-    backgroundColor: "rgba(255,255,255,0.06)",
+    backgroundColor: BG,
+    padding: 16,
   },
-  navText: { color: "rgba(255,255,255,0.85)", fontWeight: "900" },
-  disabled: { opacity: 0.35 },
-
-  primaryBtn: {
+  loading: {
+    color: TEXT,
+    textAlign: "center",
+    marginTop: 40,
+  },
+  title: {
+    color: TEXT,
+    fontSize: 22,
+    fontWeight: "800",
+  },
+  subtitle: {
+    color: TEXT,
+    opacity: 0.7,
+    marginBottom: 12,
+  },
+  holeCard: {
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 12,
+  },
+  holeTitle: {
+    color: TEXT,
+    fontWeight: "800",
+    marginBottom: 8,
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  playerName: {
+    flex: 1,
+    color: TEXT,
+  },
+  input: {
+    width: 60,
+    height: 36,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 8,
+    color: TEXT,
+    textAlign: "center",
+  },
+  footer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    padding: 16,
+    backgroundColor: BG,
+    gap: 10,
+  },
+  btnPrimary: {
+    flex: 1,
+    backgroundColor: PRIMARY,
     height: 48,
-    borderRadius: 16,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 16,
-    backgroundColor: "rgba(255,255,255,0.18)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.22)",
   },
-  primaryText: { color: "#fff", fontWeight: "900" },
+  btnSecondary: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: BORDER,
+    height: 48,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  btnText: {
+    color: TEXT,
+    fontWeight: "800",
+  },
+  disabled: {
+    opacity: 0.6,
+  },
 });

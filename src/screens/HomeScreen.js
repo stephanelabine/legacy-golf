@@ -7,182 +7,157 @@ import {
   ImageBackground,
   Image,
   Pressable,
+  Platform,
 } from "react-native";
+
+import { ROUTES } from "../navigation/routes";
 
 export default function HomeScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.safe}>
-      {/* TOP BAR */}
-      <View style={styles.top}>
-        <Pressable onPress={() => navigation.navigate("Home")}>
-          <Image
-            source={require("../../assets/legacy-logo.png")}
-            style={styles.logo}
-            resizeMode="cover"
-          />
-        </Pressable>
-
-        <View style={styles.topText}>
-          <Text style={styles.welcome}>WELCOME TO</Text>
-          <Text style={styles.title}>Legacy Golf</Text>
-          <Text style={styles.tagline}>Play the round, build your Legacy</Text>
-        </View>
-      </View>
-
-      {/* HERO IMAGE */}
       <ImageBackground
         source={require("../../assets/landing-hero.jpg")}
-        style={styles.hero}
+        style={styles.bg}
         resizeMode="cover"
-      />
+      >
+        <View style={styles.overlay} />
 
-      {/* BOTTOM */}
-      <View style={styles.bottom}>
-        <Pressable
-          style={styles.primaryBtn}
-          onPress={() => navigation.navigate("NewRound")}
-        >
-          <Text style={styles.primaryText}>Start Round</Text>
-        </Pressable>
+        <View style={styles.content}>
+          <View style={styles.brand}>
+            <Image
+              source={require("../../assets/legacy-logo.png")}
+              style={styles.logo}
+              resizeMode="contain"
+            />
 
-        <Pressable
-          style={styles.secondaryBtn}
-          onPress={() => navigation.navigate("NewRound")}
-        >
-          <Text style={styles.secondaryText}>Join Round</Text>
-        </Pressable>
+            <Text style={styles.welcome}>WELCOME TO</Text>
+            <Text style={styles.title}>Legacy Golf</Text>
+            <Text style={styles.tagline}>Build your legacy</Text>
+          </View>
 
-        <View style={styles.row}>
-          <Pressable
-            style={styles.smallBtn}
-            onPress={() => navigation.navigate("History")}
-          >
-            <Text style={styles.smallText}>Legacy</Text>
-          </Pressable>
+          <View style={styles.actions}>
+            <Pressable
+              onPress={() => navigation.navigate(ROUTES.NEW_ROUND)}
+              style={({ pressed }) => [
+                styles.btn,
+                styles.btnPrimary,
+                pressed && styles.pressed,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Start a new round"
+            >
+              <Text style={styles.btnPrimaryText}>Start Round</Text>
+            </Pressable>
 
-          <Pressable
-            style={styles.smallBtn}
-            onPress={() => navigation.navigate("Profile")}
-          >
-            <Text style={styles.smallText}>Player Profile</Text>
-          </Pressable>
+            <Pressable
+              onPress={() => navigation.navigate(ROUTES.PROFILE)}
+              style={({ pressed }) => [
+                styles.btn,
+                styles.btnGhost,
+                pressed && styles.pressed,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Open player profile"
+            >
+              <Text style={styles.btnGhostText}>Player Profile</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => navigation.navigate(ROUTES.HISTORY)}
+              style={({ pressed }) => [
+                styles.btn,
+                styles.btnGhost,
+                pressed && styles.pressed,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Open round history"
+            >
+              <Text style={styles.btnGhostText}>History</Text>
+            </Pressable>
+          </View>
         </View>
-
-        <Text style={styles.supporter}>Add Supporter · $10/year</Text>
-      </View>
+      </ImageBackground>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: {
+  safe: { flex: 1, backgroundColor: "#000" },
+  bg: { flex: 1 },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.45)",
+  },
+  content: {
     flex: 1,
-    backgroundColor: "#0E3A5A",
+    paddingHorizontal: 22,
+    paddingTop: 22,
+    paddingBottom: 28,
+    justifyContent: "space-between",
   },
-
-  top: {
-    backgroundColor: "#0E3A5A",
-    padding: 12,
-    flexDirection: "row",
+  brand: {
     alignItems: "center",
+    paddingTop: 28,
   },
-
   logo: {
-    width: 64,
-    height: 64,
+    width: 170,
+    height: 170,
+    marginBottom: 14,
   },
-
-  topText: {
-    flex: 1,
-    alignItems: "center",
-    paddingRight: 64,
-  },
-
   welcome: {
-    color: "#fff",
+    color: "rgba(255,255,255,0.78)",
     fontSize: 14,
-    letterSpacing: 2,
+    letterSpacing: 2.2,
+    fontWeight: "700",
+    marginBottom: 6,
   },
-
   title: {
-    color: "#fff",
-    fontSize: 34,
+    color: "#FFFFFF",
+    fontSize: 44,
     fontWeight: "800",
-    marginTop: 2,
+    letterSpacing: 0.3,
+    textAlign: "center",
+    marginBottom: 6,
   },
-
   tagline: {
-    color: "#fff",
-    fontSize: 14,
-    marginTop: 6,
+    color: "rgba(255,255,255,0.82)",
+    fontSize: 16,
+    fontWeight: "600",
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
   },
 
-  hero: {
-    flex: 1,
-    width: "100%",
+  actions: {
+    gap: 12,
   },
-
-  bottom: {
-    backgroundColor: "#0E3A5A",
-    padding: 16,
+  btn: {
+    height: 56,
+    borderRadius: 16,
     alignItems: "center",
+    justifyContent: "center",
   },
-
-  primaryBtn: {
-    width: "100%",
-    backgroundColor: "#1E7F4F",
-    paddingVertical: 14,
-    borderRadius: 14,
-    alignItems: "center",
+  btnPrimary: {
+    backgroundColor: "rgba(255,255,255,0.92)",
   },
-
-  primaryText: {
-    color: "#fff",
-    fontSize: 18,
-    fontWeight: "700",
+  btnPrimaryText: {
+    color: "#0A0F1A",
+    fontSize: 17,
+    fontWeight: "900",
+    letterSpacing: 0.5,
   },
-
-  secondaryBtn: {
-    width: "100%",
-    marginTop: 12,
-    borderWidth: 2,
-    borderColor: "#fff",
-    paddingVertical: 14,
-    borderRadius: 14,
-    alignItems: "center",
+  btnGhost: {
+    backgroundColor: "rgba(0,0,0,0.28)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.28)",
   },
-
-  secondaryText: {
-    color: "#fff",
-    fontSize: 18,
-    fontWeight: "700",
+  btnGhostText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "800",
+    letterSpacing: 0.4,
   },
-
-  row: {
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 12,
-    width: "100%",
-  },
-
-  smallBtn: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.25)",
-    paddingVertical: 12,
-    borderRadius: 14,
-    alignItems: "center",
-  },
-
-  smallText: {
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: "700",
-  },
-
-  supporter: {
-    marginTop: 12,
-    color: "#fff",
-    fontSize: 14,
-    opacity: 0.9,
+  pressed: {
+    opacity: Platform.OS === "ios" ? 0.85 : 0.9,
+    transform: [{ scale: 0.99 }],
   },
 });

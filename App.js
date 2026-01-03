@@ -1,29 +1,14 @@
-import React from "react";
-import { NavigationContainer } from "@react-navigation/native";
-import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import React, { useEffect } from "react";
+import * as SplashScreen from "expo-splash-screen";
 
-import BootScreen from "./src/screens/BootScreen.js";
-import HomeScreen from "./src/screens/HomeScreen.js";
-import ProfileScreen from "./src/screens/ProfileScreen.js";
+import RootNavigator from "./src/navigation/RouteNavigator.js";
 
-import NewRoundScreen from "./src/screens/NewRoundScreen.js";
-import ScoreEntryScreen from "./src/screens/ScoreEntryScreen.js";
-import HistoryScreen from "./src/screens/HistoryScreen.js";
-
-const Stack = createNativeStackNavigator();
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function App() {
-  return (
-    <NavigationContainer>
-      <Stack.Navigator initialRouteName="Boot" screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="Boot" component={BootScreen} />
-        <Stack.Screen name="Home" component={HomeScreen} />
-        <Stack.Screen name="Profile" component={ProfileScreen} />
+  useEffect(() => {
+    SplashScreen.hideAsync().catch(() => {});
+  }, []);
 
-        <Stack.Screen name="NewRound" component={NewRoundScreen} />
-        <Stack.Screen name="ScoreEntry" component={ScoreEntryScreen} />
-        <Stack.Screen name="History" component={HistoryScreen} />
-      </Stack.Navigator>
-    </NavigationContainer>
-  );
+  return <RootNavigator />;
 }
