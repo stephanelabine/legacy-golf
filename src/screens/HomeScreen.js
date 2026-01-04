@@ -9,8 +9,7 @@ import {
   Pressable,
   Platform,
 } from "react-native";
-
-import { ROUTES } from "../navigation/routes";
+import ROUTES from "../navigation/routes";
 
 export default function HomeScreen({ navigation }) {
   return (
@@ -32,21 +31,30 @@ export default function HomeScreen({ navigation }) {
 
             <Text style={styles.welcome}>WELCOME TO</Text>
             <Text style={styles.title}>Legacy Golf</Text>
-            <Text style={styles.tagline}>Build your legacy</Text>
+            <Text style={styles.tagline}>Start building your legacy</Text>
           </View>
 
           <View style={styles.actions}>
             <Pressable
-              onPress={() => navigation.navigate(ROUTES.NEW_ROUND)}
+              onPress={() => navigation.navigate(ROUTES.GAMES)}
               style={({ pressed }) => [
                 styles.btn,
                 styles.btnPrimary,
                 pressed && styles.pressed,
               ]}
-              accessibilityRole="button"
-              accessibilityLabel="Start a new round"
             >
               <Text style={styles.btnPrimaryText}>Start Round</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => navigation.navigate(ROUTES.BUDDIES)}
+              style={({ pressed }) => [
+                styles.btn,
+                styles.btnGhost,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.btnGhostText}>Buddy List</Text>
             </Pressable>
 
             <Pressable
@@ -56,8 +64,6 @@ export default function HomeScreen({ navigation }) {
                 styles.btnGhost,
                 pressed && styles.pressed,
               ]}
-              accessibilityRole="button"
-              accessibilityLabel="Open player profile"
             >
               <Text style={styles.btnGhostText}>Player Profile</Text>
             </Pressable>
@@ -69,8 +75,6 @@ export default function HomeScreen({ navigation }) {
                 styles.btnGhost,
                 pressed && styles.pressed,
               ]}
-              accessibilityRole="button"
-              accessibilityLabel="Open round history"
             >
               <Text style={styles.btnGhostText}>History</Text>
             </Pressable>
@@ -125,11 +129,11 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     letterSpacing: 1.2,
     textTransform: "uppercase",
+    textAlign: "center",
   },
 
-  actions: {
-    gap: 12,
-  },
+  actions: { gap: 12 },
+
   btn: {
     height: 56,
     borderRadius: 16,

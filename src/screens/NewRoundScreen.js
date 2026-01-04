@@ -1,927 +1,404 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import {
-  SafeAreaView,
-  View,
-  Text,
-  StyleSheet,
-  TextInput,
-  Pressable,
-  Keyboard,
-  Alert,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-  ActivityIndicator,
-} from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { SafeAreaView, View, Text, StyleSheet, TextInput, Pressable, FlatList, Keyboard, Alert, Modal } from "react-native";
 import * as Location from "expo-location";
-
 import theme from "../theme";
+import ROUTES from "../navigation/routes";
+import { MAPBOX_TOKEN } from "../config/mapbox";
+import { getBuddies } from "../storage/buddies";
 import { saveRound } from "../storage/rounds";
-import { ROUTES } from "../navigation/routes";
 
-const COURSES = [
-  "Green Tee Country Club",
-  "Langley Golf & Banquet Center",
-  "Redwoods Golf Course",
-  "Newlands Golf & Country Club",
-  "Surrey Golf Club",
-  "Morgan Creek Golf Course",
-  "Northview Golf & Country Club",
-  "Meadow Gardens Golf Course",
-  "Riverway Golf Course",
-  "Fraserview Golf Course",
-  "Shaughnessy Golf & Country Club",
-  "Point Grey Golf & Country Club",
-  "Capilano Golf & Country Club",
-  "University Golf Club",
-  "Mayfair Lakes Golf & Country Club",
-  "Westwood Plateau Golf & Country Club",
-  "Swan-e-set Bay Resort & Country Club",
-  "Ledgeview Golf Club",
-  "Abbotsford Golf & Country Club",
-  "Chilliwack Golf Club",
-];
+const MAX_PLAYERS = 8;
+const DEFAULT_TEES = ["Blue", "White", "Gold", "Red"];
 
-const TEE_OPTIONS = ["White", "Blue", "Black", "Red", "Gold"];
-
-const FORMAT_OPTIONS = [
-  "Stroke Play",
-  "Match Play",
-  "Skins",
-  "Nassau",
-  "Vegas",
-  "Stableford",
-  "Modified Stableford",
-  "Par / Bogey",
-];
-
-function buildDefaultHoles(players) {
-  return Array.from({ length: 18 }, (_, i) => {
-    const scores = {};
-    (players || []).forEach((p) => {
-      scores[p.id] = null;
-    });
-    return { hole: i + 1, scores };
-  });
+function kmToDeltaLat(km) {
+  return km / 111;
+}
+function kmToDeltaLon(km, lat) {
+  const c = Math.cos((lat * Math.PI) / 180);
+  return km / (111 * (c || 0.00001));
 }
 
-function makeId() {
-  return `${Date.now()}-${Math.floor(Math.random() * 100000)}`;
-}
+async function searchMapboxCourses(q, user) {
+  const query = encodeURIComponent(q.trim());
+  const { lat, lon } = user;
+  const dLat = kmToDeltaLat(200);
+  const dLon = kmToDeltaLon(200, lat);
+  const minLon = lon - dLon;
+  const minLat = lat - dLat;
+  const maxLon = lon + dLon;
+  const maxLat = lat + dLat;
 
-function makePlayer(idNum) {
-  return { id: `p${idNum}`, name: idNum === 1 ? "Me" : `Player ${idNum}` };
-}
+  const url =
+    `https://api.mapbox.com/geocoding/v5/mapbox.places/${query}.json` +
+    `?access_token=${MAPBOX_TOKEN}` +
+    `&autocomplete=true&limit=10&types=poi` +
+    `&proximity=${lon},${lat}` +
+    `&bbox=${minLon},${minLat},${maxLon},${maxLat}`;
 
-function toMoneyNumber(text) {
-  const cleaned = (text || "").replace(/[^0-9.]/g, "");
-  if (!cleaned) return 0;
-  const n = Number(cleaned);
-  if (!Number.isFinite(n)) return 0;
-  return n;
-}
+  const res = await fetch(url);
+  const json = await res.json();
 
-function normalizeCourseNameFromNominatim(item) {
-  const dn = (item?.display_name || "").trim();
-  if (!dn) return "";
-  const first = dn.split(",")[0]?.trim();
-  return first || dn;
-}
-
-function haversineMeters(lat1, lon1, lat2, lon2) {
-  const R = 6371000;
-  const toRad = (d) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) *
-      Math.cos(toRad(lat2)) *
-      (Math.sin(dLon / 2) * Math.sin(dLon / 2));
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
-async function fetchOverpassNearestGolfCourse(lat, lon, radiusMeters) {
-  const q = `
-[out:json][timeout:20];
-(
-  node["leisure"="golf_course"](around:${radiusMeters},${lat},${lon});
-  way["leisure"="golf_course"](around:${radiusMeters},${lat},${lon});
-  relation["leisure"="golf_course"](around:${radiusMeters},${lat},${lon});
-);
-out center 40;
-  `.trim();
-
-  const url = "https://overpass-api.de/api/interpreter";
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-    },
-    body: `data=${encodeURIComponent(q)}`,
+  const feats = Array.isArray(json?.features) ? json.features : [];
+  const filtered = feats.filter((f) => {
+    const text = `${f?.text || ""} ${f?.place_name || ""}`.toLowerCase();
+    return text.includes("golf");
   });
 
-  if (!res.ok) return null;
-  const data = await res.json();
-  const els = Array.isArray(data?.elements) ? data.elements : [];
-  if (!els.length) return null;
-
-  let best = null;
-
-  for (const el of els) {
-    const name = el?.tags?.name || "";
-    if (!name) continue;
-
-    const elLat =
-      typeof el?.lat === "number"
-        ? el.lat
-        : typeof el?.center?.lat === "number"
-        ? el.center.lat
-        : null;
-
-    const elLon =
-      typeof el?.lon === "number"
-        ? el.lon
-        : typeof el?.center?.lon === "number"
-        ? el.center.lon
-        : null;
-
-    if (elLat == null || elLon == null) continue;
-
-    const d = haversineMeters(lat, lon, elLat, elLon);
-    if (!best || d < best.distanceMeters) {
-      best = { name, distanceMeters: d };
-    }
-  }
-
-  return best;
+  return filtered.map((f) => ({
+    id: f.id,
+    name: f.text || f.place_name || "Golf Course",
+    placeName: f.place_name || "",
+    center: { lon: f.center?.[0], lat: f.center?.[1] },
+  }));
 }
 
-export default function NewRoundScreen({ navigation }) {
-  const [query, setQuery] = useState("");
-  const [selectedCourse, setSelectedCourse] = useState("");
-  const [selectedTee, setSelectedTee] = useState("White");
-  const [selectedFormat, setSelectedFormat] = useState("Stroke Play");
-  const [saving, setSaving] = useState(false);
+export default function NewRoundScreen({ navigation, route }) {
+  const format = route?.params?.format || "stroke_play";
+  const gameTitle = route?.params?.gameTitle || "Stroke Play";
+  const scoringMode = route?.params?.scoringMode || "gross";
 
-  const [playerCount, setPlayerCount] = useState(2);
-  const [players, setPlayers] = useState([makePlayer(1), makePlayer(2)]);
+  const [loc, setLoc] = useState(null);
+  const [search, setSearch] = useState("");
+  const [loadingCourses, setLoadingCourses] = useState(false);
+  const [courses, setCourses] = useState([]);
+  const [pickedCourse, setPickedCourse] = useState(null);
 
-  // WAGERS
-  const [skinsPerSkin, setSkinsPerSkin] = useState("5");
-  const [nassauFront, setNassauFront] = useState("5");
-  const [nassauBack, setNassauBack] = useState("5");
-  const [nassauTotal, setNassauTotal] = useState("5");
-  const [vegasUnit, setVegasUnit] = useState("1");
+  const [tees, setTees] = useState(DEFAULT_TEES[1]);
+  const [players, setPlayers] = useState(() => {
+    const arr = Array.from({ length: MAX_PLAYERS }).map((_, i) => ({
+      id: `p${i + 1}`,
+      name: i === 0 ? "Me" : "",
+    }));
+    return arr;
+  });
 
-  // COURSE AUTOCOMPLETE
-  const [courseResults, setCourseResults] = useState([]);
-  const [courseLoading, setCourseLoading] = useState(false);
-  const [courseError, setCourseError] = useState("");
-
-  // GPS
-  const [gpsLoading, setGpsLoading] = useState(false);
-
-  const debounceRef = useRef(null);
-  const abortRef = useRef(null);
-  const lastRequestAtRef = useRef(0);
-
-  const vegasTeams = useMemo(() => {
-    if (players.length !== 4) return null;
-    return {
-      teamA: [players[0].id, players[1].id],
-      teamB: [players[2].id, players[3].id],
-    };
-  }, [players]);
-
-  const localSuggestions = useMemo(() => {
-    const q = (query || "").trim().toLowerCase();
-    if (!q) return [];
-    return COURSES.filter((c) => c.toLowerCase().includes(q))
-      .slice(0, 12)
-      .map((c) => ({
-        id: `local-${c}`,
-        name: c,
-        display_name: c,
-        source: "local",
-      }));
-  }, [query]);
-
-  const mergedSuggestions = useMemo(() => {
-    if (courseResults.length > 0) return courseResults;
-    return localSuggestions;
-  }, [courseResults, localSuggestions]);
-
-  function pickCourse(name) {
-    setSelectedCourse(name);
-    setQuery(name);
-    setCourseResults([]);
-    setCourseError("");
-    Keyboard.dismiss();
-  }
-
-  function setCount(n) {
-    setPlayerCount(n);
-
-    const next = [];
-    for (let i = 1; i <= n; i++) {
-      const existing = players[i - 1];
-      next.push(existing ? existing : makePlayer(i));
-    }
-    setPlayers(next);
-  }
-
-  function updatePlayerName(idx, name) {
-    setPlayers((prev) => {
-      const next = prev.slice();
-      next[idx] = { ...next[idx], name };
-      return next;
-    });
-  }
-
-  function clearWagersIfNeeded(format) {
-    // Intentionally no-op right now.
-    // Later: we can auto-reset wager inputs when format changes.
-  }
-
-  async function fetchCoursesOSM(q) {
-    const trimmed = (q || "").trim();
-    if (trimmed.length < 3) {
-      setCourseResults([]);
-      setCourseLoading(false);
-      setCourseError("");
-      return;
-    }
-
-    const now = Date.now();
-    const elapsed = now - lastRequestAtRef.current;
-    if (elapsed < 1100) {
-      await new Promise((r) => setTimeout(r, 1100 - elapsed));
-    }
-    lastRequestAtRef.current = Date.now();
-
-    if (abortRef.current) {
-      try {
-        abortRef.current.abort();
-      } catch (e) {}
-    }
-    abortRef.current = new AbortController();
-
-    setCourseLoading(true);
-    setCourseError("");
-
-    try {
-      const url =
-        "https://nominatim.openstreetmap.org/search" +
-        `?q=${encodeURIComponent(trimmed + " golf course")}` +
-        "&format=jsonv2" +
-        "&addressdetails=1" +
-        "&countrycodes=ca" +
-        "&limit=12";
-
-      const res = await fetch(url, {
-        method: "GET",
-        headers: {
-          Accept: "application/json",
-          "Accept-Language": "en-CA,en;q=0.9",
-        },
-        signal: abortRef.current.signal,
-      });
-
-      if (!res.ok) {
-        setCourseResults([]);
-        setCourseError("Live search temporarily unavailable. Showing local list.");
-        return;
-      }
-
-      const data = await res.json();
-
-      const cleaned = (Array.isArray(data) ? data : [])
-        .map((it) => ({
-          id: String(it.place_id),
-          display_name: it.display_name,
-          name: normalizeCourseNameFromNominatim(it),
-          source: "osm",
-        }))
-        .filter((it) => it.name);
-
-      setCourseResults(cleaned);
-      if (cleaned.length === 0) {
-        setCourseError("No live matches found. Showing local list.");
-      }
-    } catch (e) {
-      setCourseResults([]);
-      setCourseError("Live search unavailable. Showing local list.");
-    } finally {
-      setCourseLoading(false);
-    }
-  }
+  const [buddyModalFor, setBuddyModalFor] = useState(null);
+  const [buddies, setBuddies] = useState([]);
 
   useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
+    (async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Location needed", "Enable location so we can find courses near you.");
+        return;
+      }
+      const p = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setLoc({ lat: p.coords.latitude, lon: p.coords.longitude });
+    })();
 
-    if (selectedCourse && query === selectedCourse) {
-      setCourseResults([]);
-      setCourseLoading(false);
+    (async () => {
+      const list = await getBuddies();
+      setBuddies(Array.isArray(list) ? list : []);
+    })();
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    const q = search.trim();
+    if (!loc || q.length < 2) {
+      setCourses([]);
       return;
     }
-
-    debounceRef.current = setTimeout(() => {
-      fetchCoursesOSM(query);
-    }, 350);
+    setLoadingCourses(true);
+    const t = setTimeout(async () => {
+      try {
+        const results = await searchMapboxCourses(q, loc);
+        if (!alive) return;
+        setCourses(results);
+      } catch (e) {
+        if (!alive) return;
+        setCourses([]);
+      } finally {
+        if (!alive) return;
+        setLoadingCourses(false);
+      }
+    }, 250);
 
     return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
+      alive = false;
+      clearTimeout(t);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, selectedCourse]);
+  }, [search, loc]);
 
-  async function onUseMyLocation() {
-    setGpsLoading(true);
-    setCourseError("");
+  const canStart = useMemo(() => {
+    if (!pickedCourse) return false;
+    const named = players.filter((p) => String(p.name || "").trim().length > 0);
+    return named.length >= 1;
+  }, [pickedCourse, players]);
 
-    try {
-      const perm = await Location.requestForegroundPermissionsAsync();
-      if (perm.status !== "granted") {
-        Alert.alert("Location needed", "Enable location to find nearby courses.");
-        setGpsLoading(false);
-        return;
-      }
+  function setPlayerName(idx, name) {
+    setPlayers((prev) => prev.map((p, i) => (i === idx ? { ...p, name } : p)));
+  }
 
-      const pos = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
+  function openBuddy(idx) {
+    setBuddyModalFor(idx);
+  }
 
-      const lat = pos?.coords?.latitude;
-      const lon = pos?.coords?.longitude;
-
-      if (typeof lat !== "number" || typeof lon !== "number") {
-        Alert.alert("Location error", "Could not read your location. Try again.");
-        setGpsLoading(false);
-        return;
-      }
-
-      let best = await fetchOverpassNearestGolfCourse(lat, lon, 25000);
-      if (!best) best = await fetchOverpassNearestGolfCourse(lat, lon, 50000);
-
-      if (!best || !best.name) {
-        Alert.alert(
-          "No nearby course found",
-          "We couldn't find a nearby golf course in free map data. Type it manually."
-        );
-        setGpsLoading(false);
-        return;
-      }
-
-      pickCourse(best.name);
-    } catch (e) {
-      Alert.alert("GPS lookup failed", "Try again, or type the course manually.");
-    } finally {
-      setGpsLoading(false);
-    }
+  function pickBuddy(b) {
+    if (buddyModalFor == null) return;
+    setPlayerName(buddyModalFor, b?.name || "");
+    setBuddyModalFor(null);
   }
 
   async function onStartRound() {
-    const courseName = (selectedCourse || query || "").trim();
+    Keyboard.dismiss();
+    if (!canStart) return;
 
-    if (!courseName) {
-      Alert.alert("Course required", "Type and select a course name.");
-      return;
-    }
+    const activePlayers = players
+      .filter((p) => String(p.name || "").trim().length > 0)
+      .slice(0, MAX_PLAYERS)
+      .map((p, idx) => ({ id: p.id || `p${idx + 1}`, name: String(p.name).trim() }));
 
-    const cleanedPlayers = players.map((p, i) => ({
-      ...p,
-      name: (p.name || "").trim() || (i === 0 ? "Me" : `Player ${i + 1}`),
+    const holes = Array.from({ length: 18 }).map((_, i) => ({
+      hole: i + 1,
+      par: 4,
+      si: null,
+      scores: {},
     }));
 
-    if (selectedFormat === "Vegas" && cleanedPlayers.length !== 4) {
-      Alert.alert("Vegas requires 4 players", "Set Players to 4 for Vegas.");
-      return;
-    }
-
-    if (selectedFormat === "Skins") {
-      if (toMoneyNumber(skinsPerSkin) <= 0) {
-        Alert.alert("Skins wager", "Enter a $ amount per skin.");
-        return;
-      }
-    }
-
-    if (selectedFormat === "Nassau") {
-      if (
-        toMoneyNumber(nassauFront) <= 0 ||
-        toMoneyNumber(nassauBack) <= 0 ||
-        toMoneyNumber(nassauTotal) <= 0
-      ) {
-        Alert.alert("Nassau wager", "Enter $ amounts for Front, Back, and Total.");
-        return;
-      }
-    }
-
-    if (selectedFormat === "Vegas") {
-      if (toMoneyNumber(vegasUnit) <= 0) {
-        Alert.alert("Vegas wager", "Enter a $ unit amount.");
-        return;
-      }
-    }
-
-    setSaving(true);
-
-    const newRound = {
-      id: makeId(),
-      courseName,
+    const round = {
+      id: `${Date.now()}`,
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      status: "in_progress",
-      tees: selectedTee,
-      format: selectedFormat,
-      players: cleanedPlayers,
-      vegasTeams: selectedFormat === "Vegas" ? vegasTeams : null,
-      holes: buildDefaultHoles(cleanedPlayers),
-      wagers: {
-        skinsPerSkin:
-          selectedFormat === "Skins" ? toMoneyNumber(skinsPerSkin) : null,
-        nassau:
-          selectedFormat === "Nassau"
-            ? {
-                front: toMoneyNumber(nassauFront),
-                back: toMoneyNumber(nassauBack),
-                total: toMoneyNumber(nassauTotal),
-              }
-            : null,
-        vegasUnit: selectedFormat === "Vegas" ? toMoneyNumber(vegasUnit) : null,
-      },
+      courseName: pickedCourse.name,
+      courseCenter: pickedCourse.center,
+      tees,
+      format,
+      scoringMode,
+      players: activePlayers,
+      holes,
     };
 
-    const ok = await saveRound(newRound);
-    setSaving(false);
+    await saveRound(round);
 
-    if (!ok) {
-      Alert.alert("Error", "Could not save round. Try again.");
-      return;
-    }
-
-    navigation.navigate(ROUTES.SCORE_ENTRY, { roundId: newRound.id });
+    navigation.replace(ROUTES.SCORE_HOLE, {
+      roundId: round.id,
+      gameTitle,
+    });
   }
-
-  function ChipRow({ title, options, value, onChange }) {
-    return (
-      <View style={styles.block}>
-        <Text style={styles.label}>{title}</Text>
-        <View style={styles.chips}>
-          {options.map((opt) => {
-            const active = opt === value;
-            return (
-              <Pressable
-                key={opt}
-                onPress={() => {
-                  onChange(opt);
-                  clearWagersIfNeeded(opt);
-                }}
-                style={[styles.chip, active && styles.chipActive]}
-              >
-                <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                  {opt}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
-    );
-  }
-
-  function MoneyInput({ label, value, onChangeText, placeholder }) {
-    return (
-      <View style={styles.moneyRow}>
-        <Text style={styles.moneyLabel}>{label}</Text>
-        <TextInput
-          style={styles.moneyInput}
-          value={value}
-          onChangeText={onChangeText}
-          placeholder={placeholder || "0"}
-          placeholderTextColor={
-            (theme && theme.colors && theme.colors.mutedText) || "#888"
-          }
-          keyboardType="decimal-pad"
-        />
-      </View>
-    );
-  }
-
-  const showDropdown = mergedSuggestions.length > 0 && !selectedCourse;
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView
-        style={styles.kav}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 88 : 0}
-      >
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.wrap}>
-            <Text style={styles.h1}>New Round</Text>
+      <Pressable style={styles.bg} onPress={Keyboard.dismiss}>
+        <View style={styles.topBar}>
+          <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
+            <Text style={styles.backTxt}>Back</Text>
+          </Pressable>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.h1}>Start Round</Text>
+            <Text style={styles.h2}>{gameTitle} • {String(scoringMode).toUpperCase()}</Text>
+          </View>
+        </View>
 
-            <View style={styles.block}>
-              <View style={styles.courseTopRow}>
-                <Text style={styles.label}>Course</Text>
+        <View style={styles.section}>
+          <Text style={styles.label}>Course (within 200km)</Text>
+          <TextInput
+            value={search}
+            onChangeText={(t) => {
+              setSearch(t);
+              setPickedCourse(null);
+            }}
+            placeholder="Type course name..."
+            placeholderTextColor="rgba(255,255,255,0.35)"
+            style={styles.input}
+            autoCapitalize="words"
+          />
 
-                <Pressable
-                  onPress={onUseMyLocation}
-                  disabled={gpsLoading}
-                  style={({ pressed }) => [
-                    styles.locBtn,
-                    pressed && styles.pressed,
-                    gpsLoading && styles.disabled,
-                  ]}
-                >
-                  {gpsLoading ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.locBtnText}>Use my location</Text>
-                  )}
-                </Pressable>
-              </View>
-
-              {courseLoading ? (
-                <View style={styles.loadingPill}>
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                  <Text style={styles.loadingText}>Searching</Text>
-                </View>
-              ) : null}
-
-              <TextInput
-                style={styles.input}
-                value={query}
-                onChangeText={(t) => {
-                  setQuery(t);
-                  setSelectedCourse("");
-                }}
-                placeholder="Start typing a course name…"
-                placeholderTextColor={
-                  (theme && theme.colors && theme.colors.mutedText) || "#888"
-                }
-                autoCorrect={false}
-                autoCapitalize="words"
-                returnKeyType="done"
-                onSubmitEditing={() => {
-                  const name = (query || "").trim();
-                  if (name) setSelectedCourse(name);
-                  Keyboard.dismiss();
-                }}
-              />
-
-              {showDropdown ? (
-                <View style={styles.dropdown}>
-                  {mergedSuggestions.map((item, idx) => (
-                    <Pressable
-                      key={item.id}
-                      onPress={() => pickCourse(item.name)}
-                      style={[
-                        styles.ddItem,
-                        idx !== mergedSuggestions.length - 1 && styles.ddDivider,
-                      ]}
-                    >
-                      <Text style={styles.ddText}>{item.name}</Text>
-                      {item.source === "osm" ? (
-                        <Text style={styles.ddSub}>{item.display_name}</Text>
-                      ) : null}
-                    </Pressable>
-                  ))}
-                </View>
-              ) : null}
-
-              {selectedCourse ? (
-                <Text style={styles.selectedNote}>
-                  Selected: {selectedCourse}
-                </Text>
-              ) : null}
-
-              {courseError ? (
-                <Text style={styles.smallNote}>{courseError}</Text>
-              ) : null}
+          {!!pickedCourse ? (
+            <View style={styles.picked}>
+              <Text style={styles.pickedT}>{pickedCourse.name}</Text>
+              {!!pickedCourse.placeName ? <Text style={styles.pickedS} numberOfLines={1}>{pickedCourse.placeName}</Text> : null}
+              <Pressable onPress={() => setPickedCourse(null)} style={styles.pickedX}>
+                <Text style={styles.pickedXTxt}>Change</Text>
+              </Pressable>
             </View>
+          ) : (
+            <View style={styles.listBox}>
+              <FlatList
+                data={courses}
+                keyExtractor={(it) => it.id}
+                keyboardShouldPersistTaps="handled"
+                renderItem={({ item }) => (
+                  <Pressable
+                    onPress={() => {
+                      setPickedCourse(item);
+                      setSearch(item.name);
+                      setCourses([]);
+                    }}
+                    style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+                  >
+                    <Text style={styles.rowT} numberOfLines={1}>{item.name}</Text>
+                    {!!item.placeName ? <Text style={styles.rowS} numberOfLines={1}>{item.placeName}</Text> : null}
+                  </Pressable>
+                )}
+                ListEmptyComponent={
+                  <View style={{ padding: 12 }}>
+                    <Text style={styles.empty}>
+                      {!loc ? "Getting your location…" : search.trim().length < 2 ? "Type at least 2 letters." : (loadingCourses ? "Searching…" : "No matches nearby. Try a different name.")}
+                    </Text>
+                  </View>
+                }
+                style={{ maxHeight: 220 }}
+              />
+            </View>
+          )}
+        </View>
 
-            <ChipRow
-              title="Tees"
-              options={TEE_OPTIONS}
-              value={selectedTee}
-              onChange={setSelectedTee}
-            />
+        <View style={styles.section}>
+          <Text style={styles.label}>Tee Box</Text>
+          <View style={styles.teeRow}>
+            {DEFAULT_TEES.map((t) => {
+              const on = tees === t;
+              return (
+                <Pressable key={t} onPress={() => setTees(t)} style={[styles.tee, on && styles.teeOn]}>
+                  <Text style={[styles.teeT, on && styles.teeTOn]}>{t}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
 
-            <ChipRow
-              title="Format"
-              options={FORMAT_OPTIONS}
-              value={selectedFormat}
-              onChange={setSelectedFormat}
-            />
+        <View style={styles.section}>
+          <Text style={styles.label}>Players (max 8)</Text>
 
-            {selectedFormat === "Skins" ? (
-              <View style={styles.block}>
-                <Text style={styles.label}>Skins Wager</Text>
-                <MoneyInput
-                  label="$ per skin"
-                  value={skinsPerSkin}
-                  onChangeText={setSkinsPerSkin}
-                  placeholder="5"
-                />
-              </View>
-            ) : null}
-
-            {selectedFormat === "Nassau" ? (
-              <View style={styles.block}>
-                <Text style={styles.label}>Nassau Wagers</Text>
-                <MoneyInput
-                  label="Front 9 ($)"
-                  value={nassauFront}
-                  onChangeText={setNassauFront}
-                  placeholder="5"
-                />
-                <MoneyInput
-                  label="Back 9 ($)"
-                  value={nassauBack}
-                  onChangeText={setNassauBack}
-                  placeholder="5"
-                />
-                <MoneyInput
-                  label="Total ($)"
-                  value={nassauTotal}
-                  onChangeText={setNassauTotal}
-                  placeholder="5"
-                />
-              </View>
-            ) : null}
-
-            {selectedFormat === "Vegas" ? (
-              <View style={styles.block}>
-                <Text style={styles.label}>Vegas Wager</Text>
-                <MoneyInput
-                  label="$ unit"
-                  value={vegasUnit}
-                  onChangeText={setVegasUnit}
-                  placeholder="1"
-                />
-                <Text style={styles.smallNote}>
-                  Vegas = 2 teams of 2. Team A = Players 1–2, Team B = Players
-                  3–4.
-                </Text>
-              </View>
-            ) : null}
-
-            <View style={styles.block}>
-              <Text style={styles.label}>Players</Text>
-
-              <View style={styles.chips}>
-                {[2, 3, 4].map((n) => {
-                  const active = n === playerCount;
-                  return (
-                    <Pressable
-                      key={String(n)}
-                      onPress={() => setCount(n)}
-                      style={[styles.chip, active && styles.chipActive]}
-                    >
-                      <Text
-                        style={[
-                          styles.chipText,
-                          active && styles.chipTextActive,
-                        ]}
-                      >
-                        {n}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-
-              {players.map((p, idx) => (
-                <View key={p.id} style={styles.playerRow}>
-                  <Text style={styles.playerLabel}>{idx + 1}.</Text>
+          <FlatList
+            data={players}
+            keyExtractor={(it) => it.id}
+            contentContainerStyle={{ paddingBottom: 160 }}
+            renderItem={({ item, index }) => {
+              const isMe = index === 0;
+              return (
+                <View style={styles.playerCard}>
+                  <Text style={styles.playerLabel}>Player {index + 1}{isMe ? " (Me)" : ""}</Text>
                   <TextInput
+                    value={item.name}
+                    onChangeText={(v) => setPlayerName(index, v)}
+                    placeholder={isMe ? "Me" : "Guest name…"}
+                    placeholderTextColor="rgba(255,255,255,0.35)"
                     style={styles.playerInput}
-                    value={p.name}
-                    onChangeText={(t) => updatePlayerName(idx, t)}
-                    placeholder={idx === 0 ? "Me" : `Player ${idx + 1}`}
-                    placeholderTextColor={
-                      (theme && theme.colors && theme.colors.mutedText) || "#888"
-                    }
                     autoCapitalize="words"
                   />
+
+                  {!isMe ? (
+                    <Pressable onPress={() => openBuddy(index)} style={({ pressed }) => [styles.addBuddy, pressed && styles.pressed]}>
+                      <Text style={styles.addBuddyT}>Add buddy</Text>
+                    </Pressable>
+                  ) : null}
                 </View>
-              ))}
-            </View>
+              );
+            }}
+          />
+        </View>
 
-            <Pressable
-              onPress={onStartRound}
-              style={[styles.btn, styles.btnPrimary]}
-              disabled={saving}
-            >
-              <Text style={styles.btnTextPrimary}>
-                {saving ? "Starting…" : "Start Round"}
-              </Text>
+        <View style={styles.footer}>
+          <Pressable onPress={onStartRound} disabled={!canStart} style={[styles.primary, !canStart && styles.disabled]}>
+            <Text style={styles.primaryT}>Start Round</Text>
+          </Pressable>
+        </View>
+
+        <Modal visible={buddyModalFor != null} transparent animationType="fade" onRequestClose={() => setBuddyModalFor(null)}>
+          <Pressable style={styles.modalWrap} onPress={() => setBuddyModalFor(null)}>
+            <Pressable style={styles.modalCard} onPress={() => {}}>
+              <Text style={styles.modalTitle}>Pick a Buddy</Text>
+
+              <FlatList
+                data={buddies}
+                keyExtractor={(b) => b.id}
+                renderItem={({ item }) => (
+                  <Pressable onPress={() => pickBuddy(item)} style={({ pressed }) => [styles.modalRow, pressed && styles.pressed]}>
+                    <Text style={styles.modalRowT} numberOfLines={1}>{item.name}</Text>
+                    <Text style={styles.modalRowS} numberOfLines={1}>
+                      {item.handicap != null ? `HCP ${item.handicap}` : "Buddy"}
+                    </Text>
+                  </Pressable>
+                )}
+                ListEmptyComponent={
+                  <View style={{ padding: 10 }}>
+                    <Text style={styles.empty}>No buddies yet. Add some in Buddy List.</Text>
+                  </View>
+                }
+              />
+
+              <Pressable onPress={() => setBuddyModalFor(null)} style={({ pressed }) => [styles.modalClose, pressed && styles.pressed]}>
+                <Text style={styles.modalCloseT}>Close</Text>
+              </Pressable>
             </Pressable>
-
-            <View style={{ height: 18 }} />
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+          </Pressable>
+        </Modal>
+      </Pressable>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: (theme && theme.colors && theme.colors.bg) || "#0B1220",
-  },
-  kav: { flex: 1 },
-  scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 26 },
-  wrap: { padding: 16 },
-  h1: {
-    color: (theme && theme.colors && theme.colors.text) || "#fff",
-    fontSize: 22,
-    fontWeight: "800",
-    marginBottom: 12,
-  },
+  safe: { flex: 1, backgroundColor: theme?.colors?.bg || "#0B1220" },
+  bg: { flex: 1 },
 
-  block: { marginBottom: 14 },
+  topBar: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8, gap: 12 },
+  backBtn: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)" },
+  backTxt: { color: "#fff", fontWeight: "900" },
+  h1: { color: "#fff", fontSize: 32, fontWeight: "900" },
+  h2: { marginTop: 4, color: "#fff", opacity: 0.7, fontWeight: "700" },
 
-  courseTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 8,
-  },
-
-  label: {
-    color: (theme && theme.colors && theme.colors.text) || "#fff",
-    opacity: 0.85,
-    fontSize: 14,
-    fontWeight: "700",
-  },
-
-  locBtn: {
-    paddingHorizontal: 12,
-    height: 34,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-  },
-  locBtnText: { color: "#FFFFFF", fontSize: 12, fontWeight: "800", opacity: 0.95 },
-
-  loadingPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    marginBottom: 8,
-    alignSelf: "flex-end",
-  },
-  loadingText: { color: "#FFFFFF", fontSize: 12, fontWeight: "700", opacity: 0.9 },
+  section: { paddingHorizontal: 16, paddingTop: 10 },
+  label: { color: "#fff", opacity: 0.75, fontWeight: "900", letterSpacing: 1.2, textTransform: "uppercase", fontSize: 12, marginBottom: 8 },
 
   input: {
-    height: 48,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor:
-      (theme && theme.colors && theme.colors.border) || "rgba(255,255,255,0.2)",
-    paddingHorizontal: 12,
-    color: (theme && theme.colors && theme.colors.text) || "#fff",
+    height: 54,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    color: "#fff",
     backgroundColor: "rgba(255,255,255,0.04)",
-    fontSize: 16,
-  },
-
-  dropdown: {
-    marginTop: 8,
     borderWidth: 1,
-    borderColor:
-      (theme && theme.colors && theme.colors.border) || "rgba(255,255,255,0.2)",
-    borderRadius: 14,
-    overflow: "hidden",
-    backgroundColor:
-      (theme && theme.colors && theme.colors.card) || "rgba(255,255,255,0.04)",
-  },
-  ddItem: { paddingVertical: 12, paddingHorizontal: 12 },
-  ddDivider: { borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.08)" },
-  ddText: {
-    color: (theme && theme.colors && theme.colors.text) || "#fff",
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  ddSub: {
-    marginTop: 4,
-    color: (theme && theme.colors && theme.colors.text) || "#fff",
-    opacity: 0.6,
-    fontSize: 12,
-    lineHeight: 16,
-  },
-
-  selectedNote: {
-    marginTop: 8,
-    color: (theme && theme.colors && theme.colors.text) || "#fff",
-    opacity: 0.7,
-    fontSize: 13,
-  },
-  smallNote: {
-    marginTop: 10,
-    color: (theme && theme.colors && theme.colors.text) || "#fff",
-    opacity: 0.6,
-    fontSize: 12,
-    lineHeight: 16,
-  },
-
-  chips: { flexDirection: "row", flexWrap: "wrap" },
-  chip: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor:
-      (theme && theme.colors && theme.colors.border) || "rgba(255,255,255,0.25)",
-    backgroundColor: "transparent",
-    marginRight: 10,
-    marginBottom: 10,
-  },
-  chipActive: {
-    backgroundColor: (theme && theme.colors && theme.colors.primary) || "#2E7DFF",
-    borderColor: "transparent",
-  },
-  chipText: {
-    color: (theme && theme.colors && theme.colors.text) || "#fff",
-    fontSize: 13,
-    fontWeight: "800",
-    opacity: 0.85,
-  },
-  chipTextActive: { opacity: 1 },
-
-  playerRow: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
-  playerLabel: {
-    width: 22,
-    color: (theme && theme.colors && theme.colors.text) || "#fff",
-    opacity: 0.8,
+    borderColor: "rgba(255,255,255,0.14)",
     fontWeight: "800",
   },
+
+  listBox: { marginTop: 10, borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", backgroundColor: "rgba(255,255,255,0.03)" },
+  row: { paddingHorizontal: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.08)" },
+  rowT: { color: "#fff", fontWeight: "900" },
+  rowS: { marginTop: 4, color: "#fff", opacity: 0.6, fontWeight: "700", fontSize: 12 },
+  empty: { color: "#fff", opacity: 0.6, fontWeight: "800" },
+
+  picked: { marginTop: 10, borderRadius: 16, padding: 12, borderWidth: 1, borderColor: "rgba(46,125,255,0.35)", backgroundColor: "rgba(46,125,255,0.10)" },
+  pickedT: { color: "#fff", fontWeight: "900", fontSize: 16 },
+  pickedS: { marginTop: 4, color: "#fff", opacity: 0.7, fontWeight: "700", fontSize: 12 },
+  pickedX: { marginTop: 10, alignSelf: "flex-start", paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)" },
+  pickedXTxt: { color: "#fff", fontWeight: "900" },
+
+  teeRow: { flexDirection: "row", gap: 10, flexWrap: "wrap" },
+  tee: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999, borderWidth: 1, borderColor: "rgba(255,255,255,0.16)", backgroundColor: "rgba(255,255,255,0.04)" },
+  teeOn: { borderColor: "rgba(46,125,255,0.9)", backgroundColor: "rgba(46,125,255,0.14)" },
+  teeT: { color: "#fff", fontWeight: "900", opacity: 0.8 },
+  teeTOn: { opacity: 1 },
+
+  playerCard: { marginTop: 10, borderRadius: 18, padding: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", backgroundColor: "rgba(255,255,255,0.03)" },
+  playerLabel: { color: "#fff", opacity: 0.75, fontWeight: "900", marginBottom: 8, fontSize: 12, letterSpacing: 0.8, textTransform: "uppercase" },
   playerInput: {
-    flex: 1,
-    height: 46,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor:
-      (theme && theme.colors && theme.colors.border) || "rgba(255,255,255,0.2)",
-    paddingHorizontal: 12,
-    color: (theme && theme.colors && theme.colors.text) || "#fff",
-    backgroundColor: "rgba(255,255,255,0.04)",
-    fontSize: 16,
-  },
-
-  moneyRow: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
-  moneyLabel: {
-    flex: 1,
-    color: (theme && theme.colors && theme.colors.text) || "#fff",
-    opacity: 0.85,
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  moneyInput: {
-    width: 90,
-    height: 40,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor:
-      (theme && theme.colors && theme.colors.border) || "rgba(255,255,255,0.2)",
-    paddingHorizontal: 10,
-    color: (theme && theme.colors && theme.colors.text) || "#fff",
-    backgroundColor: "rgba(255,255,255,0.04)",
-    fontSize: 16,
-    textAlign: "center",
-  },
-
-  btn: {
     height: 52,
     borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 6,
+    paddingHorizontal: 14,
+    color: "#fff",
+    backgroundColor: "rgba(0,0,0,0.25)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    fontWeight: "800",
   },
-  btnPrimary: {
-    backgroundColor: (theme && theme.colors && theme.colors.primary) || "#2E7DFF",
-  },
-  btnTextPrimary: { color: "#fff", fontSize: 16, fontWeight: "800" },
+  addBuddy: { marginTop: 10, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)" },
+  addBuddyT: { color: "#fff", fontWeight: "900" },
 
-  pressed: { opacity: 0.85, transform: [{ scale: 0.99 }] },
-  disabled: { opacity: 0.6 },
+  footer: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingBottom: 18, paddingTop: 12, backgroundColor: theme?.colors?.bg || "#0B1220" },
+  primary: { height: 56, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: theme?.colors?.primary || "#2E7DFF" },
+  primaryT: { color: "#fff", fontSize: 16, fontWeight: "900", letterSpacing: 0.4 },
+  disabled: { opacity: 0.5 },
+
+  modalWrap: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", padding: 18, justifyContent: "center" },
+  modalCard: { borderRadius: 18, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", backgroundColor: "#0B1220", padding: 14, maxHeight: "70%" },
+  modalTitle: { color: "#fff", fontSize: 18, fontWeight: "900", marginBottom: 10 },
+  modalRow: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.08)" },
+  modalRowT: { color: "#fff", fontWeight: "900" },
+  modalRowS: { marginTop: 4, color: "#fff", opacity: 0.65, fontWeight: "700", fontSize: 12 },
+  modalClose: { marginTop: 12, height: 48, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)" },
+  modalCloseT: { color: "#fff", fontWeight: "900" },
+
+  pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
 });

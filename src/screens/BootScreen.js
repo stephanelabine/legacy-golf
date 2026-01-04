@@ -1,45 +1,49 @@
 import React, { useEffect } from "react";
-import { View, StyleSheet, ImageBackground, ActivityIndicator } from "react-native";
-import { COLORS } from "../theme.js";
+import { View, Text, StyleSheet, Image } from "react-native";
+import ROUTES from "../navigation/routes";
 
 export default function BootScreen({ navigation }) {
   useEffect(() => {
     const t = setTimeout(() => {
-      navigation.replace("Home");
-    }, 2200);
-
+      navigation.replace(ROUTES.HOME);
+    }, 1200);
     return () => clearTimeout(t);
   }, [navigation]);
 
   return (
-    <View style={styles.wrap}>
-      <ImageBackground
-        source={require("../../assets/splash-full.png")}
-        style={styles.bg}
+    <View style={styles.container}>
+      <Image
+        source={require("../../assets/legacy-logo.png")}
+        style={styles.logo}
         resizeMode="contain"
-      >
-        <View style={styles.loaderWrap}>
-          <ActivityIndicator size="small" color={COLORS.white} />
-        </View>
-      </ImageBackground>
+      />
+      <Text style={styles.title}>Legacy Golf</Text>
+      <Text style={styles.subtitle}>Play the round. Build your legacy.</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: {
+  container: {
     flex: 1,
-    backgroundColor: "#0E3A5A", // matches your splash vibe
-  },
-  bg: {
-    flex: 1,
-    width: "100%",
-    height: "100%",
-    justifyContent: "flex-end",
-  },
-  loaderWrap: {
-    paddingBottom: 42,
+    backgroundColor: "#000",
     alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+  },
+  logo: {
+    width: 140,
+    height: 140,
+    marginBottom: 14,
+  },
+  title: {
+    color: "#fff",
+    fontSize: 30,
+    marginBottom: 8,
+  },
+  subtitle: {
+    color: "#aaa",
+    fontSize: 14,
+    textAlign: "center",
   },
 });
-

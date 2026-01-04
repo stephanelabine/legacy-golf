@@ -1,40 +1,38 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const KEY = "LEGACY_GOLF_ROUNDS";
+const KEY = "legacy_rounds_v1";
 
 export async function getRounds() {
   try {
     const raw = await AsyncStorage.getItem(KEY);
-    return raw ? JSON.parse(raw) : [];
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
   } catch (e) {
     return [];
   }
 }
 
-/**
- * Upsert a round by id (save new OR overwrite existing)
- */
 export async function saveRound(round) {
   try {
     const rounds = await getRounds();
-    const idx = rounds.findIndex((r) => r.id === round.id);
+    const safe = round && typeof round === "object" ? round : null;
+    if (!safe || !safe.id) return false;
 
-    if (idx >= 0) {
-      rounds[idx] = round;
-    } else {
-      rounds.unshift(round);
-    }
+    const normalizedPlayers = Array.isArray(safe.players)
+      ? safe.players.map((p, idx) => ({
+          id: String(p?.id || `p${idx + 1}`),
+          name: String(p?.name || (idx === 0 ? "Me" : `Player ${idx + 1}`)),
+          handicap: Number.isFinite(p?.handicap) ? p.handicap : 0,
+          buddyId: p?.buddyId ? String(p.buddyId) : null,
+        }))
+      : [];
 
-    await AsyncStorage.setItem(KEY, JSON.stringify(rounds));
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
+    const next = [
+      { ...safe, players: normalizedPlayers },
+      ...rounds.filter((r) => r.id !== safe.id),
+    ];
 
-export async function clearRounds() {
-  try {
-    await AsyncStorage.removeItem(KEY);
+    await AsyncStorage.setItem(KEY, JSON.stringify(next));
     return true;
   } catch (e) {
     return false;

@@ -1,10 +1,9 @@
-export const COLORS = {
-  green: "#0B6B3A",
-  blue: "#0E3A5A",
-  gold: "#F2C94C",
-  black: "#0B0B0B",
+const theme = {
+  bg: "#000000",
+  accent: "#2E86FF",
   white: "#FFFFFF",
-  gray: "#F4F4F4",
-  border: "#DDDDDD",
-  muted: "#666666",
+  text: "#FFFFFF",
+  muted: "#999999",
 };
+
+export default theme;
