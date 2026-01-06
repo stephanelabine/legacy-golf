@@ -38,3 +38,16 @@ export async function saveRound(round) {
     return false;
   }
 }
+
+export async function deleteRound(roundId) {
+  try {
+    const id = String(roundId || "");
+    if (!id) return false;
+    const rounds = await getRounds();
+    const next = (rounds || []).filter((r) => String(r?.id) !== id);
+    await AsyncStorage.setItem(KEY, JSON.stringify(next));
+    return true;
+  } catch (e) {
+    return false;
+  }
+}

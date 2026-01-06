@@ -6,14 +6,24 @@ import ROUTES from "./routes";
 import BootScreen from "../screens/BootScreen";
 import HomeScreen from "../screens/HomeScreen";
 import GamesScreen from "../screens/GamesScreen";
-import GameSettingsScreen from "../screens/GameSettingsScreen";
+import GameSetupScreen from "../screens/GameSetupScreen";
 import NewRoundScreen from "../screens/NewRoundScreen";
-import ScoreHoleScreen from "../screens/ScoreHoleScreen";
+
+import TeeSelectionScreen from "../screens/TeeSelectionScreen";
+import PlayerSetupScreen from "../screens/PlayerSetupScreen";
+import PlayerEntryScreen from "../screens/PlayerEntryScreen";
+import HoleViewScreen from "../screens/HoleViewScreen";
 import HoleMapScreen from "../screens/HoleMapScreen";
+
 import ScoreEntryScreen from "../screens/ScoreEntryScreen";
+import ScorecardScreen from "../screens/ScorecardScreen";
+
+import CourseDataScreen from "../screens/CourseDataScreen";
+
 import HistoryScreen from "../screens/HistoryScreen";
 import ProfileScreen from "../screens/ProfileScreen";
-import BuddiesScreen from "../screens/BuddyListScreen";
+import BuddyListScreen from "../screens/BuddyListScreen";
+import EquipmentScreen from "../screens/EquipmentScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -21,16 +31,28 @@ export default function RootNavigator() {
   return (
     <Stack.Navigator initialRouteName={ROUTES.BOOT} screenOptions={{ headerShown: false }}>
       <Stack.Screen name={ROUTES.BOOT} component={BootScreen} />
+
       <Stack.Screen name={ROUTES.HOME} component={HomeScreen} />
       <Stack.Screen name={ROUTES.GAMES} component={GamesScreen} />
-      <Stack.Screen name={ROUTES.GAME_SETTINGS} component={GameSettingsScreen} />
+      <Stack.Screen name={ROUTES.GAME_SETUP} component={GameSetupScreen} />
       <Stack.Screen name={ROUTES.NEW_ROUND} component={NewRoundScreen} />
-      <Stack.Screen name={ROUTES.SCORE_HOLE} component={ScoreHoleScreen} />
+
+      <Stack.Screen name={ROUTES.TEE_SELECTION} component={TeeSelectionScreen} />
+      <Stack.Screen name={ROUTES.PLAYER_SETUP} component={PlayerSetupScreen} />
+      <Stack.Screen name={ROUTES.PLAYER_ENTRY} component={PlayerEntryScreen} />
+      <Stack.Screen name={ROUTES.HOLE_VIEW} component={HoleViewScreen} />
       <Stack.Screen name={ROUTES.HOLE_MAP} component={HoleMapScreen} />
+
       <Stack.Screen name={ROUTES.SCORE_ENTRY} component={ScoreEntryScreen} />
+      <Stack.Screen name={ROUTES.SCORECARD} component={ScorecardScreen} />
+
+      <Stack.Screen name={ROUTES.COURSE_DATA} component={CourseDataScreen} />
+
       <Stack.Screen name={ROUTES.HISTORY} component={HistoryScreen} />
       <Stack.Screen name={ROUTES.PROFILE} component={ProfileScreen} />
-      <Stack.Screen name={ROUTES.BUDDIES} component={BuddiesScreen} />
+      <Stack.Screen name={ROUTES.BUDDIES} component={BuddyListScreen} />
+
+      <Stack.Screen name={ROUTES.EQUIPMENT} component={EquipmentScreen} />
     </Stack.Navigator>
   );
 }

@@ -1,49 +1,126 @@
-import React, { useEffect } from "react";
-import { View, Text, StyleSheet, Image } from "react-native";
+import React, { useEffect, useRef } from "react";
+import { View, StyleSheet, Image, ImageBackground, Animated, Platform } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { CommonActions } from "@react-navigation/native";
+import { Easing } from "react-native";
 import ROUTES from "../navigation/routes";
 
+const TOTAL_MS = 3500;
+
+// Phase timings (must sum to TOTAL_MS)
+const T0_BG_ONLY_MS = 350;
+const T1_ZOOM_IN_MS = 1600;
+const T2_HOLD_MS = 1200;
+const T3_FADE_OUT_MS = 350;
+
 export default function BootScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
+  const didNav = useRef(false);
+
+  const logoOpacity = useRef(new Animated.Value(0)).current;
+  const logoScale = useRef(new Animated.Value(0.045)).current; // start smaller
+  const logoY = useRef(new Animated.Value(26)).current;
+
+  const fadeOut = useRef(new Animated.Value(0)).current;
+
   useEffect(() => {
+    didNav.current = false;
+
+    logoOpacity.setValue(0);
+    logoScale.setValue(0.045);
+    logoY.setValue(26);
+    fadeOut.setValue(0);
+
+    const anim = Animated.sequence([
+      Animated.delay(T0_BG_ONLY_MS),
+
+      Animated.parallel([
+        Animated.timing(logoOpacity, {
+          toValue: 1,
+          duration: 520,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(logoScale, {
+          toValue: 1.95, // BIGGER finish
+          duration: T1_ZOOM_IN_MS,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(logoY, {
+          toValue: 0,
+          duration: T1_ZOOM_IN_MS,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]),
+
+      Animated.delay(T2_HOLD_MS),
+
+      Animated.parallel([
+        Animated.timing(logoOpacity, {
+          toValue: 0,
+          duration: T3_FADE_OUT_MS,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeOut, {
+          toValue: 1,
+          duration: T3_FADE_OUT_MS,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]),
+    ]);
+
     const t = setTimeout(() => {
-      navigation.replace(ROUTES.HOME);
-    }, 1200);
-    return () => clearTimeout(t);
-  }, [navigation]);
+      if (didNav.current) return;
+      didNav.current = true;
+
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: ROUTES.HOME }],
+        })
+      );
+    }, TOTAL_MS);
+
+    anim.start();
+
+    return () => {
+      clearTimeout(t);
+      anim.stop?.();
+    };
+  }, [navigation, logoOpacity, logoScale, logoY, fadeOut]);
 
   return (
-    <View style={styles.container}>
-      <Image
-        source={require("../../assets/legacy-logo.png")}
-        style={styles.logo}
-        resizeMode="contain"
-      />
-      <Text style={styles.title}>Legacy Golf</Text>
-      <Text style={styles.subtitle}>Play the round. Build your legacy.</Text>
+    <View style={styles.root}>
+      <ImageBackground source={require("../../assets/splash-bg.png")} style={styles.bg} resizeMode="cover">
+        <Animated.View pointerEvents="none" style={[styles.endFade, { opacity: fadeOut }]} />
+
+        <View style={[styles.center, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+          <Animated.View style={{ opacity: logoOpacity, transform: [{ translateY: logoY }, { scale: logoScale }] }}>
+            <Image
+              source={require("../../assets/legacy-logo-transparent.png")}
+              style={styles.logo}
+              resizeMode="contain"
+            />
+          </Animated.View>
+        </View>
+      </ImageBackground>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#000",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 24,
-  },
+  root: { flex: 1, backgroundColor: "#000" },
+  bg: { flex: 1 },
+  endFade: { ...StyleSheet.absoluteFillObject, backgroundColor: "#070A10" },
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+
+  // Bigger base size
   logo: {
-    width: 140,
-    height: 140,
-    marginBottom: 14,
-  },
-  title: {
-    color: "#fff",
-    fontSize: 30,
-    marginBottom: 8,
-  },
-  subtitle: {
-    color: "#aaa",
-    fontSize: 14,
-    textAlign: "center",
+    width: Platform.OS === "ios" ? 310 : 290,
+    height: Platform.OS === "ios" ? 310 : 290,
   },
 });

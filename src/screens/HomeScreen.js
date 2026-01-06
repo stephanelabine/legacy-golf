@@ -9,6 +9,7 @@ import {
   Pressable,
   Platform,
 } from "react-native";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import ROUTES from "../navigation/routes";
 
 export default function HomeScreen({ navigation }) {
@@ -43,41 +44,56 @@ export default function HomeScreen({ navigation }) {
                 pressed && styles.pressed,
               ]}
             >
-              <Text style={styles.btnPrimaryText}>Start Round</Text>
+              <View style={styles.btnRow}>
+                <MaterialCommunityIcons name="golf-tee" size={18} color="#0A0F1A" />
+                <Text style={styles.btnPrimaryText}>Start Round</Text>
+              </View>
             </Pressable>
 
-            <Pressable
-              onPress={() => navigation.navigate(ROUTES.BUDDIES)}
-              style={({ pressed }) => [
-                styles.btn,
-                styles.btnGhost,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Text style={styles.btnGhostText}>Buddy List</Text>
-            </Pressable>
+            <View style={styles.quickCard}>
+              <Pressable
+                onPress={() => navigation.navigate(ROUTES.HISTORY)}
+                style={({ pressed }) => [styles.quickRow, pressed && styles.pressed]}
+              >
+                <View style={styles.quickLeft}>
+                  <View style={styles.quickIcon}>
+                    <MaterialCommunityIcons name="history" size={18} color="#fff" />
+                  </View>
+                  <Text style={styles.quickText}>History</Text>
+                </View>
+                <MaterialCommunityIcons name="chevron-right" size={22} color="rgba(255,255,255,0.70)" />
+              </Pressable>
 
-            <Pressable
-              onPress={() => navigation.navigate(ROUTES.PROFILE)}
-              style={({ pressed }) => [
-                styles.btn,
-                styles.btnGhost,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Text style={styles.btnGhostText}>Player Profile</Text>
-            </Pressable>
+              <View style={styles.divider} />
 
-            <Pressable
-              onPress={() => navigation.navigate(ROUTES.HISTORY)}
-              style={({ pressed }) => [
-                styles.btn,
-                styles.btnGhost,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Text style={styles.btnGhostText}>History</Text>
-            </Pressable>
+              <Pressable
+                onPress={() => navigation.navigate(ROUTES.PROFILE)}
+                style={({ pressed }) => [styles.quickRow, pressed && styles.pressed]}
+              >
+                <View style={styles.quickLeft}>
+                  <View style={styles.quickIcon}>
+                    <MaterialCommunityIcons name="account" size={18} color="#fff" />
+                  </View>
+                  <Text style={styles.quickText}>Player Profile</Text>
+                </View>
+                <MaterialCommunityIcons name="chevron-right" size={22} color="rgba(255,255,255,0.70)" />
+              </Pressable>
+
+              <View style={styles.divider} />
+
+              <Pressable
+                onPress={() => navigation.navigate(ROUTES.BUDDIES)}
+                style={({ pressed }) => [styles.quickRow, pressed && styles.pressed]}
+              >
+                <View style={styles.quickLeft}>
+                  <View style={styles.quickIcon}>
+                    <MaterialCommunityIcons name="account-multiple" size={18} color="#fff" />
+                  </View>
+                  <Text style={styles.quickText}>Buddy List</Text>
+                </View>
+                <MaterialCommunityIcons name="chevron-right" size={22} color="rgba(255,255,255,0.70)" />
+              </Pressable>
+            </View>
           </View>
         </View>
       </ImageBackground>
@@ -99,15 +115,9 @@ const styles = StyleSheet.create({
     paddingBottom: 28,
     justifyContent: "space-between",
   },
-  brand: {
-    alignItems: "center",
-    paddingTop: 28,
-  },
-  logo: {
-    width: 170,
-    height: 170,
-    marginBottom: 14,
-  },
+  brand: { alignItems: "center", paddingTop: 28 },
+  logo: { width: 170, height: 170, marginBottom: 14 },
+
   welcome: {
     color: "rgba(255,255,255,0.78)",
     fontSize: 14,
@@ -135,31 +145,50 @@ const styles = StyleSheet.create({
   actions: { gap: 12 },
 
   btn: {
-    height: 56,
-    borderRadius: 16,
+    height: 58,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
   },
-  btnPrimary: {
-    backgroundColor: "rgba(255,255,255,0.92)",
-  },
+  btnRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+
+  btnPrimary: { backgroundColor: "rgba(255,255,255,0.92)" },
   btnPrimaryText: {
     color: "#0A0F1A",
     fontSize: 17,
     fontWeight: "900",
     letterSpacing: 0.5,
   },
-  btnGhost: {
-    backgroundColor: "rgba(0,0,0,0.28)",
+
+  quickCard: {
+    borderRadius: 22,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.28)",
+    borderColor: "rgba(255,255,255,0.18)",
+    backgroundColor: "rgba(0,0,0,0.28)",
+    overflow: "hidden",
   },
-  btnGhostText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "800",
-    letterSpacing: 0.4,
+  quickRow: {
+    height: 58,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
+  quickLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
+  quickIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+  quickText: { color: "#fff", fontSize: 16, fontWeight: "900", letterSpacing: 0.2 },
+
+  divider: { height: 1, backgroundColor: "rgba(255,255,255,0.10)" },
+
   pressed: {
     opacity: Platform.OS === "ios" ? 0.85 : 0.9,
     transform: [{ scale: 0.99 }],

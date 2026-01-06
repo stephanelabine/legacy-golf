@@ -1,404 +1,308 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { SafeAreaView, View, Text, StyleSheet, TextInput, Pressable, FlatList, Keyboard, Alert, Modal } from "react-native";
+import {
+  SafeAreaView,
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  Pressable,
+  FlatList,
+  Keyboard,
+  ActivityIndicator,
+  Platform,
+} from "react-native";
 import * as Location from "expo-location";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+
 import theme from "../theme";
-import ROUTES from "../navigation/routes";
-import { MAPBOX_TOKEN } from "../config/mapbox";
-import { getBuddies } from "../storage/buddies";
-import { saveRound } from "../storage/rounds";
+import { COURSES_LOCAL } from "../data/coursesLocal";
+import { haversineKm } from "../utils/distance";
 
-const MAX_PLAYERS = 8;
-const DEFAULT_TEES = ["Blue", "White", "Gold", "Red"];
-
-function kmToDeltaLat(km) {
-  return km / 111;
-}
-function kmToDeltaLon(km, lat) {
-  const c = Math.cos((lat * Math.PI) / 180);
-  return km / (111 * (c || 0.00001));
-}
-
-async function searchMapboxCourses(q, user) {
-  const query = encodeURIComponent(q.trim());
-  const { lat, lon } = user;
-  const dLat = kmToDeltaLat(200);
-  const dLon = kmToDeltaLon(200, lat);
-  const minLon = lon - dLon;
-  const minLat = lat - dLat;
-  const maxLon = lon + dLon;
-  const maxLat = lat + dLat;
-
-  const url =
-    `https://api.mapbox.com/geocoding/v5/mapbox.places/${query}.json` +
-    `?access_token=${MAPBOX_TOKEN}` +
-    `&autocomplete=true&limit=10&types=poi` +
-    `&proximity=${lon},${lat}` +
-    `&bbox=${minLon},${minLat},${maxLon},${maxLat}`;
-
-  const res = await fetch(url);
-  const json = await res.json();
-
-  const feats = Array.isArray(json?.features) ? json.features : [];
-  const filtered = feats.filter((f) => {
-    const text = `${f?.text || ""} ${f?.place_name || ""}`.toLowerCase();
-    return text.includes("golf");
-  });
-
-  return filtered.map((f) => ({
-    id: f.id,
-    name: f.text || f.place_name || "Golf Course",
-    placeName: f.place_name || "",
-    center: { lon: f.center?.[0], lat: f.center?.[1] },
-  }));
-}
+const FALLBACK_CENTER = { lat: 49.0504, lng: -122.3045 };
+const MAX_KM = 200;
 
 export default function NewRoundScreen({ navigation, route }) {
-  const format = route?.params?.format || "stroke_play";
-  const gameTitle = route?.params?.gameTitle || "Stroke Play";
-  const scoringMode = route?.params?.scoringMode || "gross";
-
-  const [loc, setLoc] = useState(null);
-  const [search, setSearch] = useState("");
-  const [loadingCourses, setLoadingCourses] = useState(false);
-  const [courses, setCourses] = useState([]);
-  const [pickedCourse, setPickedCourse] = useState(null);
-
-  const [tees, setTees] = useState(DEFAULT_TEES[1]);
-  const [players, setPlayers] = useState(() => {
-    const arr = Array.from({ length: MAX_PLAYERS }).map((_, i) => ({
-      id: `p${i + 1}`,
-      name: i === 0 ? "Me" : "",
-    }));
-    return arr;
-  });
-
-  const [buddyModalFor, setBuddyModalFor] = useState(null);
-  const [buddies, setBuddies] = useState([]);
+  const [query, setQuery] = useState("");
+  const [loadingLoc, setLoadingLoc] = useState(true);
+  const [center, setCenter] = useState(FALLBACK_CENTER);
+  const [locationDenied, setLocationDenied] = useState(false);
 
   useEffect(() => {
-    (async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert("Location needed", "Enable location so we can find courses near you.");
-        return;
-      }
-      const p = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      setLoc({ lat: p.coords.latitude, lon: p.coords.longitude });
-    })();
+    let active = true;
 
     (async () => {
-      const list = await getBuddies();
-      setBuddies(Array.isArray(list) ? list : []);
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (!active) return;
+
+        if (status !== "granted") {
+          setLocationDenied(true);
+          setLoadingLoc(false);
+          return;
+        }
+
+        const pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+
+        if (!active) return;
+
+        setCenter({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        });
+        setLoadingLoc(false);
+      } catch {
+        if (!active) return;
+        setLocationDenied(true);
+        setLoadingLoc(false);
+      }
     })();
+
+    return () => (active = false);
   }, []);
 
-  useEffect(() => {
-    let alive = true;
-    const q = search.trim();
-    if (!loc || q.length < 2) {
-      setCourses([]);
-      return;
-    }
-    setLoadingCourses(true);
-    const t = setTimeout(async () => {
-      try {
-        const results = await searchMapboxCourses(q, loc);
-        if (!alive) return;
-        setCourses(results);
-      } catch (e) {
-        if (!alive) return;
-        setCourses([]);
-      } finally {
-        if (!alive) return;
-        setLoadingCourses(false);
-      }
-    }, 250);
+  const nearbyCourses = useMemo(() => {
+    return COURSES_LOCAL.map((c) => ({
+      ...c,
+      distanceKm: haversineKm(center, { lat: c.lat, lng: c.lng }),
+    }))
+      .filter((c) => c.distanceKm <= MAX_KM)
+      .sort((a, b) => a.distanceKm - b.distanceKm);
+  }, [center]);
 
-    return () => {
-      alive = false;
-      clearTimeout(t);
-    };
-  }, [search, loc]);
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return nearbyCourses;
+    return nearbyCourses.filter((c) => c.name.toLowerCase().includes(q));
+  }, [query, nearbyCourses]);
 
-  const canStart = useMemo(() => {
-    if (!pickedCourse) return false;
-    const named = players.filter((p) => String(p.name || "").trim().length > 0);
-    return named.length >= 1;
-  }, [pickedCourse, players]);
-
-  function setPlayerName(idx, name) {
-    setPlayers((prev) => prev.map((p, i) => (i === idx ? { ...p, name } : p)));
-  }
-
-  function openBuddy(idx) {
-    setBuddyModalFor(idx);
-  }
-
-  function pickBuddy(b) {
-    if (buddyModalFor == null) return;
-    setPlayerName(buddyModalFor, b?.name || "");
-    setBuddyModalFor(null);
-  }
-
-  async function onStartRound() {
+  function selectCourse(course) {
     Keyboard.dismiss();
-    if (!canStart) return;
-
-    const activePlayers = players
-      .filter((p) => String(p.name || "").trim().length > 0)
-      .slice(0, MAX_PLAYERS)
-      .map((p, idx) => ({ id: p.id || `p${idx + 1}`, name: String(p.name).trim() }));
-
-    const holes = Array.from({ length: 18 }).map((_, i) => ({
-      hole: i + 1,
-      par: 4,
-      si: null,
-      scores: {},
-    }));
-
-    const round = {
-      id: `${Date.now()}`,
-      createdAt: new Date().toISOString(),
-      courseName: pickedCourse.name,
-      courseCenter: pickedCourse.center,
-      tees,
-      format,
-      scoringMode,
-      players: activePlayers,
-      holes,
-    };
-
-    await saveRound(round);
-
-    navigation.replace(ROUTES.SCORE_HOLE, {
-      roundId: round.id,
-      gameTitle,
+    navigation.navigate("TeeSelection", {
+      course: {
+        id: course.name.replace(/\s/g, "_").toLowerCase(),
+        name: course.name,
+      },
+      ...(route?.params || {}),
     });
+  }
+
+  function renderRow({ item }) {
+    return (
+      <Pressable
+        onPress={() => selectCourse(item)}
+        style={({ pressed }) => [styles.row, styles.rowShadow, pressed && styles.pressed]}
+      >
+        <View style={styles.rowMain}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.rowTitle} numberOfLines={1}>
+              {item.name}
+            </Text>
+
+            <View style={styles.rowMeta}>
+              <View style={styles.kmPill}>
+                <Text style={styles.kmText}>{item.distanceKm.toFixed(0)} km</Text>
+              </View>
+              <Text style={styles.rowSub} numberOfLines={1}>
+                Tap to select tee’s
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.chevWrap}>
+            <MaterialCommunityIcons
+              name="chevron-right"
+              size={24}
+              color="rgba(255,255,255,0.65)"
+            />
+          </View>
+        </View>
+      </Pressable>
+    );
   }
 
   return (
     <SafeAreaView style={styles.safe}>
-      <Pressable style={styles.bg} onPress={Keyboard.dismiss}>
-        <View style={styles.topBar}>
-          <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <Text style={styles.backTxt}>Back</Text>
-          </Pressable>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.h1}>Start Round</Text>
-            <Text style={styles.h2}>{gameTitle} • {String(scoringMode).toUpperCase()}</Text>
+      {/* HEADER */}
+      <View style={styles.topWrap}>
+        <View style={styles.topGlowA} pointerEvents="none" />
+        <View style={styles.topGlowB} pointerEvents="none" />
+
+        <View style={styles.top}>
+          <Text style={styles.h1}>Select Course</Text>
+          <Text style={styles.h2}>Nearby courses within {MAX_KM} km.</Text>
+
+          <View style={styles.searchWrap}>
+            <TextInput
+              style={styles.input}
+              placeholder="Search course…"
+              placeholderTextColor="rgba(255,255,255,0.45)"
+              value={query}
+              onChangeText={setQuery}
+              returnKeyType="search"
+              autoCorrect={false}
+              autoCapitalize="none"
+              clearButtonMode="while-editing"
+            />
           </View>
-        </View>
 
-        <View style={styles.section}>
-          <Text style={styles.label}>Course (within 200km)</Text>
-          <TextInput
-            value={search}
-            onChangeText={(t) => {
-              setSearch(t);
-              setPickedCourse(null);
-            }}
-            placeholder="Type course name..."
-            placeholderTextColor="rgba(255,255,255,0.35)"
-            style={styles.input}
-            autoCapitalize="words"
-          />
-
-          {!!pickedCourse ? (
-            <View style={styles.picked}>
-              <Text style={styles.pickedT}>{pickedCourse.name}</Text>
-              {!!pickedCourse.placeName ? <Text style={styles.pickedS} numberOfLines={1}>{pickedCourse.placeName}</Text> : null}
-              <Pressable onPress={() => setPickedCourse(null)} style={styles.pickedX}>
-                <Text style={styles.pickedXTxt}>Change</Text>
-              </Pressable>
+          {locationDenied ? (
+            <View style={styles.banner}>
+              <Text style={styles.bannerText}>Location off — showing default nearby</Text>
             </View>
-          ) : (
-            <View style={styles.listBox}>
-              <FlatList
-                data={courses}
-                keyExtractor={(it) => it.id}
-                keyboardShouldPersistTaps="handled"
-                renderItem={({ item }) => (
-                  <Pressable
-                    onPress={() => {
-                      setPickedCourse(item);
-                      setSearch(item.name);
-                      setCourses([]);
-                    }}
-                    style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-                  >
-                    <Text style={styles.rowT} numberOfLines={1}>{item.name}</Text>
-                    {!!item.placeName ? <Text style={styles.rowS} numberOfLines={1}>{item.placeName}</Text> : null}
-                  </Pressable>
-                )}
-                ListEmptyComponent={
-                  <View style={{ padding: 12 }}>
-                    <Text style={styles.empty}>
-                      {!loc ? "Getting your location…" : search.trim().length < 2 ? "Type at least 2 letters." : (loadingCourses ? "Searching…" : "No matches nearby. Try a different name.")}
-                    </Text>
-                  </View>
-                }
-                style={{ maxHeight: 220 }}
-              />
-            </View>
-          )}
+          ) : null}
         </View>
+      </View>
 
-        <View style={styles.section}>
-          <Text style={styles.label}>Tee Box</Text>
-          <View style={styles.teeRow}>
-            {DEFAULT_TEES.map((t) => {
-              const on = tees === t;
-              return (
-                <Pressable key={t} onPress={() => setTees(t)} style={[styles.tee, on && styles.teeOn]}>
-                  <Text style={[styles.teeT, on && styles.teeTOn]}>{t}</Text>
-                </Pressable>
-              );
-            })}
+      {/* LIST */}
+      <View style={styles.body}>
+        {loadingLoc ? (
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator />
+            <Text style={styles.loadingText}>Finding nearby courses…</Text>
           </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.label}>Players (max 8)</Text>
-
+        ) : filtered.length === 0 ? (
+          <View style={styles.emptyWrap}>
+            <Text style={styles.emptyTitle}>No matches nearby</Text>
+            <Text style={styles.emptySub}>Try a different search, or adjust your spelling.</Text>
+          </View>
+        ) : (
           <FlatList
-            data={players}
-            keyExtractor={(it) => it.id}
-            contentContainerStyle={{ paddingBottom: 160 }}
-            renderItem={({ item, index }) => {
-              const isMe = index === 0;
-              return (
-                <View style={styles.playerCard}>
-                  <Text style={styles.playerLabel}>Player {index + 1}{isMe ? " (Me)" : ""}</Text>
-                  <TextInput
-                    value={item.name}
-                    onChangeText={(v) => setPlayerName(index, v)}
-                    placeholder={isMe ? "Me" : "Guest name…"}
-                    placeholderTextColor="rgba(255,255,255,0.35)"
-                    style={styles.playerInput}
-                    autoCapitalize="words"
-                  />
-
-                  {!isMe ? (
-                    <Pressable onPress={() => openBuddy(index)} style={({ pressed }) => [styles.addBuddy, pressed && styles.pressed]}>
-                      <Text style={styles.addBuddyT}>Add buddy</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-              );
-            }}
+            data={filtered}
+            keyExtractor={(item) => item.name}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.listContent}
+            renderItem={renderRow}
+            showsVerticalScrollIndicator={false}
           />
-        </View>
-
-        <View style={styles.footer}>
-          <Pressable onPress={onStartRound} disabled={!canStart} style={[styles.primary, !canStart && styles.disabled]}>
-            <Text style={styles.primaryT}>Start Round</Text>
-          </Pressable>
-        </View>
-
-        <Modal visible={buddyModalFor != null} transparent animationType="fade" onRequestClose={() => setBuddyModalFor(null)}>
-          <Pressable style={styles.modalWrap} onPress={() => setBuddyModalFor(null)}>
-            <Pressable style={styles.modalCard} onPress={() => {}}>
-              <Text style={styles.modalTitle}>Pick a Buddy</Text>
-
-              <FlatList
-                data={buddies}
-                keyExtractor={(b) => b.id}
-                renderItem={({ item }) => (
-                  <Pressable onPress={() => pickBuddy(item)} style={({ pressed }) => [styles.modalRow, pressed && styles.pressed]}>
-                    <Text style={styles.modalRowT} numberOfLines={1}>{item.name}</Text>
-                    <Text style={styles.modalRowS} numberOfLines={1}>
-                      {item.handicap != null ? `HCP ${item.handicap}` : "Buddy"}
-                    </Text>
-                  </Pressable>
-                )}
-                ListEmptyComponent={
-                  <View style={{ padding: 10 }}>
-                    <Text style={styles.empty}>No buddies yet. Add some in Buddy List.</Text>
-                  </View>
-                }
-              />
-
-              <Pressable onPress={() => setBuddyModalFor(null)} style={({ pressed }) => [styles.modalClose, pressed && styles.pressed]}>
-                <Text style={styles.modalCloseT}>Close</Text>
-              </Pressable>
-            </Pressable>
-          </Pressable>
-        </Modal>
-      </Pressable>
+        )}
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: theme?.colors?.bg || "#0B1220" },
-  bg: { flex: 1 },
 
-  topBar: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8, gap: 12 },
-  backBtn: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)" },
-  backTxt: { color: "#fff", fontWeight: "900" },
-  h1: { color: "#fff", fontSize: 32, fontWeight: "900" },
-  h2: { marginTop: 4, color: "#fff", opacity: 0.7, fontWeight: "700" },
+  topWrap: { borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },
 
-  section: { paddingHorizontal: 16, paddingTop: 10 },
-  label: { color: "#fff", opacity: 0.75, fontWeight: "900", letterSpacing: 1.2, textTransform: "uppercase", fontSize: 12, marginBottom: 8 },
+  topGlowA: {
+    position: "absolute",
+    top: -80,
+    left: -40,
+    width: 260,
+    height: 260,
+    borderRadius: 260,
+    backgroundColor: "rgba(46,125,255,0.20)",
+    opacity: 0.35,
+  },
+  topGlowB: {
+    position: "absolute",
+    top: -120,
+    right: -60,
+    width: 300,
+    height: 300,
+    borderRadius: 300,
+    backgroundColor: "rgba(255,255,255,0.10)",
+    opacity: 0.18,
+  },
 
+  top: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 14 },
+  h1: { color: "#fff", fontSize: 28, fontWeight: "900", letterSpacing: 0.2, lineHeight: 34 },
+  h2: { marginTop: 8, color: "#fff", opacity: 0.7, fontSize: 13, fontWeight: "700", lineHeight: 18 },
+
+  searchWrap: { marginTop: 14 },
   input: {
-    height: 54,
+    height: 50,
     borderRadius: 16,
     paddingHorizontal: 14,
+    backgroundColor: "rgba(255,255,255,0.06)",
     color: "#fff",
-    backgroundColor: "rgba(255,255,255,0.04)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
+    borderColor: "rgba(255,255,255,0.12)",
+    fontSize: 14,
     fontWeight: "800",
   },
 
-  listBox: { marginTop: 10, borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", backgroundColor: "rgba(255,255,255,0.03)" },
-  row: { paddingHorizontal: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.08)" },
-  rowT: { color: "#fff", fontWeight: "900" },
-  rowS: { marginTop: 4, color: "#fff", opacity: 0.6, fontWeight: "700", fontSize: 12 },
-  empty: { color: "#fff", opacity: 0.6, fontWeight: "800" },
-
-  picked: { marginTop: 10, borderRadius: 16, padding: 12, borderWidth: 1, borderColor: "rgba(46,125,255,0.35)", backgroundColor: "rgba(46,125,255,0.10)" },
-  pickedT: { color: "#fff", fontWeight: "900", fontSize: 16 },
-  pickedS: { marginTop: 4, color: "#fff", opacity: 0.7, fontWeight: "700", fontSize: 12 },
-  pickedX: { marginTop: 10, alignSelf: "flex-start", paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)" },
-  pickedXTxt: { color: "#fff", fontWeight: "900" },
-
-  teeRow: { flexDirection: "row", gap: 10, flexWrap: "wrap" },
-  tee: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999, borderWidth: 1, borderColor: "rgba(255,255,255,0.16)", backgroundColor: "rgba(255,255,255,0.04)" },
-  teeOn: { borderColor: "rgba(46,125,255,0.9)", backgroundColor: "rgba(46,125,255,0.14)" },
-  teeT: { color: "#fff", fontWeight: "900", opacity: 0.8 },
-  teeTOn: { opacity: 1 },
-
-  playerCard: { marginTop: 10, borderRadius: 18, padding: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", backgroundColor: "rgba(255,255,255,0.03)" },
-  playerLabel: { color: "#fff", opacity: 0.75, fontWeight: "900", marginBottom: 8, fontSize: 12, letterSpacing: 0.8, textTransform: "uppercase" },
-  playerInput: {
-    height: 52,
+  banner: {
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     borderRadius: 14,
-    paddingHorizontal: 14,
-    color: "#fff",
-    backgroundColor: "rgba(0,0,0,0.25)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+    backgroundColor: "rgba(255,255,255,0.04)",
+  },
+  bannerText: { color: "#fff", opacity: 0.72, fontSize: 12, fontWeight: "800" },
+
+  body: { flex: 1 },
+  listContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24 },
+
+  row: {
+    borderRadius: 20,
+    padding: 14,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.14)",
-    fontWeight: "800",
+    backgroundColor: "rgba(255,255,255,0.05)",
+    marginBottom: 12,
   },
-  addBuddy: { marginTop: 10, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)" },
-  addBuddyT: { color: "#fff", fontWeight: "900" },
 
-  footer: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingBottom: 18, paddingTop: 12, backgroundColor: theme?.colors?.bg || "#0B1220" },
-  primary: { height: 56, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: theme?.colors?.primary || "#2E7DFF" },
-  primaryT: { color: "#fff", fontSize: 16, fontWeight: "900", letterSpacing: 0.4 },
-  disabled: { opacity: 0.5 },
+  rowShadow: Platform.select({
+    ios: {
+      shadowColor: "#000",
+      shadowOpacity: 0.22,
+      shadowRadius: 14,
+      shadowOffset: { width: 0, height: 8 },
+    },
+    android: {
+      elevation: 2,
+    },
+    default: {},
+  }),
 
-  modalWrap: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", padding: 18, justifyContent: "center" },
-  modalCard: { borderRadius: 18, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", backgroundColor: "#0B1220", padding: 14, maxHeight: "70%" },
-  modalTitle: { color: "#fff", fontSize: 18, fontWeight: "900", marginBottom: 10 },
-  modalRow: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.08)" },
-  modalRowT: { color: "#fff", fontWeight: "900" },
-  modalRowS: { marginTop: 4, color: "#fff", opacity: 0.65, fontWeight: "700", fontSize: 12 },
-  modalClose: { marginTop: 12, height: 48, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)" },
-  modalCloseT: { color: "#fff", fontWeight: "900" },
+  rowMain: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  rowTitle: { color: "#fff", fontSize: 16, fontWeight: "900" },
+
+  rowMeta: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 10 },
+
+  kmPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
+  kmText: { color: "#fff", fontSize: 12, fontWeight: "900", opacity: 0.9 },
+
+  rowSub: { color: "#fff", opacity: 0.62, fontSize: 12, fontWeight: "800" },
+
+  chevWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+    backgroundColor: "rgba(255,255,255,0.04)",
+  },
+
+  loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
+  loadingText: { color: "#fff", opacity: 0.72, fontSize: 12, fontWeight: "800" },
+
+  emptyWrap: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 28 },
+  emptyTitle: { color: "#fff", fontSize: 16, fontWeight: "900" },
+  emptySub: {
+    marginTop: 10,
+    color: "#fff",
+    opacity: 0.65,
+    fontSize: 12,
+    fontWeight: "700",
+    textAlign: "center",
+    lineHeight: 17,
+  },
 
   pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
 });

@@ -2,16 +2,15 @@
   "expo": {
     "name": "Legacy Golf",
     "slug": "legacy-golf",
-    "version": "1.0.0",
-    "orientation": "portrait",
-    "userInterfaceStyle": "dark",
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "icon": "./assets/icon.png",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#050B14"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "updates": {
+      "fallbackToCacheTimeout": 0
     },
     "ios": {
       "supportsTablet": true,
@@ -23,7 +22,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/icon.png",
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#050B14"
       },
       "splash": {
@@ -32,6 +31,9 @@
         "backgroundColor": "#050B14"
       },
       "package": "com.anonymous.legacygolf"
+    },
+    "extra": {
+      "MAPBOX_TOKEN": "pk.eyJ1Ijoic3RlcGhhbmVsYWJpbmUiLCJhIjoiY21qeXZrMDdxMDhydDNocTNlYmI2cnJ1bCJ9.lP-pkAlnfKfHPu5PiJ4xyg"
     }
   }
 }

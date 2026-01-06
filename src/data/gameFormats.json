@@ -1,0 +1,112 @@
+{
+  "legacy_card": {
+    "title": "Legacy Card",
+    "subtitle": "Premium tournament format. The heart of Legacy Golf.",
+    "details": [
+      {
+        "heading": "What it is",
+        "body": "Legacy Card is a multi-round tournament format designed to reward your best golf over time. Instead of one round deciding everything, your best performance on each hole across multiple rounds builds your Legacy Card."
+      },
+      {
+        "heading": "How it works (high level)",
+        "body": "You choose the number of rounds in the event. For each hole, the app tracks your best score achieved on that hole across the rounds played. Your Legacy Card is the collection of those best-hole results."
+      },
+      {
+        "heading": "Why it’s premium",
+        "body": "It creates a season-like story for your game: steady improvement, memorable holes, and a true measure of progress. We’ll finalize the exact rules and scoring later."
+      }
+    ]
+  },
+  "stroke_play": {
+    "title": "Stroke Play",
+    "subtitle": "Total strokes over 18 holes. The classic.",
+    "details": [
+      { "heading": "What it is", "body": "Everyone plays their own ball. Add up all strokes across the round. Lowest total wins." },
+      { "heading": "Net vs Gross", "body": "Play Gross (raw score) or Net (handicap adjusted). Net scoring makes it fair across different skill levels." },
+      { "heading": "Great for", "body": "Any group, any number of players. Simple, competitive, and familiar." }
+    ]
+  },
+  "match_play": {
+    "title": "Match Play",
+    "subtitle": "Win holes, not strokes.",
+    "details": [
+      { "heading": "What it is", "body": "Each hole is its own contest. Win a hole by taking fewer strokes than your opponent." },
+      { "heading": "Scoring", "body": "A match is tracked as holes up/down. Example: '2 up' means you’re leading by two holes." },
+      { "heading": "Net vs Gross", "body": "If playing Net Match Play, handicap strokes apply on the hardest holes based on the handicap difference." }
+    ]
+  },
+  "kps": {
+    "title": "KPs (Closest to the Pin)",
+    "subtitle": "Track KPs + payouts.",
+    "details": [
+      { "heading": "What it is", "body": "A side game usually played on par 3s. The player who hits closest to the pin (and often holds it) wins the KP." },
+      { "heading": "Common rules", "body": "Some groups require the ball to finish on the green to qualify. You can also set 'closest and in regulation' rules." },
+      { "heading": "Payouts", "body": "Set an optional KP wager amount. The app will track winners and totals." }
+    ]
+  },
+  "skins": {
+    "title": "Skins",
+    "subtitle": "Win holes outright for skins.",
+    "details": [
+      { "heading": "What it is", "body": "Each hole is worth a 'skin'. If one player has the lowest score on a hole outright, they win that skin." },
+      { "heading": "Carryovers", "body": "If there’s a tie for low on a hole, the skin carries to the next hole (making it worth more)." },
+      { "heading": "Net option", "body": "Play Net Skins for fairness using handicap strokes." }
+    ]
+  },
+  "two_v_two": {
+    "title": "2v2",
+    "subtitle": "Teams, presses, totals.",
+    "details": [
+      { "heading": "What it is", "body": "Two teams of two compete. You’ll choose the team format (best ball, total score, or match style)." },
+      { "heading": "Team scoring", "body": "Common: Best Ball (take the best score of the two teammates each hole) or Total (add both)." },
+      { "heading": "Presses", "body": "Optional: Presses start a new bet within the match. We’ll support this in the setup." }
+    ]
+  },
+  "nassau": {
+    "title": "Nassau",
+    "subtitle": "Front 9, Back 9, and Total match.",
+    "details": [
+      { "heading": "What it is", "body": "A classic bet with three matches: Front 9, Back 9, and Overall (18)." },
+      { "heading": "Scoring", "body": "Each of the three matches can be won, lost, or tied independently." },
+      { "heading": "Presses", "body": "Optional: Many groups allow presses to start additional matches mid-round." }
+    ]
+  },
+  "stableford": {
+    "title": "Stableford",
+    "subtitle": "Points per hole based on score vs par.",
+    "details": [
+      { "heading": "What it is", "body": "Instead of total strokes, you earn points on each hole based on how you score relative to par." },
+      { "heading": "Typical points", "body": "Common: Double Bogey or worse = 0, Bogey = 1, Par = 2, Birdie = 3, Eagle = 4, Albatross = 5." },
+      { "heading": "Net option", "body": "Net Stableford applies handicap strokes before awarding points." }
+    ]
+  },
+  "wolf": {
+    "title": "Wolf",
+    "subtitle": "Rotating captain chooses a partner.",
+    "details": [
+      { "heading": "What it is", "body": "A rotating 'Wolf' (captain) decides each hole whether to pick a partner or go solo against the other two." },
+      { "heading": "Partner choice", "body": "Commonly, the Wolf decides after seeing tee shots (or before, depending on your group rules)." },
+      { "heading": "Scoring", "body": "Usually played as a points game or per-hole wagers. We’ll support options in setup." }
+    ]
+  },
+  "snake": {
+    "title": "Snake",
+    "subtitle": "3-putt tracker with payouts.",
+    "details": [
+      { "heading": "What it is", "body": "A side game: the last player to 3-putt 'has the snake' until someone else 3-putts." },
+      { "heading": "End of round", "body": "The player holding the snake at the end pays (or owes) the agreed amount to the group or pot." },
+      { "heading": "Options", "body": "Some groups count any 3-putt, others only on the green, others include fringe. We’ll support simple options in setup." }
+    ]
+  },
+  "legacy_points": {
+    "title": "Legacy Points",
+    "subtitle": "Points-based competition built for the Legacy Golf vibe.",
+    "details": [
+      { "heading": "What it is", "body": "A points format designed to keep everyone engaged all round. Earn points for scoring, key achievements, and consistency." },
+      { "heading": "How it can work",
+        "body": "Example categories: points for net birdies/par, streaks, or hole wins. We’ll finalize the official Legacy Points rules with your exact vision."
+      },
+      { "heading": "Why it’s great", "body": "It creates drama and momentum — even if someone has one bad hole, they can still win points elsewhere." }
+    ]
+  }
+}
