@@ -31,7 +31,12 @@ function calcNet(gross, handicap) {
 }
 
 function formatDate(round) {
-  const raw = round?.playedAt || round?.date || round?.createdAt || round?.startedAt || round?.timestamp;
+  const raw =
+    round?.playedAt ||
+    round?.date ||
+    round?.createdAt ||
+    round?.startedAt ||
+    round?.timestamp;
   const d = raw ? new Date(raw) : null;
   if (!d || Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
@@ -63,7 +68,6 @@ export default function HistoryScreen({ navigation }) {
   );
 
   const hasAny = rounds.length > 0;
-
   const items = useMemo(() => rounds, [rounds]);
 
   return (
@@ -74,7 +78,9 @@ export default function HistoryScreen({ navigation }) {
 
         <View style={styles.headerRow}>
           <Pressable
-            onPress={() => (navigation.canGoBack?.() ? navigation.goBack() : navigation.navigate(ROUTES.HOME))}
+            onPress={() =>
+              navigation.canGoBack?.() ? navigation.goBack() : navigation.navigate(ROUTES.HOME)
+            }
             hitSlop={12}
             style={({ pressed }) => [styles.headerPill, pressed && styles.pressed]}
           >
@@ -84,7 +90,9 @@ export default function HistoryScreen({ navigation }) {
           <View style={styles.headerCenter}>
             <Text style={styles.headerTitle}>History</Text>
             <Text style={styles.headerSub}>
-              {hasAny ? `${items.length} round${items.length === 1 ? "" : "s"}` : "Your rounds, beautifully organized"}
+              {hasAny
+                ? `${items.length} round${items.length === 1 ? "" : "s"}`
+                : "Your rounds, beautifully organized"}
             </Text>
           </View>
 
@@ -123,7 +131,12 @@ export default function HistoryScreen({ navigation }) {
               return (
                 <Pressable
                   key={String(r?.id)}
-                  onPress={() => navigation.navigate(ROUTES.ROUND_DETAILS, { roundId: r.id })}
+                  onPress={() =>
+                    navigation.navigate({
+                      name: ROUTES.ROUND_DETAILS,
+                      params: { roundId: r.id },
+                    })
+                  }
                   style={({ pressed }) => [styles.card, pressed && styles.pressed]}
                 >
                   <View style={{ flex: 1, minWidth: 0 }}>

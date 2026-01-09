@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { SafeAreaView, View, Text, StyleSheet, Pressable, ScrollView, Alert } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
@@ -21,6 +21,33 @@ const ICONS = {
   legacy_points: { name: "trophy", color: "rgba(255,255,255,0.92)" }, // points/trophy
 };
 
+function formatMoney(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v <= 0) return "—";
+  if (Number.isInteger(v)) return `$${v}`;
+  return `$${v.toFixed(2)}`;
+}
+
+function buildWagersSummary(w) {
+  if (!w?.enabled) return "OFF";
+
+  const parts = [];
+  if (w?.skins?.enabled) parts.push(`Skins ${formatMoney(w?.skins?.amount)}`);
+  if (w?.kps?.enabled) parts.push(`KPs ${formatMoney(w?.kps?.amount)}`);
+
+  if (w?.nassau?.enabled) {
+    const f = formatMoney(w?.nassau?.front);
+    const b = formatMoney(w?.nassau?.back);
+    const t = formatMoney(w?.nassau?.total);
+    parts.push(`Nassau ${f}/${b}/${t}`);
+  }
+
+  if (w?.perStroke?.enabled) parts.push(`Per Stroke ${formatMoney(w?.perStroke?.amount)}`);
+
+  if (!parts.length) return "ON • No wager types selected";
+  return `ON • ${parts.join(" • ")}`;
+}
+
 export default function GameSetupScreen({ navigation, route }) {
   const { gameId, gameTitle } = route?.params || {};
 
@@ -33,7 +60,43 @@ export default function GameSetupScreen({ navigation, route }) {
   const iconSpec = ICONS[gameId] || { name: "circle-small", color: "rgba(255,255,255,0.80)" };
 
   const [scoringMode, setScoringMode] = useState("net");
-  const [wagersEnabled, setWagersEnabled] = useState(false);
+
+  // Wagers: we store the full wagers object (types + amounts)
+  const [wagers, setWagers] = useState(null);
+  const wagersEnabled = !!wagers?.enabled;
+
+  // When coming back from WagersScreen (merge params), pick up the saved wagers
+  useEffect(() => {
+    const incoming = route?.params?.wagers;
+    if (incoming === undefined) return;
+
+    if (!incoming?.enabled) {
+      setWagers(null);
+      return;
+    }
+    setWagers(incoming);
+  }, [route?.params?.wagers]);
+
+  function openWagers() {
+    // If currently off, turn on by opening Wagers screen immediately
+    // We pass whatever we have so far (or a default enabled object)
+    const seed =
+      wagers ||
+      ({
+        enabled: true,
+        skins: { enabled: false, amount: 0 },
+        kps: { enabled: false, amount: 0 },
+        nassau: { enabled: false, front: 0, back: 0, total: 0 },
+        perStroke: { enabled: false, amount: 0 },
+        notes: "",
+      });
+
+    navigation.navigate(ROUTES.WAGERS, { wagers: seed });
+  }
+
+  function disableWagers() {
+    setWagers(null);
+  }
 
   function goNext() {
     if (!gameId) {
@@ -45,9 +108,11 @@ export default function GameSetupScreen({ navigation, route }) {
       gameId,
       gameTitle: game?.title || gameTitle || "Game",
       scoringMode,
-      wagersEnabled,
+      wagers: wagersEnabled ? wagers : null, // safe to pass forward now
     });
   }
+
+  const wagersSummary = buildWagersSummary(wagers);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -60,11 +125,7 @@ export default function GameSetupScreen({ navigation, route }) {
             <Pressable
               onPress={() => navigation.goBack()}
               hitSlop={12}
-              style={({ pressed }) => [
-                styles.backBtn,
-                isLegacy && styles.backBtnLegacy,
-                pressed && styles.pressed,
-              ]}
+              style={({ pressed }) => [styles.backBtn, isLegacy && styles.backBtnLegacy, pressed && styles.pressed]}
             >
               <Text style={styles.backText}>Back</Text>
             </Pressable>
@@ -103,11 +164,7 @@ export default function GameSetupScreen({ navigation, route }) {
           <View style={styles.seg}>
             <Pressable
               onPress={() => setScoringMode("net")}
-              style={({ pressed }) => [
-                styles.segBtn,
-                scoringMode === "net" && styles.segBtnActive,
-                pressed && styles.pressed,
-              ]}
+              style={({ pressed }) => [styles.segBtn, scoringMode === "net" && styles.segBtnActive, pressed && styles.pressed]}
             >
               <Text style={[styles.segText, scoringMode === "net" && styles.segTextActive]}>Net</Text>
               <Text style={[styles.segSub, scoringMode === "net" && styles.segSubActive]}>Handicap adjusted</Text>
@@ -115,11 +172,7 @@ export default function GameSetupScreen({ navigation, route }) {
 
             <Pressable
               onPress={() => setScoringMode("gross")}
-              style={({ pressed }) => [
-                styles.segBtn,
-                scoringMode === "gross" && styles.segBtnActive,
-                pressed && styles.pressed,
-              ]}
+              style={({ pressed }) => [styles.segBtn, scoringMode === "gross" && styles.segBtnActive, pressed && styles.pressed]}
             >
               <Text style={[styles.segText, scoringMode === "gross" && styles.segTextActive]}>Gross</Text>
               <Text style={[styles.segSub, scoringMode === "gross" && styles.segSubActive]}>Raw strokes</Text>
@@ -137,19 +190,26 @@ export default function GameSetupScreen({ navigation, route }) {
             <Text style={styles.cardHint}>Optional</Text>
           </View>
 
-          <Pressable
-            onPress={() => setWagersEnabled((v) => !v)}
-            style={({ pressed }) => [styles.toggleRow, pressed && styles.pressed]}
-          >
+          <Pressable onPress={openWagers} style={({ pressed }) => [styles.toggleRow, pressed && styles.pressed]}>
             <View style={{ flex: 1 }}>
               <Text style={styles.toggleTitle}>Enable wagers</Text>
-              <Text style={styles.toggleSub}>Totals will be calculated at the end.</Text>
+              <Text style={styles.toggleSub}>Tap to configure wager types + amounts.</Text>
+
+              <View style={styles.summaryPill}>
+                <Text style={styles.summaryText}>{wagersSummary}</Text>
+              </View>
             </View>
 
             <View style={[styles.switchOuter, wagersEnabled && styles.switchOuterOn]}>
               <View style={[styles.switchKnob, wagersEnabled && styles.switchKnobOn]} />
             </View>
           </Pressable>
+
+          {wagersEnabled ? (
+            <Pressable onPress={disableWagers} style={({ pressed }) => [styles.clearBtn, pressed && styles.pressed]}>
+              <Text style={styles.clearText}>Turn wagers off</Text>
+            </Pressable>
+          ) : null}
         </View>
 
         {/* COMING NEXT */}
@@ -197,13 +257,8 @@ const GOLD_SOFT = "rgba(255, 210, 92, 0.28)";
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: theme?.colors?.bg || "#0B1220" },
 
-  topWrap: {
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.06)",
-  },
-  topWrapLegacy: {
-    borderBottomColor: "rgba(255, 210, 92, 0.14)",
-  },
+  topWrap: { borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },
+  topWrapLegacy: { borderBottomColor: "rgba(255, 210, 92, 0.14)" },
 
   topGlowA: {
     position: "absolute",
@@ -226,20 +281,10 @@ const styles = StyleSheet.create({
     opacity: 0.18,
   },
 
-  top: {
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 12,
-  },
-  topLegacy: {
-    paddingBottom: 14,
-  },
+  top: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 12 },
+  topLegacy: { paddingBottom: 14 },
 
-  topRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 14,
-  },
+  topRow: { flexDirection: "row", alignItems: "center", marginBottom: 14 },
 
   backBtn: {
     paddingHorizontal: 12,
@@ -263,10 +308,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.14)",
     backgroundColor: "rgba(255,255,255,0.06)",
   },
-  badgeLegacy: {
-    borderColor: "rgba(255, 210, 92, 0.22)",
-    backgroundColor: "rgba(255, 210, 92, 0.10)",
-  },
+  badgeLegacy: { borderColor: "rgba(255, 210, 92, 0.22)", backgroundColor: "rgba(255, 210, 92, 0.10)" },
   badgeText: { color: "#fff", fontSize: 11, fontWeight: "900", letterSpacing: 1.2, opacity: 0.85 },
   badgeTextLegacy: { color: GOLD, opacity: 1 },
 
@@ -283,23 +325,13 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.06)",
     marginTop: 2,
   },
-  formatIconLegacy: {
-    borderColor: "rgba(255, 210, 92, 0.28)",
-    backgroundColor: "rgba(255, 210, 92, 0.10)",
-  },
+  formatIconLegacy: { borderColor: "rgba(255, 210, 92, 0.28)", backgroundColor: "rgba(255, 210, 92, 0.10)" },
 
   h1: { color: "#fff", fontSize: 28, fontWeight: "900", letterSpacing: 0.2, lineHeight: 34 },
   h2: { marginTop: 8, color: "#fff", opacity: 0.7, fontSize: 13, fontWeight: "700", lineHeight: 18 },
 
-  accentLine: {
-    marginTop: 14,
-    height: 1,
-    backgroundColor: "rgba(255,255,255,0.10)",
-  },
-  accentLineLegacy: {
-    height: 2,
-    backgroundColor: GOLD_SOFT,
-  },
+  accentLine: { marginTop: 14, height: 1, backgroundColor: "rgba(255,255,255,0.10)" },
+  accentLineLegacy: { height: 2, backgroundColor: GOLD_SOFT },
 
   content: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 140 },
 
@@ -326,10 +358,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.12)",
     backgroundColor: "rgba(255,255,255,0.04)",
   },
-  segBtnActive: {
-    borderColor: "rgba(46,125,255,0.65)",
-    backgroundColor: "rgba(46,125,255,0.14)",
-  },
+  segBtnActive: { borderColor: "rgba(46,125,255,0.65)", backgroundColor: "rgba(46,125,255,0.14)" },
   segText: { color: "#fff", opacity: 0.9, fontSize: 15, fontWeight: "900" },
   segTextActive: { opacity: 1 },
   segSub: { marginTop: 6, color: "#fff", opacity: 0.62, fontSize: 12, fontWeight: "800" },
@@ -352,6 +381,30 @@ const styles = StyleSheet.create({
   toggleTitle: { color: "#fff", fontSize: 14, fontWeight: "900" },
   toggleSub: { marginTop: 6, color: "#fff", opacity: 0.62, fontSize: 12, fontWeight: "700", lineHeight: 17 },
 
+  summaryPill: {
+    marginTop: 10,
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    backgroundColor: "rgba(0,0,0,0.14)",
+  },
+  summaryText: { color: "#fff", fontSize: 12, fontWeight: "900", opacity: 0.88 },
+
+  clearBtn: {
+    marginTop: 12,
+    height: 44,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,90,90,0.30)",
+    backgroundColor: "rgba(255,90,90,0.10)",
+  },
+  clearText: { color: "#fff", fontWeight: "900", fontSize: 13, opacity: 0.92 },
+
   switchOuter: {
     width: 56,
     height: 34,
@@ -362,21 +415,9 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.06)",
     justifyContent: "center",
   },
-  switchOuterOn: {
-    borderColor: "rgba(46,125,255,0.55)",
-    backgroundColor: "rgba(46,125,255,0.18)",
-  },
-  switchKnob: {
-    width: 28,
-    height: 28,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.70)",
-    transform: [{ translateX: 0 }],
-  },
-  switchKnobOn: {
-    backgroundColor: "rgba(255,255,255,0.92)",
-    transform: [{ translateX: 20 }],
-  },
+  switchOuterOn: { borderColor: "rgba(46,125,255,0.55)", backgroundColor: "rgba(46,125,255,0.18)" },
+  switchKnob: { width: 28, height: 28, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.70)", transform: [{ translateX: 0 }] },
+  switchKnobOn: { backgroundColor: "rgba(255,255,255,0.92)", transform: [{ translateX: 20 }] },
 
   sectionTitle: {
     marginTop: 12,
@@ -426,13 +467,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "rgba(255,255,255,0.08)",
   },
-  primaryBtn: {
-    height: 56,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme?.colors?.primary || "#2E7DFF",
-  },
+  primaryBtn: { height: 56, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: theme?.colors?.primary || "#2E7DFF" },
   primaryText: { color: "#fff", fontSize: 16, fontWeight: "900", letterSpacing: 0.4 },
 
   pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },

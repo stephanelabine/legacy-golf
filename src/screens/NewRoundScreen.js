@@ -15,6 +15,8 @@ import * as Location from "expo-location";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 import theme from "../theme";
+import ROUTES from "../navigation/routes";
+import ScreenHeader from "../components/ScreenHeader";
 import { COURSES_LOCAL } from "../data/coursesLocal";
 import { haversineKm } from "../utils/distance";
 
@@ -79,7 +81,7 @@ export default function NewRoundScreen({ navigation, route }) {
 
   function selectCourse(course) {
     Keyboard.dismiss();
-    navigation.navigate("TeeSelection", {
+    navigation.navigate(ROUTES.TEE_SELECTION, {
       course: {
         id: course.name.replace(/\s/g, "_").toLowerCase(),
         name: course.name,
@@ -111,11 +113,7 @@ export default function NewRoundScreen({ navigation, route }) {
           </View>
 
           <View style={styles.chevWrap}>
-            <MaterialCommunityIcons
-              name="chevron-right"
-              size={24}
-              color="rgba(255,255,255,0.65)"
-            />
+            <MaterialCommunityIcons name="chevron-right" size={24} color="rgba(255,255,255,0.65)" />
           </View>
         </View>
       </Pressable>
@@ -124,38 +122,32 @@ export default function NewRoundScreen({ navigation, route }) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      {/* HEADER */}
-      <View style={styles.topWrap}>
-        <View style={styles.topGlowA} pointerEvents="none" />
-        <View style={styles.topGlowB} pointerEvents="none" />
+      <ScreenHeader
+        navigation={navigation}
+        title="Select Course"
+        subtitle={`Nearby courses within ${MAX_KM} km.`}
+      />
 
-        <View style={styles.top}>
-          <Text style={styles.h1}>Select Course</Text>
-          <Text style={styles.h2}>Nearby courses within {MAX_KM} km.</Text>
+      <View style={styles.topArea}>
+        <TextInput
+          style={styles.input}
+          placeholder="Search course…"
+          placeholderTextColor="rgba(255,255,255,0.45)"
+          value={query}
+          onChangeText={setQuery}
+          returnKeyType="search"
+          autoCorrect={false}
+          autoCapitalize="none"
+          clearButtonMode="while-editing"
+        />
 
-          <View style={styles.searchWrap}>
-            <TextInput
-              style={styles.input}
-              placeholder="Search course…"
-              placeholderTextColor="rgba(255,255,255,0.45)"
-              value={query}
-              onChangeText={setQuery}
-              returnKeyType="search"
-              autoCorrect={false}
-              autoCapitalize="none"
-              clearButtonMode="while-editing"
-            />
+        {locationDenied ? (
+          <View style={styles.banner}>
+            <Text style={styles.bannerText}>Location off — showing default nearby</Text>
           </View>
-
-          {locationDenied ? (
-            <View style={styles.banner}>
-              <Text style={styles.bannerText}>Location off — showing default nearby</Text>
-            </View>
-          ) : null}
-        </View>
+        ) : null}
       </View>
 
-      {/* LIST */}
       <View style={styles.body}>
         {loadingLoc ? (
           <View style={styles.loadingWrap}>
@@ -185,34 +177,8 @@ export default function NewRoundScreen({ navigation, route }) {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: theme?.colors?.bg || "#0B1220" },
 
-  topWrap: { borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },
+  topArea: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
 
-  topGlowA: {
-    position: "absolute",
-    top: -80,
-    left: -40,
-    width: 260,
-    height: 260,
-    borderRadius: 260,
-    backgroundColor: "rgba(46,125,255,0.20)",
-    opacity: 0.35,
-  },
-  topGlowB: {
-    position: "absolute",
-    top: -120,
-    right: -60,
-    width: 300,
-    height: 300,
-    borderRadius: 300,
-    backgroundColor: "rgba(255,255,255,0.10)",
-    opacity: 0.18,
-  },
-
-  top: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 14 },
-  h1: { color: "#fff", fontSize: 28, fontWeight: "900", letterSpacing: 0.2, lineHeight: 34 },
-  h2: { marginTop: 8, color: "#fff", opacity: 0.7, fontSize: 13, fontWeight: "700", lineHeight: 18 },
-
-  searchWrap: { marginTop: 14 },
   input: {
     height: 50,
     borderRadius: 16,
@@ -237,6 +203,7 @@ const styles = StyleSheet.create({
   bannerText: { color: "#fff", opacity: 0.72, fontSize: 12, fontWeight: "800" },
 
   body: { flex: 1 },
+
   listContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24 },
 
   row: {
@@ -255,9 +222,7 @@ const styles = StyleSheet.create({
       shadowRadius: 14,
       shadowOffset: { width: 0, height: 8 },
     },
-    android: {
-      elevation: 2,
-    },
+    android: { elevation: 2 },
     default: {},
   }),
 

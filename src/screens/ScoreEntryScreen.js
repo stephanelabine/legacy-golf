@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   SafeAreaView,
   View,
@@ -8,55 +8,67 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
-  ScrollView,
   Keyboard,
   TouchableWithoutFeedback,
   Alert,
+  FlatList,
 } from "react-native";
+
+import ScreenHeader from "../components/ScreenHeader";
+import theme from "../theme";
 import { loadActiveRound, saveActiveRound } from "../storage/roundState";
 
-// Premium palette
-const BG = "#000000";
-const CARD = "#1D3557";
-const INNER = "#243E63";
-const INNER2 = "#2A4A76";
-const MUTED = "#AFC3DA";
+// Premium palette (aligned with your newer screens)
+const BG = "#0B1220";
+const CARD = "rgba(255,255,255,0.05)";
+const BORDER = "rgba(255,255,255,0.14)";
+const INNER = "rgba(255,255,255,0.04)";
+const INNER2 = "rgba(255,255,255,0.06)";
+const MUTED = "rgba(255,255,255,0.65)";
 const WHITE = "#FFFFFF";
-const GREEN = "#2ECC71";
-const GREEN_TEXT = "#0B1F12";
+const BLUE = theme?.colors?.primary || "#2E7DFF";
 
-function TriToggle({ label, value, onChange }) {
-  return (
-    <View style={{ marginTop: 10 }}>
-      <Text style={styles.label}>{label}</Text>
-      <View style={styles.toggleRow}>
-        {[
-          { k: "yes", t: "Yes" },
-          { k: "no", t: "No" },
-          { k: "na", t: "N/A" },
-        ].map((opt) => {
-          const active = value === opt.k;
-          return (
-            <Pressable
-              key={opt.k}
-              onPress={() => onChange(opt.k)}
-              style={[styles.toggleBtn, active && styles.toggleBtnActive]}
-            >
-              <Text style={[styles.toggleText, active && styles.toggleTextActive]}>
-                {opt.t}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-    </View>
-  );
+function initials(name) {
+  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "G";
+  const a = parts[0]?.[0] || "";
+  const b = parts.length > 1 ? parts[parts.length - 1]?.[0] || "" : "";
+  return (a + b).toUpperCase();
 }
 
 function formatHdcp(h) {
   const n = Number(h);
   if (!Number.isFinite(n)) return 0;
   return Math.round(n);
+}
+
+function Seg3({ value, onChange }) {
+  const opts = [
+    { k: "yes", t: "Yes" },
+    { k: "no", t: "No" },
+    { k: "na", t: "N/A" },
+  ];
+
+  return (
+    <View style={styles.segWrap}>
+      {opts.map((o) => {
+        const active = value === o.k;
+        return (
+          <Pressable
+            key={o.k}
+            onPress={() => onChange(o.k)}
+            style={({ pressed }) => [
+              styles.segBtn,
+              active && styles.segBtnActive,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text style={[styles.segText, active && styles.segTextActive]}>{o.t}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
 }
 
 export default function ScoreEntryScreen({ navigation, route }) {
@@ -77,10 +89,39 @@ export default function ScoreEntryScreen({ navigation, route }) {
       putts: "",
       fairway: "na",
       green: "na",
+      sandSave: "na",
       updown: "na",
     }))
   );
 
+  // Fast lookup so renders stay snappy with many players
+  const rowById = useMemo(() => {
+    const m = new Map();
+    rows.forEach((r) => m.set(r.playerId, r));
+    return m;
+  }, [rows]);
+
+  // Ensure rows exist for all players (in case player list changes)
+  useEffect(() => {
+    setRows((prev) => {
+      const m = new Map(prev.map((r) => [r.playerId, r]));
+      return normalizedPlayers.map((p) => {
+        return (
+          m.get(p.id) || {
+            playerId: p.id,
+            strokes: "",
+            putts: "",
+            fairway: "na",
+            green: "na",
+            sandSave: "na",
+            updown: "na",
+          }
+        );
+      });
+    });
+  }, [normalizedPlayers]);
+
+  // Load saved hole data
   useEffect(() => {
     let live = true;
     (async () => {
@@ -108,7 +149,7 @@ export default function ScoreEntryScreen({ navigation, route }) {
     );
   }
 
-  async function persistHole() {
+  const persistHole = useCallback(async () => {
     const state = (await loadActiveRound()) || {
       course,
       tee,
@@ -122,7 +163,6 @@ export default function ScoreEntryScreen({ navigation, route }) {
     if (!state.meta) state.meta = {};
     if (holeMeta && typeof holeMeta === "object") state.meta.holeMeta = holeMeta;
 
-    // Ensure we store players (including handicap) in the active round
     state.players = normalizedPlayers;
 
     if (!state.holes[String(hole)]) state.holes[String(hole)] = { players: {} };
@@ -134,6 +174,7 @@ export default function ScoreEntryScreen({ navigation, route }) {
         putts: String(r.putts ?? ""),
         fairway: r.fairway ?? "na",
         green: r.green ?? "na",
+        sandSave: r.sandSave ?? "na",
         updown: r.updown ?? "na",
       };
     });
@@ -142,7 +183,27 @@ export default function ScoreEntryScreen({ navigation, route }) {
 
     const ok = await saveActiveRound(state);
     if (!ok) Alert.alert("Save failed", "Could not save hole data.");
-  }
+  }, [course, tee, hole, holeMeta, normalizedPlayers, rows]);
+
+  // Save when leaving screen (header back / swipe / android back)
+  const leavingRef = useRef(false);
+  useEffect(() => {
+    const unsub = navigation.addListener("beforeRemove", (e) => {
+      if (leavingRef.current) return;
+      e.preventDefault();
+      leavingRef.current = true;
+
+      (async () => {
+        try {
+          await persistHole();
+        } catch {}
+        navigation.dispatch(e.data.action);
+        leavingRef.current = false;
+      })();
+    });
+
+    return unsub;
+  }, [navigation, persistHole]);
 
   async function backToHole() {
     Keyboard.dismiss();
@@ -163,81 +224,106 @@ export default function ScoreEntryScreen({ navigation, route }) {
     navigation.navigate("Scorecard", { course, tee, players, holeMeta });
   }
 
+  const subtitle = `Hole ${hole} • ${course?.name || ""} • ${tee?.name || ""} Tees`;
+
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
       <SafeAreaView style={styles.safe}>
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-        >
-          <View style={styles.header}>
-            <Text style={styles.title}>Input Scores</Text>
-            <Text style={styles.sub}>
-              Hole {hole} • {course?.name || ""} • {tee?.name || ""} Tees
-            </Text>
-          </View>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+          <ScreenHeader navigation={navigation} title="Input Scores" subtitle={subtitle} />
 
-          <ScrollView contentContainerStyle={{ paddingBottom: 120 }}>
-            {normalizedPlayers.map((p) => {
-              const r = rows.find((x) => x.playerId === p.id) || {};
-              const hdcp = formatHdcp(p.handicap);
-
+          <FlatList
+            data={normalizedPlayers}
+            keyExtractor={(p) => p.id}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ paddingTop: 12, paddingBottom: 130 }}
+            renderItem={({ item: p, index }) => {
+              const r = rowById.get(p.id) || {};
               return (
-                <View key={p.id} style={styles.card}>
-                  <View style={styles.cardHeaderRow}>
-                    <Text style={styles.playerName}>{p.name}</Text>
+                <View style={styles.card}>
+                  <View style={styles.cardTop}>
+                    <View style={styles.avatar}>
+                      <Text style={styles.avatarText}>{initials(p.name)}</Text>
+                    </View>
+
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.playerTitle} numberOfLines={1}>
+                        {p.name}
+                      </Text>
+                      <Text style={styles.playerSub}>
+                        Player {index + 1} • HCP {formatHdcp(p.handicap)}
+                      </Text>
+                    </View>
+
                     <View style={styles.hdcpPill}>
-                      <Text style={styles.hdcpText}>HDCP {hdcp}</Text>
+                      <Text style={styles.hdcpText}>HCP {formatHdcp(p.handicap)}</Text>
                     </View>
                   </View>
 
-                  <View style={styles.twoColRow}>
-                    <View style={styles.fieldBox}>
-                      <Text style={styles.label}>Strokes</Text>
+                  <View style={styles.bigInputsRow}>
+                    <View style={styles.bigField}>
+                      <Text style={styles.kicker}>Strokes</Text>
                       <TextInput
-                        style={styles.input}
                         value={r.strokes ?? ""}
                         onChangeText={(v) => updateRow(p.id, "strokes", v)}
-                        keyboardType="numeric"
+                        keyboardType="number-pad"
                         placeholder="0"
-                        placeholderTextColor={MUTED}
+                        placeholderTextColor="rgba(255,255,255,0.35)"
+                        style={styles.bigInput}
                       />
                     </View>
 
-                    <View style={styles.fieldBox}>
-                      <Text style={styles.label}>Putts</Text>
+                    <View style={styles.bigField}>
+                      <Text style={styles.kicker}>Putts</Text>
                       <TextInput
-                        style={styles.input}
                         value={r.putts ?? ""}
                         onChangeText={(v) => updateRow(p.id, "putts", v)}
-                        keyboardType="numeric"
+                        keyboardType="number-pad"
                         placeholder="0"
-                        placeholderTextColor={MUTED}
+                        placeholderTextColor="rgba(255,255,255,0.35)"
+                        style={styles.bigInput}
                       />
                     </View>
                   </View>
 
-                  <View style={styles.inner}>
-                    <TriToggle
-                      label="Fairway Hit"
-                      value={r.fairway ?? "na"}
-                      onChange={(v) => updateRow(p.id, "fairway", v)}
-                    />
-                    <TriToggle
-                      label="Green in Regulation"
-                      value={r.green ?? "na"}
-                      onChange={(v) => updateRow(p.id, "green", v)}
-                    />
-                    <TriToggle
-                      label="Up & Down"
-                      value={r.updown ?? "na"}
-                      onChange={(v) => updateRow(p.id, "updown", v)}
-                    />
+                  <View style={styles.divider} />
+
+                  <View style={styles.statRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.statTitle}>Fairway Hit</Text>
+                      <Text style={styles.statHint}>Off the tee</Text>
+                    </View>
+                    <Seg3 value={r.fairway ?? "na"} onChange={(v) => updateRow(p.id, "fairway", v)} />
+                  </View>
+
+                  <View style={styles.statRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.statTitle}>GIR</Text>
+                      <Text style={styles.statHint}>Green in regulation</Text>
+                    </View>
+                    <Seg3 value={r.green ?? "na"} onChange={(v) => updateRow(p.id, "green", v)} />
+                  </View>
+
+                  <View style={styles.statRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.statTitle}>Sand Save</Text>
+                      <Text style={styles.statHint}>Bunker save</Text>
+                    </View>
+                    <Seg3 value={r.sandSave ?? "na"} onChange={(v) => updateRow(p.id, "sandSave", v)} />
+                  </View>
+
+                  <View style={styles.statRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.statTitle}>Up & Down</Text>
+                      <Text style={styles.statHint}>Save par or better</Text>
+                    </View>
+                    <Seg3 value={r.updown ?? "na"} onChange={(v) => updateRow(p.id, "updown", v)} />
                   </View>
                 </View>
               );
-            })}
-          </ScrollView>
+            }}
+          />
 
           <View style={styles.footer}>
             <View style={styles.footerRow}>
@@ -263,73 +349,110 @@ export default function ScoreEntryScreen({ navigation, route }) {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: BG },
 
-  header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10 },
-  title: { color: WHITE, fontSize: 28, fontWeight: "900" },
-  sub: { color: MUTED, marginTop: 6, fontWeight: "700" },
-
   card: {
     marginHorizontal: 16,
-    marginBottom: 14,
-    backgroundColor: CARD,
+    marginBottom: 12,
     borderRadius: 22,
     padding: 14,
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: CARD,
   },
 
-  cardHeaderRow: {
-    flexDirection: "row",
+  cardTop: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 },
+
+  avatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    backgroundColor: "rgba(255,255,255,0.06)",
     alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 12,
-    gap: 10,
+    justifyContent: "center",
   },
+  avatarText: { color: WHITE, fontWeight: "900" },
 
-  playerName: { color: WHITE, fontWeight: "900", fontSize: 18, flex: 1 },
+  playerTitle: { color: WHITE, fontWeight: "900", fontSize: 16 },
+  playerSub: { marginTop: 6, color: MUTED, fontWeight: "800", fontSize: 12 },
 
   hdcpPill: {
-    backgroundColor: INNER2,
+    height: 34,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#365C90",
-  },
-  hdcpText: { color: WHITE, fontWeight: "900", fontSize: 12 },
-
-  twoColRow: { flexDirection: "row", gap: 12 },
-  fieldBox: { flex: 1 },
-
-  label: { color: MUTED, fontSize: 12, fontWeight: "900", marginBottom: 6 },
-
-  input: {
-    height: 48,
-    borderRadius: 16,
-    backgroundColor: BG,
-    color: WHITE,
-    paddingHorizontal: 12,
-    fontWeight: "800",
-  },
-
-  inner: {
-    marginTop: 12,
-    backgroundColor: INNER,
-    borderRadius: 18,
-    padding: 12,
-  },
-
-  toggleRow: { flexDirection: "row", gap: 10, marginTop: 8 },
-  toggleBtn: {
-    flex: 1,
-    height: 44,
-    borderRadius: 16,
+    borderColor: "rgba(255,255,255,0.14)",
     backgroundColor: INNER2,
     alignItems: "center",
     justifyContent: "center",
   },
-  toggleBtnActive: { backgroundColor: GREEN },
-  toggleText: { color: WHITE, fontWeight: "900" },
-  toggleTextActive: { color: GREEN_TEXT },
+  hdcpText: { color: WHITE, fontWeight: "900", fontSize: 12 },
 
-  footer: { padding: 16, backgroundColor: BG },
+  bigInputsRow: { flexDirection: "row", gap: 12 },
+  bigField: {
+    flex: 1,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: INNER,
+    padding: 12,
+  },
+  kicker: { color: MUTED, fontWeight: "900", fontSize: 12, letterSpacing: 0.6, textTransform: "uppercase" },
+
+  bigInput: {
+    marginTop: 10,
+    height: 52,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(0,0,0,0.18)",
+    color: WHITE,
+    paddingHorizontal: 12,
+    fontSize: 22,
+    fontWeight: "900",
+  },
+
+  divider: { marginTop: 14, height: 1, backgroundColor: "rgba(255,255,255,0.08)" },
+
+  statRow: {
+    marginTop: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: INNER,
+    padding: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  statTitle: { color: WHITE, fontWeight: "900", fontSize: 14 },
+  statHint: { marginTop: 5, color: MUTED, fontWeight: "800", fontSize: 12 },
+
+  segWrap: { flexDirection: "row", gap: 8 },
+  segBtn: {
+    width: 60,
+    height: 38,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    backgroundColor: INNER2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  segBtnActive: { borderColor: "rgba(46,125,255,0.65)", backgroundColor: "rgba(46,125,255,0.22)" },
+  segText: { color: WHITE, fontWeight: "900", fontSize: 12, opacity: 0.85 },
+  segTextActive: { opacity: 1 },
+
+  footer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    padding: 16,
+    backgroundColor: BG,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.08)",
+  },
   footerRow: { flexDirection: "row", gap: 10 },
 
   secondaryBtn: {
@@ -339,6 +462,8 @@ const styles = StyleSheet.create({
     backgroundColor: INNER2,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
   },
   secondaryText: { color: WHITE, fontWeight: "900" },
 
@@ -349,6 +474,8 @@ const styles = StyleSheet.create({
     backgroundColor: INNER2,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
   },
   midText: { color: WHITE, fontWeight: "900" },
 
@@ -356,9 +483,11 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 56,
     borderRadius: 999,
-    backgroundColor: GREEN,
+    backgroundColor: BLUE,
     alignItems: "center",
     justifyContent: "center",
   },
-  primaryText: { color: GREEN_TEXT, fontWeight: "900" },
+  primaryText: { color: WHITE, fontWeight: "900" },
+
+  pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
 });

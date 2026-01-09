@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  SafeAreaView,
   View,
   Text,
   StyleSheet,
@@ -14,6 +13,7 @@ import {
 } from "react-native";
 
 import theme from "../theme";
+import ScreenHeader from "../components/ScreenHeader";
 import { getBuddies, saveBuddies } from "../storage/buddies";
 
 function makeId() {
@@ -26,27 +26,24 @@ function clampHandicap(n) {
 }
 
 function cleanPhone(s) {
-  // keep digits only for storage
   return (s || "").replace(/[^\d]/g, "");
 }
 
 function isValidEmail(email) {
   const e = (email || "").trim();
-  if (!e) return true; // optional
+  if (!e) return true;
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 }
 
-export default function BuddyListScreen() {
+export default function BuddyListScreen({ navigation }) {
   const [buddies, setBuddies] = useState([]);
   const [saving, setSaving] = useState(false);
 
-  // Add fields
   const [name, setName] = useState("");
   const [handicap, setHandicap] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
 
-  // Edit modal
   const [editing, setEditing] = useState(null);
   const [editName, setEditName] = useState("");
   const [editHandicap, setEditHandicap] = useState("");
@@ -98,10 +95,7 @@ export default function BuddyListScreen() {
     const p = cleanPhone(phone);
     const e = (email || "").trim();
 
-    const next = [
-      { id: makeId(), name: trimmed, handicap: h, phone: p, email: e, notes: "" },
-      ...buddies,
-    ];
+    const next = [{ id: makeId(), name: trimmed, handicap: h, phone: p, email: e, notes: "" }, ...buddies];
 
     setBuddies(next);
     setName("");
@@ -167,13 +161,14 @@ export default function BuddyListScreen() {
   function formatPhoneForDisplay(digits) {
     const s = (digits || "").trim();
     if (!s) return "";
-    // simple US/Canada formatting for 10 digits
     if (s.length === 10) return `(${s.slice(0, 3)}) ${s.slice(3, 6)}-${s.slice(6)}`;
     return s;
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <View style={styles.screen}>
+      <ScreenHeader navigation={navigation} title="Buddies" subtitle="Your saved players" />
+
       <View style={styles.card}>
         <Text style={styles.label}>Add a buddy</Text>
 
@@ -254,7 +249,11 @@ export default function BuddyListScreen() {
                 {item.email ? item.email : ""}
               </Text>
 
-              {item.notes ? <Text style={styles.buddyMeta2} numberOfLines={1}>{item.notes}</Text> : null}
+              {item.notes ? (
+                <Text style={styles.buddyMeta2} numberOfLines={1}>
+                  {item.notes}
+                </Text>
+              ) : null}
             </View>
 
             <Pressable onPress={() => onDelete(item.id)} style={({ pressed }) => [styles.delBtn, pressed && styles.pressed]}>
@@ -334,16 +333,16 @@ export default function BuddyListScreen() {
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: (theme?.colors?.bg) || "#0B1220" },
+  screen: { flex: 1, backgroundColor: theme?.colors?.bg || "#0B1220" },
 
   card: {
     marginHorizontal: 16,
-    marginTop: 10,
+    marginTop: 14,
     marginBottom: 12,
     borderRadius: 18,
     borderWidth: 1,
@@ -400,7 +399,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: (theme?.colors?.primary) || "#2E7DFF",
+    backgroundColor: theme?.colors?.primary || "#2E7DFF",
     ...Platform.select({
       ios: { shadowColor: "#000", shadowOpacity: 0.22, shadowRadius: 14, shadowOffset: { width: 0, height: 8 } },
       android: { elevation: 5 },
@@ -475,7 +474,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: (theme?.colors?.primary) || "#2E7DFF",
+    backgroundColor: theme?.colors?.primary || "#2E7DFF",
   },
   modalBtnGhost: {
     backgroundColor: "rgba(255,255,255,0.06)",

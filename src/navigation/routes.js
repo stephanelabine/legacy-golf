@@ -18,10 +18,14 @@ const ROUTES = {
   COURSE_DATA: "CourseData",
 
   HISTORY: "History",
+  ROUND_DETAILS: "RoundDetails",
+
   PROFILE: "Profile",
   BUDDIES: "Buddies",
 
   EQUIPMENT: "Equipment",
+
+  WAGERS: "Wagers",
 };
 
 export default ROUTES;

@@ -1,18 +1,10 @@
 import React, { useMemo, useState } from "react";
-import {
-  SafeAreaView,
-  View,
-  Text,
-  StyleSheet,
-  Pressable,
-  FlatList,
-  Alert,
-  ScrollView,
-} from "react-native";
+import { View, Text, StyleSheet, Pressable, FlatList, Alert, ScrollView } from "react-native";
 
 import theme from "../theme";
 import ROUTES from "../navigation/routes";
 import BottomSheet from "../components/BottomSheet";
+import ScreenHeader from "../components/ScreenHeader";
 import gameFormats from "../data/gameFormats.json";
 
 const GAMES = [
@@ -65,22 +57,10 @@ export default function GamesScreen({ navigation }) {
     }
     if (!selectedSupported) return;
 
-    Alert.alert(
-      "Going to Game Setup…",
-      `${selected.title}`,
-      [
-        {
-          text: "OK",
-          onPress: () => {
-            navigation.navigate(ROUTES.GAME_SETUP, {
-              gameId: selected.id,
-              gameTitle: selected.title,
-            });
-          },
-        },
-      ],
-      { cancelable: true }
-    );
+    navigation.navigate(ROUTES.GAME_SETUP, {
+      gameId: selected.id,
+      gameTitle: selected.title,
+    });
   }
 
   const info = infoId ? gameFormats?.[infoId] : null;
@@ -155,11 +135,8 @@ export default function GamesScreen({ navigation }) {
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <View style={styles.header}>
-        <Text style={styles.h1}>Games</Text>
-        <Text style={styles.h2}>Pick a format, then we’ll start your round.</Text>
-      </View>
+    <View style={styles.screen}>
+      <ScreenHeader navigation={navigation} title="Games" subtitle="Pick a format, then we’ll start your round." />
 
       <FlatList
         data={items}
@@ -194,16 +171,12 @@ export default function GamesScreen({ navigation }) {
           </Pressable>
         </ScrollView>
       </BottomSheet>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: theme?.colors?.bg || "#0B1220" },
-
-  header: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 6 },
-  h1: { color: theme?.colors?.text || "#fff", fontSize: 34, fontWeight: "900", letterSpacing: 0.2 },
-  h2: { marginTop: 6, color: theme?.colors?.text || "#fff", opacity: 0.72, fontSize: 14, fontWeight: "700" },
+  screen: { flex: 1, backgroundColor: theme?.colors?.bg || "#0B1220" },
 
   listContent: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 140 },
 

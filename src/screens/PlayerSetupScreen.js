@@ -11,6 +11,8 @@ import {
 } from "react-native";
 
 import theme from "../theme";
+import ROUTES from "../navigation/routes";
+import ScreenHeader from "../components/ScreenHeader";
 
 function clampCount(n) {
   if (!Number.isFinite(n)) return null;
@@ -57,7 +59,7 @@ export default function PlayerSetupScreen({ navigation, route }) {
   const course = params?.course || null;
   const tee = params?.tee || null;
 
-  const scoringRaw = params?.scoring || params?.scoringType || "net";
+  const scoringRaw = params?.scoring || params?.scoringType || params?.scoringMode || "net";
   const scoring = String(scoringRaw || "net").toLowerCase() === "gross" ? "gross" : "net";
 
   const gameLabel = useMemo(() => pickGameLabel(params), [params]);
@@ -91,11 +93,11 @@ export default function PlayerSetupScreen({ navigation, route }) {
     Keyboard.dismiss();
   }
 
-  function onContinue() {
+  function onNext() {
     if (!canContinue) return;
     Keyboard.dismiss();
 
-    navigation.navigate("PlayerEntry", {
+    navigation.navigate(ROUTES.PLAYER_ENTRY, {
       ...params,
       course,
       tee,
@@ -114,26 +116,13 @@ export default function PlayerSetupScreen({ navigation, route }) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={styles.topGlowA} pointerEvents="none" />
-      <View style={styles.topGlowB} pointerEvents="none" />
+      <ScreenHeader
+        navigation={navigation}
+        title="Players"
+        subtitle="How many are playing today?"
+      />
 
-      <View style={styles.headerRow}>
-        <Pressable
-          onPress={() => navigation.goBack()}
-          hitSlop={12}
-          style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}
-        >
-          <Text style={styles.backText}>Back</Text>
-        </Pressable>
-        <View style={{ flex: 1 }} />
-      </View>
-
-      <View style={styles.titleWrap}>
-        <Text style={styles.h1}>How many players?</Text>
-        <Text style={styles.h2}>Type the number. Then continue.</Text>
-      </View>
-
-      {/* Round Summary (emerald green) */}
+      {/* Round Summary */}
       <View style={styles.summaryCard}>
         <Text style={styles.summaryKicker}>ROUND SUMMARY</Text>
         <Text style={styles.summaryTitle} numberOfLines={1}>
@@ -150,7 +139,6 @@ export default function PlayerSetupScreen({ navigation, route }) {
       <View style={styles.inputCard}>
         <Text style={styles.inputLabel}>Players</Text>
 
-        {/* Input pill is NOT green (clean dark luxury) */}
         <View style={styles.bigPill}>
           <TextInput
             ref={inputRef}
@@ -169,12 +157,12 @@ export default function PlayerSetupScreen({ navigation, route }) {
           </Pressable>
         </View>
 
-        <Text style={styles.note}>Example: type 7. You’ll add players on the next screen.</Text>
+        <Text style={styles.note}>Next you’ll add guests or choose buddies.</Text>
       </View>
 
       <View style={styles.bottomBar}>
         <Pressable
-          onPress={onContinue}
+          onPress={onNext}
           disabled={!canContinue}
           style={({ pressed }) => [
             styles.cta,
@@ -182,64 +170,22 @@ export default function PlayerSetupScreen({ navigation, route }) {
             pressed && canContinue && styles.pressed,
           ]}
         >
-          <Text style={styles.ctaText}>Continue</Text>
+          <Text style={styles.ctaText}>Next: Add Players</Text>
         </Pressable>
       </View>
     </SafeAreaView>
   );
 }
 
-const GREEN_BG = "#0F7A4A"; // premium emerald
+const GREEN_BG = "#0F7A4A";
 const GREEN_BORDER = "rgba(255,255,255,0.18)";
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: theme?.bg || theme?.colors?.bg || "#0B1220" },
 
-  topGlowA: {
-    position: "absolute",
-    top: -90,
-    left: -40,
-    width: 280,
-    height: 280,
-    borderRadius: 280,
-    backgroundColor: "rgba(46,125,255,0.22)",
-    opacity: 0.35,
-  },
-  topGlowB: {
-    position: "absolute",
-    top: -120,
-    right: -60,
-    width: 320,
-    height: 320,
-    borderRadius: 320,
-    backgroundColor: "rgba(255,255,255,0.10)",
-    opacity: 0.18,
-  },
-
-  headerRow: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 6,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  backBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    backgroundColor: "rgba(255,255,255,0.06)",
-  },
-  backText: { color: "#fff", fontSize: 12, fontWeight: "900", letterSpacing: 0.3 },
-
-  titleWrap: { paddingHorizontal: 16, paddingTop: 6, paddingBottom: 10 },
-  h1: { color: "#fff", fontSize: 34, fontWeight: "900", letterSpacing: 0.2, lineHeight: 40 },
-  h2: { marginTop: 10, color: "rgba(255,255,255,0.72)", fontSize: 13, fontWeight: "800" },
-
   summaryCard: {
     marginHorizontal: 16,
-    marginTop: 8,
+    marginTop: 12,
     borderRadius: 20,
     borderWidth: 1,
     borderColor: GREEN_BORDER,

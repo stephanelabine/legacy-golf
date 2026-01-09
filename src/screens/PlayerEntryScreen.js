@@ -17,6 +17,8 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import theme from "../theme";
+import ROUTES from "../navigation/routes";
+import ScreenHeader from "../components/ScreenHeader";
 import { getBuddies } from "../storage/buddies";
 
 const PROFILE_KEY = "LEGACY_GOLF_PROFILE_V1";
@@ -96,7 +98,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
   const tee = params?.tee || null;
   const holeMeta = params?.holeMeta || null;
 
-  const scoringRaw = params?.scoring || params?.scoringType || "net";
+  const scoringRaw = params?.scoring || params?.scoringType || params?.scoringMode || "net";
   const scoring = String(scoringRaw || "net").toLowerCase() === "gross" ? "gross" : "net";
 
   const gameLabel = useMemo(() => pickGameLabel(params), [params]);
@@ -142,16 +144,11 @@ export default function PlayerEntryScreen({ navigation, route }) {
             const nextName = parsed?.name || "Stephane L";
             const nextHcp = parsed?.handicap ?? clampHandicap(p.handicap ?? 0);
 
-            return {
-              ...p,
-              name: nextName,
-              handicap: nextHcp,
-              source: "me",
-            };
+            return { ...p, name: nextName, handicap: nextHcp, source: "me" };
           });
         });
       } catch {
-        // ignore: keep defaults
+        // ignore
       }
     })();
 
@@ -175,7 +172,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
     };
   }, []);
 
-  const canContinue = players.length === playerCount;
+  const canStart = players.length === playerCount;
 
   const filteredBuddies = useMemo(() => {
     const q = (buddyQuery || "").trim().toLowerCase();
@@ -243,11 +240,12 @@ export default function PlayerEntryScreen({ navigation, route }) {
     } catch {}
   }
 
-  function onContinue() {
-    if (!canContinue) return;
+  function onStartRound() {
+    if (!canStart) return;
 
+    // GO TO ROUND HUB (Hole View screen)
     try {
-      navigation.navigate("ScoreEntry", {
+      navigation.navigate(ROUTES.HOLE_VIEW, {
         ...params,
         course,
         tee,
@@ -256,9 +254,10 @@ export default function PlayerEntryScreen({ navigation, route }) {
         players,
         playerCount,
         joinCode,
+        startHole: 1,
       });
     } catch {
-      Alert.alert("Next screen not wired", 'Wire the next route ("ScoreEntry") in your navigator.');
+      Alert.alert("Next screen not wired", 'Wire the next route ("HoleView") in your navigator.');
     }
   }
 
@@ -271,29 +270,22 @@ export default function PlayerEntryScreen({ navigation, route }) {
   const summaryLine1 = `${gameLabel} • ${scoring === "gross" ? "Gross" : "Net"} • ${players.length}/${playerCount}`;
   const summaryLine2 = `${courseName} • ${teeName}${teeYards ? ` (${teeYards})` : ""}`;
 
+  const rightInvite = (
+    <Pressable onPress={() => setInviteModal(true)} style={({ pressed }) => [styles.headerRight, pressed && styles.pressed]}>
+      <Text style={styles.headerRightText}>Invite</Text>
+    </Pressable>
+  );
+
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={styles.headerWrap}>
-        <View style={styles.topGlowA} pointerEvents="none" />
-        <View style={styles.topGlowB} pointerEvents="none" />
+      <ScreenHeader
+        navigation={navigation}
+        title="Add Players"
+        subtitle={`${players.length} of ${playerCount}`}
+        right={rightInvite}
+      />
 
-        <View style={styles.headerRow}>
-          <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}>
-            <Text style={styles.backText}>Back</Text>
-          </Pressable>
-
-          <View style={{ flex: 1 }} />
-
-          <Pressable onPress={() => setInviteModal(true)} style={({ pressed }) => [styles.inviteBtn, pressed && styles.pressed]}>
-            <Text style={styles.inviteText}>Invite</Text>
-          </Pressable>
-        </View>
-
-        <Text style={styles.h1}>Add Players</Text>
-        <Text style={styles.h2}>
-          {players.length} of {playerCount}
-        </Text>
-
+      <View style={styles.topSection}>
         <View style={styles.progressTrack}>
           <View style={[styles.progressFill, { width: `${progressPct * 100}%` }]} />
         </View>
@@ -369,11 +361,13 @@ export default function PlayerEntryScreen({ navigation, route }) {
 
       <View style={styles.bottomBar}>
         <Pressable
-          onPress={onContinue}
-          disabled={!canContinue}
-          style={({ pressed }) => [styles.cta, !canContinue && styles.ctaDisabled, pressed && canContinue && styles.pressed]}
+          onPress={onStartRound}
+          disabled={!canStart}
+          style={({ pressed }) => [styles.cta, !canStart && styles.ctaDisabled, pressed && canStart && styles.pressed]}
         >
-          <Text style={styles.ctaText}>{canContinue ? "Continue" : `Add ${playerCount - players.length} more`}</Text>
+          <Text style={styles.ctaText}>
+            {canStart ? "Start Round" : `Add ${playerCount - players.length} more`}
+          </Text>
         </Pressable>
       </View>
 
@@ -501,45 +495,22 @@ const GREEN_BORDER = "rgba(255,255,255,0.18)";
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: theme?.bg || theme?.colors?.bg || "#0B1220" },
 
-  headerWrap: {
-    paddingTop: 12,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.06)",
-    overflow: "hidden",
+  topSection: { paddingTop: 12, paddingBottom: 10 },
+
+  headerRight: {
+    height: 38,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.16)",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 70,
   },
-  topGlowA: {
-    position: "absolute",
-    top: -90,
-    left: -40,
-    width: 280,
-    height: 280,
-    borderRadius: 280,
-    backgroundColor: "rgba(46,125,255,0.22)",
-    opacity: 0.35,
-  },
-  topGlowB: {
-    position: "absolute",
-    top: -120,
-    right: -60,
-    width: 320,
-    height: 320,
-    borderRadius: 320,
-    backgroundColor: "rgba(255,255,255,0.10)",
-    opacity: 0.18,
-  },
+  headerRightText: { color: "#fff", fontWeight: "900", fontSize: 13 },
 
-  headerRow: { paddingHorizontal: 16, flexDirection: "row", alignItems: "center", gap: 12 },
-  backBtn: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 999, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", backgroundColor: "rgba(255,255,255,0.06)" },
-  backText: { color: "#fff", fontSize: 12, fontWeight: "900", letterSpacing: 0.3 },
-
-  inviteBtn: { height: 40, paddingHorizontal: 14, borderRadius: 14, borderWidth: 1, borderColor: "rgba(255,255,255,0.16)", backgroundColor: "rgba(255,255,255,0.06)", alignItems: "center", justifyContent: "center" },
-  inviteText: { color: "#fff", fontWeight: "900", fontSize: 13 },
-
-  h1: { paddingHorizontal: 16, marginTop: 10, color: "#fff", fontSize: 30, fontWeight: "900", lineHeight: 36 },
-  h2: { paddingHorizontal: 16, marginTop: 8, color: "rgba(255,255,255,0.72)", fontSize: 13, fontWeight: "800" },
-
-  progressTrack: { marginHorizontal: 16, marginTop: 12, height: 10, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.08)", overflow: "hidden" },
+  progressTrack: { marginHorizontal: 16, height: 10, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.08)", overflow: "hidden" },
   progressFill: { height: 10, borderRadius: 999, backgroundColor: theme?.primary || theme?.colors?.primary || "#2E7DFF" },
 
   summaryCard: { marginHorizontal: 16, marginTop: 12, borderRadius: 20, borderWidth: 1, borderColor: GREEN_BORDER, backgroundColor: GREEN_BG, padding: 14 },
