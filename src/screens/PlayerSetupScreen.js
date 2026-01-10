@@ -69,7 +69,12 @@ export default function PlayerSetupScreen({ navigation, route }) {
     return clampCount(raw) || 4;
   }, [params?.playerCount]);
 
+  // Draft input (what they are typing right now)
   const [countText, setCountText] = useState(String(initialCount));
+
+  // Committed input (what the app considers “confirmed”)
+  const [committedCount, setCommittedCount] = useState(initialCount);
+
   const inputRef = useRef(null);
 
   useEffect(() => {
@@ -81,15 +86,26 @@ export default function PlayerSetupScreen({ navigation, route }) {
     return () => clearTimeout(t);
   }, []);
 
-  const playerCount = useMemo(() => {
+  const draftCount = useMemo(() => {
     const digits = String(countText || "").replace(/[^\d]/g, "");
     if (!digits) return null;
     return clampCount(Number(digits));
   }, [countText]);
 
-  const canContinue = !!playerCount;
+  const hasValidDraft = !!draftCount;
+
+  // Dirty means: they typed a new valid number different than the committed one
+  const isDirty = hasValidDraft && Number(draftCount) !== Number(committedCount);
+
+  // Done becomes the “call to action” ONLY when there’s a valid, changed value to confirm
+  const canDone = hasValidDraft && (committedCount == null || isDirty);
+
+  // Next is enabled only when we have a committed count AND nothing is waiting to be confirmed
+  const canContinue = !!committedCount && !isDirty;
 
   function onDone() {
+    if (!canDone) return;
+    setCommittedCount(draftCount);
     Keyboard.dismiss();
   }
 
@@ -102,7 +118,7 @@ export default function PlayerSetupScreen({ navigation, route }) {
       course,
       tee,
       scoring,
-      playerCount,
+      playerCount: committedCount,
     });
   }
 
@@ -112,17 +128,14 @@ export default function PlayerSetupScreen({ navigation, route }) {
 
   const summaryLine1 = `${gameLabel} • ${scoring === "gross" ? "Gross" : "Net"}`;
   const summaryLine2 = `${courseName} • ${teeName}${teeYards ? ` (${teeYards})` : ""}`;
-  const summaryLine3 = `Players: ${playerCount || "—"}`;
+  const summaryLine3 = `Players: ${committedCount || "—"}`;
+
+  const primary = theme?.primary || theme?.colors?.primary || "#2E7DFF";
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScreenHeader
-        navigation={navigation}
-        title="Players"
-        subtitle="How many are playing today?"
-      />
+      <ScreenHeader navigation={navigation} title="Players" subtitle="How many are playing today?" />
 
-      {/* Round Summary */}
       <View style={styles.summaryCard}>
         <Text style={styles.summaryKicker}>ROUND SUMMARY</Text>
         <Text style={styles.summaryTitle} numberOfLines={1}>
@@ -149,15 +162,26 @@ export default function PlayerSetupScreen({ navigation, route }) {
             keyboardType="number-pad"
             maxLength={2}
             style={styles.bigInput}
-            selectionColor={theme?.primary || theme?.colors?.primary || "#2E7DFF"}
+            selectionColor={primary}
           />
 
-          <Pressable onPress={onDone} style={({ pressed }) => [styles.donePill, pressed && styles.pressed]}>
-            <Text style={styles.doneText}>Done</Text>
+          <Pressable
+            onPress={onDone}
+            disabled={!canDone}
+            style={({ pressed }) => [
+              styles.donePill,
+              canDone && { backgroundColor: primary, borderColor: "rgba(255,255,255,0.22)" },
+              !canDone && styles.donePillDisabled,
+              pressed && canDone && styles.pressed,
+            ]}
+          >
+            <Text style={[styles.doneText, canDone && { color: "#fff" }]}>Done</Text>
           </Pressable>
         </View>
 
-        <Text style={styles.note}>Next you’ll add guests or choose buddies.</Text>
+        <Text style={styles.note}>
+          {isDirty ? "Press Done to confirm the player count." : "Next you’ll add guests or choose buddies."}
+        </Text>
       </View>
 
       <View style={styles.bottomBar}>
@@ -228,6 +252,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     paddingVertical: 6,
   },
+
   donePill: {
     height: 40,
     paddingHorizontal: 14,
@@ -238,7 +263,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  doneText: { color: "#fff", fontWeight: "900", fontSize: 13 },
+  donePillDisabled: { opacity: 0.55 },
+  doneText: { color: "rgba(255,255,255,0.92)", fontWeight: "900", fontSize: 13 },
 
   note: { marginTop: 12, color: "rgba(255,255,255,0.62)", fontWeight: "800", fontSize: 12, lineHeight: 17 },
 

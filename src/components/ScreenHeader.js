@@ -14,6 +14,9 @@ export default function ScreenHeader({
 }) {
   const insets = useSafeAreaInsets();
 
+  // Slightly reduce the perceived “dead space” at the very top while staying safe.
+  const topPad = Math.max(0, (insets?.top || 0) - 8);
+
   function onBack() {
     if (!navigation) return;
     if (navigation.canGoBack?.()) navigation.goBack();
@@ -21,7 +24,7 @@ export default function ScreenHeader({
   }
 
   return (
-    <View style={[styles.wrap, { paddingTop: insets.top }]}>
+    <View style={[styles.wrap, { paddingTop: topPad }]}>
       <View style={styles.topGlowA} pointerEvents="none" />
       <View style={styles.topGlowB} pointerEvents="none" />
 
@@ -42,18 +45,15 @@ export default function ScreenHeader({
           <Text style={styles.title} numberOfLines={1}>
             {title}
           </Text>
+
           {!!subtitle ? (
-            <Text style={styles.sub} numberOfLines={1}>
+            <Text style={styles.sub} numberOfLines={2}>
               {subtitle}
             </Text>
           ) : null}
         </View>
 
-        {right ? (
-          <View style={styles.rightWrap}>{right}</View>
-        ) : (
-          <View style={styles.sideSpacer} />
-        )}
+        {right ? <View style={styles.rightWrap}>{right}</View> : <View style={styles.sideSpacer} />}
       </View>
     </View>
   );
@@ -96,6 +96,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingTop: 10,
+    minHeight: 62,
   },
 
   pill: {
@@ -113,13 +114,19 @@ const styles = StyleSheet.create({
 
   sideSpacer: { minWidth: 70, height: 38 },
 
-  rightWrap: { minWidth: 70, alignItems: "flex-end" },
+  rightWrap: {
+    minWidth: 70,
+    alignItems: "flex-end",
+    justifyContent: "center",
+  },
 
   center: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 10,
+    paddingTop: 2,
+    paddingBottom: 2,
   },
   title: { color: "#fff", fontSize: 20, fontWeight: "900", letterSpacing: 0.6 },
   sub: {
@@ -127,6 +134,8 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.60)",
     fontSize: 12,
     fontWeight: "800",
+    lineHeight: 16,
+    textAlign: "center",
   },
 
   pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },

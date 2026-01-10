@@ -1,3 +1,4 @@
+// src/screens/NewRoundScreen.js
 import React, { useEffect, useMemo, useState } from "react";
 import {
   SafeAreaView,
@@ -22,6 +23,13 @@ import { haversineKm } from "../utils/distance";
 
 const FALLBACK_CENTER = { lat: 49.0504, lng: -122.3045 };
 const MAX_KM = 200;
+
+function formatKm(d) {
+  const n = Number(d);
+  if (!Number.isFinite(n)) return "—";
+  if (n < 1) return "<1 km";
+  return `${Math.round(n)} km`;
+}
 
 export default function NewRoundScreen({ navigation, route }) {
   const [query, setQuery] = useState("");
@@ -65,10 +73,13 @@ export default function NewRoundScreen({ navigation, route }) {
   }, []);
 
   const nearbyCourses = useMemo(() => {
-    return COURSES_LOCAL.map((c) => ({
-      ...c,
-      distanceKm: haversineKm(center, { lat: c.lat, lng: c.lng }),
-    }))
+    return COURSES_LOCAL.map((c) => {
+      const d = haversineKm(center, { lat: c.lat, lng: c.lng });
+      return {
+        ...c,
+        distanceKm: Number.isFinite(d) ? d : 999999,
+      };
+    })
       .filter((c) => c.distanceKm <= MAX_KM)
       .sort((a, b) => a.distanceKm - b.distanceKm);
   }, [center]);
@@ -104,7 +115,7 @@ export default function NewRoundScreen({ navigation, route }) {
 
             <View style={styles.rowMeta}>
               <View style={styles.kmPill}>
-                <Text style={styles.kmText}>{item.distanceKm.toFixed(0)} km</Text>
+                <Text style={styles.kmText}>{formatKm(item.distanceKm)}</Text>
               </View>
               <Text style={styles.rowSub} numberOfLines={1}>
                 Tap to select tee’s

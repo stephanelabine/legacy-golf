@@ -1,8 +1,23 @@
-import React, { useMemo, useState } from "react";
-import { SafeAreaView, View, Text, StyleSheet, Pressable, ScrollView } from "react-native";
-import ROUTES from "../navigation/routes";
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  SafeAreaView,
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
+  ScrollView,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
+  Keyboard,
+} from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const BG = "#000000";
+import ROUTES from "../navigation/routes";
+import ScreenHeader from "../components/ScreenHeader";
+
+const BG = "#0B1220";
 const CARD = "#1D3557";
 const INNER = "#243E63";
 const INNER2 = "#2A4A76";
@@ -22,6 +37,19 @@ function buildDefaultHoleMeta() {
   return meta;
 }
 
+function notesKey(courseName) {
+  const safe = String(courseName || "course")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_");
+  return `LEGACY_YARDAGE_BOOK_${safe}`;
+}
+
+function compactNote(s) {
+  const raw = String(s || "").trim();
+  if (!raw) return "";
+  return raw.replace(/\s+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 export default function HoleViewScreen({ navigation, route }) {
   const params = route?.params || {};
 
@@ -34,9 +62,7 @@ export default function HoleViewScreen({ navigation, route }) {
     courseParam?.courseName ??
     (typeof courseParam === "string" ? courseParam : "Course");
 
-  const teeName =
-    teeParam?.name ??
-    (typeof teeParam === "string" ? teeParam : "Tees");
+  const teeName = teeParam?.name ?? (typeof teeParam === "string" ? teeParam : "Tees");
 
   const players = params.players || [];
   const roundId = params.roundId ?? null;
@@ -50,12 +76,53 @@ export default function HoleViewScreen({ navigation, route }) {
 
   const par = holeMeta?.[String(currentHole)]?.par ?? 4;
 
+  // Placeholder content
   const yardages = { front: 145, middle: 158, back: 172 };
   const hazards = [
     { label: "Bunker (right)", yards: 120 },
     { label: "Water (left)", yards: 150 },
   ];
   const greenInfo = "Front pin • Slight back-to-front slope";
+
+  const [yardageOpen, setYardageOpen] = useState(false);
+  const [yardageText, setYardageText] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(notesKey(courseName));
+        if (!live) return;
+        const obj = raw ? JSON.parse(raw) : {};
+        const note = obj?.[String(currentHole)] || "";
+        setYardageText(String(note));
+      } catch {
+        if (!live) return;
+        setYardageText("");
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [courseName, currentHole]);
+
+  const notePreview = useMemo(() => compactNote(yardageText), [yardageText]);
+  const hasNote = notePreview.length > 0;
+
+  async function saveYardageNoteAndClose() {
+    setSaving(true);
+    try {
+      const key = notesKey(courseName);
+      const raw = await AsyncStorage.getItem(key);
+      const obj = raw ? JSON.parse(raw) : {};
+      obj[String(currentHole)] = String(yardageText || "").trim();
+      await AsyncStorage.setItem(key, JSON.stringify(obj));
+    } catch {}
+    setSaving(false);
+    Keyboard.dismiss();
+    setYardageOpen(false);
+  }
 
   function openScoreEntry() {
     navigation.navigate(ROUTES.SCORE_ENTRY, {
@@ -86,15 +153,18 @@ export default function HoleViewScreen({ navigation, route }) {
       tee: teeParam ?? { name: teeName },
       players,
       holeMeta,
+      courseName,
     });
   }
 
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={styles.header}>
-        <Text style={styles.course} numberOfLines={1}>{courseName}</Text>
-        <Text style={styles.sub}>{teeName} • Hole {currentHole} • Par {par}</Text>
-      </View>
+      <ScreenHeader
+        navigation={navigation}
+        title={courseName}
+        subtitle={`${teeName} • Hole ${currentHole} • Par ${par}`}
+        safeTop={false}
+      />
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.holePills}>
         {Array.from({ length: 18 }).map((_, i) => {
@@ -138,7 +208,9 @@ export default function HoleViewScreen({ navigation, route }) {
           <View style={styles.infoCard}>
             <Text style={styles.infoTitle}>Hazards</Text>
             {hazards.map((h, i) => (
-              <Text key={i} style={styles.infoText}>• {h.label} ~ {h.yards}y</Text>
+              <Text key={i} style={styles.infoText}>
+                • {h.label} ~ {h.yards}y
+              </Text>
             ))}
           </View>
           <View style={styles.infoCard}>
@@ -150,19 +222,39 @@ export default function HoleViewScreen({ navigation, route }) {
 
       {mode === "green" && (
         <View style={styles.singleCard}>
-          <Text style={styles.infoTitle}>Green View Details</Text>
+          <Text style={styles.infoTitle}>Green Notes</Text>
           <Text style={styles.infoText}>{greenInfo}</Text>
         </View>
       )}
 
       {mode === "hazards" && (
         <View style={styles.singleCard}>
-          <Text style={styles.infoTitle}>Hazards</Text>
+          <Text style={styles.infoTitle}>Strategy + Hazards</Text>
           {hazards.map((h, i) => (
-            <Text key={i} style={styles.infoText}>• {h.label} — {h.yards}y</Text>
+            <Text key={i} style={styles.infoText}>
+              • {h.label} — {h.yards}y
+            </Text>
           ))}
         </View>
       )}
+
+      <View style={styles.ybWrap}>
+        <Pressable onPress={() => setYardageOpen(true)} style={({ pressed }) => [styles.ybBtn, pressed && styles.pressed]}>
+          <Text style={styles.ybTitle}>Yardage Book</Text>
+
+          {hasNote ? (
+            <Text style={styles.ybPreview} numberOfLines={2} ellipsizeMode="tail">
+              {notePreview}
+            </Text>
+          ) : (
+            <Text style={styles.ybPreviewMuted} numberOfLines={2}>
+              No notes yet.
+            </Text>
+          )}
+
+          <Text style={styles.ybHint}>{hasNote ? "Tap to see notes" : "Tap to add notes"}</Text>
+        </Pressable>
+      </View>
 
       <View style={styles.footer}>
         <Pressable style={styles.greenBtn} onPress={openScoreEntry}>
@@ -173,6 +265,47 @@ export default function HoleViewScreen({ navigation, route }) {
           <Text style={styles.orangeText}>Scorecard</Text>
         </Pressable>
       </View>
+
+      <Modal visible={yardageOpen} transparent animationType="fade" onRequestClose={() => setYardageOpen(false)}>
+        <Pressable style={styles.modalBg} onPress={() => setYardageOpen(false)}>
+          <View />
+        </Pressable>
+
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalWrap}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalTop}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle}>Yardage Book</Text>
+                <Text style={styles.modalSub}>
+                  {courseName} • Hole {currentHole}
+                </Text>
+              </View>
+
+              <Pressable onPress={() => setYardageOpen(false)} style={({ pressed }) => [styles.modalX, pressed && styles.pressed]}>
+                <Text style={styles.modalXText}>✕</Text>
+              </Pressable>
+            </View>
+
+            <TextInput
+              value={yardageText}
+              onChangeText={setYardageText}
+              placeholder="Example: Wind left-to-right. Aim at right edge. Long is trouble. Best miss short-left…"
+              placeholderTextColor="rgba(255,255,255,0.45)"
+              style={styles.modalInput}
+              multiline
+              autoFocus
+            />
+
+            <Pressable
+              onPress={saveYardageNoteAndClose}
+              disabled={saving}
+              style={({ pressed }) => [styles.modalDone, pressed && styles.pressed, saving && { opacity: 0.7 }]}
+            >
+              <Text style={styles.modalDoneText}>{saving ? "Saving…" : "Done"}</Text>
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -180,11 +313,8 @@ export default function HoleViewScreen({ navigation, route }) {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: BG },
 
-  header: { padding: 16, paddingBottom: 8 },
-  course: { color: WHITE, fontSize: 20, fontWeight: "900" },
-  sub: { color: MUTED, fontSize: 14, marginTop: 4, fontWeight: "700" },
+  holePills: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 10 },
 
-  holePills: { paddingHorizontal: 12, paddingBottom: 8 },
   holePill: {
     width: 44,
     height: 44,
@@ -220,9 +350,91 @@ const styles = StyleSheet.create({
   infoTitle: { color: WHITE, fontWeight: "900", marginBottom: 6 },
   infoText: { color: MUTED, fontSize: 13, marginTop: 4, fontWeight: "700" },
 
+  ybWrap: { marginHorizontal: 16, marginTop: 12 },
+  ybBtn: {
+    borderRadius: 22,
+    padding: 14,
+    backgroundColor: "rgba(46,125,255,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(46,125,255,0.35)",
+  },
+  ybTitle: { color: WHITE, fontWeight: "900", fontSize: 14 },
+
+  ybPreview: {
+    marginTop: 8,
+    color: "rgba(255,255,255,0.92)",
+    fontWeight: "800",
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  ybPreviewMuted: {
+    marginTop: 8,
+    color: "rgba(255,255,255,0.65)",
+    fontWeight: "800",
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  ybHint: {
+    marginTop: 8,
+    color: "rgba(255,255,255,0.70)",
+    fontWeight: "900",
+    fontSize: 12,
+  },
+
   footer: { padding: 16, gap: 10 },
   greenBtn: { height: 56, borderRadius: 999, backgroundColor: GREEN, alignItems: "center", justifyContent: "center" },
   greenText: { color: GREEN_TEXT, fontSize: 17, fontWeight: "900" },
   orangeBtn: { height: 52, borderRadius: 999, backgroundColor: ORANGE, alignItems: "center", justifyContent: "center" },
   orangeText: { color: ORANGE_TEXT, fontSize: 16, fontWeight: "900" },
+
+  modalBg: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.60)" },
+  modalWrap: { flex: 1, justifyContent: "center", padding: 18 },
+  modalCard: {
+    borderRadius: 22,
+    padding: 14,
+    backgroundColor: "rgba(18,22,30,0.96)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+  modalTop: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 },
+  modalTitle: { color: WHITE, fontWeight: "900", fontSize: 16 },
+  modalSub: { marginTop: 5, color: "rgba(255,255,255,0.70)", fontWeight: "800", fontSize: 12 },
+
+  modalX: {
+    width: 38,
+    height: 38,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+  modalXText: { color: WHITE, fontWeight: "900", fontSize: 14 },
+
+  modalInput: {
+    minHeight: 140,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    backgroundColor: "rgba(0,0,0,0.20)",
+    color: WHITE,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 18,
+  },
+
+  modalDone: {
+    marginTop: 12,
+    height: 54,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: GREEN,
+  },
+  modalDoneText: { color: GREEN_TEXT, fontWeight: "900", fontSize: 16 },
+
+  pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
 });

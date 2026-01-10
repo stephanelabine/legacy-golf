@@ -12,8 +12,12 @@ import NewRoundScreen from "../screens/NewRoundScreen";
 import TeeSelectionScreen from "../screens/TeeSelectionScreen";
 import PlayerSetupScreen from "../screens/PlayerSetupScreen";
 import PlayerEntryScreen from "../screens/PlayerEntryScreen";
+
 import HoleViewScreen from "../screens/HoleViewScreen";
 import HoleMapScreen from "../screens/HoleMapScreen";
+import GpsScreen from "../screens/GpsScreen";
+import GreenViewScreen from "../screens/GreenViewScreen";
+import HoleStrategyScreen from "../screens/HoleStrategyScreen";
 
 import ScoreEntryScreen from "../screens/ScoreEntryScreen";
 import ScorecardScreen from "../screens/ScorecardScreen";
@@ -43,8 +47,13 @@ export default function RootNavigator() {
       <Stack.Screen name={ROUTES.TEE_SELECTION} component={TeeSelectionScreen} />
       <Stack.Screen name={ROUTES.PLAYER_SETUP} component={PlayerSetupScreen} />
       <Stack.Screen name={ROUTES.PLAYER_ENTRY} component={PlayerEntryScreen} />
+
       <Stack.Screen name={ROUTES.HOLE_VIEW} component={HoleViewScreen} />
       <Stack.Screen name={ROUTES.HOLE_MAP} component={HoleMapScreen} />
+
+      <Stack.Screen name={ROUTES.GPS} component={GpsScreen} />
+      <Stack.Screen name={ROUTES.GREEN_VIEW} component={GreenViewScreen} />
+      <Stack.Screen name={ROUTES.HOLE_STRATEGY} component={HoleStrategyScreen} />
 
       <Stack.Screen name={ROUTES.SCORE_ENTRY} component={ScoreEntryScreen} />
       <Stack.Screen name={ROUTES.SCORECARD} component={ScorecardScreen} />

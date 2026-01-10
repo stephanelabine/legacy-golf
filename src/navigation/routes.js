@@ -9,8 +9,13 @@ const ROUTES = {
   TEE_SELECTION: "TeeSelection",
   PLAYER_SETUP: "PlayerSetup",
   PLAYER_ENTRY: "PlayerEntry",
+
   HOLE_VIEW: "HoleView",
   HOLE_MAP: "HoleMap",
+
+  GPS: "GPS",
+  GREEN_VIEW: "GreenView",
+  HOLE_STRATEGY: "HoleStrategy",
 
   SCORE_ENTRY: "ScoreEntry",
   SCORECARD: "Scorecard",

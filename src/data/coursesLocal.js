@@ -2,7 +2,9 @@
 // Local-only list (no database) with coordinates so we can filter within 200km.
 
 export const COURSES_LOCAL = [
-  { name: "Green Tee Country Club", lat: 49.1046, lng: -122.5657 },
+  // FIX: Green Tee coordinates updated (Pagoda Ridge was the old name at the same location)
+  { name: "Green Tee Country Club", lat: 49.143311, lng: -122.497658 },
+
   { name: "Langley Golf & Banquet Center", lat: 49.1029, lng: -122.6652 },
   { name: "Redwoods Golf Course", lat: 49.1022, lng: -122.6768 },
   { name: "Morgan Creek Golf Course", lat: 49.0596, lng: -122.7332 },
@@ -34,5 +36,4 @@ export const COURSES_LOCAL = [
   { name: "Riverway Golf Course", lat: 49.200081, lng: -122.989658 },
   { name: "Burnaby Mountain Golf Course", lat: 49.266041, lng: -122.943621 },
   { name: "Guildford Golf & Country Club", lat: 49.1482806, lng: -122.8013565 },
-  { name: "Pagoda Ridge Golf Course", lat: 49.143311, lng: -122.497658 },
 ];

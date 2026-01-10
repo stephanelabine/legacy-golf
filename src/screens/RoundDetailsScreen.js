@@ -3,7 +3,9 @@ import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
+import theme from "../theme";
 import ROUTES from "../navigation/routes";
+import ScreenHeader from "../components/ScreenHeader";
 import { getRounds } from "../storage/rounds";
 
 function toInt(v) {
@@ -30,19 +32,10 @@ function calcNet(gross, handicap) {
 }
 
 function formatDate(round) {
-  const raw =
-    round?.playedAt ||
-    round?.date ||
-    round?.createdAt ||
-    round?.startedAt ||
-    round?.timestamp;
+  const raw = round?.playedAt || round?.date || round?.createdAt || round?.startedAt || round?.timestamp;
   const d = raw ? new Date(raw) : null;
   if (!d || Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
 function isCompletedForPlayer(round, playerId) {
@@ -50,8 +43,7 @@ function isCompletedForPlayer(round, playerId) {
   if (holes.length < 18) return false;
   for (let i = 0; i < 18; i++) {
     const raw = holes?.[i]?.scores?.[playerId];
-    if (raw === undefined || raw === null || String(raw).trim() === "")
-      return false;
+    if (raw === undefined || raw === null || String(raw).trim() === "") return false;
   }
   return true;
 }
@@ -76,16 +68,7 @@ export default function RoundDetailsScreen({ navigation, route }) {
     load();
   }, [load]);
 
-  const course = useMemo(
-    () => String(round?.courseName || "Course").trim(),
-    [round]
-  );
-  const dateLabel = useMemo(() => (round ? formatDate(round) : "—"), [round]);
-
-  const players = useMemo(
-    () => (Array.isArray(round?.players) ? round.players : []),
-    [round]
-  );
+  const players = useMemo(() => (Array.isArray(round?.players) ? round.players : []), [round]);
 
   const primaryPlayerId = useMemo(() => {
     const p1 = players?.[0];
@@ -97,33 +80,19 @@ export default function RoundDetailsScreen({ navigation, route }) {
     return isCompletedForPlayer(round, primaryPlayerId);
   }, [round, primaryPlayerId]);
 
+  const course = useMemo(() => String(round?.courseName || "Course").trim(), [round]);
+  const dateLabel = useMemo(() => (round ? formatDate(round) : "—"), [round]);
+
   const status = completed ? "COMPLETED" : "IN PROGRESS";
 
   return (
-    <View style={[styles.screen, { paddingTop: insets.top }]}>
-      <View style={styles.headerWrap}>
-        <View style={styles.topGlowA} pointerEvents="none" />
-        <View style={styles.topGlowB} pointerEvents="none" />
-
-        <View style={styles.headerRow}>
-          <Pressable
-            onPress={() => (navigation.canGoBack?.() ? navigation.goBack() : navigation.navigate(ROUTES.HISTORY))}
-            hitSlop={12}
-            style={({ pressed }) => [styles.headerPill, pressed && styles.pressed]}
-          >
-            <Text style={styles.headerPillText}>Back</Text>
-          </Pressable>
-
-          <View style={styles.headerCenter}>
-            <Text style={styles.headerTitle}>Round Details</Text>
-            <Text style={styles.headerSub}>
-              {loading ? "Loading round…" : "Full history view"}
-            </Text>
-          </View>
-
-          <View style={{ minWidth: 70, height: 38 }} />
-        </View>
-      </View>
+    <View style={styles.screen}>
+      <ScreenHeader
+        navigation={navigation}
+        title="Round Details"
+        subtitle={loading ? "Loading round…" : "Full history view"}
+        fallbackRoute={ROUTES.HISTORY}
+      />
 
       <ScrollView
         style={{ flex: 1 }}
@@ -138,9 +107,7 @@ export default function RoundDetailsScreen({ navigation, route }) {
         ) : !round ? (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Round not found</Text>
-            <Text style={styles.cardSub}>
-              This round may have been deleted or not saved correctly.
-            </Text>
+            <Text style={styles.cardSub}>This round may have been deleted or not saved correctly.</Text>
 
             <Pressable
               onPress={() => navigation.navigate(ROUTES.HISTORY)}
@@ -211,9 +178,7 @@ export default function RoundDetailsScreen({ navigation, route }) {
               <View style={styles.divider} />
 
               <Text style={styles.sectionLabel}>Game + payouts</Text>
-              <Text style={styles.cardSub}>
-                Coming next: format, wagers, payouts, KP results, skins, Nassau, etc.
-              </Text>
+              <Text style={styles.cardSub}>Coming next: format, wagers, payouts, KP results, skins, Nassau, etc.</Text>
             </View>
 
             <View style={styles.card}>
@@ -232,59 +197,7 @@ export default function RoundDetailsScreen({ navigation, route }) {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#0B1220" },
-
-  headerWrap: {
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.06)",
-    overflow: "hidden",
-  },
-  topGlowA: {
-    position: "absolute",
-    top: -90,
-    left: -50,
-    width: 300,
-    height: 300,
-    borderRadius: 300,
-    backgroundColor: "rgba(46,125,255,0.22)",
-    opacity: 0.35,
-  },
-  topGlowB: {
-    position: "absolute",
-    top: -120,
-    right: -70,
-    width: 340,
-    height: 340,
-    borderRadius: 340,
-    backgroundColor: "rgba(255,255,255,0.10)",
-    opacity: 0.18,
-  },
-
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingTop: 10,
-  },
-
-  headerPill: {
-    height: 38,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.16)",
-    backgroundColor: "rgba(255,255,255,0.06)",
-    alignItems: "center",
-    justifyContent: "center",
-    minWidth: 70,
-  },
-  headerPillText: { color: "#fff", fontWeight: "900", fontSize: 13 },
-
-  headerCenter: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 10 },
-  headerTitle: { color: "#fff", fontSize: 20, fontWeight: "900", letterSpacing: 0.6 },
-  headerSub: { marginTop: 4, color: "rgba(255,255,255,0.60)", fontSize: 12, fontWeight: "800" },
+  screen: { flex: 1, backgroundColor: theme?.colors?.bg || "#0B1220" },
 
   card: {
     borderRadius: 22,
@@ -297,10 +210,9 @@ const styles = StyleSheet.create({
   cardTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
 
   cardTitle: { color: "#fff", fontSize: 16, fontWeight: "900" },
-  cardSub: { marginTop: 6, color: "rgba(255,255,255,0.70)", fontSize: 12, fontWeight: "800" },
+  cardSub: { marginTop: 6, color: "rgba(255,255,255,0.70)", fontSize: 12, fontWeight: "800", lineHeight: 17 },
 
   divider: { height: 1, backgroundColor: "rgba(255,255,255,0.08)", marginTop: 14, marginBottom: 14 },
-
   sectionLabel: { color: "rgba(255,255,255,0.80)", fontSize: 12, fontWeight: "900", letterSpacing: 0.8 },
 
   statusChip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1 },
@@ -313,14 +225,13 @@ const styles = StyleSheet.create({
   playerMeta: { marginTop: 4, color: "rgba(255,255,255,0.62)", fontSize: 12, fontWeight: "800" },
 
   scorePill: {
-    minWidth: 104,
+    minWidth: 108,
     borderRadius: 16,
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
     backgroundColor: "rgba(0,0,0,0.18)",
-    alignItems: "stretch",
     gap: 6,
   },
   scoreRow: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" },
@@ -335,9 +246,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(199,154,82,0.18)",
+    backgroundColor: "rgba(46,125,255,0.18)",
     borderWidth: 1,
-    borderColor: "rgba(199,154,82,0.35)",
+    borderColor: "rgba(46,125,255,0.35)",
   },
   primaryBtnText: { color: "#fff", fontWeight: "900", fontSize: 13, letterSpacing: 0.6 },
 

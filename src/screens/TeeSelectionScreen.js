@@ -13,6 +13,8 @@ import {
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 import theme from "../theme";
+import ROUTES from "../navigation/routes";
+import ScreenHeader from "../components/ScreenHeader";
 import { getTeesForCourse } from "../services/tees";
 import { loadCourseData } from "../storage/courseData";
 
@@ -28,10 +30,7 @@ export default function TeeSelectionScreen({ navigation, route }) {
     let mounted = true;
 
     (async () => {
-      const [data, saved] = await Promise.all([
-        getTeesForCourse(course.id),
-        loadCourseData(course.id),
-      ]);
+      const [data, saved] = await Promise.all([getTeesForCourse(course.id), loadCourseData(course.id)]);
 
       if (!mounted) return;
 
@@ -45,10 +44,11 @@ export default function TeeSelectionScreen({ navigation, route }) {
     return () => (mounted = false);
   }, [course.id]);
 
-  const selectedTee = useMemo(
-    () => tees.find((t) => t.code === selectedCode),
-    [tees, selectedCode]
-  );
+  const selectedTee = useMemo(() => tees.find((t) => t.code === selectedCode), [tees, selectedCode]);
+
+  function openCourseData() {
+    navigation.navigate(ROUTES.COURSE_DATA, { course });
+  }
 
   function onContinue() {
     if (!selectedTee) {
@@ -56,11 +56,9 @@ export default function TeeSelectionScreen({ navigation, route }) {
       return;
     }
 
-    // Carry scoring forward if it exists, default net.
-    const scoring =
-      (route?.params?.scoring || route?.params?.scoringType || "net");
+    const scoring = route?.params?.scoring || route?.params?.scoringType || "net";
 
-    navigation.navigate("PlayerSetup", {
+    navigation.navigate(ROUTES.PLAYER_SETUP, {
       ...(route?.params || {}),
       course,
       tee: selectedTee,
@@ -70,90 +68,64 @@ export default function TeeSelectionScreen({ navigation, route }) {
     });
   }
 
+  const right = (
+    <Pressable
+      onPress={openCourseData}
+      hitSlop={12}
+      style={({ pressed }) => [styles.headerAction, pressed && styles.pressed]}
+    >
+      <Text style={styles.headerActionText}>Edit</Text>
+    </Pressable>
+  );
+
   function renderHeader() {
     return (
-      <View style={styles.headerWrap}>
-        <View style={styles.topGlowA} pointerEvents="none" />
-        <View style={styles.topGlowB} pointerEvents="none" />
+      <View>
+        <ScreenHeader
+          navigation={navigation}
+          title="Select Tees"
+          subtitle={course?.name || ""}
+          right={right}
+          fallbackRoute={ROUTES.NEW_ROUND}
+        />
 
-        <View style={styles.topRow}>
-          <Pressable
-            onPress={() => navigation.goBack()}
-            hitSlop={12}
-            style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}
-          >
-            <Text style={styles.backText}>Back</Text>
-          </Pressable>
-
-          <View style={{ flex: 1 }} />
-
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>TEE SELECTION</Text>
-          </View>
-        </View>
-
-        <Text style={styles.h1}>Select Tees</Text>
-        <Text style={styles.h2} numberOfLines={1}>
-          {course?.name}
-        </Text>
-
-        <Pressable
-          style={({ pressed }) => [styles.editCard, pressed && styles.pressed]}
-          onPress={() => navigation.navigate("CourseData", { course })}
-        >
-          <View style={styles.editLeft}>
-            <View style={styles.editIconWrap}>
-              <MaterialCommunityIcons
-                name="pencil"
-                size={18}
-                color="rgba(255,255,255,0.85)"
-              />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.editTitle}>Edit Course Hole Data</Text>
-              <Text style={styles.editSub}>
-                Set Par + Stroke Index (for Net scoring)
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.chevWrap}>
-            <MaterialCommunityIcons
-              name="chevron-right"
-              size={22}
-              color="rgba(255,255,255,0.65)"
-            />
-          </View>
-        </Pressable>
-
-        {/* Selected tee summary (premium scanning + confidence) */}
-        {selectedTee ? (
-          <View style={styles.selectedSummary}>
-            <View style={styles.summaryLeft}>
-              <View style={styles.summaryIcon}>
-                <MaterialCommunityIcons
-                  name="flag-variant"
-                  size={18}
-                  color="rgba(255,255,255,0.90)"
-                />
+        <View style={styles.headerBody}>
+          <Pressable onPress={openCourseData} style={({ pressed }) => [styles.editCard, pressed && styles.pressed]}>
+            <View style={styles.editLeft}>
+              <View style={styles.editIconWrap}>
+                <MaterialCommunityIcons name="pencil" size={18} color="rgba(255,255,255,0.85)" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.summaryLabel}>Selected tee</Text>
-                <Text style={styles.summaryTitle} numberOfLines={1}>
-                  {selectedTee.name}
-                </Text>
+                <Text style={styles.editTitle}>Edit Course Hole Data</Text>
+                <Text style={styles.editSub}>Set Par + Stroke Index (for Net scoring)</Text>
               </View>
             </View>
 
-            <View style={styles.summaryPill}>
-              <Text style={styles.summaryPillText}>
-                {selectedTee.yardage} yds
-              </Text>
+            <View style={styles.chevWrap}>
+              <MaterialCommunityIcons name="chevron-right" size={22} color="rgba(255,255,255,0.65)" />
             </View>
-          </View>
-        ) : null}
+          </Pressable>
 
-        <View style={styles.divider} pointerEvents="none" />
+          {selectedTee ? (
+            <View style={styles.selectedSummary}>
+              <View style={styles.summaryLeft}>
+                <View style={styles.summaryIcon}>
+                  <MaterialCommunityIcons name="flag-variant" size={18} color="rgba(255,255,255,0.90)" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.summaryLabel}>Selected tee</Text>
+                  <Text style={styles.summaryTitle} numberOfLines={1}>
+                    {selectedTee.name}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.summaryPill}>
+                <Text style={styles.summaryPillText}>{selectedTee.yardage} yds</Text>
+              </View>
+            </View>
+          ) : null}
+        </View>
       </View>
     );
   }
@@ -233,67 +205,26 @@ export default function TeeSelectionScreen({ navigation, route }) {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: theme?.bg || "#0B1220" },
+  safe: { flex: 1, backgroundColor: theme?.colors?.bg || "#0B1220" },
 
   listContent: { paddingBottom: 132 },
 
-  headerWrap: {
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.06)",
-    overflow: "hidden",
-  },
-
-  topGlowA: {
-    position: "absolute",
-    top: -80,
-    left: -40,
-    width: 260,
-    height: 260,
-    borderRadius: 260,
-    backgroundColor: "rgba(46,125,255,0.20)",
-    opacity: 0.35,
-  },
-  topGlowB: {
-    position: "absolute",
-    top: -120,
-    right: -60,
-    width: 300,
-    height: 300,
-    borderRadius: 300,
-    backgroundColor: "rgba(255,255,255,0.10)",
-    opacity: 0.18,
-  },
-
-  topRow: { flexDirection: "row", alignItems: "center", marginBottom: 14 },
-
-  backBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 999,
+  headerAction: {
+    height: 38,
+    paddingHorizontal: 14,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
+    borderColor: "rgba(255,255,255,0.16)",
     backgroundColor: "rgba(255,255,255,0.06)",
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 70,
   },
-  backText: { color: "#fff", fontSize: 12, fontWeight: "900", letterSpacing: 0.3 },
+  headerActionText: { color: "#fff", fontWeight: "900", fontSize: 13 },
 
-  badge: {
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.06)",
-  },
-  badgeText: { color: "#fff", fontSize: 11, fontWeight: "900", letterSpacing: 1.2, opacity: 0.85 },
-
-  h1: { color: "#fff", fontSize: 28, fontWeight: "900", letterSpacing: 0.2, lineHeight: 34 },
-  h2: { marginTop: 8, color: "#fff", opacity: 0.7, fontSize: 13, fontWeight: "700", lineHeight: 18 },
+  headerBody: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 6 },
 
   editCard: {
-    marginTop: 14,
     borderRadius: 18,
     padding: 14,
     borderWidth: 1,
@@ -364,8 +295,6 @@ const styles = StyleSheet.create({
   },
   summaryPillText: { color: "#fff", fontSize: 12, fontWeight: "900", opacity: 0.9 },
 
-  divider: { marginTop: 14, height: 1, backgroundColor: "rgba(255,255,255,0.08)" },
-
   teeCard: {
     marginHorizontal: 16,
     marginTop: 12,
@@ -425,7 +354,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 18,
     paddingTop: 12,
-    backgroundColor: theme?.bg || "#0B1220",
+    backgroundColor: theme?.colors?.bg || "#0B1220",
     borderTopWidth: 1,
     borderTopColor: "rgba(255,255,255,0.08)",
   },
@@ -434,7 +363,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: theme?.primary || theme?.colors?.primary || "#2E7DFF",
+    backgroundColor: theme?.colors?.primary || "#2E7DFF",
   },
   primaryBtnDisabled: { opacity: 0.45 },
   primaryText: { color: "#fff", fontSize: 16, fontWeight: "900", letterSpacing: 0.2 },

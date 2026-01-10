@@ -9,16 +9,15 @@ import {
   KeyboardAvoidingView,
   Platform,
   Keyboard,
-  TouchableWithoutFeedback,
   Alert,
-  FlatList,
+  ScrollView,
 } from "react-native";
 
 import ScreenHeader from "../components/ScreenHeader";
 import theme from "../theme";
 import { loadActiveRound, saveActiveRound } from "../storage/roundState";
 
-// Premium palette (aligned with your newer screens)
+// Premium palette
 const BG = "#0B1220";
 const CARD = "rgba(255,255,255,0.05)";
 const BORDER = "rgba(255,255,255,0.14)";
@@ -27,6 +26,16 @@ const INNER2 = "rgba(255,255,255,0.06)";
 const MUTED = "rgba(255,255,255,0.65)";
 const WHITE = "#FFFFFF";
 const BLUE = theme?.colors?.primary || "#2E7DFF";
+
+// Green accent
+const GREEN_BORDER = "rgba(46,204,113,0.70)";
+const GREEN_GLOW = "rgba(46,204,113,0.12)";
+const GREEN_TINT = "rgba(46,204,113,0.12)";
+const GREEN_FIELD_BORDER = "rgba(46,204,113,0.45)";
+
+// Putts keep blue
+const PUTTS_TINT = "rgba(46,125,255,0.12)";
+const PUTTS_BORDER = "rgba(46,125,255,0.45)";
 
 function initials(name) {
   const parts = (name || "").trim().split(/\s+/).filter(Boolean);
@@ -63,7 +72,9 @@ function Seg3({ value, onChange }) {
               pressed && styles.pressed,
             ]}
           >
-            <Text style={[styles.segText, active && styles.segTextActive]}>{o.t}</Text>
+            <Text style={[styles.segText, active && styles.segTextActive]}>
+              {o.t}
+            </Text>
           </Pressable>
         );
       })}
@@ -94,21 +105,20 @@ export default function ScoreEntryScreen({ navigation, route }) {
     }))
   );
 
-  // Fast lookup so renders stay snappy with many players
   const rowById = useMemo(() => {
     const m = new Map();
-    rows.forEach((r) => m.set(r.playerId, r));
+    rows.forEach((r) => m.set(String(r.playerId), r));
     return m;
   }, [rows]);
 
-  // Ensure rows exist for all players (in case player list changes)
   useEffect(() => {
     setRows((prev) => {
-      const m = new Map(prev.map((r) => [r.playerId, r]));
+      const m = new Map(prev.map((r) => [String(r.playerId), r]));
       return normalizedPlayers.map((p) => {
+        const key = String(p.id);
         return (
-          m.get(p.id) || {
-            playerId: p.id,
+          m.get(key) || {
+            playerId: key,
             strokes: "",
             putts: "",
             fairway: "na",
@@ -121,7 +131,6 @@ export default function ScoreEntryScreen({ navigation, route }) {
     });
   }, [normalizedPlayers]);
 
-  // Load saved hole data
   useEffect(() => {
     let live = true;
     (async () => {
@@ -133,7 +142,7 @@ export default function ScoreEntryScreen({ navigation, route }) {
 
       setRows((prev) =>
         prev.map((r) => {
-          const saved = savedHole[r.playerId];
+          const saved = savedHole[String(r.playerId)];
           return saved ? { ...r, ...saved } : r;
         })
       );
@@ -144,8 +153,9 @@ export default function ScoreEntryScreen({ navigation, route }) {
   }, [hole]);
 
   function updateRow(playerId, field, value) {
+    const pid = String(playerId);
     setRows((prev) =>
-      prev.map((r) => (r.playerId === playerId ? { ...r, [field]: value } : r))
+      prev.map((r) => (String(r.playerId) === pid ? { ...r, [field]: value } : r))
     );
   }
 
@@ -169,7 +179,7 @@ export default function ScoreEntryScreen({ navigation, route }) {
 
     const payload = {};
     rows.forEach((r) => {
-      payload[r.playerId] = {
+      payload[String(r.playerId)] = {
         strokes: String(r.strokes ?? ""),
         putts: String(r.putts ?? ""),
         fairway: r.fairway ?? "na",
@@ -185,7 +195,6 @@ export default function ScoreEntryScreen({ navigation, route }) {
     if (!ok) Alert.alert("Save failed", "Could not save hole data.");
   }, [course, tee, hole, holeMeta, normalizedPlayers, rows]);
 
-  // Save when leaving screen (header back / swipe / android back)
   const leavingRef = useRef(false);
   useEffect(() => {
     const unsub = navigation.addListener("beforeRemove", (e) => {
@@ -227,27 +236,31 @@ export default function ScoreEntryScreen({ navigation, route }) {
   const subtitle = `Hole ${hole} • ${course?.name || ""} • ${tee?.name || ""} Tees`;
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-      <SafeAreaView style={styles.safe}>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-          <ScreenHeader navigation={navigation} title="Input Scores" subtitle={subtitle} />
+    <SafeAreaView style={styles.safe}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <ScreenHeader navigation={navigation} title="Input Scores" subtitle={subtitle} />
 
-          <FlatList
-            data={normalizedPlayers}
-            keyExtractor={(p) => p.id}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={{ paddingTop: 12, paddingBottom: 130 }}
-            renderItem={({ item: p, index }) => {
-              const r = rowById.get(p.id) || {};
-              return (
+        <ScrollView
+          style={{ flex: 1 }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === "ios" ? "on-drag" : "none"}
+          contentContainerStyle={{ paddingTop: 12, paddingBottom: 140 }}
+        >
+          {normalizedPlayers.map((p, index) => {
+            const r = rowById.get(String(p.id)) || {};
+            return (
+              <View key={String(p.id)} style={styles.greenRing}>
                 <View style={styles.card}>
                   <View style={styles.cardTop}>
                     <View style={styles.avatar}>
                       <Text style={styles.avatarText}>{initials(p.name)}</Text>
                     </View>
 
-                    <View style={{ flex: 1 }}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
                       <Text style={styles.playerTitle} numberOfLines={1}>
                         {p.name}
                       </Text>
@@ -262,27 +275,39 @@ export default function ScoreEntryScreen({ navigation, route }) {
                   </View>
 
                   <View style={styles.bigInputsRow}>
-                    <View style={styles.bigField}>
-                      <Text style={styles.kicker}>Strokes</Text>
+                    <View style={[styles.bigField, styles.bigFieldStrokes]}>
+                      <View style={styles.fieldHeaderRow}>
+                        <Text style={styles.kicker}>Strokes</Text>
+                        <View style={[styles.miniChip, styles.miniChipGreen]}>
+                          <Text style={styles.miniChipText}>S</Text>
+                        </View>
+                      </View>
                       <TextInput
                         value={r.strokes ?? ""}
                         onChangeText={(v) => updateRow(p.id, "strokes", v)}
                         keyboardType="number-pad"
                         placeholder="0"
                         placeholderTextColor="rgba(255,255,255,0.35)"
-                        style={styles.bigInput}
+                        style={[styles.bigInput, styles.bigInputStrokes]}
+                        maxLength={2}
                       />
                     </View>
 
-                    <View style={styles.bigField}>
-                      <Text style={styles.kicker}>Putts</Text>
+                    <View style={[styles.bigField, styles.bigFieldPutts]}>
+                      <View style={styles.fieldHeaderRow}>
+                        <Text style={styles.kicker}>Putts</Text>
+                        <View style={[styles.miniChip, styles.miniChipBlue]}>
+                          <Text style={styles.miniChipText}>P</Text>
+                        </View>
+                      </View>
                       <TextInput
                         value={r.putts ?? ""}
                         onChangeText={(v) => updateRow(p.id, "putts", v)}
                         keyboardType="number-pad"
                         placeholder="0"
                         placeholderTextColor="rgba(255,255,255,0.35)"
-                        style={styles.bigInput}
+                        style={[styles.bigInput, styles.bigInputPutts]}
+                        maxLength={2}
                       />
                     </View>
                   </View>
@@ -321,41 +346,49 @@ export default function ScoreEntryScreen({ navigation, route }) {
                     <Seg3 value={r.updown ?? "na"} onChange={(v) => updateRow(p.id, "updown", v)} />
                   </View>
                 </View>
-              );
-            }}
-          />
+              </View>
+            );
+          })}
+        </ScrollView>
 
-          <View style={styles.footer}>
-            <View style={styles.footerRow}>
-              <Pressable style={styles.secondaryBtn} onPress={backToHole}>
-                <Text style={styles.secondaryText}>Back</Text>
-              </Pressable>
+        <View style={styles.footer}>
+          <View style={styles.footerRow}>
+            <Pressable style={styles.secondaryBtn} onPress={backToHole}>
+              <Text style={styles.secondaryText}>Back</Text>
+            </Pressable>
 
-              <Pressable style={styles.midBtn} onPress={openScorecard}>
-                <Text style={styles.midText}>Scorecard</Text>
-              </Pressable>
+            <Pressable style={styles.midBtn} onPress={openScorecard}>
+              <Text style={styles.midText}>Scorecard</Text>
+            </Pressable>
 
-              <Pressable style={styles.primaryBtn} onPress={continueNextHole}>
-                <Text style={styles.primaryText}>Next Hole</Text>
-              </Pressable>
-            </View>
+            <Pressable style={styles.primaryBtn} onPress={continueNextHole}>
+              <Text style={styles.primaryText}>Next Hole</Text>
+            </Pressable>
           </View>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
-    </TouchableWithoutFeedback>
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: BG },
 
-  card: {
+  greenRing: {
     marginHorizontal: 16,
-    marginBottom: 12,
-    borderRadius: 22,
+    marginBottom: 14,
+    borderRadius: 26,
+    padding: 2,
+    borderWidth: 1,
+    borderColor: GREEN_BORDER,
+    backgroundColor: GREEN_GLOW,
+  },
+
+  card: {
+    borderRadius: 24,
     padding: 14,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: "rgba(255,255,255,0.16)",
     backgroundColor: CARD,
   },
 
@@ -389,27 +422,69 @@ const styles = StyleSheet.create({
   hdcpText: { color: WHITE, fontWeight: "900", fontSize: 12 },
 
   bigInputsRow: { flexDirection: "row", gap: 12 },
+
   bigField: {
     flex: 1,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    backgroundColor: INNER,
     padding: 12,
   },
-  kicker: { color: MUTED, fontWeight: "900", fontSize: 12, letterSpacing: 0.6, textTransform: "uppercase" },
+
+  bigFieldStrokes: {
+    borderColor: GREEN_FIELD_BORDER,
+    backgroundColor: GREEN_TINT,
+  },
+
+  bigFieldPutts: {
+    borderColor: PUTTS_BORDER,
+    backgroundColor: PUTTS_TINT,
+  },
+
+  fieldHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+
+  kicker: {
+    color: MUTED,
+    fontWeight: "900",
+    fontSize: 12,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+  },
+
+  miniChip: {
+    width: 26,
+    height: 26,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
+  miniChipGreen: {
+    backgroundColor: "rgba(46,204,113,0.20)",
+    borderColor: "rgba(46,204,113,0.40)",
+  },
+  miniChipBlue: {
+    backgroundColor: "rgba(46,125,255,0.18)",
+    borderColor: "rgba(46,125,255,0.35)",
+  },
+  miniChipText: { color: WHITE, fontWeight: "900", fontSize: 12, opacity: 0.95 },
 
   bigInput: {
     marginTop: 10,
     height: 52,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
     backgroundColor: "rgba(0,0,0,0.18)",
     color: WHITE,
     paddingHorizontal: 12,
     fontSize: 22,
     fontWeight: "900",
+    textAlign: "center",
+  },
+  bigInputStrokes: {
+    borderColor: "rgba(46,204,113,0.34)",
+  },
+  bigInputPutts: {
+    borderColor: "rgba(46,125,255,0.30)",
   },
 
   divider: { marginTop: 14, height: 1, backgroundColor: "rgba(255,255,255,0.08)" },
@@ -439,7 +514,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  segBtnActive: { borderColor: "rgba(46,125,255,0.65)", backgroundColor: "rgba(46,125,255,0.22)" },
+  segBtnActive: {
+    borderColor: "rgba(46,125,255,0.65)",
+    backgroundColor: "rgba(46,125,255,0.22)",
+  },
   segText: { color: WHITE, fontWeight: "900", fontSize: 12, opacity: 0.85 },
   segTextActive: { opacity: 1 },
 
