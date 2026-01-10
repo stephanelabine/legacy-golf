@@ -1,0 +1,142 @@
+# Query: const topInset = safeTop ? (insets?.top || 0) : 0;\n
+# ContextLines: 1
+
+// src/components/ScreenHeader.js
+import React, { useMemo, useState, useCallback } from "react";
+import { View, Text, StyleSheet, Pressable } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+import ROUTES from "../navigation/routes";
+
+export default function ScreenHeader({
+  navigation,
+  title = "",
+  subtitle = "",
+  right = null,
+  showBack = true,
+  fallbackRoute = ROUTES.HOME,
+  safeTop = true,
+}) {
+  const insets = useSafeAreaInsets();
+
+  // Keep the notch safe. If safeTop=false, we TRIM dead space, but never ignore the notch.
+  const rawTop = insets?.top || 0;
+  const topInset = safeTop ? rawTop : Math.max(8, rawTop - 10);
+
+  function onBack() {
+    if (!navigation) return;
+    if (navigation.canGoBack?.()) navigation.goBack();
+    else navigation.navigate(fallbackRoute);
+  }
+
+  // Measure left/right so the center column is truly centered on screen
+  const [leftW, setLeftW] = useState(0);
+  const [rightW, setRightW] = useState(0);
+
+  const onLeftLayout = useCallback((e) => {
+    const w = e?.nativeEvent?.layout?.width ?? 0;
+    setLeftW((prev) => (w > prev + 1 ? w : prev));
+  }, []);
+
+  const onRightLayout = useCallback((e) => {
+    const w = e?.nativeEvent?.layout?.width ?? 0;
+    setRightW((prev) => (w > prev + 1 ? w : prev));
+  }, []);
+
+  const sideW = useMemo(() => {
+    // baseline width so it looks stable even before layout measures
+    const BASE = 74;
+    return Math.max(BASE, leftW, rightW);
+  }, [leftW, rightW]);
+
+  return (
+    <View style={[styles.wrap, { paddingTop: topInset }]}>
+      <View style={styles.row}>
+        <View style={[styles.side, { width: sideW }]} onLayout={onLeftLayout}>
+          {showBack ? (
+            <Pressable onPress={onBack} style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}>
+              <Text style={styles.backText}>Back</Text>
+            </Pressable>
+          ) : (
+            <View style={{ height: 38 }} />
+          )}
+        </View>
+
+        <View style={styles.center}>
+          <Text style={styles.title} numberOfLines={1} ellipsizeMode="tail">
+            {title}
+          </Text>
+
+          {!!subtitle ? (
+            <Text style={styles.subtitle} numberOfLines={1} ellipsizeMode="tail">
+              {subtitle}
+            </Text>
+          ) : null}
+        </View>
+
+        <View style={[styles.side, { width: sideW }]} onLayout={onRightLayout}>
+          {right ? right : <View style={{ height: 38 }} />}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  wrap: {
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    backgroundColor: "transparent",
+  },
+
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    minHeight: 58,
+  },
+
+  side: {
+    justifyContent: "center",
+  },
+
+  center: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+
+  backBtn: {
+    height: 38,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.16)",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  backText: {
+    color: "#fff",
+    fontWeight: "900",
+    fontSize: 13,
+  },
+
+  title: {
+    color: "#fff",
+    fontWeight: "900",
+    fontSize: 22,
+    lineHeight: 26,
+  },
+
+  subtitle: {
+    marginTop: 4,
+    color: "rgba(255,255,255,0.70)",
+    fontWeight: "800",
+    fontSize: 13,
+    lineHeight: 16,
+  },
+
+  pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
+});

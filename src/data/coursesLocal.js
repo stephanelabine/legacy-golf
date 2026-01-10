@@ -1,8 +1,29 @@
 // src/data/coursesLocal.js
 // Local-only list (no database) with coordinates so we can filter within 200km.
 
+// Canonical rename map (legacy names -> current names)
+export const COURSE_NAME_ALIASES = {
+  "Pagoda Ridge": "Green Tee Country Club",
+  "Pagoda Ridge Golf Club": "Green Tee Country Club",
+  "Pagoda Ridge Golf Course": "Green Tee Country Club",
+};
+
+export function canonicalCourseName(name = "") {
+  const raw = String(name || "").trim();
+  if (!raw) return raw;
+
+  // direct alias matches
+  if (COURSE_NAME_ALIASES[raw]) return COURSE_NAME_ALIASES[raw];
+
+  // fuzzy: anything containing "pagoda" becomes Green Tee
+  const lower = raw.toLowerCase();
+  if (lower.includes("pagoda")) return "Green Tee Country Club";
+
+  return raw;
+}
+
 export const COURSES_LOCAL = [
-  // FIX: Green Tee coordinates updated (Pagoda Ridge was the old name at the same location)
+  // Green Tee coordinates (Pagoda Ridge was the old name at the same location)
   { name: "Green Tee Country Club", lat: 49.143311, lng: -122.497658 },
 
   { name: "Langley Golf & Banquet Center", lat: 49.1029, lng: -122.6652 },
@@ -37,3 +58,9 @@ export const COURSES_LOCAL = [
   { name: "Burnaby Mountain Golf Course", lat: 49.266041, lng: -122.943621 },
   { name: "Guildford Golf & Country Club", lat: 49.1482806, lng: -122.8013565 },
 ];
+
+// Helper: find a local course by canonical name (safe for place/search results)
+export function findLocalCourseByName(name) {
+  const canon = canonicalCourseName(name);
+  return COURSES_LOCAL.find((c) => canonicalCourseName(c.name) === canon) || null;
+}

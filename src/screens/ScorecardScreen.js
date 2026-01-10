@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import { SafeAreaView, View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 
 import ScreenHeader from "../components/ScreenHeader";
 import theme from "../theme";
@@ -39,17 +40,19 @@ export default function ScorecardScreen({ navigation, route }) {
   const params = route?.params || {};
   const [active, setActive] = useState(null);
 
-  useEffect(() => {
-    let live = true;
-    (async () => {
-      const s = await loadActiveRound();
-      if (!live) return;
-      setActive(s || null);
-    })();
-    return () => {
-      live = false;
-    };
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      let live = true;
+      (async () => {
+        const s = await loadActiveRound();
+        if (!live) return;
+        setActive(s || null);
+      })();
+      return () => {
+        live = false;
+      };
+    }, [])
+  );
 
   const course = params.course || active?.course || null;
   const tee = params.tee || active?.tee || null;
@@ -72,7 +75,12 @@ export default function ScorecardScreen({ navigation, route }) {
     }));
   }, [params.players, active]);
 
-  const subtitle = `${course?.name || ""} • ${tee?.name || ""} Tees`;
+  const subtitle = useMemo(() => {
+    const parts = [];
+    if (course?.name) parts.push(course.name);
+    if (tee?.name) parts.push(`${tee.name} Tees`);
+    return parts.join(" • ");
+  }, [course?.name, tee?.name]);
 
   const totals = useMemo(() => {
     const s = active || {};

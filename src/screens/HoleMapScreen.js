@@ -586,6 +586,9 @@ export default function HoleMapScreen({ navigation, route }) {
   );
 }
 
+const GREEN = "#2ECC71";
+const GREEN_TEXT = "#0B1F12";
+
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#000" },
 
@@ -709,16 +712,18 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.12)",
   },
   icon: { color: "#fff", fontSize: 28, fontWeight: "900" },
+
+  // CHANGED: red -> standard green
   primary: {
     flex: 1,
     borderRadius: 18,
-    backgroundColor: "#D62828",
+    backgroundColor: GREEN,
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 8,
   },
-  primaryT: { color: "#fff", fontWeight: "900", letterSpacing: 0.6 },
-  primaryS: { color: "rgba(255,255,255,0.86)", fontSize: 12, fontWeight: "800", marginTop: 2 },
+  primaryT: { color: GREEN_TEXT, fontWeight: "900", letterSpacing: 0.6 },
+  primaryS: { color: "rgba(11,31,18,0.82)", fontSize: 12, fontWeight: "900", marginTop: 2 },
 
   modalBg: {
     flex: 1,

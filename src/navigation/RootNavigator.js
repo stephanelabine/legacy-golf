@@ -32,6 +32,8 @@ import EquipmentScreen from "../screens/EquipmentScreen";
 
 import WagersScreen from "../screens/WagersScreen";
 
+import HazardsScreen from "../screens/HazardsScreen";
+
 const Stack = createNativeStackNavigator();
 
 export default function RootNavigator() {
@@ -56,7 +58,6 @@ export default function RootNavigator() {
       <Stack.Screen name={ROUTES.HOLE_STRATEGY} component={HoleStrategyScreen} />
 
       <Stack.Screen name={ROUTES.SCORE_ENTRY} component={ScoreEntryScreen} />
-      <Stack.Screen name={ROUTES.SCORECARD} component={ScorecardScreen} />
 
       <Stack.Screen name={ROUTES.COURSE_DATA} component={CourseDataScreen} />
 
@@ -69,6 +70,17 @@ export default function RootNavigator() {
       <Stack.Screen name={ROUTES.EQUIPMENT} component={EquipmentScreen} />
 
       <Stack.Screen name={ROUTES.WAGERS} component={WagersScreen} />
+
+      <Stack.Group
+        screenOptions={{
+          presentation: "modal",
+          animation: "slide_from_bottom",
+          gestureEnabled: true,
+        }}
+      >
+        <Stack.Screen name={ROUTES.SCORECARD} component={ScorecardScreen} />
+        <Stack.Screen name={ROUTES.HAZARDS} component={HazardsScreen} />
+      </Stack.Group>
     </Stack.Navigator>
   );
 }

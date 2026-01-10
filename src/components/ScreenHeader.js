@@ -1,8 +1,10 @@
+// src/components/ScreenHeader.js
 import React from "react";
-import { View, Text, StyleSheet, Pressable } from "react-native";
+import { View, Text, StyleSheet, Pressable, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import ROUTES from "../navigation/routes";
+import { useTheme } from "../theme/ThemeProvider";
 
 export default function ScreenHeader({
   navigation,
@@ -13,6 +15,8 @@ export default function ScreenHeader({
   fallbackRoute = ROUTES.HOME,
 }) {
   const insets = useSafeAreaInsets();
+  const { scheme, theme } = useTheme();
+  const isDark = scheme === "dark";
 
   // Slightly reduce the perceived “dead space” at the very top while staying safe.
   const topPad = Math.max(0, (insets?.top || 0) - 8);
@@ -24,30 +28,64 @@ export default function ScreenHeader({
   }
 
   return (
-    <View style={[styles.wrap, { paddingTop: topPad }]}>
-      <View style={styles.topGlowA} pointerEvents="none" />
-      <View style={styles.topGlowB} pointerEvents="none" />
+    <View
+      style={[
+        styles.wrap,
+        {
+          paddingTop: topPad,
+          backgroundColor: theme.bg,
+          borderBottomColor: theme.divider,
+        },
+      ]}
+    >
+      <View
+        style={[
+          styles.topGlowA,
+          {
+            backgroundColor: isDark ? "rgba(46,125,255,0.22)" : "rgba(29,53,87,0.10)",
+            opacity: isDark ? 0.35 : 0.20,
+          },
+        ]}
+        pointerEvents="none"
+      />
+      <View
+        style={[
+          styles.topGlowB,
+          {
+            backgroundColor: isDark ? "rgba(255,255,255,0.10)" : "rgba(69,123,157,0.10)",
+            opacity: isDark ? 0.18 : 0.14,
+          },
+        ]}
+        pointerEvents="none"
+      />
 
       <View style={styles.row}>
         {showBack ? (
           <Pressable
             onPress={onBack}
             hitSlop={12}
-            style={({ pressed }) => [styles.pill, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.pill,
+              {
+                borderColor: isDark ? "rgba(255,255,255,0.16)" : "rgba(10,15,26,0.12)",
+                backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(10,15,26,0.04)",
+              },
+              pressed && styles.pressed,
+            ]}
           >
-            <Text style={styles.pillText}>Back</Text>
+            <Text style={[styles.pillText, { color: theme.text }]}>Back</Text>
           </Pressable>
         ) : (
           <View style={styles.sideSpacer} />
         )}
 
         <View style={styles.center}>
-          <Text style={styles.title} numberOfLines={1}>
+          <Text style={[styles.title, { color: theme.text }]} numberOfLines={1}>
             {title}
           </Text>
 
           {!!subtitle ? (
-            <Text style={styles.sub} numberOfLines={2}>
+            <Text style={[styles.sub, { color: theme.muted }]} numberOfLines={2}>
               {subtitle}
             </Text>
           ) : null}
@@ -65,9 +103,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.06)",
     overflow: "hidden",
-    backgroundColor: "#0B1220",
   },
 
   topGlowA: {
@@ -77,8 +113,6 @@ const styles = StyleSheet.create({
     width: 300,
     height: 300,
     borderRadius: 300,
-    backgroundColor: "rgba(46,125,255,0.22)",
-    opacity: 0.35,
   },
   topGlowB: {
     position: "absolute",
@@ -87,8 +121,6 @@ const styles = StyleSheet.create({
     width: 340,
     height: 340,
     borderRadius: 340,
-    backgroundColor: "rgba(255,255,255,0.10)",
-    opacity: 0.18,
   },
 
   row: {
@@ -104,13 +136,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.16)",
-    backgroundColor: "rgba(255,255,255,0.06)",
     alignItems: "center",
     justifyContent: "center",
     minWidth: 70,
   },
-  pillText: { color: "#fff", fontWeight: "900", fontSize: 13 },
+  pillText: { fontWeight: "900", fontSize: 13 },
 
   sideSpacer: { minWidth: 70, height: 38 },
 
@@ -128,15 +158,17 @@ const styles = StyleSheet.create({
     paddingTop: 2,
     paddingBottom: 2,
   },
-  title: { color: "#fff", fontSize: 20, fontWeight: "900", letterSpacing: 0.6 },
+  title: { fontSize: 20, fontWeight: "900", letterSpacing: 0.6 },
   sub: {
     marginTop: 4,
-    color: "rgba(255,255,255,0.60)",
     fontSize: 12,
     fontWeight: "800",
     lineHeight: 16,
     textAlign: "center",
   },
 
-  pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
+  pressed: {
+    opacity: Platform.OS === "ios" ? 0.9 : 0.92,
+    transform: [{ scale: 0.99 }],
+  },
 });

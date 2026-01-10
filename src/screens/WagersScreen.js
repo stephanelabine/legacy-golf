@@ -14,6 +14,7 @@ import { CommonActions } from "@react-navigation/native";
 
 import theme from "../theme";
 import ROUTES from "../navigation/routes";
+import { saveWagers, clearWagers } from "../storage/wagers";
 
 function toMoneyNumber(str) {
   const s = String(str || "").trim();
@@ -73,7 +74,7 @@ export default function WagersScreen({ navigation, route }) {
 
   const anyOn = skinsOn || kpsOn || nassauOn || perStrokeOn;
 
-  function onDone() {
+  async function onDone() {
     const payload = {
       enabled: anyOn,
       skins: { enabled: skinsOn, amount: toMoneyNumber(skinsAmt) },
@@ -87,6 +88,10 @@ export default function WagersScreen({ navigation, route }) {
       perStroke: { enabled: perStrokeOn, amount: toMoneyNumber(perStrokeAmt) },
       notes: String(notes || "").trim(),
     };
+
+    // Persist (no crashes if storage fails)
+    if (payload.enabled) await saveWagers(payload);
+    else await clearWagers();
 
     // 1) Return to previous screen (GameSetup)
     if (navigation.canGoBack?.()) navigation.goBack();

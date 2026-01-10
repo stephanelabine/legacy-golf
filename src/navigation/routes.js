@@ -1,8 +1,8 @@
 const ROUTES = {
   BOOT: "Boot",
+
   HOME: "Home",
   GAMES: "Games",
-
   GAME_SETUP: "GameSetup",
   NEW_ROUND: "NewRound",
 
@@ -19,6 +19,7 @@ const ROUTES = {
 
   SCORE_ENTRY: "ScoreEntry",
   SCORECARD: "Scorecard",
+  HAZARDS: "Hazards",
 
   COURSE_DATA: "CourseData",
 
@@ -27,7 +28,6 @@ const ROUTES = {
 
   PROFILE: "Profile",
   BUDDIES: "Buddies",
-
   EQUIPMENT: "Equipment",
 
   WAGERS: "Wagers",

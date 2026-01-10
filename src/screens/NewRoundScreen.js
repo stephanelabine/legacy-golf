@@ -20,6 +20,7 @@ import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import { COURSES_LOCAL } from "../data/coursesLocal";
 import { haversineKm } from "../utils/distance";
+import { loadActiveRound, saveActiveRound, updateActiveRound } from "../storage/roundState";
 
 const FALLBACK_CENTER = { lat: 49.0504, lng: -122.3045 };
 const MAX_KM = 200;
@@ -36,6 +37,43 @@ export default function NewRoundScreen({ navigation, route }) {
   const [loadingLoc, setLoadingLoc] = useState(true);
   const [center, setCenter] = useState(FALLBACK_CENTER);
   const [locationDenied, setLocationDenied] = useState(false);
+
+  const [selectedCourse, setSelectedCourse] = useState(null);
+
+  // Seed Active Round with GameSetup params (gameId, scoringMode, wagers, etc.)
+  useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      const params = route?.params || {};
+      const incomingGameId = params?.gameId ?? null;
+      const incomingGameTitle = params?.gameTitle ?? null;
+      const incomingScoringMode = params?.scoringMode ?? null;
+      const incomingWagers = params?.wagers ?? null;
+
+      const existing = await loadActiveRound();
+      if (!alive) return;
+
+      const next = {
+        ...(existing || {}),
+        startedAt: existing?.startedAt || new Date().toISOString(),
+        gameId: incomingGameId ?? existing?.gameId ?? null,
+        gameTitle: incomingGameTitle ?? existing?.gameTitle ?? null,
+        scoringMode: incomingScoringMode ?? existing?.scoringMode ?? "net",
+        wagers: incomingWagers ?? existing?.wagers ?? null,
+      };
+
+      await saveActiveRound(next);
+
+      if (__DEV__) {
+        console.log("[LegacyGolf] Active round seeded on Select Course:", next);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [route?.params?.gameId, route?.params?.gameTitle, route?.params?.scoringMode, route?.params?.wagers]);
 
   useEffect(() => {
     let active = true;
@@ -90,40 +128,80 @@ export default function NewRoundScreen({ navigation, route }) {
     return nearbyCourses.filter((c) => c.name.toLowerCase().includes(q));
   }, [query, nearbyCourses]);
 
-  function selectCourse(course) {
+  function tapCourse(course) {
     Keyboard.dismiss();
+
+    const courseObj = {
+      id: course.name.replace(/\s/g, "_").toLowerCase(),
+      name: course.name,
+      lat: course.lat,
+      lng: course.lng,
+    };
+
+    setSelectedCourse((prev) => {
+      if (prev?.id === courseObj.id) return null; // tap again to unselect
+      return courseObj;
+    });
+  }
+
+  async function onContinue() {
+    if (!selectedCourse) return;
+
+    await updateActiveRound({ course: { id: selectedCourse.id, name: selectedCourse.name } });
+
+    if (__DEV__) {
+      console.log("[LegacyGolf] Active round updated with course:", selectedCourse);
+    }
+
     navigation.navigate(ROUTES.TEE_SELECTION, {
-      course: {
-        id: course.name.replace(/\s/g, "_").toLowerCase(),
-        name: course.name,
-      },
+      course: { id: selectedCourse.id, name: selectedCourse.name },
       ...(route?.params || {}),
     });
   }
 
+  const footerHeight = 92;
+  const listBottomPad = footerHeight + 20;
+
   function renderRow({ item }) {
+    const courseObjId = item.name.replace(/\s/g, "_").toLowerCase();
+    const active = selectedCourse?.id === courseObjId;
+
     return (
       <Pressable
-        onPress={() => selectCourse(item)}
-        style={({ pressed }) => [styles.row, styles.rowShadow, pressed && styles.pressed]}
+        onPress={() => tapCourse(item)}
+        style={({ pressed }) => [
+          styles.row,
+          styles.rowShadow,
+          active && styles.rowActive,
+          pressed && styles.pressed,
+        ]}
       >
         <View style={styles.rowMain}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.rowTitle} numberOfLines={1}>
-              {item.name}
-            </Text>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <View style={styles.rowTop}>
+              <Text style={styles.rowTitle} numberOfLines={1}>
+                {item.name}
+              </Text>
+
+              {active ? (
+                <View style={styles.selectedPill}>
+                  <Text style={styles.selectedPillText}>Selected</Text>
+                </View>
+              ) : null}
+            </View>
 
             <View style={styles.rowMeta}>
-              <View style={styles.kmPill}>
-                <Text style={styles.kmText}>{formatKm(item.distanceKm)}</Text>
+              <View style={[styles.kmPill, active && styles.kmPillActive]}>
+                <Text style={[styles.kmText, active && styles.kmTextActive]}>{formatKm(item.distanceKm)}</Text>
               </View>
+
               <Text style={styles.rowSub} numberOfLines={1}>
-                Tap to select tee’s
+                Tap to select
               </Text>
             </View>
           </View>
 
-          <View style={styles.chevWrap}>
+          <View style={[styles.chevWrap, active && styles.chevWrapActive]}>
             <MaterialCommunityIcons name="chevron-right" size={24} color="rgba(255,255,255,0.65)" />
           </View>
         </View>
@@ -133,11 +211,7 @@ export default function NewRoundScreen({ navigation, route }) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScreenHeader
-        navigation={navigation}
-        title="Select Course"
-        subtitle={`Nearby courses within ${MAX_KM} km.`}
-      />
+      <ScreenHeader navigation={navigation} title="Select Course" subtitle={`Nearby courses within ${MAX_KM} km.`} />
 
       <View style={styles.topArea}>
         <TextInput
@@ -175,11 +249,35 @@ export default function NewRoundScreen({ navigation, route }) {
             data={filtered}
             keyExtractor={(item) => item.name}
             keyboardShouldPersistTaps="handled"
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[styles.listContent, { paddingBottom: listBottomPad }]}
             renderItem={renderRow}
             showsVerticalScrollIndicator={false}
           />
         )}
+      </View>
+
+      {/* PREMIUM FOOTER CTA */}
+      <View style={styles.footer}>
+        <View style={styles.footerInner}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.footerLabel}>Course</Text>
+            <Text style={styles.footerValue} numberOfLines={1}>
+              {selectedCourse ? selectedCourse.name : "None selected"}
+            </Text>
+          </View>
+
+          <Pressable
+            onPress={onContinue}
+            disabled={!selectedCourse}
+            style={({ pressed }) => [
+              styles.continueBtn,
+              !selectedCourse && styles.continueBtnDisabled,
+              pressed && selectedCourse && styles.pressed,
+            ]}
+          >
+            <Text style={styles.continueText}>Continue</Text>
+          </Pressable>
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -215,7 +313,7 @@ const styles = StyleSheet.create({
 
   body: { flex: 1 },
 
-  listContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24 },
+  listContent: { paddingHorizontal: 16, paddingTop: 12 },
 
   row: {
     borderRadius: 20,
@@ -224,6 +322,10 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.14)",
     backgroundColor: "rgba(255,255,255,0.05)",
     marginBottom: 12,
+  },
+  rowActive: {
+    borderColor: "rgba(46,125,255,0.55)",
+    backgroundColor: "rgba(46,125,255,0.12)",
   },
 
   rowShadow: Platform.select({
@@ -238,7 +340,19 @@ const styles = StyleSheet.create({
   }),
 
   rowMain: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  rowTitle: { color: "#fff", fontSize: 16, fontWeight: "900" },
+
+  rowTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  rowTitle: { color: "#fff", fontSize: 16, fontWeight: "900", flex: 1 },
+
+  selectedPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(46,125,255,0.55)",
+    backgroundColor: "rgba(46,125,255,0.18)",
+  },
+  selectedPillText: { color: "#fff", fontSize: 12, fontWeight: "900", letterSpacing: 0.3 },
 
   rowMeta: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 10 },
 
@@ -250,7 +364,9 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.12)",
     backgroundColor: "rgba(255,255,255,0.06)",
   },
+  kmPillActive: { borderColor: "rgba(46,125,255,0.35)", backgroundColor: "rgba(46,125,255,0.10)" },
   kmText: { color: "#fff", fontSize: 12, fontWeight: "900", opacity: 0.9 },
+  kmTextActive: { opacity: 1 },
 
   rowSub: { color: "#fff", opacity: 0.62, fontSize: 12, fontWeight: "800" },
 
@@ -263,6 +379,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.10)",
     backgroundColor: "rgba(255,255,255,0.04)",
+  },
+  chevWrapActive: {
+    borderColor: "rgba(46,125,255,0.25)",
+    backgroundColor: "rgba(46,125,255,0.08)",
   },
 
   loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
@@ -279,6 +399,42 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 17,
   },
+
+  footer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 16,
+    backgroundColor: theme?.colors?.bg || "#0B1220",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.08)",
+  },
+  footerInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderRadius: 18,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+    backgroundColor: "rgba(255,255,255,0.04)",
+  },
+  footerLabel: { color: "rgba(255,255,255,0.65)", fontSize: 11, fontWeight: "900", letterSpacing: 0.9 },
+  footerValue: { marginTop: 4, color: "#fff", fontSize: 14, fontWeight: "900" },
+
+  continueBtn: {
+    height: 50,
+    paddingHorizontal: 18,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(46,125,255,0.92)",
+  },
+  continueBtnDisabled: { opacity: 0.35 },
+  continueText: { color: "#fff", fontSize: 15, fontWeight: "900", letterSpacing: 0.3 },
 
   pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
 });

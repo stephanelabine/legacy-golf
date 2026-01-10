@@ -17,6 +17,7 @@ import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import { getTeesForCourse } from "../services/tees";
 import { loadCourseData } from "../storage/courseData";
+import { updateActiveRound } from "../storage/roundState";
 
 export default function TeeSelectionScreen({ navigation, route }) {
   const { course } = route.params;
@@ -50,13 +51,28 @@ export default function TeeSelectionScreen({ navigation, route }) {
     navigation.navigate(ROUTES.COURSE_DATA, { course });
   }
 
-  function onContinue() {
+  async function onContinue() {
     if (!selectedTee) {
       Alert.alert("Select tees to continue");
       return;
     }
 
     const scoring = route?.params?.scoring || route?.params?.scoringType || "net";
+    const playerCount = route?.params?.playerCount || 4;
+
+    // Persist tee + holeMeta into Active Round (stability for downstream screens)
+    const patch = {
+      tee: selectedTee,
+      holeMeta: holeMeta || null,
+      scoring,
+      playerCount,
+    };
+
+    const next = await updateActiveRound(patch);
+
+    if (__DEV__) {
+      console.log("[LegacyGolf] Active round updated on Tee continue:", next);
+    }
 
     navigation.navigate(ROUTES.PLAYER_SETUP, {
       ...(route?.params || {}),
@@ -64,16 +80,12 @@ export default function TeeSelectionScreen({ navigation, route }) {
       tee: selectedTee,
       holeMeta,
       scoring,
-      playerCount: route?.params?.playerCount || 4,
+      playerCount,
     });
   }
 
   const right = (
-    <Pressable
-      onPress={openCourseData}
-      hitSlop={12}
-      style={({ pressed }) => [styles.headerAction, pressed && styles.pressed]}
-    >
+    <Pressable onPress={openCourseData} hitSlop={12} style={({ pressed }) => [styles.headerAction, pressed && styles.pressed]}>
       <Text style={styles.headerActionText}>Edit</Text>
     </Pressable>
   );
@@ -136,12 +148,7 @@ export default function TeeSelectionScreen({ navigation, route }) {
     return (
       <Pressable
         onPress={() => setSelectedCode(item.code)}
-        style={({ pressed }) => [
-          styles.teeCard,
-          styles.rowShadow,
-          active && styles.teeCardActive,
-          pressed && styles.pressed,
-        ]}
+        style={({ pressed }) => [styles.teeCard, styles.rowShadow, active && styles.teeCardActive, pressed && styles.pressed]}
       >
         <View style={styles.teeTop}>
           <Text style={styles.teeTitle} numberOfLines={1}>

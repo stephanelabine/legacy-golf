@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+// src/screens/HoleViewScreen.js
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import {
   SafeAreaView,
   View,
@@ -13,9 +14,14 @@ import {
   Keyboard,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
+import * as Location from "expo-location";
 
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
+import { loadCourseData } from "../storage/courseData";
+import * as RoundState from "../storage/roundState";
 
 const BG = "#0B1220";
 const CARD = "#1D3557";
@@ -25,8 +31,7 @@ const MUTED = "#AFC3DA";
 const WHITE = "#FFFFFF";
 const GREEN = "#2ECC71";
 const GREEN_TEXT = "#0B1F12";
-const ORANGE = "#F39C12";
-const ORANGE_TEXT = "#1B1200";
+const DANGER = "#D62828";
 
 const DEFAULT_PARS = [4, 4, 3, 5, 4, 4, 3, 4, 5, 4, 3, 4, 4, 5, 4, 3, 4, 4];
 const DEFAULT_SI = [10, 2, 16, 4, 12, 6, 14, 8, 18, 1, 15, 3, 11, 5, 13, 7, 17, 9];
@@ -50,11 +55,55 @@ function compactNote(s) {
   return raw.replace(/\s+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+function shortCourseTitle(name) {
+  const raw = String(name || "").trim();
+  if (!raw) return "Course";
+
+  const stripped = raw
+    .replace(/\s*(golf\s*&\s*country\s*club)\s*$/i, "")
+    .replace(/\s*(golf\s*and\s*country\s*club)\s*$/i, "")
+    .replace(/\s*(golf\s*country\s*club)\s*$/i, "")
+    .replace(/\s*(country\s*club)\s*$/i, "")
+    .replace(/\s*(golf\s*club)\s*$/i, "")
+    .replace(/\s*(golf\s*course)\s*$/i, "")
+    .replace(/\s*(golf)\s*$/i, "")
+    .replace(/\s*[-–—:,]\s*$/i, "")
+    .trim();
+
+  return stripped || raw;
+}
+
+function toRad(v) {
+  return (v * Math.PI) / 180;
+}
+
+function haversineMeters(a, b) {
+  const R = 6371000;
+  const dLat = toRad(b.lat - a.lat);
+  const dLon = toRad(b.lon - a.lon);
+  const s1 = Math.sin(dLat / 2);
+  const s2 = Math.sin(dLon / 2);
+  const x = s1 * s1 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * s2 * s2;
+  return 2 * R * Math.asin(Math.sqrt(x));
+}
+
+function yds(m) {
+  if (!Number.isFinite(m)) return "—";
+  return String(Math.round(m * 1.09361));
+}
+
 export default function HoleViewScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const params = route?.params || {};
 
   const courseParam = params.course;
   const teeParam = params.tee;
+
+  const courseId =
+    params.courseId ??
+    courseParam?.id ??
+    courseParam?.courseId ??
+    (typeof courseParam === "string" ? courseParam : null);
 
   const courseName =
     params.courseName ??
@@ -68,7 +117,9 @@ export default function HoleViewScreen({ navigation, route }) {
   const roundId = params.roundId ?? null;
 
   const [currentHole, setCurrentHole] = useState(params.hole || 1);
-  const [mode, setMode] = useState("hole");
+
+  const [courseData, setCourseData] = useState(null);
+  const [user, setUser] = useState(null);
 
   const holeMeta = useMemo(() => {
     return params.holeMeta && typeof params.holeMeta === "object" ? params.holeMeta : buildDefaultHoleMeta();
@@ -76,13 +127,74 @@ export default function HoleViewScreen({ navigation, route }) {
 
   const par = holeMeta?.[String(currentHole)]?.par ?? 4;
 
-  // Placeholder content
-  const yardages = { front: 145, middle: 158, back: 172 };
-  const hazards = [
-    { label: "Bunker (right)", yards: 120 },
-    { label: "Water (left)", yards: 150 },
-  ];
-  const greenInfo = "Front pin • Slight back-to-front slope";
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      let sub = null;
+
+      (async () => {
+        try {
+          if (courseId) {
+            const saved = await loadCourseData(String(courseId));
+            if (!cancelled) setCourseData(saved || null);
+          } else {
+            if (!cancelled) setCourseData(null);
+          }
+        } catch {
+          if (!cancelled) setCourseData(null);
+        }
+
+        try {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (cancelled) return;
+          if (status !== "granted") return;
+
+          sub = await Location.watchPositionAsync(
+            { accuracy: Location.Accuracy.Highest, distanceInterval: 2 },
+            (p) => {
+              if (cancelled) return;
+              setUser({ lat: p.coords.latitude, lon: p.coords.longitude });
+            }
+          );
+        } catch {
+          // safe
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+        if (sub) sub.remove();
+      };
+    }, [courseId])
+  );
+
+  const savedGpsHole = useMemo(() => {
+    const gps = courseData?.gps;
+    const hole = gps?.holes?.[String(currentHole)] || null;
+    return hole;
+  }, [courseData, currentHole]);
+
+  const green = savedGpsHole?.green || null;
+  const hasGreenPoints = !!(green?.front || green?.middle || green?.back);
+  const gpsLive = !!user;
+
+  const yardages = useMemo(() => {
+    if (!user || !green) return { front: "—", middle: "—", back: "—" };
+
+    const out = { front: "—", middle: "—", back: "—" };
+
+    if (green.front && Number.isFinite(green.front.lat) && Number.isFinite(green.front.lon)) {
+      out.front = yds(haversineMeters(user, green.front));
+    }
+    if (green.middle && Number.isFinite(green.middle.lat) && Number.isFinite(green.middle.lon)) {
+      out.middle = yds(haversineMeters(user, green.middle));
+    }
+    if (green.back && Number.isFinite(green.back.lat) && Number.isFinite(green.back.lon)) {
+      out.back = yds(haversineMeters(user, green.back));
+    }
+
+    return out;
+  }, [user, green]);
 
   const [yardageOpen, setYardageOpen] = useState(false);
   const [yardageText, setYardageText] = useState("");
@@ -142,127 +254,205 @@ export default function HoleViewScreen({ navigation, route }) {
       players,
       holeMeta,
       roundId,
+      hole: currentHole,
+      holeIndex: currentHole - 1,
     });
   }
 
-  function openHoleMap() {
-    navigation.navigate(ROUTES.HOLE_MAP, {
-      roundId,
-      holeIndex: currentHole - 1,
+  function openGreenView() {
+    navigation.navigate(ROUTES.GREEN_VIEW, {
+      ...params,
       course: courseParam ?? { name: courseName },
       tee: teeParam ?? { name: teeName },
       players,
       holeMeta,
+      roundId,
+      hole: currentHole,
+      holeIndex: currentHole - 1,
       courseName,
+      teeName,
     });
+  }
+
+  function openHazards() {
+    navigation.navigate(ROUTES.HAZARDS, {
+      ...params,
+      course: courseParam ?? { name: courseName },
+      tee: teeParam ?? { name: teeName },
+      players,
+      holeMeta,
+      roundId,
+      hole: currentHole,
+      holeIndex: currentHole - 1,
+      courseName,
+      teeName,
+    });
+  }
+
+  function openHoleMap(openSetup = false) {
+    navigation.navigate(ROUTES.HOLE_MAP, {
+      roundId,
+      holeIndex: currentHole - 1,
+      hole: currentHole,
+      course: courseParam ?? { name: courseName, id: courseId },
+      tee: teeParam ?? { name: teeName },
+      players,
+      holeMeta,
+      courseName,
+      courseId: courseId ? String(courseId) : null,
+      openSetup: !!openSetup,
+    });
+  }
+
+  const headerTitle = useMemo(() => shortCourseTitle(courseName), [courseName]);
+
+  const bottomPad = Math.max(16, (insets?.bottom || 0) + 12);
+  const FOOTER_SPACE = 142 + bottomPad;
+
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deletedOpen, setDeletedOpen] = useState(false);
+
+  async function doDeleteRound() {
+    if (deleting) return;
+    setDeleting(true);
+    try {
+      await RoundState.clearActiveRoundEverywhere();
+    } finally {
+      setDeleting(false);
+      setDeleteOpen(false);
+      setDeletedOpen(true);
+      setTimeout(() => {
+        setDeletedOpen(false);
+        navigation.navigate(ROUTES.HOME);
+      }, 900);
+    }
   }
 
   return (
     <SafeAreaView style={styles.safe}>
       <ScreenHeader
         navigation={navigation}
-        title={courseName}
+        title={headerTitle}
         subtitle={`${teeName} • Hole ${currentHole} • Par ${par}`}
         safeTop={false}
       />
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.holePills}>
-        {Array.from({ length: 18 }).map((_, i) => {
-          const h = i + 1;
-          const active = h === currentHole;
-          return (
-            <Pressable key={h} onPress={() => setCurrentHole(h)} style={[styles.holePill, active && styles.holePillActive]}>
-              <Text style={[styles.holePillText, active && styles.holePillTextActive]}>{h}</Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+      <ScrollView
+        style={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: FOOTER_SPACE }]}
+      >
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.holePills}>
+          {Array.from({ length: 18 }).map((_, i) => {
+            const h = i + 1;
+            const active = h === currentHole;
+            return (
+              <Pressable
+                key={h}
+                onPress={() => setCurrentHole(h)}
+                style={[styles.holePill, active && styles.holePillActive]}
+              >
+                <Text style={[styles.holePillText, active && styles.holePillTextActive]}>{h}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
 
-      <View style={styles.modeRow}>
-        {["hole", "green", "hazards"].map((m) => (
-          <Pressable key={m} onPress={() => setMode(m)} style={[styles.modeBtn, mode === m && styles.modeBtnActive]}>
-            <Text style={[styles.modeText, mode === m && styles.modeTextActive]}>
-              {m === "hole" ? "Hole View" : m === "green" ? "Green View" : "Hazards"}
-            </Text>
+        <View style={styles.modeRow}>
+          <Pressable onPress={openScorecard} style={[styles.modeBtn, styles.modeBtnPrimary]}>
+            <Text style={[styles.modeText, styles.modeTextPrimary]}>Scorecard</Text>
           </Pressable>
-        ))}
-      </View>
 
-      <Pressable onPress={openHoleMap} style={styles.mapCard}>
-        <Text style={styles.mapTitle}>Hole View</Text>
-        <Text style={styles.mapSub}>Tap to open full-screen GPS</Text>
-      </Pressable>
+          <Pressable onPress={openGreenView} style={styles.modeBtn}>
+            <Text style={styles.modeText}>Green View</Text>
+          </Pressable>
 
-      <View style={styles.yardageRow}>
-        {["front", "middle", "back"].map((k) => (
-          <View key={k} style={styles.yardCard}>
-            <Text style={styles.yardLabel}>{k.toUpperCase()}</Text>
-            <Text style={styles.yardValue}>{yardages[k]}</Text>
-            <Text style={styles.yardUnit}>yards</Text>
-          </View>
-        ))}
-      </View>
-
-      {mode === "hole" && (
-        <View style={styles.infoRow}>
-          <View style={styles.infoCard}>
-            <Text style={styles.infoTitle}>Hazards</Text>
-            {hazards.map((h, i) => (
-              <Text key={i} style={styles.infoText}>
-                • {h.label} ~ {h.yards}y
-              </Text>
-            ))}
-          </View>
-          <View style={styles.infoCard}>
-            <Text style={styles.infoTitle}>Green View</Text>
-            <Text style={styles.infoText}>{greenInfo}</Text>
-          </View>
+          <Pressable onPress={openHazards} style={styles.modeBtn}>
+            <Text style={styles.modeText}>Hazards</Text>
+          </Pressable>
         </View>
-      )}
 
-      {mode === "green" && (
-        <View style={styles.singleCard}>
-          <Text style={styles.infoTitle}>Green Notes</Text>
-          <Text style={styles.infoText}>{greenInfo}</Text>
-        </View>
-      )}
+        <Pressable onPress={() => openHoleMap(false)} style={styles.mapCard}>
+          <Text style={styles.mapTitle}>Hole View</Text>
+          <Text style={styles.mapSub}>Tap to open full-screen GPS</Text>
+        </Pressable>
 
-      {mode === "hazards" && (
-        <View style={styles.singleCard}>
-          <Text style={styles.infoTitle}>Strategy + Hazards</Text>
-          {hazards.map((h, i) => (
-            <Text key={i} style={styles.infoText}>
-              • {h.label} — {h.yards}y
-            </Text>
+        <View style={styles.yardageRow}>
+          {[
+            ["front", "FRONT"],
+            ["middle", "MIDDLE"],
+            ["back", "BACK"],
+          ].map(([k, label]) => (
+            <View key={k} style={styles.yardCard}>
+              <Text style={styles.yardLabel}>{label}</Text>
+              <Text style={styles.yardValue}>{yardages[k]}</Text>
+              <Text style={styles.yardUnit}>yards</Text>
+
+              {gpsLive ? (
+                <View style={styles.microRow}>
+                  <View style={styles.liveDot} />
+                  <Text style={styles.microText}>LIVE GPS</Text>
+                </View>
+              ) : null}
+            </View>
           ))}
         </View>
-      )}
 
-      <View style={styles.ybWrap}>
-        <Pressable onPress={() => setYardageOpen(true)} style={({ pressed }) => [styles.ybBtn, pressed && styles.pressed]}>
-          <Text style={styles.ybTitle}>Yardage Book</Text>
+        {!hasGreenPoints ? (
+          <View style={styles.hintCard}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.hintTitle}>No green points yet</Text>
+              <Text style={styles.hintSub}>
+                Set front / mid / back once, and yardages will be perfect every round.
+              </Text>
+            </View>
 
-          {hasNote ? (
-            <Text style={styles.ybPreview} numberOfLines={2} ellipsizeMode="tail">
-              {notePreview}
-            </Text>
-          ) : (
-            <Text style={styles.ybPreviewMuted} numberOfLines={2}>
-              No notes yet.
-            </Text>
-          )}
+            <Pressable
+              onPress={() => openHoleMap(true)}
+              disabled={!courseId}
+              style={({ pressed }) => [
+                styles.hintBtn,
+                pressed && styles.pressed,
+                !courseId && { opacity: 0.45 },
+              ]}
+            >
+              <Text style={styles.hintBtnT}>Set points</Text>
+              <Text style={styles.hintBtnS}>→</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
-          <Text style={styles.ybHint}>{hasNote ? "Tap to see notes" : "Tap to add notes"}</Text>
-        </Pressable>
-      </View>
+        <View style={styles.ybWrap}>
+          <Pressable onPress={() => setYardageOpen(true)} style={({ pressed }) => [styles.ybBtn, pressed && styles.pressed]}>
+            <View style={styles.ybBadgeWrap}>
+              <View style={styles.ybBadge}>
+                <Text style={styles.ybBadgeText}>Yardage Book</Text>
+              </View>
+            </View>
 
-      <View style={styles.footer}>
+            {hasNote ? (
+              <Text style={styles.ybPreview} numberOfLines={2} ellipsizeMode="tail">
+                {notePreview}
+              </Text>
+            ) : (
+              <Text style={styles.ybPreviewMuted} numberOfLines={2}>
+                No notes yet.
+              </Text>
+            )}
+
+            <Text style={styles.ybHint}>{hasNote ? "Tap to see notes" : "Tap to add notes"}</Text>
+          </Pressable>
+        </View>
+      </ScrollView>
+
+      <View style={[styles.footer, { paddingBottom: bottomPad }]}>
         <Pressable style={styles.greenBtn} onPress={openScoreEntry}>
           <Text style={styles.greenText}>Input Scores</Text>
         </Pressable>
 
-        <Pressable style={styles.orangeBtn} onPress={openScorecard}>
-          <Text style={styles.orangeText}>Scorecard</Text>
+        <Pressable onPress={() => setDeleteOpen(true)} style={({ pressed }) => [styles.deleteBtn, pressed && styles.pressed]}>
+          <Text style={styles.deleteText}>Delete Round</Text>
         </Pressable>
       </View>
 
@@ -306,12 +496,54 @@ export default function HoleViewScreen({ navigation, route }) {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <Modal visible={deleteOpen} transparent animationType="fade" onRequestClose={() => setDeleteOpen(false)}>
+        <Pressable style={styles.confirmBg} onPress={() => setDeleteOpen(false)}>
+          <View />
+        </Pressable>
+
+        <View style={styles.confirmWrap}>
+          <View style={styles.confirmCard}>
+            <Text style={styles.confirmTitle}>Delete round?</Text>
+            <Text style={styles.confirmSub}>Are you sure you want to delete this round? This can’t be undone.</Text>
+
+            <View style={styles.confirmRow}>
+              <Pressable onPress={() => setDeleteOpen(false)} style={({ pressed }) => [styles.confirmBtn, pressed && styles.pressed]}>
+                <Text style={styles.confirmBtnT}>Cancel</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={doDeleteRound}
+                disabled={deleting}
+                style={({ pressed }) => [
+                  styles.confirmBtnDanger,
+                  pressed && styles.pressed,
+                  deleting && { opacity: 0.7 },
+                ]}
+              >
+                <Text style={styles.confirmBtnDangerT}>{deleting ? "Deleting…" : "Delete"}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={deletedOpen} transparent animationType="fade" onRequestClose={() => setDeletedOpen(false)}>
+        <View style={styles.toastBg}>
+          <View style={styles.toastCard}>
+            <Text style={styles.toastText}>Round deleted</Text>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: BG },
+
+  scroll: { flex: 1 },
+  scrollContent: {},
 
   holePills: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 10 },
 
@@ -329,12 +561,27 @@ const styles = StyleSheet.create({
   holePillTextActive: { color: GREEN_TEXT },
 
   modeRow: { flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 6 },
-  modeBtn: { flex: 1, height: 46, borderRadius: 18, backgroundColor: INNER2, alignItems: "center", justifyContent: "center" },
-  modeBtnActive: { backgroundColor: GREEN },
+  modeBtn: {
+    flex: 1,
+    height: 46,
+    borderRadius: 18,
+    backgroundColor: INNER2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modeBtnPrimary: { backgroundColor: "rgba(46,125,255,0.22)", borderWidth: 1, borderColor: "rgba(46,125,255,0.35)" },
   modeText: { color: WHITE, fontWeight: "900" },
-  modeTextActive: { color: GREEN_TEXT },
+  modeTextPrimary: { color: WHITE },
 
-  mapCard: { marginHorizontal: 16, marginTop: 10, height: 170, borderRadius: 22, backgroundColor: CARD, alignItems: "center", justifyContent: "center" },
+  mapCard: {
+    marginHorizontal: 16,
+    marginTop: 10,
+    height: 170,
+    borderRadius: 22,
+    backgroundColor: CARD,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   mapTitle: { color: WHITE, fontWeight: "900", fontSize: 18 },
   mapSub: { color: MUTED, marginTop: 8, fontWeight: "700", fontSize: 14 },
 
@@ -344,11 +591,46 @@ const styles = StyleSheet.create({
   yardValue: { color: WHITE, fontSize: 30, fontWeight: "900", marginTop: 6 },
   yardUnit: { color: MUTED, fontSize: 12, fontWeight: "700" },
 
-  infoRow: { flexDirection: "row", gap: 12, marginHorizontal: 16, marginTop: 14 },
-  infoCard: { flex: 1, backgroundColor: CARD, borderRadius: 20, padding: 14 },
-  singleCard: { marginHorizontal: 16, marginTop: 14, backgroundColor: CARD, borderRadius: 20, padding: 14 },
-  infoTitle: { color: WHITE, fontWeight: "900", marginBottom: 6 },
-  infoText: { color: MUTED, fontSize: 13, marginTop: 4, fontWeight: "700" },
+  microRow: { marginTop: 8, flexDirection: "row", alignItems: "center", gap: 6 },
+  liveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: "rgba(46,125,255,0.95)",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.92)",
+  },
+  microText: { color: "rgba(255,255,255,0.72)", fontWeight: "900", fontSize: 10, letterSpacing: 0.7 },
+
+  hintCard: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    borderRadius: 22,
+    padding: 14,
+    backgroundColor: "rgba(46,125,255,0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(46,125,255,0.26)",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  hintTitle: { color: WHITE, fontWeight: "900", fontSize: 13 },
+  hintSub: { marginTop: 6, color: "rgba(255,255,255,0.70)", fontWeight: "800", fontSize: 12, lineHeight: 16 },
+
+  hintBtn: {
+    height: 44,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  hintBtnT: { color: WHITE, fontWeight: "900", fontSize: 12, letterSpacing: 0.3 },
+  hintBtnS: { color: "rgba(255,255,255,0.82)", fontWeight: "900", fontSize: 14 },
 
   ybWrap: { marginHorizontal: 16, marginTop: 12 },
   ybBtn: {
@@ -358,17 +640,27 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(46,125,255,0.35)",
   },
-  ybTitle: { color: WHITE, fontWeight: "900", fontSize: 14 },
+
+  ybBadgeWrap: { alignItems: "center" },
+  ybBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+  ybBadgeText: { color: WHITE, fontWeight: "900", fontSize: 12, letterSpacing: 0.3 },
 
   ybPreview: {
-    marginTop: 8,
+    marginTop: 10,
     color: "rgba(255,255,255,0.92)",
     fontWeight: "800",
     fontSize: 12,
     lineHeight: 16,
   },
   ybPreviewMuted: {
-    marginTop: 8,
+    marginTop: 10,
     color: "rgba(255,255,255,0.65)",
     fontWeight: "800",
     fontSize: 12,
@@ -381,11 +673,31 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
 
-  footer: { padding: 16, gap: 10 },
+  footer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingTop: 12,
+    paddingHorizontal: 16,
+    backgroundColor: BG,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.08)",
+  },
   greenBtn: { height: 56, borderRadius: 999, backgroundColor: GREEN, alignItems: "center", justifyContent: "center" },
   greenText: { color: GREEN_TEXT, fontSize: 17, fontWeight: "900" },
-  orangeBtn: { height: 52, borderRadius: 999, backgroundColor: ORANGE, alignItems: "center", justifyContent: "center" },
-  orangeText: { color: ORANGE_TEXT, fontSize: 16, fontWeight: "900" },
+
+  deleteBtn: {
+    marginTop: 10,
+    height: 52,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(214,40,40,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(214,40,40,0.35)",
+  },
+  deleteText: { color: WHITE, fontWeight: "900", letterSpacing: 0.3 },
 
   modalBg: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.60)" },
   modalWrap: { flex: 1, justifyContent: "center", padding: 18 },
@@ -435,6 +747,50 @@ const styles = StyleSheet.create({
     backgroundColor: GREEN,
   },
   modalDoneText: { color: GREEN_TEXT, fontWeight: "900", fontSize: 16 },
+
+  confirmBg: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.62)" },
+  confirmWrap: { flex: 1, justifyContent: "center", padding: 18 },
+  confirmCard: {
+    borderRadius: 22,
+    padding: 14,
+    backgroundColor: "rgba(18,22,30,0.96)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+  confirmTitle: { color: WHITE, fontWeight: "900", fontSize: 16 },
+  confirmSub: { marginTop: 8, color: "rgba(255,255,255,0.72)", fontWeight: "800", fontSize: 12, lineHeight: 17 },
+  confirmRow: { marginTop: 12, flexDirection: "row", gap: 10 },
+  confirmBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+  confirmBtnT: { color: WHITE, fontWeight: "900" },
+  confirmBtnDanger: {
+    flex: 1,
+    height: 48,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: DANGER,
+  },
+  confirmBtnDangerT: { color: WHITE, fontWeight: "900" },
+
+  toastBg: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.62)" },
+  toastCard: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 18,
+    backgroundColor: "rgba(18,22,30,0.96)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+  toastText: { color: WHITE, fontWeight: "900" },
 
   pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
 });

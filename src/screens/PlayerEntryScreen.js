@@ -1,3 +1,4 @@
+// src/screens/PlayerEntryScreen.js
 import React, { useEffect, useMemo, useState } from "react";
 import {
   SafeAreaView,
@@ -20,6 +21,7 @@ import theme from "../theme";
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import { getBuddies } from "../storage/buddies";
+import { saveActiveRound } from "../storage/roundState";
 
 const PROFILE_KEY = "LEGACY_GOLF_PROFILE_V1";
 
@@ -91,6 +93,45 @@ function parseProfile(raw) {
   }
 }
 
+function makeActiveRoundSnapshot({
+  params,
+  course,
+  tee,
+  holeMeta,
+  scoring,
+  players,
+  playerCount,
+  joinCode,
+}) {
+  const gameId = params?.gameId || params?.gameFormat || params?.format || params?.gameType || null;
+  const gameTitle = params?.gameTitle || params?.title || null;
+
+  return {
+    version: 1,
+    status: "active",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+
+    gameId,
+    gameTitle,
+
+    scoring,
+    course,
+    tee,
+    holeMeta,
+
+    wagers: params?.wagers || null,
+
+    players,
+    playerCount,
+
+    joinCode,
+
+    startHole: 1,
+    currentHole: 1,
+  };
+}
+
 export default function PlayerEntryScreen({ navigation, route }) {
   const params = route?.params || {};
 
@@ -113,6 +154,9 @@ export default function PlayerEntryScreen({ navigation, route }) {
 
   const [buddyModal, setBuddyModal] = useState(false);
   const [buddyQuery, setBuddyQuery] = useState("");
+
+  // NEW: when true, Buddy modal "Done" becomes blue
+  const [buddyAddedThisSession, setBuddyAddedThisSession] = useState(false);
 
   const [guestModal, setGuestModal] = useState(false);
   const [guestName, setGuestName] = useState("");
@@ -200,6 +244,9 @@ export default function PlayerEntryScreen({ navigation, route }) {
         source: "buddy",
       },
     ]);
+
+    // NEW: turn Done blue as soon as at least one buddy gets added
+    setBuddyAddedThisSession(true);
   }
 
   function removePlayer(id) {
@@ -240,10 +287,27 @@ export default function PlayerEntryScreen({ navigation, route }) {
     } catch {}
   }
 
-  function onStartRound() {
+  async function onStartRound() {
     if (!canStart) return;
 
-    // GO TO ROUND HUB (Hole View screen)
+    // 1) Save Active Round snapshot (for Resume + stable downstream screens)
+    try {
+      const activeRound = makeActiveRoundSnapshot({
+        params,
+        course,
+        tee,
+        holeMeta,
+        scoring,
+        players,
+        playerCount,
+        joinCode,
+      });
+      await saveActiveRound(activeRound);
+    } catch {
+      // do not block starting the round
+    }
+
+    // 2) GO TO ROUND HUB (Hole View screen)
     try {
       navigation.navigate(ROUTES.HOLE_VIEW, {
         ...params,
@@ -276,6 +340,18 @@ export default function PlayerEntryScreen({ navigation, route }) {
     </Pressable>
   );
 
+  function openBuddyModal() {
+    setBuddyQuery("");
+    setBuddyAddedThisSession(false);
+    setBuddyModal(true);
+  }
+
+  function closeBuddyModal() {
+    setBuddyModal(false);
+  }
+
+  const doneIsPrimary = buddyAddedThisSession;
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScreenHeader
@@ -297,7 +373,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
         </View>
 
         <View style={styles.actionRow}>
-          <Pressable onPress={() => setBuddyModal(true)} style={({ pressed }) => [styles.actionPillPrimary, pressed && styles.pressed]}>
+          <Pressable onPress={openBuddyModal} style={({ pressed }) => [styles.actionPillPrimary, pressed && styles.pressed]}>
             <Text style={styles.actionPillText}>Buddy List</Text>
           </Pressable>
 
@@ -372,8 +448,8 @@ export default function PlayerEntryScreen({ navigation, route }) {
       </View>
 
       {/* Buddy Modal */}
-      <Modal visible={buddyModal} transparent animationType="fade" onRequestClose={() => setBuddyModal(false)}>
-        <Pressable style={styles.modalWrap} onPress={() => setBuddyModal(false)}>
+      <Modal visible={buddyModal} transparent animationType="fade" onRequestClose={closeBuddyModal}>
+        <Pressable style={styles.modalWrap} onPress={closeBuddyModal}>
           <Pressable style={styles.modalCard} onPress={() => {}}>
             <Text style={styles.modalTitle}>Add from Buddy List</Text>
 
@@ -405,7 +481,11 @@ export default function PlayerEntryScreen({ navigation, route }) {
                     <Pressable
                       disabled={disabled}
                       onPress={() => addBuddy(item)}
-                      style={({ pressed }) => [styles.pickBtn, disabled && styles.pickBtnDisabled, pressed && !disabled && styles.pressed]}
+                      style={({ pressed }) => [
+                        styles.pickBtn,
+                        disabled && styles.pickBtnDisabled,
+                        pressed && !disabled && styles.pressed,
+                      ]}
                     >
                       <Text style={styles.pickBtnText}>{disabled ? "Added" : "Add"}</Text>
                     </Pressable>
@@ -414,8 +494,16 @@ export default function PlayerEntryScreen({ navigation, route }) {
               }}
             />
 
-            <Pressable onPress={() => setBuddyModal(false)} style={({ pressed }) => [styles.modalClose, pressed && styles.pressed]}>
-              <Text style={styles.modalCloseText}>Done</Text>
+            {/* Done becomes BLUE after at least one Add */}
+            <Pressable
+              onPress={closeBuddyModal}
+              style={({ pressed }) => [
+                styles.modalClose,
+                doneIsPrimary && styles.modalClosePrimary,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={[styles.modalCloseText, doneIsPrimary && styles.modalCloseTextPrimary]}>Done</Text>
             </Pressable>
           </Pressable>
         </Pressable>
@@ -584,8 +672,24 @@ const styles = StyleSheet.create({
   pickBtnDisabled: { opacity: 0.45 },
   pickBtnText: { color: "#fff", fontWeight: "900" },
 
-  modalClose: { marginTop: 6, height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)", backgroundColor: "rgba(255,255,255,0.06)" },
+  modalClose: {
+    marginTop: 6,
+    height: 48,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
   modalCloseText: { color: "#fff", fontWeight: "900" },
+
+  // NEW: primary Done state
+  modalClosePrimary: {
+    backgroundColor: theme?.primary || theme?.colors?.primary || "#2E7DFF",
+    borderColor: "rgba(255,255,255,0.18)",
+  },
+  modalCloseTextPrimary: { color: "#fff" },
 
   modalGhostBtn: { flex: 1, height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)", backgroundColor: "rgba(255,255,255,0.06)" },
   modalGhostText: { color: "#fff", fontWeight: "900" },
