@@ -19,36 +19,13 @@ function safeJsonParse(raw) {
   }
 }
 
-function normalize(v) {
-  return String(v || "").trim();
-}
-
-function primaryKey(courseId) {
-  const id = normalize(courseId);
-  return `${PREFIXES[0]}${id}`;
-}
-
-/**
- * Build a list of AsyncStorage keys to scan.
- * IMPORTANT: We intentionally feed BOTH a "name-like" and an "id-like" input
- * into courseIdCandidates so we can recover old saves even when callers pass:
- * - a display name (e.g., "Green Tee Country Club")
- * - a canonical id (e.g., "green_tee_country_club")
- * - an older/legacy variation (e.g., pagoda ridge naming)
- */
-function buildKeys(courseId, courseName) {
-  const id = normalize(courseId);
-  const name = normalize(courseName);
-
-  // If caller didn’t provide a name, treat the id as a name too.
-  const nameLike = name || id;
-
-  const ids = courseIdCandidates(nameLike, id);
+function buildKeys(courseId) {
+  const ids = courseIdCandidates("", courseId);
   const keys = [];
 
   for (const p of PREFIXES) {
-    for (const cid of ids) {
-      keys.push(`${p}${cid}`);
+    for (const id of ids) {
+      keys.push(`${p}${id}`);
     }
   }
 
@@ -63,14 +40,17 @@ function buildKeys(courseId, courseName) {
   return out;
 }
 
+function primaryKey(courseId) {
+  const id = String(courseId || "").trim();
+  return `${PREFIXES[0]}${id}`;
+}
+
 // Load: try candidate ids + older prefixes, then migrate to stable key.
-// Backwards compatible signature: loadCourseData(courseId)
-// Optional: loadCourseData(courseId, courseName)
-export async function loadCourseData(courseId, courseName) {
-  const id = normalize(courseId);
+export async function loadCourseData(courseId) {
+  const id = String(courseId || "").trim();
   if (!id) return null;
 
-  const keys = buildKeys(id, courseName);
+  const keys = buildKeys(id);
 
   for (const k of keys) {
     try {
@@ -101,7 +81,7 @@ export async function loadCourseData(courseId, courseName) {
 
 // Save: always write to the stable key
 export async function saveCourseData(courseId, data) {
-  const id = normalize(courseId);
+  const id = String(courseId || "").trim();
   if (!id) return false;
 
   try {
@@ -114,7 +94,7 @@ export async function saveCourseData(courseId, data) {
 }
 
 export async function updateCourseData(courseId, patch) {
-  const id = normalize(courseId);
+  const id = String(courseId || "").trim();
   if (!id) return null;
 
   try {
@@ -127,12 +107,13 @@ export async function updateCourseData(courseId, patch) {
   }
 }
 
-export async function clearCourseData(courseId, courseName) {
-  const id = normalize(courseId);
+export async function clearCourseData(courseId) {
+  const id = String(courseId || "").trim();
   if (!id) return false;
 
   try {
-    const keys = buildKeys(id, courseName);
+    // remove every candidate key (old ids + old prefixes) to fully reset if needed
+    const keys = buildKeys(id);
     await Promise.all(keys.map((k) => AsyncStorage.removeItem(k)));
     return true;
   } catch {

@@ -1,0 +1,139 @@
+commit 0e786aa9324d8e1972e40dec51e4e66908dde0ec
+Author: Stephane Labine <stephanelabine@gmail.com>
+Date:   Sun Jan 11 15:01:47 2026 -0800
+
+    WIP: Jan 11 recovery checkpoint
+
+diff --git a/src/screens/NewRoundScreen.js b/src/screens/NewRoundScreen.js
+index 0cacaec..c7a7f35 100644
+--- a/src/screens/NewRoundScreen.js
++++ b/src/screens/NewRoundScreen.js
+@@ -18,19 +18,13 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
+ import theme from "../theme";
+ import ROUTES from "../navigation/routes";
+ import ScreenHeader from "../components/ScreenHeader";
+-import { COURSES_LOCAL } from "../data/coursesLocal";
++import { COURSES_LOCAL, canonicalCourseName, courseIdForName } from "../data/coursesLocal";
+ import { haversineKm } from "../utils/distance";
+ import { loadActiveRound, saveActiveRound, updateActiveRound } from "../storage/roundState";
+ 
+ const FALLBACK_CENTER = { lat: 49.0504, lng: -122.3045 };
+ const MAX_KM = 200;
+ 
+-// Legacy green accents (matches the green-border language used elsewhere)
+-const GREEN = "rgba(15,122,74,0.95)";
+-const GREEN_BORDER = "rgba(15,122,74,0.55)";
+-const GREEN_BG = "rgba(15,122,74,0.12)";
+-const GREEN_BG_SOFT = "rgba(15,122,74,0.08)";
+-
+ function formatKm(d) {
+   const n = Number(d);
+   if (!Number.isFinite(n)) return "—";
+@@ -121,6 +115,9 @@ export default function NewRoundScreen({ navigation, route }) {
+       const d = haversineKm(center, { lat: c.lat, lng: c.lng });
+       return {
+         ...c,
++        // Use canonical naming + stable ids
++        canonName: canonicalCourseName(c.name),
++        stableId: courseIdForName(c.name),
+         distanceKm: Number.isFinite(d) ? d : 999999,
+       };
+     })
+@@ -131,15 +128,18 @@ export default function NewRoundScreen({ navigation, route }) {
+   const filtered = useMemo(() => {
+     const q = query.trim().toLowerCase();
+     if (!q) return nearbyCourses;
+-    return nearbyCourses.filter((c) => c.name.toLowerCase().includes(q));
++    return nearbyCourses.filter((c) => (c.canonName || c.name).toLowerCase().includes(q));
+   }, [query, nearbyCourses]);
+ 
+   function tapCourse(course) {
+     Keyboard.dismiss();
+ 
++    const name = course?.canonName || canonicalCourseName(course?.name || "");
++    const id = course?.stableId || courseIdForName(name);
++
+     const courseObj = {
+-      id: course.name.replace(/\s/g, "_").toLowerCase(),
+-      name: course.name,
++      id,
++      name,
+       lat: course.lat,
+       lng: course.lng,
+     };
+@@ -169,8 +169,7 @@ export default function NewRoundScreen({ navigation, route }) {
+   const listBottomPad = footerHeight + 20;
+ 
+   function renderRow({ item }) {
+-    const courseObjId = item.name.replace(/\s/g, "_").toLowerCase();
+-    const active = selectedCourse?.id === courseObjId;
++    const active = selectedCourse?.id === item.stableId;
+ 
+     return (
+       <Pressable
+@@ -186,7 +185,7 @@ export default function NewRoundScreen({ navigation, route }) {
+           <View style={{ flex: 1, minWidth: 0 }}>
+             <View style={styles.rowTop}>
+               <Text style={styles.rowTitle} numberOfLines={1}>
+-                {item.name}
++                {item.canonName || item.name}
+               </Text>
+ 
+               {active ? (
+@@ -253,7 +252,7 @@ export default function NewRoundScreen({ navigation, route }) {
+         ) : (
+           <FlatList
+             data={filtered}
+-            keyExtractor={(item) => item.name}
++            keyExtractor={(item) => item.stableId || item.name}
+             keyboardShouldPersistTaps="handled"
+             contentContainerStyle={[styles.listContent, { paddingBottom: listBottomPad }]}
+             renderItem={renderRow}
+@@ -325,13 +324,13 @@ const styles = StyleSheet.create({
+     borderRadius: 20,
+     padding: 14,
+     borderWidth: 1,
+-    borderColor: GREEN_BORDER,
++    borderColor: "rgba(255,255,255,0.14)",
+     backgroundColor: "rgba(255,255,255,0.05)",
+     marginBottom: 12,
+   },
+   rowActive: {
+-    borderColor: GREEN,
+-    backgroundColor: GREEN_BG,
++    borderColor: "rgba(46,125,255,0.55)",
++    backgroundColor: "rgba(46,125,255,0.12)",
+   },
+ 
+   rowShadow: Platform.select({
+@@ -355,8 +354,8 @@ const styles = StyleSheet.create({
+     paddingVertical: 6,
+     borderRadius: 999,
+     borderWidth: 1,
+-    borderColor: GREEN_BORDER,
+-    backgroundColor: GREEN_BG,
++    borderColor: "rgba(46,125,255,0.55)",
++    backgroundColor: "rgba(46,125,255,0.18)",
+   },
+   selectedPillText: { color: "#fff", fontSize: 12, fontWeight: "900", letterSpacing: 0.3 },
+ 
+@@ -370,7 +369,7 @@ const styles = StyleSheet.create({
+     borderColor: "rgba(255,255,255,0.12)",
+     backgroundColor: "rgba(255,255,255,0.06)",
+   },
+-  kmPillActive: { borderColor: "rgba(15,122,74,0.35)", backgroundColor: GREEN_BG_SOFT },
++  kmPillActive: { borderColor: "rgba(46,125,255,0.35)", backgroundColor: "rgba(46,125,255,0.10)" },
+   kmText: { color: "#fff", fontSize: 12, fontWeight: "900", opacity: 0.9 },
+   kmTextActive: { opacity: 1 },
+ 
+@@ -387,8 +386,8 @@ const styles = StyleSheet.create({
+     backgroundColor: "rgba(255,255,255,0.04)",
+   },
+   chevWrapActive: {
+-    borderColor: "rgba(15,122,74,0.30)",
+-    backgroundColor: "rgba(15,122,74,0.08)",
++    borderColor: "rgba(46,125,255,0.25)",
++    backgroundColor: "rgba(46,125,255,0.08)",
+   },
+ 
+   loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },

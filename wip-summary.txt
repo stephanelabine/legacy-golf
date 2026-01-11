@@ -1,0 +1,13 @@
+commit 0e786aa9324d8e1972e40dec51e4e66908dde0ec
+Author: Stephane Labine <stephanelabine@gmail.com>
+Date:   Sun Jan 11 15:01:47 2026 -0800
+
+    WIP: Jan 11 recovery checkpoint
+
+how --name-only --stat HEAD
+src/data/coursesLocal.js
+src/screens/GpsScreen.js
+src/screens/NewRoundScreen.js
+src/screens/PlayerEntryScreen.js
+src/screens/TeeSelectionScreen.js
+src/storage/courseData.js

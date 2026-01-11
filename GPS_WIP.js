@@ -100,29 +100,22 @@ export default function GPSScreen({ navigation, route }) {
 
   useEffect(() => {
     let alive = true;
-
     (async () => {
       const ar = await loadActiveRound();
       if (!alive) return;
-
       setActiveRound(ar || null);
 
       const courseId = ar?.course?.id || route?.params?.course?.id || "";
-      const courseName = ar?.course?.name || route?.params?.course?.name || "";
-
       if (courseId) {
-        const saved = await loadCourseData(courseId, courseName);
+        const saved = await loadCourseData(courseId);
         if (!alive) return;
         setSavedCourse(saved || null);
-      } else {
-        setSavedCourse(null);
       }
     })();
-
     return () => {
       alive = false;
     };
-  }, [route?.params?.course?.id, route?.params?.course?.name]);
+  }, []);
 
   useEffect(() => {
     let sub = null;
@@ -163,7 +156,6 @@ export default function GPSScreen({ navigation, route }) {
   const si = Number(hm?.si ?? hm?.strokeIndex ?? hm?.SI ?? route?.params?.si ?? 10);
 
   const green = useMemo(() => findGreenPoints(savedCourse, hole), [savedCourse, hole]);
-  const greenLoaded = !!(green?.front && green?.middle && green?.back);
 
   const yardages = useMemo(() => {
     // If we have user location + green points -> compute live
@@ -233,7 +225,7 @@ export default function GPSScreen({ navigation, route }) {
     </Pressable>
   );
 
-  const subtitleTail = !savedCourse ? " • No saved course data" : greenLoaded ? "" : " • No green points loaded";
+  const greenLoaded = !!(green?.front && green?.middle && green?.back);
 
   return (
     <View style={styles.root}>
@@ -251,7 +243,7 @@ export default function GPSScreen({ navigation, route }) {
         <ScreenHeader
           navigation={navigation}
           title={`Hole ${hole}`}
-          subtitle={`Par ${Number.isFinite(par) ? par : 4} • SI ${Number.isFinite(si) ? si : 10}${subtitleTail}`}
+          subtitle={`Par ${Number.isFinite(par) ? par : 4} • SI ${Number.isFinite(si) ? si : 10}${greenLoaded ? "" : " • No green points loaded"}`}
           right={right}
         />
 
