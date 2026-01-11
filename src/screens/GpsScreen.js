@@ -386,7 +386,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   primaryTitle: { color: "#fff", fontSize: 16, fontWeight: "900", letterSpacing: 0.6 },
-  primarySub: { color: "rgba(255,255,255,0.88)", fontSize: 12, marginTop: 2, letterSpacing: 0.2, fontWeight: "800" },
+  primarySub: {
+    color: "rgba(255,255,255,0.88)",
+    fontSize: 12,
+    marginTop: 2,
+    letterSpacing: 0.2,
+    fontWeight: "800",
+  },
 
   pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
 });

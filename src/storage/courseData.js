@@ -30,8 +30,8 @@ function primaryKey(courseId) {
 
 /**
  * Build a list of AsyncStorage keys to scan.
- * IMPORTANT: We intentionally feed BOTH a "name-like" and an "id-like" input
- * into courseIdCandidates so we can recover old saves even when callers pass:
+ * IMPORTANT: Feed BOTH a "name-like" and an "id-like" input into
+ * courseIdCandidates so we can recover old saves even when callers pass:
  * - a display name (e.g., "Green Tee Country Club")
  * - a canonical id (e.g., "green_tee_country_club")
  * - an older/legacy variation (e.g., pagoda ridge naming)
