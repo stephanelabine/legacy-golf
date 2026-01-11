@@ -58,7 +58,11 @@ export default function TeeSelectionScreen({ navigation, route }) {
     }
 
     const scoring = route?.params?.scoring || route?.params?.scoringType || "net";
-    const playerCount = route?.params?.playerCount || 4;
+
+    // IMPORTANT:
+    // Do NOT default playerCount to 4 here.
+    // Leave it null/undefined so the Player Setup screen can show a blank input on arrival.
+    const playerCount = route?.params?.playerCount ?? null;
 
     // Persist tee + holeMeta into Active Round (stability for downstream screens)
     const patch = {
@@ -312,8 +316,8 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.05)",
   },
   teeCardActive: {
-    borderColor: "rgba(46,125,255,0.70)",
-    backgroundColor: "rgba(46,125,255,0.14)",
+    borderColor: "rgba(15,122,74,0.78)",
+    backgroundColor: "rgba(15,122,74,0.16)",
   },
 
   rowShadow: Platform.select({
@@ -335,8 +339,8 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "rgba(46,125,255,0.55)",
-    backgroundColor: "rgba(46,125,255,0.20)",
+    borderColor: "rgba(15,122,74,0.65)",
+    backgroundColor: "rgba(15,122,74,0.22)",
   },
   selectedText: { color: "#fff", fontSize: 12, fontWeight: "900" },
 

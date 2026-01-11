@@ -31,6 +31,8 @@ const ROUTES = {
   EQUIPMENT: "Equipment",
 
   WAGERS: "Wagers",
+
+  TOURNAMENTS: "Tournaments",
 };
 
 export default ROUTES;
