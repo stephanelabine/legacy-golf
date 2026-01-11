@@ -1,63 +1,120 @@
 // src/storage/courseData.js
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { courseIdCandidates } from "../data/coursesLocal";
 
-const KEY = "LEGACY_GOLF_COURSE_DATA_V1";
+// We keep compatibility with whatever older prefixes you may have had.
+const PREFIXES = [
+  "LEGACY_GOLF_COURSE_DATA_V1:",
+  "LEGACY_GOLF_COURSE_DATA:",
+  "COURSE_DATA_V1:",
+  "COURSE_DATA:",
+];
 
-function looksLikePagodaKey(k) {
-  const s = String(k || "").toLowerCase();
-  return s.includes("pagoda");
+function safeJsonParse(raw) {
+  try {
+    const v = JSON.parse(raw);
+    return v && typeof v === "object" ? v : null;
+  } catch {
+    return null;
+  }
 }
 
-// Hard remove any legacy Pagoda entries so they can't reappear in UI flows
-function prunePagodaEntries(all) {
-  if (!all || typeof all !== "object") return all;
+function buildKeys(courseId) {
+  const ids = courseIdCandidates("", courseId);
+  const keys = [];
 
-  let changed = false;
-  const next = { ...all };
-
-  for (const k of Object.keys(next)) {
-    if (looksLikePagodaKey(k)) {
-      delete next[k];
-      changed = true;
+  for (const p of PREFIXES) {
+    for (const id of ids) {
+      keys.push(`${p}${id}`);
     }
   }
 
-  return { next, changed };
+  // unique
+  const out = [];
+  const seen = new Set();
+  for (const k of keys) {
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(k);
+  }
+  return out;
 }
 
-export async function loadAllCourseData() {
-  try {
-    const raw = await AsyncStorage.getItem(KEY);
-    const parsed = raw ? JSON.parse(raw) : {};
+function primaryKey(courseId) {
+  const id = String(courseId || "").trim();
+  return `${PREFIXES[0]}${id}`;
+}
 
-    const { next, changed } = prunePagodaEntries(parsed);
+// Load: try candidate ids + older prefixes, then migrate to stable key.
+export async function loadCourseData(courseId) {
+  const id = String(courseId || "").trim();
+  if (!id) return null;
 
-    // persist the prune so Pagoda can't "ghost" back later
-    if (changed) {
-      await AsyncStorage.setItem(KEY, JSON.stringify(next));
+  const keys = buildKeys(id);
+
+  for (const k of keys) {
+    try {
+      const raw = await AsyncStorage.getItem(k);
+      if (!raw) continue;
+
+      const obj = safeJsonParse(raw);
+      if (!obj) continue;
+
+      // migrate to the primary stable key if needed
+      const pk = primaryKey(id);
+      if (k !== pk) {
+        try {
+          await AsyncStorage.setItem(pk, raw);
+        } catch {
+          // ignore migration failure
+        }
+      }
+
+      return obj;
+    } catch {
+      // keep scanning
     }
+  }
 
+  return null;
+}
+
+// Save: always write to the stable key
+export async function saveCourseData(courseId, data) {
+  const id = String(courseId || "").trim();
+  if (!id) return false;
+
+  try {
+    const pk = primaryKey(id);
+    await AsyncStorage.setItem(pk, JSON.stringify(data ?? null));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function updateCourseData(courseId, patch) {
+  const id = String(courseId || "").trim();
+  if (!id) return null;
+
+  try {
+    const current = (await loadCourseData(id)) || {};
+    const next = { ...current, ...(patch || {}) };
+    await saveCourseData(id, next);
     return next;
   } catch {
-    return {};
+    return null;
   }
 }
 
-export async function loadCourseData(courseId) {
-  const all = await loadAllCourseData();
-  return all?.[courseId] || null;
-}
+export async function clearCourseData(courseId) {
+  const id = String(courseId || "").trim();
+  if (!id) return false;
 
-// IMPORTANT: merge with existing so we don't wipe out other saved fields (like gps) when saving holeMeta.
-export async function saveCourseData(courseId, data) {
   try {
-    // Safety: never save data under a Pagoda key
-    if (looksLikePagodaKey(courseId)) return false;
-
-    const all = await loadAllCourseData();
-    const existing = all?.[courseId] && typeof all[courseId] === "object" ? all[courseId] : {};
-    all[courseId] = { ...existing, ...(data || {}) };
-    await AsyncStorage.setItem(KEY, JSON.stringify(all));
+    // remove every candidate key (old ids + old prefixes) to fully reset if needed
+    const keys = buildKeys(id);
+    await Promise.all(keys.map((k) => AsyncStorage.removeItem(k)));
     return true;
   } catch {
     return false;

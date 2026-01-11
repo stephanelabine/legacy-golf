@@ -22,6 +22,62 @@ export function canonicalCourseName(name = "") {
   return raw;
 }
 
+// IMPORTANT:
+// This MUST match the "old" id behavior so previously-saved AsyncStorage data
+// (Pars/SI, green points, etc.) still loads.
+export function courseIdForName(name = "") {
+  const canon = canonicalCourseName(name);
+  return String(canon || "")
+    .trim()
+    .replace(/\s+/g, "_")
+    .toLowerCase();
+}
+
+// Build a list of candidate ids so we can load older saves even if ids changed.
+// courseData.js calls: courseIdCandidates("", courseId)
+export function courseIdCandidates(courseName = "", courseId = "") {
+  const a = String(courseName || "").trim();
+  const b = String(courseId || "").trim();
+
+  const raw = b || a;
+  const canonFromName = canonicalCourseName(a || raw);
+
+  const candidates = [
+    // as-is (maybe already the correct id)
+    b,
+    raw,
+
+    // common id transforms
+    raw.toLowerCase(),
+    raw.replace(/\s+/g, "_").toLowerCase(),
+    raw.replace(/\s+/g, "").toLowerCase(),
+    raw.replace(/-/g, "_").toLowerCase(),
+    raw.replace(/_/g, " ").trim().replace(/\s+/g, "_").toLowerCase(),
+
+    // treat raw as a name and apply canonical mapping + old-style id rules
+    courseIdForName(raw),
+    courseIdForName(canonFromName),
+
+    // explicit support for old "Pagoda" names mapping to Green Tee
+    courseIdForName("Pagoda Ridge"),
+    courseIdForName("Pagoda Ridge Golf Club"),
+    courseIdForName("Pagoda Ridge Golf Course"),
+    courseIdForName("Green Tee Country Club"),
+  ];
+
+  // unique + non-empty
+  const out = [];
+  const seen = new Set();
+  for (const c of candidates) {
+    const v = String(c || "").trim();
+    if (!v) continue;
+    if (seen.has(v)) continue;
+    seen.add(v);
+    out.push(v);
+  }
+  return out;
+}
+
 export const COURSES_LOCAL = [
   // Green Tee coordinates (Pagoda Ridge was the old name at the same location)
   { name: "Green Tee Country Club", lat: 49.143311, lng: -122.497658 },
