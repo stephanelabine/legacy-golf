@@ -126,7 +126,12 @@ function extractActiveRoundParams(state) {
   if (!course || !tee || !Array.isArray(players) || players.length === 0) return null;
 
   const holeMeta = root?.holeMeta ?? state?.holeMeta ?? null;
-  const scoring = root?.scoring ?? root?.scoringType ?? state?.scoring ?? state?.scoringType ?? "net";
+  const scoring =
+    root?.scoring ??
+    root?.scoringType ??
+    state?.scoring ??
+    state?.scoringType ??
+    "net";
 
   const holeRaw =
     root?.holeNumber ??
@@ -337,7 +342,8 @@ export default function HomeScreen({ navigation }) {
           source={require("../../assets/legacy-logo-transparent.png")}
           style={[
             styles.floatingLogo,
-            { top: Math.max(8, (insets?.top || 0) + 2) },
+            // moved up more so it doesn't crowd/overlap the "WELCOME TO" line
+            { top: Math.max(0, (insets?.top || 0) - 50) },
           ]}
           resizeMode="contain"
           pointerEvents="none"
@@ -394,23 +400,16 @@ export default function HomeScreen({ navigation }) {
                   <MaterialCommunityIcons
                     name="chevron-right"
                     size={22}
-                    color={
-                      isDark ? "rgba(255,255,255,0.80)" : "rgba(10,15,26,0.70)"
-                    }
+                    color={isDark ? "rgba(255,255,255,0.80)" : "rgba(10,15,26,0.70)"}
                   />
                 </View>
 
-                <Text
-                  style={[styles.continueTitle, { color: theme.text }]}
-                  numberOfLines={1}
-                >
+                <Text style={[styles.continueTitle, { color: theme.text }]} numberOfLines={1}>
                   {resumeInfo.courseName}
                 </Text>
 
                 <Text style={[styles.continueSub, { color: theme.muted }]}>
-                  {resumeInfo.holeNumber
-                    ? `Resume on Hole ${resumeInfo.holeNumber}`
-                    : "Resume your current round"}
+                  {resumeInfo.holeNumber ? `Resume on Hole ${resumeInfo.holeNumber}` : "Resume your current round"}
                 </Text>
               </Pressable>
             ) : null}
@@ -453,10 +452,7 @@ export default function HomeScreen({ navigation }) {
             >
               <Pressable
                 onPress={() => navigation.navigate(ROUTES.HISTORY)}
-                style={({ pressed }) => [
-                  styles.quickRow,
-                  pressed && styles.pressedRow,
-                ]}
+                style={({ pressed }) => [styles.quickRow, pressed && styles.pressedRow]}
               >
                 <View style={styles.quickLeft}>
                   <View
@@ -475,16 +471,12 @@ export default function HomeScreen({ navigation }) {
                       color={isDark ? "#fff" : "#0A0F1A"}
                     />
                   </View>
-                  <Text style={[styles.quickText, { color: theme.text }]}>
-                    History
-                  </Text>
+                  <Text style={[styles.quickText, { color: theme.text }]}>History</Text>
                 </View>
                 <MaterialCommunityIcons
                   name="chevron-right"
                   size={22}
-                  color={
-                    isDark ? "rgba(255,255,255,0.70)" : "rgba(10,15,26,0.55)"
-                  }
+                  color={isDark ? "rgba(255,255,255,0.70)" : "rgba(10,15,26,0.55)"}
                 />
               </Pressable>
 
@@ -492,10 +484,7 @@ export default function HomeScreen({ navigation }) {
 
               <Pressable
                 onPress={() => navigation.navigate(ROUTES.PROFILE)}
-                style={({ pressed }) => [
-                  styles.quickRow,
-                  pressed && styles.pressedRow,
-                ]}
+                style={({ pressed }) => [styles.quickRow, pressed && styles.pressedRow]}
               >
                 <View style={styles.quickLeft}>
                   <View
@@ -514,16 +503,12 @@ export default function HomeScreen({ navigation }) {
                       color={isDark ? "#fff" : "#0A0F1A"}
                     />
                   </View>
-                  <Text style={[styles.quickText, { color: theme.text }]}>
-                    Player Profile
-                  </Text>
+                  <Text style={[styles.quickText, { color: theme.text }]}>Player Profile</Text>
                 </View>
                 <MaterialCommunityIcons
                   name="chevron-right"
                   size={22}
-                  color={
-                    isDark ? "rgba(255,255,255,0.70)" : "rgba(10,15,26,0.55)"
-                  }
+                  color={isDark ? "rgba(255,255,255,0.70)" : "rgba(10,15,26,0.55)"}
                 />
               </Pressable>
 
@@ -531,10 +516,7 @@ export default function HomeScreen({ navigation }) {
 
               <Pressable
                 onPress={() => navigation.navigate(ROUTES.BUDDIES)}
-                style={({ pressed }) => [
-                  styles.quickRow,
-                  pressed && styles.pressedRow,
-                ]}
+                style={({ pressed }) => [styles.quickRow, pressed && styles.pressedRow]}
               >
                 <View style={styles.quickLeft}>
                   <View
@@ -553,16 +535,12 @@ export default function HomeScreen({ navigation }) {
                       color={isDark ? "#fff" : "#0A0F1A"}
                     />
                   </View>
-                  <Text style={[styles.quickText, { color: theme.text }]}>
-                    Buddy List
-                  </Text>
+                  <Text style={[styles.quickText, { color: theme.text }]}>Buddy List</Text>
                 </View>
                 <MaterialCommunityIcons
                   name="chevron-right"
                   size={22}
-                  color={
-                    isDark ? "rgba(255,255,255,0.70)" : "rgba(10,15,26,0.55)"
-                  }
+                  color={isDark ? "rgba(255,255,255,0.70)" : "rgba(10,15,26,0.55)"}
                 />
               </Pressable>
             </View>
@@ -582,8 +560,9 @@ const styles = StyleSheet.create({
   floatingLogo: {
     position: "absolute",
     alignSelf: "center",
-    width: 247,
-    height: 247,
+    // larger logo
+    width: 272,
+    height: 272,
     opacity: 0.98,
     shadowColor: "#FFFFFF",
     shadowOpacity: 0.18,
@@ -631,21 +610,23 @@ const styles = StyleSheet.create({
   toggleLabelLeft: {
     position: "absolute",
     left: 12,
-    fontWeight: "900",
+    fontFamily: "Cinzel",
+    fontWeight: "700",
     letterSpacing: 0.9,
     fontSize: 10,
   },
   toggleLabelRight: {
     position: "absolute",
     right: 12,
-    fontWeight: "900",
+    fontFamily: "Cinzel",
+    fontWeight: "700",
     letterSpacing: 0.9,
     fontSize: 10,
   },
 
-  brand: { alignItems: "center", paddingTop: 72 },
+  // pushed down a touch so the brand text never fights the larger logo
+  brand: { alignItems: "center", paddingTop: 92 },
 
-  // CHANGED: Cinzel applied
   welcome: {
     fontFamily: "Cinzel",
     fontSize: 14,
@@ -655,7 +636,6 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
 
-  // CHANGED: Cinzel applied
   title: {
     fontFamily: "Cinzel",
     fontSize: 50,
@@ -665,7 +645,6 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
 
-  // CHANGED: Cinzel applied
   tagline: {
     fontFamily: "Cinzel",
     fontSize: 16,
@@ -691,9 +670,23 @@ const styles = StyleSheet.create({
     height: 34,
     borderRadius: 999,
   },
-  continueBadgeText: { fontWeight: "900", letterSpacing: 0.2 },
-  continueTitle: { fontSize: 18, fontWeight: "900", letterSpacing: 0.2 },
-  continueSub: { marginTop: 6, fontWeight: "700" },
+  continueBadgeText: {
+    fontFamily: "Cinzel",
+    fontWeight: "700",
+    letterSpacing: 0.2,
+  },
+  continueTitle: {
+    fontFamily: "Cinzel",
+    fontSize: 18,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+  },
+  continueSub: {
+    fontFamily: "Cinzel",
+    marginTop: 6,
+    fontWeight: "600",
+    letterSpacing: 0.2,
+  },
 
   btn: {
     height: 58,
@@ -702,7 +695,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   btnRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  btnPrimaryText: { fontSize: 17, fontWeight: "900", letterSpacing: 0.5 },
+  btnPrimaryText: {
+    fontFamily: "Cinzel",
+    fontSize: 17,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
 
   quickCard: { borderRadius: 22, borderWidth: 1, overflow: "hidden" },
   quickRow: {
@@ -722,7 +720,12 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.08)",
     borderWidth: 1,
   },
-  quickText: { fontSize: 16, fontWeight: "900", letterSpacing: 0.2 },
+  quickText: {
+    fontFamily: "Cinzel",
+    fontSize: 16,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+  },
 
   divider: { height: 1 },
 
