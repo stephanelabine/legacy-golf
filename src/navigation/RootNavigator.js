@@ -34,6 +34,8 @@ import WagersScreen from "../screens/WagersScreen";
 
 import HazardsScreen from "../screens/HazardsScreen";
 
+import TournamentsScreen from "../screens/TournamentsScreen";
+
 const Stack = createNativeStackNavigator();
 
 export default function RootNavigator() {
@@ -70,6 +72,8 @@ export default function RootNavigator() {
       <Stack.Screen name={ROUTES.EQUIPMENT} component={EquipmentScreen} />
 
       <Stack.Screen name={ROUTES.WAGERS} component={WagersScreen} />
+
+      <Stack.Screen name={ROUTES.TOURNAMENTS} component={TournamentsScreen} />
 
       <Stack.Group
         screenOptions={{

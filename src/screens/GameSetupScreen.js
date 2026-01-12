@@ -38,6 +38,8 @@ const PRIMARY = theme?.colors?.primary || theme?.accent || "#2E7DFF";
 const GOLD = "rgba(255, 210, 92, 0.95)";
 const GOLD_SOFT = "rgba(255, 210, 92, 0.22)";
 
+const GREEN = "rgba(15, 122, 74, 0.95)";
+
 function formatMoney(n) {
   const v = Number(n);
   if (!Number.isFinite(v) || v <= 0) return "—";
@@ -156,7 +158,7 @@ export default function GameSetupScreen({ navigation, route }) {
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
   const scoringAccent = PRIMARY;
-  const wagersAccent = GOLD;
+  const wagersAccent = GREEN;
 
   const wagerTypeChips = buildWagerTypeChips(wagers);
 
@@ -305,7 +307,16 @@ export default function GameSetupScreen({ navigation, route }) {
                       >
                         {wagerTypeChips.length ? (
                           wagerTypeChips.map((c) => (
-                            <View key={c.key} style={[styles.typeChip, { borderColor: "rgba(255, 210, 92, 0.24)" }]}>
+                            <View
+                              key={c.key}
+                              style={[
+                                styles.typeChip,
+                                {
+                                  borderColor: "rgba(15, 122, 74, 0.28)",
+                                  backgroundColor: "rgba(15, 122, 74, 0.10)",
+                                },
+                              ]}
+                            >
                               <Text style={styles.typeChipText}>{c.label}</Text>
                             </View>
                           ))
@@ -321,12 +332,12 @@ export default function GameSetupScreen({ navigation, route }) {
 
                 {/* RIGHT */}
                 <View style={styles.wagersRight}>
-                  <View style={[styles.statusPill, wagersEnabled ? styles.statusPillOn : styles.statusPillOff]}>
+                  <View style={[styles.statusPill, wagersEnabled ? styles.statusPillOnGreen : styles.statusPillOff]}>
                     <Text style={styles.statusText}>{wagersEnabled ? "ON" : "OFF"}</Text>
                   </View>
 
                   <Pressable onPress={toggleWagers} hitSlop={10} style={({ pressed }) => [pressed && styles.pressed]}>
-                    <View style={[styles.switchOuter, wagersEnabled && styles.switchOuterOnGold]}>
+                    <View style={[styles.switchOuter, wagersEnabled && styles.switchOuterOnGreen]}>
                       <View style={[styles.switchKnob, wagersEnabled && styles.switchKnobOn]} />
                     </View>
                   </Pressable>
@@ -563,7 +574,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     backgroundColor: "rgba(0,0,0,0.14)",
   },
-  statusPillOn: { borderColor: "rgba(255, 210, 92, 0.40)" },
+  statusPillOnGreen: { borderColor: "rgba(15, 122, 74, 0.45)", backgroundColor: "rgba(15, 122, 74, 0.16)" },
   statusPillOff: { borderColor: "rgba(255,255,255,0.16)" },
   statusText: { color: "#fff", fontSize: 11, fontWeight: "900", letterSpacing: 1.0, opacity: 0.92 },
 
@@ -601,7 +612,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.06)",
     justifyContent: "center",
   },
-  switchOuterOnGold: { borderColor: "rgba(255, 210, 92, 0.50)", backgroundColor: "rgba(255, 210, 92, 0.16)" },
+  switchOuterOnGreen: { borderColor: "rgba(15, 122, 74, 0.55)", backgroundColor: "rgba(15, 122, 74, 0.16)" },
   switchKnob: {
     width: 30,
     height: 30,

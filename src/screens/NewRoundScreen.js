@@ -25,6 +25,12 @@ import { loadActiveRound, saveActiveRound, updateActiveRound } from "../storage/
 const FALLBACK_CENTER = { lat: 49.0504, lng: -122.3045 };
 const MAX_KM = 200;
 
+// Legacy green accents (matches the green-border language used elsewhere)
+const GREEN = "rgba(15,122,74,0.95)";
+const GREEN_BORDER = "rgba(15,122,74,0.55)";
+const GREEN_BG = "rgba(15,122,74,0.12)";
+const GREEN_BG_SOFT = "rgba(15,122,74,0.08)";
+
 function formatKm(d) {
   const n = Number(d);
   if (!Number.isFinite(n)) return "—";
@@ -319,13 +325,13 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 14,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
+    borderColor: GREEN_BORDER,
     backgroundColor: "rgba(255,255,255,0.05)",
     marginBottom: 12,
   },
   rowActive: {
-    borderColor: "rgba(46,125,255,0.55)",
-    backgroundColor: "rgba(46,125,255,0.12)",
+    borderColor: GREEN,
+    backgroundColor: GREEN_BG,
   },
 
   rowShadow: Platform.select({
@@ -349,8 +355,8 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "rgba(46,125,255,0.55)",
-    backgroundColor: "rgba(46,125,255,0.18)",
+    borderColor: GREEN_BORDER,
+    backgroundColor: GREEN_BG,
   },
   selectedPillText: { color: "#fff", fontSize: 12, fontWeight: "900", letterSpacing: 0.3 },
 
@@ -364,7 +370,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.12)",
     backgroundColor: "rgba(255,255,255,0.06)",
   },
-  kmPillActive: { borderColor: "rgba(46,125,255,0.35)", backgroundColor: "rgba(46,125,255,0.10)" },
+  kmPillActive: { borderColor: "rgba(15,122,74,0.35)", backgroundColor: GREEN_BG_SOFT },
   kmText: { color: "#fff", fontSize: 12, fontWeight: "900", opacity: 0.9 },
   kmTextActive: { opacity: 1 },
 
@@ -381,8 +387,8 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.04)",
   },
   chevWrapActive: {
-    borderColor: "rgba(46,125,255,0.25)",
-    backgroundColor: "rgba(46,125,255,0.08)",
+    borderColor: "rgba(15,122,74,0.30)",
+    backgroundColor: "rgba(15,122,74,0.08)",
   },
 
   loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },

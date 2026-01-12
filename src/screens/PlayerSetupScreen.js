@@ -64,13 +64,16 @@ export default function PlayerSetupScreen({ navigation, route }) {
 
   const gameLabel = useMemo(() => pickGameLabel(params), [params]);
 
+  // Default should be BLANK when arriving here (unless a playerCount was explicitly passed in).
   const initialCount = useMemo(() => {
-    const raw = Number(params?.playerCount || 4);
-    return clampCount(raw) || 4;
+    const raw = params?.playerCount;
+    if (raw === null || raw === undefined || raw === "") return null;
+    const parsed = clampCount(Number(raw));
+    return parsed || null;
   }, [params?.playerCount]);
 
-  // Draft input (what they are typing right now)
-  const [countText, setCountText] = useState(String(initialCount));
+  // Draft input (what they are typing right now) — blank by default
+  const [countText, setCountText] = useState(initialCount ? String(initialCount) : "");
 
   // Committed input (what the app considers “confirmed”)
   const [committedCount, setCommittedCount] = useState(initialCount);
@@ -150,14 +153,14 @@ export default function PlayerSetupScreen({ navigation, route }) {
       </View>
 
       <View style={styles.inputCard}>
-        <Text style={styles.inputLabel}>Players</Text>
+        <Text style={styles.inputLabel}>How many players?</Text>
 
         <View style={styles.bigPill}>
           <TextInput
             ref={inputRef}
             value={countText}
             onChangeText={setCountText}
-            placeholder="4"
+            placeholder=""
             placeholderTextColor="rgba(255,255,255,0.35)"
             keyboardType="number-pad"
             maxLength={2}
@@ -180,7 +183,11 @@ export default function PlayerSetupScreen({ navigation, route }) {
         </View>
 
         <Text style={styles.note}>
-          {isDirty ? "Press Done to confirm the player count." : "Next you’ll add guests or choose buddies."}
+          {committedCount == null
+            ? "Enter the number of players, then press Done."
+            : isDirty
+            ? "Press Done to confirm the player count."
+            : "Next you’ll add guests or choose buddies."}
         </Text>
       </View>
 

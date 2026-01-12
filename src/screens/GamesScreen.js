@@ -18,15 +18,28 @@ import ScreenHeader from "../components/ScreenHeader";
 import gameFormats from "../data/gameFormats.json";
 import { useTheme } from "../theme/ThemeProvider";
 
-const GAMES = [
-  {
-    id: "legacy_card",
-    title: "Legacy Card",
-    subtitle: "Premium tournament format. The heart of Legacy Golf.",
-    supported: true,
-    premium: true,
+const FALLBACK_INFO = {
+  tournaments: {
+    title: "Tournaments",
+    subtitle: "Build, run, and track full tournaments in Legacy Golf.",
+    details: [
+      {
+        heading: "What this will become",
+        body: "A full tournament engine: multi-round support, formats, leaderboards, and deep customization.",
+      },
+      {
+        heading: "Why it matters",
+        body: "This is a long-term pillar feature. It needs clean data, flexible rules, and premium UX for fast setup.",
+      },
+      {
+        heading: "Today’s scope",
+        body: "We are only laying the foundation: a Games tile + navigation to a dedicated Tournaments screen.",
+      },
+    ],
   },
+};
 
+const GAMES = [
   { id: "stroke_play", title: "Stroke Play", subtitle: "Total strokes over 18 holes. The classic.", supported: true },
   { id: "match_play", title: "Match Play", subtitle: "Win holes, not strokes.", supported: true },
   { id: "kps", title: "KPs (Closest to the Pin)", subtitle: "Track KPs + payouts.", supported: true },
@@ -37,6 +50,22 @@ const GAMES = [
   { id: "wolf", title: "Wolf", subtitle: "Rotating captain chooses a partner.", supported: true },
   { id: "snake", title: "Snake", subtitle: "3-putt tracker with payouts.", supported: true },
   { id: "legacy_points", title: "Legacy Points", subtitle: "Points-based competition, Legacy-style.", supported: true },
+
+  {
+    id: "tournaments",
+    title: "Tournaments",
+    subtitle: "Build and run full tournaments. A future flagship module.",
+    supported: true,
+    premium: true,
+  },
+
+  {
+    id: "legacy_card",
+    title: "Legacy Card",
+    subtitle: "Premium tournament format. The heart of Legacy Golf.",
+    supported: true,
+    premium: true,
+  },
 
   {
     id: "more_soon",
@@ -74,16 +103,24 @@ export default function GamesScreen({ navigation }) {
     }
     if (!selectedSupported) return;
 
+    if (selectedId === "tournaments") {
+      navigation.navigate(ROUTES.TOURNAMENTS);
+      return;
+    }
+
     navigation.navigate(ROUTES.GAME_SETUP, {
       gameId: selected.id,
       gameTitle: selected.title,
     });
   }
 
-  const info = infoId ? gameFormats?.[infoId] : null;
+  const info = useMemo(() => {
+    if (!infoId) return null;
+    return gameFormats?.[infoId] || FALLBACK_INFO?.[infoId] || null;
+  }, [infoId]);
 
   function openInfo(id) {
-    const exists = !!gameFormats?.[id];
+    const exists = !!(gameFormats?.[id] || FALLBACK_INFO?.[id]);
     if (!exists) return;
     setInfoId(id);
   }
@@ -103,6 +140,8 @@ export default function GamesScreen({ navigation }) {
 
     const infoBorder = isDark ? "rgba(255,255,255,0.14)" : "rgba(10,15,26,0.12)";
     const infoBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(10,15,26,0.06)";
+
+    const greenRing = isDark ? "rgba(15,122,74,0.55)" : "rgba(15,122,74,0.62)";
 
     return StyleSheet.create({
       screen: { flex: 1, backgroundColor: theme.bg },
@@ -127,12 +166,23 @@ export default function GamesScreen({ navigation }) {
         borderColor: theme.border,
         backgroundColor: theme.card2,
         marginBottom: 12,
+        position: "relative",
       },
       cardActive: { borderColor: blue, backgroundColor: blueBg },
       cardDisabled: { opacity: 0.55 },
 
       cardPremium: { borderColor: goldBorder, backgroundColor: goldBg },
       cardPremiumActive: { borderColor: goldBorderActive, backgroundColor: goldBgActive },
+
+      greenRing: {
+        ...StyleSheet.absoluteFillObject,
+        borderRadius: 18,
+        borderWidth: 1,
+        borderColor: greenRing,
+        opacity: 0.95,
+      },
+      greenRingPremium: { opacity: 0.55 },
+      greenRingActive: { opacity: 0.35 },
 
       cardTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
       cardTitle: { color: theme.text, fontSize: 18, fontWeight: "900" },
@@ -251,7 +301,7 @@ export default function GamesScreen({ navigation }) {
 
     const active = item.id === selectedId;
     const disabled = !item.supported;
-    const infoable = !!gameFormats?.[item.id];
+    const infoable = !!(gameFormats?.[item.id] || FALLBACK_INFO?.[item.id]);
 
     return (
       <Pressable
@@ -269,6 +319,17 @@ export default function GamesScreen({ navigation }) {
           pressed && !disabled && !item.infoOnly && styles.pressed,
         ]}
       >
+        {!item.infoOnly ? (
+          <View
+            pointerEvents="none"
+            style={[
+              styles.greenRing,
+              item.premium && styles.greenRingPremium,
+              active && styles.greenRingActive,
+            ]}
+          />
+        ) : null}
+
         <View style={styles.cardTop}>
           <Text style={[styles.cardTitle, item.premium && styles.cardTitlePremium]}>{item.title}</Text>
 

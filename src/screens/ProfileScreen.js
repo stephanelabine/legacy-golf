@@ -412,7 +412,16 @@ function EquipmentField({ onPress }) {
           <MaterialCommunityIcons name="golf" size={18} color="rgba(255,255,255,0.78)" />
         </View>
 
-        <View style={{ flex: 1, paddingVertical: 13, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <View
+          style={{
+            flex: 1,
+            paddingVertical: 13,
+            paddingHorizontal: 12,
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
           <Text style={styles.readOnlyText} numberOfLines={1}>
             Tap to manage your bag
           </Text>
@@ -648,14 +657,24 @@ const styles = StyleSheet.create({
   readOnlyText: { color: "#fff", fontSize: 16, fontWeight: "900" },
 
   statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+
   statCard: {
     width: "48%",
     borderRadius: 18,
     padding: 14,
+
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
+    borderColor: "rgba(15,122,74,0.55)",
+
     backgroundColor: "rgba(255,255,255,0.04)",
+
+    shadowColor: COLORS.green,
+    shadowOpacity: 0.16,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
   },
+
   statTop: { flexDirection: "row", alignItems: "center", gap: 10 },
   statIcon: {
     width: 34,
