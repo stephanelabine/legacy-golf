@@ -13,7 +13,7 @@ import {
   TouchableWithoutFeedback,
   Alert,
 } from "react-native";
-import { loadCourseData, saveCourseData } from "../storage/courseData";
+import { loadCourseData, saveCourseData, clearCourseData } from "../storage/courseData";
 
 const BG = "#000000";
 const CARD = "#1D3557";
@@ -24,6 +24,8 @@ const GREEN = "#2ECC71";
 const GREEN_TEXT = "#0B1F12";
 const ORANGE = "#F39C12";
 const ORANGE_TEXT = "#1B1200";
+const RED = "#E74C3C";
+const RED_TEXT = "#2A0B07";
 
 function defaultHoleMeta() {
   const meta = {};
@@ -77,10 +79,7 @@ export default function CourseDataScreen({ navigation, route }) {
 
   async function onSave() {
     if (!isValid) {
-      Alert.alert(
-        "Fix inputs",
-        "Pars must be 3/4/5 and Stroke Index must be 1–18 with no duplicates."
-      );
+      Alert.alert("Fix inputs", "Pars must be 3/4/5 and Stroke Index must be 1-18 with no duplicates.");
       return;
     }
     const ok = await saveCourseData(course.id, { holeMeta });
@@ -91,10 +90,33 @@ export default function CourseDataScreen({ navigation, route }) {
     navigation.goBack();
   }
 
+  function onWipeCourse() {
+    Alert.alert(
+      "Wipe this course?",
+      "This will delete ALL saved data for this course (Pars/SI and all green points/GPS mapping). You will be starting fresh for this course.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Wipe",
+          style: "destructive",
+          onPress: async () => {
+            const ok = await clearCourseData(course.id);
+            if (!ok) {
+              Alert.alert("Wipe failed", "Could not wipe course data.");
+              return;
+            }
+            setHoleMeta(defaultHoleMeta());
+            Alert.alert("Wiped", "Course data cleared. You can now re-enter Pars/SI and re-map points.");
+          },
+        },
+      ]
+    );
+  }
+
   if (loading) {
     return (
       <SafeAreaView style={styles.safe}>
-        <Text style={{ color: WHITE, fontWeight: "900" }}>Loading…</Text>
+        <Text style={{ color: WHITE, fontWeight: "900" }}>Loading...</Text>
       </SafeAreaView>
     );
   }
@@ -102,13 +124,14 @@ export default function CourseDataScreen({ navigation, route }) {
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
       <SafeAreaView style={styles.safe}>
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-        >
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <View style={styles.header}>
             <Text style={styles.title}>Course Hole Data</Text>
             <Text style={styles.sub}>{course.name}</Text>
+
+            <Pressable onPress={onWipeCourse} style={({ pressed }) => [styles.wipeBtn, pressed && styles.pressed]}>
+              <Text style={styles.wipeText}>Wipe this course</Text>
+            </Pressable>
           </View>
 
           <ScrollView contentContainerStyle={{ paddingBottom: 120 }}>
@@ -141,7 +164,7 @@ export default function CourseDataScreen({ navigation, route }) {
                         onChangeText={(v) => updateHole(h, "si", v)}
                         keyboardType="numeric"
                         style={styles.input}
-                        placeholder="1–18"
+                        placeholder="1-18"
                         placeholderTextColor={MUTED}
                       />
                     </View>
@@ -156,10 +179,7 @@ export default function CourseDataScreen({ navigation, route }) {
               <Text style={styles.orangeText}>Cancel</Text>
             </Pressable>
 
-            <Pressable
-              style={[styles.greenBtn, !isValid && { opacity: 0.5 }]}
-              onPress={onSave}
-            >
+            <Pressable style={[styles.greenBtn, !isValid && { opacity: 0.5 }]} onPress={onSave}>
               <Text style={styles.greenText}>Save</Text>
             </Pressable>
           </View>
@@ -175,6 +195,16 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 10 },
   title: { color: WHITE, fontSize: 28, fontWeight: "900" },
   sub: { color: MUTED, marginTop: 6, fontWeight: "700" },
+
+  wipeBtn: {
+    marginTop: 12,
+    height: 44,
+    borderRadius: 16,
+    backgroundColor: RED,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  wipeText: { color: WHITE, fontWeight: "900", fontSize: 14, letterSpacing: 0.2 },
 
   rowCard: {
     marginHorizontal: 16,
@@ -218,4 +248,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   greenText: { color: GREEN_TEXT, fontWeight: "900", fontSize: 16 },
+
+  pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
 });
