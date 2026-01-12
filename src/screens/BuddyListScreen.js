@@ -51,21 +51,30 @@ export default function BuddyListScreen({ navigation }) {
   const [editEmail, setEditEmail] = useState("");
   const [editNotes, setEditNotes] = useState("");
 
+  async function load() {
+    try {
+      const list = await getBuddies();
+      setBuddies(Array.isArray(list) ? list : []);
+    } catch {
+      setBuddies([]);
+    }
+  }
+
   useEffect(() => {
     let mounted = true;
-    async function load() {
-      try {
-        const list = await getBuddies();
-        if (mounted) setBuddies(Array.isArray(list) ? list : []);
-      } catch (e) {
-        if (mounted) setBuddies([]);
-      }
-    }
-    load();
+
+    (async () => {
+      if (!mounted) return;
+      await load();
+    })();
+
+    const unsub = navigation?.addListener?.("focus", load);
+
     return () => {
       mounted = false;
+      if (typeof unsub === "function") unsub();
     };
-  }, []);
+  }, [navigation]);
 
   const canAdd = useMemo(() => (name || "").trim().length > 0, [name]);
 

@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from "react-native";
 import { WebView } from "react-native-webview";
 import * as Location from "expo-location";
@@ -140,6 +141,21 @@ function buildHtml() {
   </script></body></html>`;
 }
 
+function hasAllGreenPoints(holeObj) {
+  const g = holeObj?.green;
+  return !!(g?.front && g?.middle && g?.back);
+}
+
+function all18Complete(courseData) {
+  const holes = courseData?.gps?.holes;
+  if (!holes || typeof holes !== "object") return false;
+  for (let i = 1; i <= 18; i++) {
+    const h = holes[String(i)];
+    if (!hasAllGreenPoints(h)) return false;
+  }
+  return true;
+}
+
 export default function HoleMapScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const web = useRef(null);
@@ -151,26 +167,13 @@ export default function HoleMapScreen({ navigation, route }) {
   const roundId = params.roundId ?? null;
   const holeMetaParam = params.holeMeta || null;
 
-  const courseId =
-    params.courseId ??
-    course?.id ??
-    (typeof course === "string" ? course : null);
+  const courseId = params.courseId ?? course?.id ?? (typeof course === "string" ? course : null);
 
-  const courseName =
-    params.courseName ??
-    course?.name ??
-    course?.courseName ??
-    "Course";
+  const courseName = params.courseName ?? course?.name ?? course?.courseName ?? "Course";
 
-  const courseCenter =
-    params.courseCenter ??
-    course?.center ??
-    course?.courseCenter ??
-    null;
+  const courseCenter = params.courseCenter ?? course?.center ?? course?.courseCenter ?? null;
 
-  const [holeIndex, setHoleIndex] = useState(
-    Number.isFinite(params.holeIndex) ? params.holeIndex : 0
-  );
+  const [holeIndex, setHoleIndex] = useState(Number.isFinite(params.holeIndex) ? params.holeIndex : 0);
   const clampedHoleIndex = Math.max(0, Math.min(17, holeIndex));
   const holeNumber = clampedHoleIndex + 1;
 
@@ -217,6 +220,9 @@ export default function HoleMapScreen({ navigation, route }) {
       if (sub) sub.remove();
     };
   }, []);
+
+  const gpsLocked = courseData?.gpsLocked === true;
+  const canLockNow = useMemo(() => all18Complete(courseData), [courseData]);
 
   const holeMeta = useMemo(() => {
     return holeMetaParam && typeof holeMetaParam === "object"
@@ -274,12 +280,7 @@ export default function HoleMapScreen({ navigation, route }) {
     const payload = {
       user: user ? { lon: user.lon, lat: user.lat } : null,
       center,
-      tee:
-        teePoint &&
-        Number.isFinite(teePoint?.lon) &&
-        Number.isFinite(teePoint?.lat)
-          ? teePoint
-          : null,
+      tee: teePoint && Number.isFinite(teePoint?.lon) && Number.isFinite(teePoint?.lat) ? teePoint : null,
       green: green
         ? {
             front: green.front || null,
@@ -352,6 +353,15 @@ export default function HoleMapScreen({ navigation, route }) {
     try {
       const cid = String(courseId);
       const existing = (await loadCourseData(cid)) || {};
+
+      if (existing?.gpsLocked === true) {
+        Alert.alert(
+          "Green points locked",
+          "These green points are locked for this course and cannot be overwritten. If you truly need to start over, use “Wipe this course” from Course Data."
+        );
+        return;
+      }
+
       const gps = existing.gps && typeof existing.gps === "object" ? existing.gps : {};
       const holes = gps.holes && typeof gps.holes === "object" ? gps.holes : {};
       const hKey = String(holeNumber);
@@ -386,14 +396,43 @@ export default function HoleMapScreen({ navigation, route }) {
     }
   }
 
+  function lockGreenPoints() {
+    if (!courseId) return;
+
+    if (!canLockNow) {
+      Alert.alert(
+        "Not ready to lock",
+        "To lock green points, you must have Front/Mid/Back saved for all 18 holes."
+      );
+      return;
+    }
+
+    Alert.alert(
+      "Lock green points?",
+      "After locking, green points cannot be overwritten. This is your safeguard once Wednesday’s full mapping is done.\n\nIf you ever need to start over, use “Wipe this course” from Course Data.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Lock",
+          style: "destructive",
+          onPress: async () => {
+            const cid = String(courseId);
+            const ok = await saveCourseData(cid, { gpsLocked: true });
+            if (!ok) {
+              Alert.alert("Lock failed", "Could not lock green points. Try again.");
+              return;
+            }
+            await reloadCourseData();
+            Alert.alert("Locked", "Green points are now locked for this course.");
+          },
+        },
+      ]
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safe}>
-      <WebView
-        ref={web}
-        source={{ html: buildHtml() }}
-        style={{ flex: 1 }}
-        onLoadEnd={() => setWebReady(true)}
-      />
+      <WebView ref={web} source={{ html: buildHtml() }} style={{ flex: 1 }} onLoadEnd={() => setWebReady(true)} />
 
       <View style={[styles.top, { top: insets.top + 10 }]}>
         <Pressable onPress={() => navigation.goBack()} style={styles.topBtn}>
@@ -445,12 +484,8 @@ export default function HoleMapScreen({ navigation, route }) {
         </View>
       </View>
 
-      {/* FIXED: guaranteed gap above bottom dock */}
       <View style={[styles.gpsChipWrap, { bottom: insets.bottom + 112 }]}>
-        <Pressable
-          onPress={recenter}
-          style={({ pressed }) => [styles.gpsChip, pressed && styles.pressed]}
-        >
+        <Pressable onPress={recenter} style={({ pressed }) => [styles.gpsChip, pressed && styles.pressed]}>
           <View style={styles.gpsDot} />
           <Text style={styles.gpsChipT}>GPS Active</Text>
           <Text style={styles.gpsChipS}>Tap to re-center</Text>
@@ -474,17 +509,9 @@ export default function HoleMapScreen({ navigation, route }) {
         </View>
       </View>
 
-      <Modal
-        visible={setupOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setSetupOpen(false)}
-      >
+      <Modal visible={setupOpen} transparent animationType="fade" onRequestClose={() => setSetupOpen(false)}>
         <View style={styles.modalBg}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
-            style={styles.modalCard}
-          >
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Green Points Setup</Text>
               <Pressable onPress={() => setSetupOpen(false)} style={styles.modalClose}>
@@ -492,15 +519,9 @@ export default function HoleMapScreen({ navigation, route }) {
               </Pressable>
             </View>
 
-            <Text style={styles.modalSub}>
-              Select a hole, stand at the green front/mid/back, then tap Set.
-            </Text>
+            <Text style={styles.modalSub}>Select a hole, stand at the green front/mid/back, then tap Set.</Text>
 
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.holePills}
-            >
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.holePills}>
               {Array.from({ length: 18 }).map((_, i) => {
                 const h = i + 1;
                 const active = h === holeNumber;
@@ -514,9 +535,7 @@ export default function HoleMapScreen({ navigation, route }) {
                       pressed && styles.pressed,
                     ]}
                   >
-                    <Text style={[styles.holePillT, active && styles.holePillTActive]}>
-                      {h}
-                    </Text>
+                    <Text style={[styles.holePillT, active && styles.holePillTActive]}>{h}</Text>
                   </Pressable>
                 );
               })}
@@ -530,46 +549,85 @@ export default function HoleMapScreen({ navigation, route }) {
                 </View>
               ) : (
                 <>
+                  <View style={styles.lockRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.lockTitle}>
+                        {gpsLocked ? "Green points are locked" : "Green points are editable"}
+                      </Text>
+                      <Text style={styles.lockSub}>
+                        {gpsLocked
+                          ? "Set buttons are disabled forever (safeguard)."
+                          : canLockNow
+                          ? "All 18 holes complete — you can lock now."
+                          : "Lock becomes available after all 18 holes have Front/Mid/Back saved."}
+                      </Text>
+                    </View>
+
+                    {!gpsLocked ? (
+                      <Pressable
+                        onPress={lockGreenPoints}
+                        disabled={!canLockNow}
+                        style={({ pressed }) => [
+                          styles.lockBtn,
+                          pressed && styles.pressed,
+                          !canLockNow && { opacity: 0.45 },
+                        ]}
+                      >
+                        <Text style={styles.lockBtnT}>Lock</Text>
+                      </Pressable>
+                    ) : (
+                      <View style={styles.lockPill}>
+                        <Text style={styles.lockPillT}>LOCKED</Text>
+                      </View>
+                    )}
+                  </View>
+
                   <Text style={styles.gpsStatus}>{currentAccuracyText}</Text>
 
                   <View style={styles.setRow}>
                     <Pressable
-                      disabled={!canSet || savingSetup}
+                      disabled={!canSet || savingSetup || gpsLocked}
                       onPress={() => setPoint("front")}
                       style={({ pressed }) => [
                         styles.setBtn,
                         pressed && styles.pressed,
-                        (!canSet || savingSetup) && { opacity: 0.45 },
+                        (!canSet || savingSetup || gpsLocked) && { opacity: 0.45 },
                       ]}
                     >
                       <Text style={styles.setBtnT}>Set Front</Text>
-                      <Text style={styles.setBtnS}>{green?.front ? "Saved" : "Not set"}</Text>
+                      <Text style={styles.setBtnS}>
+                        {gpsLocked ? "Locked" : green?.front ? "Saved" : "Not set"}
+                      </Text>
                     </Pressable>
 
                     <Pressable
-                      disabled={!canSet || savingSetup}
+                      disabled={!canSet || savingSetup || gpsLocked}
                       onPress={() => setPoint("middle")}
                       style={({ pressed }) => [
                         styles.setBtn,
                         pressed && styles.pressed,
-                        (!canSet || savingSetup) && { opacity: 0.45 },
+                        (!canSet || savingSetup || gpsLocked) && { opacity: 0.45 },
                       ]}
                     >
                       <Text style={styles.setBtnT}>Set Mid</Text>
-                      <Text style={styles.setBtnS}>{green?.middle ? "Saved" : "Not set"}</Text>
+                      <Text style={styles.setBtnS}>
+                        {gpsLocked ? "Locked" : green?.middle ? "Saved" : "Not set"}
+                      </Text>
                     </Pressable>
 
                     <Pressable
-                      disabled={!canSet || savingSetup}
+                      disabled={!canSet || savingSetup || gpsLocked}
                       onPress={() => setPoint("back")}
                       style={({ pressed }) => [
                         styles.setBtn,
                         pressed && styles.pressed,
-                        (!canSet || savingSetup) && { opacity: 0.45 },
+                        (!canSet || savingSetup || gpsLocked) && { opacity: 0.45 },
                       ]}
                     >
                       <Text style={styles.setBtnT}>Set Back</Text>
-                      <Text style={styles.setBtnS}>{green?.back ? "Saved" : "Not set"}</Text>
+                      <Text style={styles.setBtnS}>
+                        {gpsLocked ? "Locked" : green?.back ? "Saved" : "Not set"}
+                      </Text>
                     </Pressable>
                   </View>
 
@@ -662,7 +720,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
 
-  // FIXED: absolute chip wrapper (gap is controlled by inline "bottom")
   gpsChipWrap: {
     position: "absolute",
     left: 14,
@@ -713,7 +770,6 @@ const styles = StyleSheet.create({
   },
   icon: { color: "#fff", fontSize: 28, fontWeight: "900" },
 
-  // CHANGED: red -> standard green
   primary: {
     flex: 1,
     borderRadius: 18,
@@ -785,6 +841,45 @@ const styles = StyleSheet.create({
   modalBody: { padding: 14, paddingTop: 6, paddingBottom: 16 },
   modalLoading: { paddingVertical: 16, alignItems: "center", justifyContent: "center", gap: 10 },
   modalLoadingT: { color: "rgba(255,255,255,0.72)", fontWeight: "800" },
+
+  lockRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    marginBottom: 12,
+  },
+  lockTitle: { color: "#fff", fontWeight: "900" },
+  lockSub: { marginTop: 4, color: "rgba(255,255,255,0.72)", fontWeight: "800", fontSize: 12, lineHeight: 16 },
+
+  lockBtn: {
+    height: 40,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(231, 76, 60, 0.22)",
+    borderWidth: 1,
+    borderColor: "rgba(231, 76, 60, 0.35)",
+  },
+  lockBtnT: { color: "#fff", fontWeight: "900" },
+
+  lockPill: {
+    height: 40,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(46, 204, 113, 0.18)",
+    borderWidth: 1,
+    borderColor: "rgba(46, 204, 113, 0.28)",
+  },
+  lockPillT: { color: "#fff", fontWeight: "900", letterSpacing: 0.6 },
 
   gpsStatus: { color: "rgba(255,255,255,0.82)", fontWeight: "900", marginBottom: 10 },
 

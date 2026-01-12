@@ -113,7 +113,7 @@ async function loadResumeInfoBestEffort() {
   }
 }
 
-// NEW: extract full params for HOLE_VIEW, best-effort across possible stored shapes
+// extract full params for HOLE_VIEW, best-effort across possible stored shapes
 function extractActiveRoundParams(state) {
   if (!state) return null;
 
@@ -192,7 +192,6 @@ async function loadActiveRoundParamsBestEffort() {
 }
 
 function ThemeToggle({ mode, setMode, theme }) {
-  // Premium sizing (smaller + tighter)
   const W = 140;
   const H = 30;
   const PAD = 3;
@@ -334,7 +333,6 @@ export default function HomeScreen({ navigation }) {
       >
         <View style={[styles.overlay, { backgroundColor: theme.heroOverlay }]} />
 
-        {/* Bigger + more “pop” */}
         <Image
           source={require("../../assets/legacy-logo-transparent.png")}
           style={[
@@ -581,11 +579,6 @@ const styles = StyleSheet.create({
 
   overlay: { ...StyleSheet.absoluteFillObject },
 
-  // 30% larger than 190 => 247 (rounded)
-  // “Pop” improvements:
-  // - slightly higher opacity
-  // - subtle white glow behind (shadow)
-  // - a tiny scale-up feel via shadow + elevation
   floatingLogo: {
     position: "absolute",
     alignSelf: "center",
@@ -612,7 +605,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
-  // Premium toggle
   toggleWrap: {
     borderRadius: 999,
     borderWidth: 1,
@@ -659,13 +651,21 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginBottom: 6,
   },
+
+  // CHANGED: premium serif title (no custom font files needed)
   title: {
-    fontSize: 44,
-    fontWeight: "800",
-    letterSpacing: 0.3,
+    fontSize: 50,
+    fontWeight: Platform.select({ ios: "700", android: "800", default: "800" }),
+    fontFamily: Platform.select({
+      ios: "Baskerville",
+      android: "serif",
+      default: "serif",
+    }),
+    letterSpacing: 1.1,
     textAlign: "center",
     marginBottom: 6,
   },
+
   tagline: {
     fontSize: 16,
     fontWeight: "600",
