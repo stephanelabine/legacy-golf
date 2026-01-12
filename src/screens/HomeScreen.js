@@ -645,32 +645,32 @@ const styles = StyleSheet.create({
 
   brand: { alignItems: "center", paddingTop: 72 },
 
+  // CHANGED: Cinzel applied
   welcome: {
+    fontFamily: "Cinzel",
     fontSize: 14,
-    letterSpacing: 2.2,
-    fontWeight: "700",
+    letterSpacing: 2.6,
+    fontWeight: "600",
     marginBottom: 6,
+    textTransform: "uppercase",
   },
 
-  // CHANGED: premium serif title (no custom font files needed)
+  // CHANGED: Cinzel applied
   title: {
+    fontFamily: "Cinzel",
     fontSize: 50,
-    fontWeight: Platform.select({ ios: "700", android: "800", default: "800" }),
-    fontFamily: Platform.select({
-      ios: "Baskerville",
-      android: "serif",
-      default: "serif",
-    }),
-    letterSpacing: 1.1,
+    fontWeight: Platform.select({ ios: "700", android: "700", default: "700" }),
+    letterSpacing: 1.0,
     textAlign: "center",
     marginBottom: 6,
   },
 
+  // CHANGED: Cinzel applied
   tagline: {
+    fontFamily: "Cinzel",
     fontSize: 16,
     fontWeight: "600",
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
+    letterSpacing: 1.25,
     textAlign: "center",
   },
 
