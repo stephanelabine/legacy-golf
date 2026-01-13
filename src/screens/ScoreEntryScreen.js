@@ -1,3 +1,4 @@
+// src/screens/ScoreEntryScreen.js
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   SafeAreaView,
@@ -12,7 +13,9 @@ import {
   Alert,
   ScrollView,
 } from "react-native";
+import { CommonActions, StackActions } from "@react-navigation/native";
 
+import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import theme from "../theme";
 import { loadActiveRound, saveActiveRound } from "../storage/roundState";
@@ -20,22 +23,21 @@ import { loadActiveRound, saveActiveRound } from "../storage/roundState";
 // Premium palette
 const BG = "#0B1220";
 const CARD = "rgba(255,255,255,0.05)";
-const BORDER = "rgba(255,255,255,0.14)";
 const INNER = "rgba(255,255,255,0.04)";
 const INNER2 = "rgba(255,255,255,0.06)";
 const MUTED = "rgba(255,255,255,0.65)";
 const WHITE = "#FFFFFF";
 const BLUE = theme?.colors?.primary || "#2E7DFF";
 
-// Green accent
+// Green accent (borders only)
 const GREEN_BORDER = "rgba(46,204,113,0.70)";
-const GREEN_GLOW = "rgba(46,204,113,0.12)";
-const GREEN_TINT = "rgba(46,204,113,0.12)";
-const GREEN_FIELD_BORDER = "rgba(46,204,113,0.45)";
 
 // Putts keep blue
 const PUTTS_TINT = "rgba(46,125,255,0.12)";
 const PUTTS_BORDER = "rgba(46,125,255,0.45)";
+
+// Strokes: border-only look
+const STROKES_BORDER = "rgba(46,204,113,0.45)";
 
 function initials(name) {
   const parts = (name || "").trim().split(/\s+/).filter(Boolean);
@@ -49,6 +51,11 @@ function formatHdcp(h) {
   const n = Number(h);
   if (!Number.isFinite(n)) return 0;
   return Math.round(n);
+}
+
+function toInt(v) {
+  const n = parseInt(String(v ?? "").replace(/[^\d]/g, ""), 10);
+  return Number.isFinite(n) ? n : 0;
 }
 
 function Seg3({ value, onChange }) {
@@ -82,14 +89,46 @@ function Seg3({ value, onChange }) {
   );
 }
 
+function getMissingHolesFromState(state, normalizedPlayers) {
+  const ids = (normalizedPlayers || []).map((p) => String(p.id));
+  const missing = [];
+
+  for (let h = 1; h <= 18; h++) {
+    let ok = true;
+    for (const pid of ids) {
+      const strokes = state?.holes?.[String(h)]?.players?.[String(pid)]?.strokes;
+      if (toInt(strokes) <= 0) {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) missing.push(h);
+  }
+  return missing;
+}
+
 export default function ScoreEntryScreen({ navigation, route }) {
-  const { course, tee, players = [], hole = 1, holeMeta } = route.params;
+  const params = route?.params || {};
+  const {
+    course,
+    tee,
+    players = [],
+    hole = 1,
+    holeMeta,
+    roundId: roundIdParam,
+    fixMissing,
+    missingHoles,
+    missingIndex,
+    finishReturnHole,
+  } = params;
+
+  const isFixMode = !!fixMissing;
 
   const normalizedPlayers = useMemo(() => {
     return (players || []).map((p, idx) => ({
-      id: p.id || String(idx),
-      name: p.name || `Player ${idx + 1}`,
-      handicap: p.handicap ?? 0,
+      id: String(p?.id ?? String(idx)),
+      name: p?.name || `Player ${idx + 1}`,
+      handicap: p?.handicap ?? 0,
     }));
   }, [players]);
 
@@ -159,45 +198,107 @@ export default function ScoreEntryScreen({ navigation, route }) {
     );
   }
 
-  const persistHole = useCallback(async () => {
-    const state = (await loadActiveRound()) || {
-      course,
-      tee,
-      players: normalizedPlayers,
-      holes: {},
-      meta: {},
-      startedAt: new Date().toISOString(),
-    };
+  function validateStrokesForThisHole() {
+    const missingPlayers = [];
+    for (const p of normalizedPlayers) {
+      const r = rowById.get(String(p.id)) || {};
+      if (toInt(r.strokes) <= 0) missingPlayers.push(p.name || "Player");
+    }
 
-    if (!state.holes) state.holes = {};
-    if (!state.meta) state.meta = {};
-    if (holeMeta && typeof holeMeta === "object") state.meta.holeMeta = holeMeta;
+    if (missingPlayers.length) {
+      Alert.alert(
+        "Missing strokes",
+        `Please enter strokes for:\n\n${missingPlayers.join("\n")}`,
+        [{ text: "OK" }]
+      );
+      return false;
+    }
+    return true;
+  }
 
-    state.players = normalizedPlayers;
-
-    if (!state.holes[String(hole)]) state.holes[String(hole)] = { players: {} };
-
-    const payload = {};
-    rows.forEach((r) => {
-      payload[String(r.playerId)] = {
-        strokes: String(r.strokes ?? ""),
-        putts: String(r.putts ?? ""),
-        fairway: r.fairway ?? "na",
-        green: r.green ?? "na",
-        sandSave: r.sandSave ?? "na",
-        updown: r.updown ?? "na",
+  const persistHole = useCallback(
+    async (opts = {}) => {
+      const state = (await loadActiveRound()) || {
+        course,
+        tee,
+        players: normalizedPlayers,
+        holes: {},
+        meta: {},
+        startedAt: Date.now(),
       };
-    });
 
-    state.holes[String(hole)].players = payload;
+      const existingId =
+        state?.id ||
+        state?.roundId ||
+        state?.activeRound?.id ||
+        state?.round?.id ||
+        roundIdParam;
 
-    const ok = await saveActiveRound(state);
-    if (!ok) Alert.alert("Save failed", "Could not save hole data.");
-  }, [course, tee, hole, holeMeta, normalizedPlayers, rows]);
+      const safeId =
+        String(existingId || "") ||
+        (Number.isFinite(state?.startedAt) ? `r_${state.startedAt}` : `r_${Date.now()}`);
 
+      state.id = safeId;
+      state.roundId = safeId;
+
+      state.course = state.course || course;
+      state.tee = state.tee || tee;
+      state.courseName = state.courseName || state.course?.name || course?.name || "Course";
+      state.teeName = state.teeName || state.tee?.name || tee?.name || "Tees";
+      state.players = normalizedPlayers;
+
+      if (!state.holes) state.holes = {};
+      if (!state.meta) state.meta = {};
+      if (holeMeta && typeof holeMeta === "object") state.meta.holeMeta = holeMeta;
+
+      if (!state.holes[String(hole)]) state.holes[String(hole)] = { players: {} };
+
+      const payload = {};
+      rows.forEach((r) => {
+        payload[String(r.playerId)] = {
+          strokes: String(r.strokes ?? ""),
+          putts: String(r.putts ?? ""),
+          fairway: r.fairway ?? "na",
+          green: r.green ?? "na",
+          sandSave: r.sandSave ?? "na",
+          updown: r.updown ?? "na",
+        };
+      });
+
+      state.holes[String(hole)].players = payload;
+
+      state.status = "active";
+      state.inProgress = true;
+      state.isActive = true;
+      state.updatedAt = Date.now();
+
+      // Normal mode: update resume fields.
+      // Fix mode: do NOT change resume/currentHole (we’re repairing, not advancing play).
+      if (!opts?.skipResumeUpdate) {
+        const nextHole = hole >= 18 ? 18 : hole + 1;
+        const resumeHole = opts?.resumeHole ? Number(opts.resumeHole) : nextHole;
+
+        state.currentHole = resumeHole;
+        state.holeNumber = resumeHole;
+        state.hole = resumeHole;
+        state.holeIndex = resumeHole - 1;
+        state.startHole = resumeHole;
+      }
+
+      const ok = await saveActiveRound(state);
+      if (!ok) Alert.alert("Save failed", "Could not save hole data.");
+      return { ok, roundId: safeId };
+    },
+    [course, tee, hole, holeMeta, normalizedPlayers, rows, roundIdParam]
+  );
+
+  const skipBeforeRemoveRef = useRef(false);
   const leavingRef = useRef(false);
+
   useEffect(() => {
     const unsub = navigation.addListener("beforeRemove", (e) => {
+      if (skipBeforeRemoveRef.current) return;
+
       if (leavingRef.current) return;
       e.preventDefault();
       leavingRef.current = true;
@@ -214,26 +315,120 @@ export default function ScoreEntryScreen({ navigation, route }) {
     return unsub;
   }, [navigation, persistHole]);
 
+  function goToHoleView(holeNumber, extraParams = {}) {
+    navigation.dispatch(
+      CommonActions.navigate({
+        name: ROUTES.HOLE_VIEW,
+        params: {
+          course,
+          tee,
+          players,
+          hole: holeNumber,
+          holeMeta,
+          roundId: roundIdParam || null,
+          courseName: course?.name,
+          teeName: tee?.name,
+          ...extraParams,
+        },
+        merge: true,
+      })
+    );
+  }
+
   async function backToHole() {
     Keyboard.dismiss();
-    await persistHole();
-    navigation.navigate("HoleView", { course, tee, players, hole, holeMeta });
+
+    if (isFixMode) {
+      // “Fix mode” back = return to Hole 18 (finish context)
+      goToHoleView(Number(finishReturnHole || 18));
+      return;
+    }
+
+    const res = await persistHole();
+    goToHoleView(hole, { roundId: res?.roundId || roundIdParam || null });
   }
 
   async function continueNextHole() {
     Keyboard.dismiss();
-    await persistHole();
     const nextHole = hole >= 18 ? 18 : hole + 1;
-    navigation.navigate("HoleView", { course, tee, players, hole: nextHole, holeMeta });
+    const res = await persistHole({ resumeHole: nextHole });
+
+    goToHoleView(nextHole, { roundId: res?.roundId || roundIdParam || null });
   }
 
   async function openScorecard() {
     Keyboard.dismiss();
-    await persistHole();
-    navigation.navigate("Scorecard", { course, tee, players, holeMeta });
+    const res = await persistHole();
+
+    navigation.navigate(ROUTES.SCORECARD, {
+      course,
+      tee,
+      players,
+      holeMeta,
+      roundId: res?.roundId || roundIdParam || null,
+    });
   }
 
-  const subtitle = `Hole ${hole} • ${course?.name || ""} • ${tee?.name || ""} Tees`;
+  async function doneFixMode() {
+    Keyboard.dismiss();
+
+    if (!validateStrokesForThisHole()) return;
+
+    // Save hole, but do not modify resume hole fields
+    await persistHole({ skipResumeUpdate: true });
+
+    const state = (await loadActiveRound()) || {};
+    const remaining = getMissingHolesFromState(state, normalizedPlayers);
+
+    if (!remaining.length) {
+      // All fixed: return to Hole 18 and prompt to finish
+      goToHoleView(Number(finishReturnHole || 18), { showFinishPrompt: true });
+      return;
+    }
+
+    // Pick next missing hole in sequence if possible
+    const original = Array.isArray(missingHoles) ? missingHoles : [];
+    let nextHole = null;
+    let nextIdx = Number.isFinite(Number(missingIndex)) ? Number(missingIndex) : -1;
+
+    if (original.length) {
+      for (let i = Math.max(0, nextIdx + 1); i < original.length; i++) {
+        const h = Number(original[i]);
+        if (remaining.includes(h)) {
+          nextHole = h;
+          nextIdx = i;
+          break;
+        }
+      }
+    }
+
+    if (!nextHole) {
+      nextHole = remaining[0];
+      nextIdx = original.indexOf(nextHole);
+      if (nextIdx < 0) nextIdx = 0;
+    }
+
+    // Replace this screen with the next missing hole (no stack growth)
+    skipBeforeRemoveRef.current = true;
+    navigation.dispatch(
+      StackActions.replace(ROUTES.SCORE_ENTRY, {
+        ...params,
+        hole: nextHole,
+        fixMissing: true,
+        missingHoles: original.length ? original : remaining,
+        missingIndex: nextIdx,
+        finishReturnHole: Number(finishReturnHole || 18),
+      })
+    );
+
+    requestAnimationFrame(() => {
+      skipBeforeRemoveRef.current = false;
+    });
+  }
+
+  const subtitle = isFixMode
+    ? `Fix missing scores • Hole ${hole}`
+    : `Hole ${hole} • ${course?.name || ""} • ${tee?.name || ""} Tees`;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -361,8 +556,11 @@ export default function ScoreEntryScreen({ navigation, route }) {
               <Text style={styles.midText}>Scorecard</Text>
             </Pressable>
 
-            <Pressable style={styles.primaryBtn} onPress={continueNextHole}>
-              <Text style={styles.primaryText}>Next Hole</Text>
+            <Pressable
+              style={styles.primaryBtn}
+              onPress={isFixMode ? doneFixMode : continueNextHole}
+            >
+              <Text style={styles.primaryText}>{isFixMode ? "Done" : "Next Hole"}</Text>
             </Pressable>
           </View>
         </View>
@@ -381,7 +579,7 @@ const styles = StyleSheet.create({
     padding: 2,
     borderWidth: 1,
     borderColor: GREEN_BORDER,
-    backgroundColor: GREEN_GLOW,
+    backgroundColor: "transparent",
   },
 
   card: {
@@ -431,8 +629,8 @@ const styles = StyleSheet.create({
   },
 
   bigFieldStrokes: {
-    borderColor: GREEN_FIELD_BORDER,
-    backgroundColor: GREEN_TINT,
+    borderColor: STROKES_BORDER,
+    backgroundColor: "transparent",
   },
 
   bigFieldPutts: {
@@ -459,7 +657,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   miniChipGreen: {
-    backgroundColor: "rgba(46,204,113,0.20)",
+    backgroundColor: "rgba(46,204,113,0.18)",
     borderColor: "rgba(46,204,113,0.40)",
   },
   miniChipBlue: {

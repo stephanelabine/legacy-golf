@@ -1,11 +1,24 @@
 // src/storage/buddies.js
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+/**
+ * Primary key (existing)
+ * - Keep this for backwards compatibility.
+ */
 const KEY = "LEGACY_GOLF_BUDDIES_V1";
+
+/**
+ * Secondary “safe” key (new)
+ * - Intentionally does NOT start with LEGACY_ so it survives any future “clear legacy keys” logic.
+ * - We always write to both keys.
+ * - We always read from both keys.
+ */
+const SAFE_KEY = "LG_BUDDIES_SAFE_V1";
 
 // If you ever changed keys in the past, we can safely migrate from these.
 const LEGACY_KEYS = [
   KEY,
+  SAFE_KEY,
   "LEGACY_GOLF_BUDDY_LIST_V1",
   "LEGACY_GOLF_BUDDY_LIST",
   "LEGACY_GOLF_BUDDIES",
@@ -15,8 +28,7 @@ const LEGACY_KEYS = [
 
 function safeJsonParse(raw) {
   try {
-    const v = JSON.parse(raw);
-    return v;
+    return JSON.parse(raw);
   } catch {
     return null;
   }
@@ -50,10 +62,9 @@ function normalizeBuddy(b) {
 }
 
 function mergeBuddy(a, b) {
-  // keep the best/most complete fields
   const next = { ...a };
 
-  // name stays as a.name (but in case a is blank somehow)
+  // name stays as a.name, but just in case
   if (!next.name && b.name) next.name = b.name;
 
   // prefer non-zero handicap
@@ -78,22 +89,20 @@ function dedupeAndMerge(list) {
     const idKey = b.id;
     const nameKey = b.name.toLowerCase();
 
-    // first try merge by id
+    // merge by id
     if (mapById.has(idKey)) {
       mapById.set(idKey, mergeBuddy(mapById.get(idKey), b));
       continue;
     }
 
-    // then merge by name if it exists already under another id
+    // merge by name (even if id differs)
     if (mapByName.has(nameKey)) {
       const existing = mapByName.get(nameKey);
       const merged = mergeBuddy(existing, b);
 
-      // replace maps
       mapByName.set(nameKey, merged);
       mapById.set(merged.id, merged);
 
-      // also delete the old id entry if the name-map buddy had a different id
       if (existing.id !== merged.id) {
         mapById.delete(existing.id);
       }
@@ -104,8 +113,14 @@ function dedupeAndMerge(list) {
     mapByName.set(nameKey, b);
   }
 
-  // preserve a stable order: newest first if ids are time-based; otherwise keep insertion order
+  // Keep stable order: newest first (best effort)
   return Array.from(mapById.values()).reverse();
+}
+
+function extractBuddyArray(parsed) {
+  if (Array.isArray(parsed)) return parsed;
+  if (Array.isArray(parsed?.buddies)) return parsed.buddies;
+  return null;
 }
 
 // Read ALL candidate keys and UNION the lists into one master list.
@@ -118,14 +133,7 @@ async function readUnionListFromStorage() {
       if (!raw) continue;
 
       const parsed = safeJsonParse(raw);
-
-      // Support either [ ... ] OR { buddies: [ ... ] }
-      const arr = Array.isArray(parsed)
-        ? parsed
-        : Array.isArray(parsed?.buddies)
-        ? parsed.buddies
-        : null;
-
+      const arr = extractBuddyArray(parsed);
       if (!arr) continue;
 
       combined.push(...arr);
@@ -134,8 +142,32 @@ async function readUnionListFromStorage() {
     }
   }
 
-  const cleaned = dedupeAndMerge(combined);
-  return cleaned;
+  return dedupeAndMerge(combined);
+}
+
+async function writeBothKeys(cleaned) {
+  // Always write to both keys. This is the “never disappear” hardening.
+  const payload = JSON.stringify(cleaned);
+
+  // Write primary first, then safe. If one fails, we still try the other.
+  let okA = false;
+  let okB = false;
+
+  try {
+    await AsyncStorage.setItem(KEY, payload);
+    okA = true;
+  } catch {
+    okA = false;
+  }
+
+  try {
+    await AsyncStorage.setItem(SAFE_KEY, payload);
+    okB = true;
+  } catch {
+    okB = false;
+  }
+
+  return okA || okB;
 }
 
 // Public: load
@@ -143,9 +175,9 @@ export async function getBuddies() {
   try {
     const cleaned = await readUnionListFromStorage();
 
-    // Migrate union list into the stable key so we never “fall back” again
+    // Best-effort migrate into both keys so future loads are consistent.
     try {
-      await AsyncStorage.setItem(KEY, JSON.stringify(cleaned));
+      await writeBothKeys(cleaned);
     } catch {
       // ignore migration failure
     }
@@ -156,20 +188,18 @@ export async function getBuddies() {
   }
 }
 
-// Public: save (always to the stable key)
+// Public: save (always to BOTH keys, no risky cleanup)
 export async function saveBuddies(list) {
   try {
     const cleaned = dedupeAndMerge(Array.isArray(list) ? list : []);
 
-    await AsyncStorage.setItem(KEY, JSON.stringify(cleaned));
+    const ok = await writeBothKeys(cleaned);
+    if (!ok) return false;
 
-    // Cleanup: remove older keys so we can’t accidentally read stale splits later
-    try {
-      const toRemove = LEGACY_KEYS.filter((k) => k !== KEY);
-      await AsyncStorage.multiRemove(toRemove);
-    } catch {
-      // ignore cleanup failure
-    }
+    // IMPORTANT:
+    // Do NOT auto-delete “legacy” keys during save.
+    // Cleanup is not worth the risk of losing data in dev / Expo Go edge cases.
+    // We prefer redundant storage over accidental loss.
 
     return true;
   } catch {

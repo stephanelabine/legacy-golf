@@ -12,16 +12,18 @@ import {
   KeyboardAvoidingView,
   Platform,
   Keyboard,
+  Alert,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, CommonActions } from "@react-navigation/native";
 import * as Location from "expo-location";
 
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import { loadCourseData } from "../storage/courseData";
 import * as RoundState from "../storage/roundState";
+import { saveRound } from "../storage/rounds";
 
 const BG = "#0B1220";
 const CARD = "#1D3557";
@@ -32,6 +34,8 @@ const WHITE = "#FFFFFF";
 const GREEN = "#2ECC71";
 const GREEN_TEXT = "#0B1F12";
 const DANGER = "#D62828";
+const BLUE = "#2E7DFF";
+const YELLOW = "#F2C94C";
 
 const DEFAULT_PARS = [4, 4, 3, 5, 4, 4, 3, 4, 5, 4, 3, 4, 4, 5, 4, 3, 4, 4];
 const DEFAULT_SI = [10, 2, 16, 4, 12, 6, 14, 8, 18, 1, 15, 3, 11, 5, 13, 7, 17, 9];
@@ -92,6 +96,41 @@ function yds(m) {
   return String(Math.round(m * 1.09361));
 }
 
+function toInt(v) {
+  const n = parseInt(String(v ?? "").replace(/[^\d]/g, ""), 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function getMissingHolesFromState(state, playersList) {
+  const players = Array.isArray(playersList) ? playersList : [];
+  const ids = players.map((p, idx) => String(p?.id ?? String(idx)));
+
+  const missing = [];
+  for (let h = 1; h <= 18; h++) {
+    let holeOk = true;
+    for (const pid of ids) {
+      const strokes = state?.holes?.[String(h)]?.players?.[String(pid)]?.strokes;
+      if (toInt(strokes) <= 0) {
+        holeOk = false;
+        break;
+      }
+    }
+    if (!holeOk) missing.push(h);
+  }
+  return missing;
+}
+
+function holeHasAllStrokes(state, holeNumber, playersList) {
+  const players = Array.isArray(playersList) ? playersList : [];
+  const ids = players.map((p, idx) => String(p?.id ?? String(idx)));
+
+  for (const pid of ids) {
+    const strokes = state?.holes?.[String(holeNumber)]?.players?.[String(pid)]?.strokes;
+    if (toInt(strokes) <= 0) return false;
+  }
+  return ids.length > 0;
+}
+
 export default function HoleViewScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const params = route?.params || {};
@@ -121,6 +160,8 @@ export default function HoleViewScreen({ navigation, route }) {
   const [courseData, setCourseData] = useState(null);
   const [user, setUser] = useState(null);
 
+  const [activeSnap, setActiveSnap] = useState(null);
+
   const holeMeta = useMemo(() => {
     return params.holeMeta && typeof params.holeMeta === "object" ? params.holeMeta : buildDefaultHoleMeta();
   }, [params.holeMeta]);
@@ -133,6 +174,13 @@ export default function HoleViewScreen({ navigation, route }) {
       let sub = null;
 
       (async () => {
+        try {
+          const s = await RoundState.loadActiveRound();
+          if (!cancelled) setActiveSnap(s || null);
+        } catch {
+          if (!cancelled) setActiveSnap(null);
+        }
+
         try {
           if (courseId) {
             const saved = await loadCourseData(String(courseId));
@@ -167,6 +215,23 @@ export default function HoleViewScreen({ navigation, route }) {
       };
     }, [courseId])
   );
+
+  useEffect(() => {
+    const flag = !!params?.showFinishPrompt;
+    if (!flag) return;
+
+    Alert.alert(
+      "Ready to finish",
+      "All missing scores are filled. Tap Finish Round to complete the round.",
+      [{ text: "OK" }]
+    );
+
+    // clear it so it doesn't re-fire
+    try {
+      navigation.setParams({ showFinishPrompt: undefined });
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params?.showFinishPrompt]);
 
   const savedGpsHole = useMemo(() => {
     const gps = courseData?.gps;
@@ -236,7 +301,7 @@ export default function HoleViewScreen({ navigation, route }) {
     setYardageOpen(false);
   }
 
-  function openScoreEntry() {
+  function openScoreEntry(extra = {}) {
     navigation.navigate(ROUTES.SCORE_ENTRY, {
       course: courseParam ?? { name: courseName },
       tee: teeParam ?? { name: teeName },
@@ -244,6 +309,9 @@ export default function HoleViewScreen({ navigation, route }) {
       hole: currentHole,
       holeMeta,
       roundId,
+      courseName,
+      teeName,
+      ...extra,
     });
   }
 
@@ -305,13 +373,17 @@ export default function HoleViewScreen({ navigation, route }) {
   }
 
   const headerTitle = useMemo(() => shortCourseTitle(courseName), [courseName]);
-
   const bottomPad = Math.max(16, (insets?.bottom || 0) + 12);
-  const FOOTER_SPACE = 142 + bottomPad;
+
+  // footer space for 3 actions
+  const FOOTER_SPACE = 210 + bottomPad;
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deletedOpen, setDeletedOpen] = useState(false);
+
+  const [savingRound, setSavingRound] = useState(false);
+  const [savedOpen, setSavedOpen] = useState(false);
 
   async function doDeleteRound() {
     if (deleting) return;
@@ -328,6 +400,126 @@ export default function HoleViewScreen({ navigation, route }) {
       }, 900);
     }
   }
+
+  async function doSaveRoundNow({ status }) {
+    if (savingRound) return;
+
+    setSavingRound(true);
+    try {
+      const active = (await RoundState.loadActiveRound()) || {};
+
+      const safePlayers = Array.isArray(active?.players) && active.players.length ? active.players : players;
+      const safeCourse = active?.course || courseParam || { name: courseName };
+      const safeTee = active?.tee || teeParam || { name: teeName };
+      const safeHoles = active?.holes || {};
+
+      const id = String(active?.id || roundId || `r_${Date.now()}`);
+
+      const payload = {
+        id,
+        courseName: String(safeCourse?.name || courseName || "Course"),
+        course: safeCourse,
+        tee: safeTee,
+        players: safePlayers,
+        holes: safeHoles,
+        playedAt: active?.playedAt || active?.startedAt || new Date().toISOString(),
+        startedAt: active?.startedAt || new Date().toISOString(),
+        status: status || "in_progress",
+        lastHole: currentHole,
+      };
+
+      const ok = await saveRound(payload);
+      if (!ok) {
+        Alert.alert("Save failed", "Could not save this round to history.");
+        return { ok: false, roundId: id };
+      }
+
+      setSavedOpen(true);
+      setTimeout(() => setSavedOpen(false), 900);
+      return { ok: true, roundId: id };
+    } catch {
+      Alert.alert("Save failed", "Could not save this round to history.");
+      return { ok: false, roundId: null };
+    } finally {
+      setSavingRound(false);
+    }
+  }
+
+  function onPressSaveRound() {
+    if (savingRound) return;
+    Alert.alert(
+      "Save round?",
+      "This will save the round to Round History so you can review or resume later.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Save", onPress: () => doSaveRoundNow({ status: "in_progress" }) },
+      ]
+    );
+  }
+
+  async function onPressFinishRound() {
+    if (savingRound) return;
+
+    try {
+      const active = (await RoundState.loadActiveRound()) || {};
+      const missing = getMissingHolesFromState(active, players);
+
+      if (missing.length) {
+        const list = missing.join(", ");
+        Alert.alert(
+          "Missing scores",
+          `Some holes are missing strokes.\n\nMissing holes: ${list}`,
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Fix now",
+              onPress: () => {
+                const first = missing[0];
+                openScoreEntry({
+                  hole: first,
+                  fixMissing: true,
+                  missingHoles: missing,
+                  missingIndex: 0,
+                  finishReturnHole: 18,
+                });
+              },
+            },
+          ]
+        );
+        return;
+      }
+
+      // complete: save as completed, clear active round, go to Final Results (if route exists)
+      const res = await doSaveRoundNow({ status: "completed" });
+
+      // clear active round so “resume” doesn’t show
+      try {
+        await RoundState.clearActiveRoundEverywhere();
+      } catch {}
+
+      const FINAL_RESULTS = ROUTES.FINAL_RESULTS || "FinalResults";
+
+      // Navigate if screen exists; otherwise fall back to History
+      navigation.dispatch(
+        CommonActions.navigate({
+          name: FINAL_RESULTS,
+          params: {
+            roundId: res?.roundId || active?.id || roundId || null,
+            course: active?.course || courseParam || { name: courseName },
+            tee: active?.tee || teeParam || { name: teeName },
+            players: active?.players || players,
+            holeMeta: active?.meta?.holeMeta || holeMeta,
+          },
+          merge: true,
+        })
+      );
+    } catch {
+      Alert.alert("Finish failed", "Could not finish the round. Please try again.");
+    }
+  }
+
+  const showFinish =
+    currentHole === 18 && holeHasAllStrokes(activeSnap || {}, 18, players);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -370,6 +562,30 @@ export default function HoleViewScreen({ navigation, route }) {
 
           <Pressable onPress={openHazards} style={styles.modeBtn}>
             <Text style={styles.modeText}>Hazards</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.ybWrap}>
+          <Pressable
+            onPress={() => setYardageOpen(true)}
+            style={({ pressed }) => [styles.ybCard, pressed && styles.pressed]}
+          >
+            <View style={styles.ybTopRow}>
+              <Text style={styles.ybTitle}>Yardage Book</Text>
+              <Text style={styles.ybAction}>{hasNote ? "View" : "Add"}</Text>
+            </View>
+
+            {hasNote ? (
+              <Text style={styles.ybPreview} numberOfLines={2} ellipsizeMode="tail">
+                {notePreview}
+              </Text>
+            ) : (
+              <Text style={styles.ybPreviewMuted} numberOfLines={2}>
+                No notes yet.
+              </Text>
+            )}
+
+            <Text style={styles.ybHint}>{hasNote ? "Tap to view or edit" : "Tap to add notes"}</Text>
           </Pressable>
         </View>
 
@@ -422,36 +638,31 @@ export default function HoleViewScreen({ navigation, route }) {
             </Pressable>
           </View>
         ) : null}
-
-        <View style={styles.ybWrap}>
-          <Pressable onPress={() => setYardageOpen(true)} style={({ pressed }) => [styles.ybBtn, pressed && styles.pressed]}>
-            <View style={styles.ybBadgeWrap}>
-              <View style={styles.ybBadge}>
-                <Text style={styles.ybBadgeText}>Yardage Book</Text>
-              </View>
-            </View>
-
-            {hasNote ? (
-              <Text style={styles.ybPreview} numberOfLines={2} ellipsizeMode="tail">
-                {notePreview}
-              </Text>
-            ) : (
-              <Text style={styles.ybPreviewMuted} numberOfLines={2}>
-                No notes yet.
-              </Text>
-            )}
-
-            <Text style={styles.ybHint}>{hasNote ? "Tap to see notes" : "Tap to add notes"}</Text>
-          </Pressable>
-        </View>
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: bottomPad }]}>
-        <Pressable style={styles.greenBtn} onPress={openScoreEntry}>
+        <Pressable style={styles.greenBtn} onPress={() => openScoreEntry()}>
           <Text style={styles.greenText}>Input Scores</Text>
         </Pressable>
 
-        <Pressable onPress={() => setDeleteOpen(true)} style={({ pressed }) => [styles.deleteBtn, pressed && styles.pressed]}>
+        <Pressable
+          onPress={showFinish ? onPressFinishRound : onPressSaveRound}
+          style={({ pressed }) => [
+            styles.saveBtn,
+            pressed && styles.pressed,
+            savingRound && { opacity: 0.7 },
+          ]}
+          disabled={savingRound}
+        >
+          <Text style={styles.saveText}>
+            {savingRound ? "Saving…" : showFinish ? "Finish Round" : "Save Round"}
+          </Text>
+        </Pressable>
+
+        <Pressable
+          onPress={() => setDeleteOpen(true)}
+          style={({ pressed }) => [styles.deleteBtn, pressed && styles.pressed]}
+        >
           <Text style={styles.deleteText}>Delete Round</Text>
         </Pressable>
       </View>
@@ -535,6 +746,14 @@ export default function HoleViewScreen({ navigation, route }) {
           </View>
         </View>
       </Modal>
+
+      <Modal visible={savedOpen} transparent animationType="fade" onRequestClose={() => setSavedOpen(false)}>
+        <View style={styles.toastBg}>
+          <View style={styles.toastCard}>
+            <Text style={styles.toastText}>Round saved</Text>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -569,9 +788,47 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  modeBtnPrimary: { backgroundColor: "rgba(46,125,255,0.22)", borderWidth: 1, borderColor: "rgba(46,125,255,0.35)" },
+  modeBtnPrimary: {
+    backgroundColor: "rgba(46,125,255,0.22)",
+    borderWidth: 1,
+    borderColor: "rgba(46,125,255,0.35)",
+  },
   modeText: { color: WHITE, fontWeight: "900" },
   modeTextPrimary: { color: WHITE },
+
+  ybWrap: { marginHorizontal: 16, marginTop: 10 },
+  ybCard: {
+    borderRadius: 18,
+    padding: 12,
+    borderWidth: 3,
+    borderColor: YELLOW,
+    backgroundColor: "rgba(255,255,255,0.04)",
+  },
+  ybTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  ybTitle: { color: WHITE, fontWeight: "900", fontSize: 13, letterSpacing: 0.2 },
+  ybAction: { color: "rgba(255,255,255,0.70)", fontWeight: "900", fontSize: 12, letterSpacing: 0.3 },
+
+  ybPreview: {
+    marginTop: 8,
+    color: "rgba(255,255,255,0.92)",
+    fontWeight: "800",
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  ybPreviewMuted: {
+    marginTop: 8,
+    color: "rgba(255,255,255,0.65)",
+    fontWeight: "800",
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  ybHint: {
+    marginTop: 6,
+    color: "rgba(255,255,255,0.70)",
+    fontWeight: "900",
+    fontSize: 11,
+    letterSpacing: 0.2,
+  },
 
   mapCard: {
     marginHorizontal: 16,
@@ -632,47 +889,6 @@ const styles = StyleSheet.create({
   hintBtnT: { color: WHITE, fontWeight: "900", fontSize: 12, letterSpacing: 0.3 },
   hintBtnS: { color: "rgba(255,255,255,0.82)", fontWeight: "900", fontSize: 14 },
 
-  ybWrap: { marginHorizontal: 16, marginTop: 12 },
-  ybBtn: {
-    borderRadius: 22,
-    padding: 14,
-    backgroundColor: "rgba(46,125,255,0.12)",
-    borderWidth: 1,
-    borderColor: "rgba(46,125,255,0.35)",
-  },
-
-  ybBadgeWrap: { alignItems: "center" },
-  ybBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.10)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-  },
-  ybBadgeText: { color: WHITE, fontWeight: "900", fontSize: 12, letterSpacing: 0.3 },
-
-  ybPreview: {
-    marginTop: 10,
-    color: "rgba(255,255,255,0.92)",
-    fontWeight: "800",
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  ybPreviewMuted: {
-    marginTop: 10,
-    color: "rgba(255,255,255,0.65)",
-    fontWeight: "800",
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  ybHint: {
-    marginTop: 8,
-    color: "rgba(255,255,255,0.70)",
-    fontWeight: "900",
-    fontSize: 12,
-  },
-
   footer: {
     position: "absolute",
     left: 0,
@@ -684,8 +900,21 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "rgba(255,255,255,0.08)",
   },
+
   greenBtn: { height: 56, borderRadius: 999, backgroundColor: GREEN, alignItems: "center", justifyContent: "center" },
   greenText: { color: GREEN_TEXT, fontSize: 17, fontWeight: "900" },
+
+  saveBtn: {
+    marginTop: 10,
+    height: 52,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(46,125,255,0.18)",
+    borderWidth: 1,
+    borderColor: "rgba(46,125,255,0.45)",
+  },
+  saveText: { color: WHITE, fontWeight: "900", letterSpacing: 0.3 },
 
   deleteBtn: {
     marginTop: 10,

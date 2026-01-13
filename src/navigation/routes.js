@@ -1,3 +1,4 @@
+// src/navigation/routes.js
 const ROUTES = {
   BOOT: "Boot",
 
@@ -33,6 +34,9 @@ const ROUTES = {
   WAGERS: "Wagers",
 
   TOURNAMENTS: "Tournaments",
+
+  FINAL_RESULTS: "FinalResults",
+  PAYOUTS: "Payouts",
 };
 
 export default ROUTES;

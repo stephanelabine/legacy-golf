@@ -13,6 +13,18 @@ export async function getRounds() {
   }
 }
 
+export async function getRoundById(roundId) {
+  try {
+    const id = String(roundId || "");
+    if (!id) return null;
+    const rounds = await getRounds();
+    const found = (rounds || []).find((r) => String(r?.id) === id);
+    return found || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function saveRound(round) {
   try {
     const rounds = await getRounds();
@@ -28,10 +40,23 @@ export async function saveRound(round) {
         }))
       : [];
 
-    const next = [
-      { ...safe, players: normalizedPlayers },
-      ...rounds.filter((r) => String(r?.id) !== String(safe.id)),
-    ];
+    const normalized = {
+      ...safe,
+      id: String(safe.id),
+      players: normalizedPlayers,
+      courseName: String(
+        safe.courseName ||
+          safe.course?.name ||
+          safe.course?.courseName ||
+          safe.course?.title ||
+          "Course"
+      ),
+      teeName: String(safe.teeName || safe.tee?.name || "Tees"),
+      status: String(safe.status || "in_progress"),
+      updatedAt: safe.updatedAt || Date.now(),
+    };
+
+    const next = [normalized, ...rounds.filter((r) => String(r?.id) !== String(normalized.id))];
 
     await AsyncStorage.setItem(KEY, JSON.stringify(next));
     return true;

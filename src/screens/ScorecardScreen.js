@@ -1,3 +1,4 @@
+// src/screens/ScorecardScreen.js
 import React, { useMemo, useState, useCallback } from "react";
 import { SafeAreaView, View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
@@ -20,19 +21,47 @@ function toInt(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
-function sumPlayerTotal(state, playerId) {
+function unwrapRound(state) {
+  if (!state || typeof state !== "object") return null;
+  return state?.activeRound || state?.currentRound || state?.round || state;
+}
+
+// Supports BOTH storage shapes:
+// A) roundState: holes["1"].players["p1"].stokes
+// B) rounds.js legacy: holes[0].scores["p1"] = strokes
+function readStroke(roundRoot, holeNumber, playerId) {
+  const rid = String(playerId);
+
+  // A) roundState shape (object keyed by hole number)
+  const a =
+    roundRoot?.holes?.[String(holeNumber)]?.players?.[rid]?.strokes ??
+    roundRoot?.holes?.[String(holeNumber)]?.scores?.[rid]; // extra fallback if any screen used "scores"
+  const aInt = toInt(a);
+  if (aInt > 0) return aInt;
+
+  // B) legacy rounds shape (array of holes)
+  const holesArr = Array.isArray(roundRoot?.holes) ? roundRoot.holes : null;
+  if (holesArr && holeNumber >= 1 && holeNumber <= holesArr.length) {
+    const h = holesArr[holeNumber - 1];
+    const b = h?.scores?.[rid] ?? h?.strokes?.[rid];
+    const bInt = toInt(b);
+    if (bInt > 0) return bInt;
+  }
+
+  return 0;
+}
+
+function sumPlayerTotal(roundRoot, playerId) {
   let total = 0;
   for (let h = 1; h <= 18; h++) {
-    const s = state?.holes?.[String(h)]?.players?.[String(playerId)]?.strokes;
-    const n = toInt(s);
+    const n = readStroke(roundRoot, h, playerId);
     if (n > 0) total += n;
   }
   return total;
 }
 
-function holePlayerStroke(state, holeNumber, playerId) {
-  const s = state?.holes?.[String(holeNumber)]?.players?.[String(playerId)]?.strokes;
-  const n = toInt(s);
+function holePlayerStroke(roundRoot, holeNumber, playerId) {
+  const n = readStroke(roundRoot, holeNumber, playerId);
   return n > 0 ? String(n) : "—";
 }
 
@@ -54,13 +83,24 @@ export default function ScorecardScreen({ navigation, route }) {
     }, [])
   );
 
-  const course = params.course || active?.course || null;
-  const tee = params.tee || active?.tee || null;
+  const root = useMemo(() => unwrapRound(active) || null, [active]);
+
+  const course = params.course || root?.course || active?.course || null;
+  const tee = params.tee || root?.tee || active?.tee || null;
 
   const players = useMemo(() => {
     const fromParams = Array.isArray(params.players) ? params.players : [];
     if (fromParams.length) {
       return fromParams.map((p, idx) => ({
+        id: p?.id ?? String(idx),
+        name: p?.name ?? `Player ${idx + 1}`,
+        handicap: p?.handicap ?? 0,
+      }));
+    }
+
+    const fromRoot = Array.isArray(root?.players) ? root.players : [];
+    if (fromRoot.length) {
+      return fromRoot.map((p, idx) => ({
         id: p?.id ?? String(idx),
         name: p?.name ?? `Player ${idx + 1}`,
         handicap: p?.handicap ?? 0,
@@ -73,7 +113,7 @@ export default function ScorecardScreen({ navigation, route }) {
       name: p?.name ?? `Player ${idx + 1}`,
       handicap: p?.handicap ?? 0,
     }));
-  }, [params.players, active]);
+  }, [params.players, root, active]);
 
   const subtitle = useMemo(() => {
     const parts = [];
@@ -83,13 +123,13 @@ export default function ScorecardScreen({ navigation, route }) {
   }, [course?.name, tee?.name]);
 
   const totals = useMemo(() => {
-    const s = active || {};
+    const r = root || active || {};
     return players.map((p) => ({
       id: String(p.id),
       name: String(p.name || "").trim() || "Player",
-      total: sumPlayerTotal(s, String(p.id)),
+      total: sumPlayerTotal(r, String(p.id)),
     }));
-  }, [active, players]);
+  }, [root, active, players]);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -150,7 +190,7 @@ export default function ScorecardScreen({ navigation, route }) {
                             {String(p.name || "Player")}
                           </Text>
                           <Text style={styles.holePlayerVal}>
-                            {holePlayerStroke(active || {}, holeNumber, String(p.id))}
+                            {holePlayerStroke(root || active || {}, holeNumber, String(p.id))}
                           </Text>
                         </View>
                       ))}
@@ -168,7 +208,10 @@ export default function ScorecardScreen({ navigation, route }) {
             We can add par/handicap strokes and show Net totals once we confirm the handicap model you want.
           </Text>
 
-          <Pressable onPress={() => navigation.goBack()} style={({ pressed }) => [styles.cta, pressed && styles.pressed]}>
+          <Pressable
+            onPress={() => navigation.goBack()}
+            style={({ pressed }) => [styles.cta, pressed && styles.pressed]}
+          >
             <Text style={styles.ctaText}>Back</Text>
           </Pressable>
         </View>

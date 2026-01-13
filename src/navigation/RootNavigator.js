@@ -1,3 +1,4 @@
+// src/navigation/RootNavigator.js
 import React from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
@@ -35,6 +36,9 @@ import WagersScreen from "../screens/WagersScreen";
 import HazardsScreen from "../screens/HazardsScreen";
 
 import TournamentsScreen from "../screens/TournamentsScreen";
+
+import FinalResultsScreen from "../screens/FinalResultsScreen";
+import PayoutsScreen from "../screens/PayoutsScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -84,6 +88,8 @@ export default function RootNavigator() {
       >
         <Stack.Screen name={ROUTES.SCORECARD} component={ScorecardScreen} />
         <Stack.Screen name={ROUTES.HAZARDS} component={HazardsScreen} />
+        <Stack.Screen name={ROUTES.FINAL_RESULTS} component={FinalResultsScreen} />
+        <Stack.Screen name={ROUTES.PAYOUTS} component={PayoutsScreen} />
       </Stack.Group>
     </Stack.Navigator>
   );

@@ -1,3 +1,4 @@
+// src/screens/BuddyListScreen.js
 import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
@@ -10,6 +11,8 @@ import {
   Alert,
   Platform,
   Modal,
+  KeyboardAvoidingView,
+  ScrollView,
 } from "react-native";
 
 import theme from "../theme";
@@ -125,6 +128,7 @@ export default function BuddyListScreen({ navigation }) {
   }
 
   function closeEdit() {
+    Keyboard.dismiss();
     setEditing(null);
     setEditName("");
     setEditHandicap("");
@@ -244,7 +248,10 @@ export default function BuddyListScreen({ navigation }) {
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 30 }}
         showsVerticalScrollIndicator={false}
         renderItem={({ item }) => (
-          <Pressable onPress={() => openEdit(item)} style={({ pressed }) => [styles.buddyRow, pressed && styles.pressed]}>
+          <Pressable
+            onPress={() => openEdit(item)}
+            style={({ pressed }) => [styles.buddyRow, pressed && styles.pressed]}
+          >
             <View style={{ flex: 1 }}>
               <Text style={styles.buddyName} numberOfLines={1}>
                 {item.name}
@@ -265,7 +272,14 @@ export default function BuddyListScreen({ navigation }) {
               ) : null}
             </View>
 
-            <Pressable onPress={() => onDelete(item.id)} style={({ pressed }) => [styles.delBtn, pressed && styles.pressed]}>
+            <Pressable
+              onPress={(e) => {
+                // Prevent the parent row onPress from firing.
+                e?.stopPropagation?.();
+                onDelete(item.id);
+              }}
+              style={({ pressed }) => [styles.delBtn, pressed && styles.pressed]}
+            >
               <Text style={styles.delText}>Delete</Text>
             </Pressable>
           </Pressable>
@@ -277,69 +291,101 @@ export default function BuddyListScreen({ navigation }) {
         }
       />
 
+      {/* Edit modal: premium keyboard-safe layout (Save/Cancel always reachable) */}
       <Modal visible={!!editing} transparent animationType="fade" onRequestClose={closeEdit}>
-        <View style={styles.modalWrap}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Edit Buddy</Text>
+        <View style={styles.modalOverlay}>
+          {/* Backdrop closes the modal */}
+          <Pressable style={styles.modalBackdrop} onPress={closeEdit} />
 
-            <TextInput
-              style={styles.modalInput}
-              value={editName}
-              onChangeText={setEditName}
-              placeholder="Name"
-              placeholderTextColor="rgba(255,255,255,0.35)"
-              autoCapitalize="words"
-            />
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={styles.modalKav}
+          >
+            {/* Tapping inside card dismisses keyboard (does NOT close modal) */}
+            <Pressable style={styles.modalCard} onPress={Keyboard.dismiss}>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.modalContent}
+              >
+                <Text style={styles.modalTitle}>Edit Buddy</Text>
 
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              <TextInput
-                style={[styles.modalInput, { flex: 1 }]}
-                value={editHandicap}
-                onChangeText={setEditHandicap}
-                placeholder="Handicap (0–36)"
-                placeholderTextColor="rgba(255,255,255,0.35)"
-                keyboardType="number-pad"
-                maxLength={2}
-              />
-              <TextInput
-                style={[styles.modalInput, { flex: 2 }]}
-                value={editPhone}
-                onChangeText={setEditPhone}
-                placeholder="Phone"
-                placeholderTextColor="rgba(255,255,255,0.35)"
-                keyboardType="phone-pad"
-              />
-            </View>
+                <TextInput
+                  style={styles.modalInput}
+                  value={editName}
+                  onChangeText={setEditName}
+                  placeholder="Name"
+                  placeholderTextColor="rgba(255,255,255,0.35)"
+                  autoCapitalize="words"
+                  returnKeyType="next"
+                />
 
-            <TextInput
-              style={styles.modalInput}
-              value={editEmail}
-              onChangeText={setEditEmail}
-              placeholder="Email"
-              placeholderTextColor="rgba(255,255,255,0.35)"
-              autoCapitalize="none"
-              keyboardType="email-address"
-            />
+                <View style={{ flexDirection: "row", gap: 10 }}>
+                  <TextInput
+                    style={[styles.modalInput, { flex: 1 }]}
+                    value={editHandicap}
+                    onChangeText={setEditHandicap}
+                    placeholder="Handicap (0–36)"
+                    placeholderTextColor="rgba(255,255,255,0.35)"
+                    keyboardType="number-pad"
+                    maxLength={2}
+                    returnKeyType="next"
+                  />
+                  <TextInput
+                    style={[styles.modalInput, { flex: 2 }]}
+                    value={editPhone}
+                    onChangeText={setEditPhone}
+                    placeholder="Phone"
+                    placeholderTextColor="rgba(255,255,255,0.35)"
+                    keyboardType="phone-pad"
+                    returnKeyType="next"
+                  />
+                </View>
 
-            <TextInput
-              style={[styles.modalInput, { height: 90, textAlignVertical: "top" }]}
-              value={editNotes}
-              onChangeText={setEditNotes}
-              placeholder="Notes (optional)"
-              placeholderTextColor="rgba(255,255,255,0.35)"
-              multiline
-            />
+                <TextInput
+                  style={styles.modalInput}
+                  value={editEmail}
+                  onChangeText={setEditEmail}
+                  placeholder="Email"
+                  placeholderTextColor="rgba(255,255,255,0.35)"
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  returnKeyType="next"
+                />
 
-            <View style={styles.modalBtns}>
-              <Pressable onPress={closeEdit} style={({ pressed }) => [styles.modalBtn, styles.modalBtnGhost, pressed && styles.pressed]}>
-                <Text style={styles.modalBtnText}>Cancel</Text>
-              </Pressable>
+                <TextInput
+                  style={[styles.modalInput, styles.modalNotes]}
+                  value={editNotes}
+                  onChangeText={setEditNotes}
+                  placeholder="Notes (optional)"
+                  placeholderTextColor="rgba(255,255,255,0.35)"
+                  multiline
+                  textAlignVertical="top"
+                  returnKeyType="done"
+                />
 
-              <Pressable onPress={saveEdit} style={({ pressed }) => [styles.modalBtn, pressed && styles.pressed]}>
-                <Text style={styles.modalBtnText}>Save</Text>
-              </Pressable>
-            </View>
-          </View>
+                {/* Spacer so content never sits under sticky buttons */}
+                <View style={{ height: 10 }} />
+              </ScrollView>
+
+              {/* Sticky action bar (always visible above keyboard) */}
+              <View style={styles.modalStickyBar}>
+                <Pressable
+                  onPress={closeEdit}
+                  style={({ pressed }) => [styles.modalBtn, styles.modalBtnGhost, pressed && styles.pressed]}
+                >
+                  <Text style={styles.modalBtnText}>Cancel</Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={saveEdit}
+                  style={({ pressed }) => [styles.modalBtn, pressed && styles.pressed]}
+                >
+                  <Text style={styles.modalBtnText}>Save</Text>
+                </Pressable>
+              </View>
+            </Pressable>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
     </View>
@@ -448,12 +494,18 @@ const styles = StyleSheet.create({
 
   empty: { color: "rgba(255,255,255,0.6)", fontWeight: "800" },
 
-  modalWrap: {
+  // Modal layout: backdrop + KAV + sticky action bar
+  modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.55)",
-    alignItems: "center",
-    justifyContent: "center",
     padding: 16,
+    justifyContent: "center",
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  modalKav: {
+    width: "100%",
   },
   modalCard: {
     width: "100%",
@@ -461,9 +513,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.16)",
     backgroundColor: "#0B1220",
+    overflow: "hidden",
+  },
+  modalContent: {
     padding: 14,
+    paddingBottom: 6,
   },
   modalTitle: { color: "#fff", fontWeight: "900", fontSize: 18, marginBottom: 10 },
+
   modalInput: {
     height: 46,
     borderRadius: 14,
@@ -476,7 +533,21 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     marginBottom: 10,
   },
-  modalBtns: { flexDirection: "row", gap: 10, marginTop: 6 },
+  modalNotes: {
+    height: 90,
+    paddingTop: 12,
+    paddingBottom: 12,
+  },
+
+  modalStickyBar: {
+    flexDirection: "row",
+    gap: 10,
+    padding: 14,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.10)",
+    backgroundColor: "#0B1220",
+  },
   modalBtn: {
     flex: 1,
     height: 48,

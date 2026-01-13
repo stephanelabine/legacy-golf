@@ -1,5 +1,5 @@
 // src/screens/HomeScreen.js
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useEffect } from "react";
 import {
   SafeAreaView,
   View,
@@ -15,186 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 import ROUTES from "../navigation/routes";
-import * as RoundState from "../storage/roundState";
 import { useTheme } from "../theme/ThemeProvider";
-
-function pickFirstString(...vals) {
-  for (const v of vals) {
-    if (typeof v === "string" && v.trim()) return v.trim();
-  }
-  return "";
-}
-
-function pickFirstNumber(...vals) {
-  for (const v of vals) {
-    const n = Number(v);
-    if (Number.isFinite(n)) return n;
-  }
-  return null;
-}
-
-function extractResumeInfo(state) {
-  if (!state) return null;
-
-  const root = state?.activeRound || state?.currentRound || state?.round || state;
-
-  const courseName = pickFirstString(
-    root?.course?.name,
-    root?.courseName,
-    root?.course?.title,
-    root?.place?.name,
-    state?.course?.name,
-    state?.courseName
-  );
-
-  const holeRaw = pickFirstNumber(
-    root?.holeNumber,
-    root?.currentHole,
-    root?.hole,
-    root?.holeIndex,
-    state?.holeNumber,
-    state?.currentHole,
-    state?.hole,
-    state?.holeIndex
-  );
-
-  let holeNumber = holeRaw;
-
-  if (holeNumber !== null && holeNumber >= 0 && holeNumber <= 17) {
-    const isIndex =
-      root?.holeIndex !== undefined || state?.holeIndex !== undefined || holeNumber === 0;
-    if (isIndex) holeNumber = holeNumber + 1;
-  }
-
-  const isActiveExplicit =
-    !!root?.isActive ||
-    !!state?.isActive ||
-    root?.status === "active" ||
-    state?.status === "active" ||
-    root?.inProgress === true ||
-    state?.inProgress === true;
-
-  const hasEnoughToShow = !!courseName || isActiveExplicit;
-  if (!hasEnoughToShow) return null;
-
-  return {
-    courseName: courseName || "Current Round",
-    holeNumber: holeNumber && holeNumber >= 1 && holeNumber <= 18 ? holeNumber : null,
-  };
-}
-
-async function loadResumeInfoBestEffort() {
-  try {
-    const loaders = [
-      RoundState.loadRoundState,
-      RoundState.getRoundState,
-      RoundState.loadState,
-      RoundState.loadActiveRound,
-      RoundState.getActiveRound,
-      RoundState.loadCurrentRound,
-      RoundState.getCurrentRound,
-      RoundState.loadRound,
-      RoundState.getRound,
-    ].filter((fn) => typeof fn === "function");
-
-    for (const fn of loaders) {
-      try {
-        const result = await fn();
-        const info = extractResumeInfo(result);
-        if (info) return info;
-      } catch {
-        // keep trying
-      }
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-// extract full params for HOLE_VIEW, best-effort across possible stored shapes
-function extractActiveRoundParams(state) {
-  if (!state) return null;
-
-  const root = state?.activeRound || state?.currentRound || state?.round || state;
-
-  const course = root?.course || state?.course || null;
-  const tee = root?.tee || state?.tee || null;
-  const players = root?.players || state?.players || null;
-
-  if (!course || !tee || !Array.isArray(players) || players.length === 0) return null;
-
-  const holeMeta = root?.holeMeta ?? state?.holeMeta ?? null;
-  const scoring =
-    root?.scoring ??
-    root?.scoringType ??
-    state?.scoring ??
-    state?.scoringType ??
-    "net";
-
-  const holeRaw =
-    root?.holeNumber ??
-    root?.currentHole ??
-    root?.hole ??
-    root?.holeIndex ??
-    state?.holeNumber ??
-    state?.currentHole ??
-    state?.hole ??
-    state?.holeIndex ??
-    1;
-
-  let startHole = Number(holeRaw);
-  if (!Number.isFinite(startHole)) startHole = 1;
-
-  if (startHole >= 0 && startHole <= 17) {
-    const isIndex =
-      root?.holeIndex !== undefined || state?.holeIndex !== undefined || startHole === 0;
-    if (isIndex) startHole = startHole + 1;
-  }
-
-  if (startHole < 1 || startHole > 18) startHole = 1;
-
-  return {
-    ...root,
-    course,
-    tee,
-    players,
-    holeMeta,
-    scoring,
-    startHole,
-  };
-}
-
-async function loadActiveRoundParamsBestEffort() {
-  try {
-    const loaders = [
-      RoundState.loadActiveRound,
-      RoundState.getActiveRound,
-      RoundState.loadRoundState,
-      RoundState.getRoundState,
-      RoundState.loadState,
-      RoundState.loadCurrentRound,
-      RoundState.getCurrentRound,
-      RoundState.loadRound,
-      RoundState.getRound,
-    ].filter((fn) => typeof fn === "function");
-
-    for (const fn of loaders) {
-      try {
-        const result = await fn();
-        const params = extractActiveRoundParams(result);
-        if (params) return params;
-      } catch {
-        // keep trying
-      }
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
-}
 
 function ThemeToggle({ mode, setMode, theme }) {
   const W = 140;
@@ -290,44 +111,10 @@ export default function HomeScreen({ navigation }) {
   const { mode, scheme, theme, setMode } = useTheme();
   const isDark = scheme === "dark";
 
-  const [resumeInfo, setResumeInfo] = useState(null);
-
-  useEffect(() => {
-    let live = true;
-
-    async function refresh() {
-      const info = await loadResumeInfoBestEffort();
-      if (live) setResumeInfo(info);
-    }
-
-    refresh();
-    const unsub = navigation?.addListener?.("focus", refresh);
-
-    return () => {
-      live = false;
-      if (typeof unsub === "function") unsub();
-    };
-  }, [navigation]);
-
   const bottomPad = useMemo(
     () => Math.max(18, (insets?.bottom || 0) + 14),
     [insets?.bottom]
   );
-
-  async function onContinue() {
-    try {
-      const params = await loadActiveRoundParamsBestEffort();
-
-      if (params) {
-        navigation.navigate(ROUTES.HOLE_VIEW, params);
-        return;
-      }
-
-      navigation.navigate(ROUTES.GAMES, { resume: true });
-    } catch {
-      navigation.navigate(ROUTES.GAMES, { resume: true });
-    }
-  }
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.bg }]}>
@@ -342,7 +129,6 @@ export default function HomeScreen({ navigation }) {
           source={require("../../assets/legacy-logo-transparent.png")}
           style={[
             styles.floatingLogo,
-            // moved up more so it doesn't crowd/overlap the "WELCOME TO" line
             { top: Math.max(0, (insets?.top || 0) - 50) },
           ]}
           resizeMode="contain"
@@ -357,63 +143,18 @@ export default function HomeScreen({ navigation }) {
 
           <View style={styles.brand}>
             <Text style={[styles.welcome, { color: theme.muted }]}>WELCOME TO</Text>
-            <Text style={[styles.title, { color: theme.text }]}>Legacy Golf</Text>
-            <Text style={[styles.tagline, { color: theme.muted }]}>Start building your legacy</Text>
+
+            {/* tighter word spacing + slightly reduced letterSpacing */}
+            <Text style={[styles.title, { color: theme.text }]}>
+              {"Legacy\u2009Golf"}
+            </Text>
+
+            <Text style={[styles.tagline, { color: theme.muted }]}>
+              Start building your legacy
+            </Text>
           </View>
 
           <View style={styles.actions}>
-            {resumeInfo ? (
-              <Pressable
-                onPress={onContinue}
-                style={({ pressed }) => [
-                  styles.continueCard,
-                  { borderColor: theme.border, backgroundColor: theme.card },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <View style={styles.continueTop}>
-                  <View
-                    style={[
-                      styles.continueBadge,
-                      {
-                        backgroundColor: isDark
-                          ? "rgba(255,255,255,0.92)"
-                          : "rgba(10,15,26,0.92)",
-                      },
-                    ]}
-                  >
-                    <MaterialCommunityIcons
-                      name="flag-checkered"
-                      size={16}
-                      color={isDark ? "#0A0F1A" : "#FFFFFF"}
-                    />
-                    <Text
-                      style={[
-                        styles.continueBadgeText,
-                        { color: isDark ? "#0A0F1A" : "#FFFFFF" },
-                      ]}
-                    >
-                      Continue
-                    </Text>
-                  </View>
-
-                  <MaterialCommunityIcons
-                    name="chevron-right"
-                    size={22}
-                    color={isDark ? "rgba(255,255,255,0.80)" : "rgba(10,15,26,0.70)"}
-                  />
-                </View>
-
-                <Text style={[styles.continueTitle, { color: theme.text }]} numberOfLines={1}>
-                  {resumeInfo.courseName}
-                </Text>
-
-                <Text style={[styles.continueSub, { color: theme.muted }]}>
-                  {resumeInfo.holeNumber ? `Resume on Hole ${resumeInfo.holeNumber}` : "Resume your current round"}
-                </Text>
-              </Pressable>
-            ) : null}
-
             <Pressable
               onPress={() => navigation.navigate(ROUTES.GAMES)}
               style={({ pressed }) => [
@@ -471,7 +212,7 @@ export default function HomeScreen({ navigation }) {
                       color={isDark ? "#fff" : "#0A0F1A"}
                     />
                   </View>
-                  <Text style={[styles.quickText, { color: theme.text }]}>History</Text>
+                  <Text style={[styles.quickText, { color: theme.text }]}>Round History</Text>
                 </View>
                 <MaterialCommunityIcons
                   name="chevron-right"
@@ -560,7 +301,6 @@ const styles = StyleSheet.create({
   floatingLogo: {
     position: "absolute",
     alignSelf: "center",
-    // larger logo
     width: 272,
     height: 272,
     opacity: 0.98,
@@ -624,7 +364,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
   },
 
-  // pushed down a touch so the brand text never fights the larger logo
   brand: { alignItems: "center", paddingTop: 92 },
 
   welcome: {
@@ -640,7 +379,7 @@ const styles = StyleSheet.create({
     fontFamily: "Cinzel",
     fontSize: 50,
     fontWeight: Platform.select({ ios: "700", android: "700", default: "700" }),
-    letterSpacing: 1.0,
+    letterSpacing: 0.6, // reduced from 1.0
     textAlign: "center",
     marginBottom: 6,
   },
@@ -654,39 +393,6 @@ const styles = StyleSheet.create({
   },
 
   actions: { gap: 12 },
-
-  continueCard: { borderRadius: 22, borderWidth: 1, padding: 14 },
-  continueTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 10,
-  },
-  continueBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 12,
-    height: 34,
-    borderRadius: 999,
-  },
-  continueBadgeText: {
-    fontFamily: "Cinzel",
-    fontWeight: "700",
-    letterSpacing: 0.2,
-  },
-  continueTitle: {
-    fontFamily: "Cinzel",
-    fontSize: 18,
-    fontWeight: "700",
-    letterSpacing: 0.2,
-  },
-  continueSub: {
-    fontFamily: "Cinzel",
-    marginTop: 6,
-    fontWeight: "600",
-    letterSpacing: 0.2,
-  },
 
   btn: {
     height: 58,
