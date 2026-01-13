@@ -382,11 +382,11 @@ export default function ScoreEntryScreen({ navigation, route }) {
 
     if (!remaining.length) {
       // All fixed: return to Hole 18 and prompt to finish
-      goToHoleView(Number(finishReturnHole || 18), { showFinishPrompt: true });
+      goToHoleView(Number(finishReturnHole || 18), { showFinishPrompt: true, hole: Number(finishReturnHole || 18) });
       return;
     }
 
-    // Pick next missing hole in sequence if possible
+    // Pick next missing hole in original missing order
     const original = Array.isArray(missingHoles) ? missingHoles : [];
     let nextHole = null;
     let nextIdx = Number.isFinite(Number(missingIndex)) ? Number(missingIndex) : -1;

@@ -15,6 +15,9 @@ const WHITE = "#FFFFFF";
 const INNER = "rgba(0,0,0,0.18)";
 const BLUE = theme?.colors?.primary || "#2E7DFF";
 
+// Green accent ring (matches ScoreEntryScreen)
+const GREEN_BORDER = "rgba(46,204,113,0.70)";
+
 function toInt(v) {
   const n = parseInt(String(v ?? "").replace(/[^\d]/g, ""), 10);
   return Number.isFinite(n) ? n : 0;
@@ -313,129 +316,143 @@ export default function PayoutsScreen({ navigation, route }) {
         contentContainerStyle={{ padding: 16, paddingBottom: 28 }}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Settle up</Text>
-          <Text style={styles.cardSub}>Simplified payments based on calculated balances.</Text>
+        <View style={styles.greenRing}>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Settle up</Text>
+            <Text style={styles.cardSub}>Simplified payments based on calculated balances.</Text>
 
-          {results?.tx?.length ? (
-            <View style={{ marginTop: 12, gap: 10 }}>
-              {results.tx.map((t, idx) => (
-                <View key={`${t.from}-${t.to}-${idx}`} style={styles.txRow}>
-                  <Text style={styles.txText}>
-                    {nameById[t.from] || "Player"} pays {nameById[t.to] || "Player"}
-                  </Text>
-                  <Text style={styles.txAmt}>{dollars(t.amount)}</Text>
-                </View>
-              ))}
-            </View>
-          ) : (
-            <View style={{ marginTop: 12 }}>
-              <Text style={styles.emptyText}>No payouts calculated yet.</Text>
-            </View>
-          )}
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Balances</Text>
-          <Text style={styles.cardSub}>Positive means receive. Negative means pay.</Text>
-
-          <View style={{ marginTop: 12, gap: 10 }}>
-            {players.map((p) => {
-              const amt = Number(results?.balances?.[p.id] || 0);
-              return (
-                <View key={p.id} style={styles.balanceRow}>
-                  <Text style={styles.balanceName} numberOfLines={1}>
-                    {p.name}
-                  </Text>
-                  <Text style={styles.balanceAmt}>{dollars(amt)}</Text>
-                </View>
-              );
-            })}
+            {results?.tx?.length ? (
+              <View style={{ marginTop: 12, gap: 10 }}>
+                {results.tx.map((t, idx) => (
+                  <View key={`${t.from}-${t.to}-${idx}`} style={styles.txRow}>
+                    <Text style={styles.txText}>
+                      {nameById[t.from] || "Player"} pays {nameById[t.to] || "Player"}
+                    </Text>
+                    <Text style={styles.txAmt}>{dollars(t.amount)}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <View style={{ marginTop: 12 }}>
+                <Text style={styles.emptyText}>No payouts calculated yet.</Text>
+              </View>
+            )}
           </View>
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>By game</Text>
-          <Text style={styles.cardSub}>
-            Current rules are premium-simple: Skins (carry), Nassau (group totals), Per-stroke (vs leader). KP needs winners.
-          </Text>
+        <View style={styles.greenRing}>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Balances</Text>
+            <Text style={styles.cardSub}>Positive means receive. Negative means pay.</Text>
 
-          <View style={{ marginTop: 12, gap: 10 }}>
-            {(results?.byGame || []).map((g) => {
-              if (g.type === "kps") {
+            <View style={{ marginTop: 12, gap: 10 }}>
+              {players.map((p) => {
+                const amt = Number(results?.balances?.[p.id] || 0);
                 return (
-                  <View key={g.key} style={styles.gameCard}>
-                    <Text style={styles.gameTitle}>KPs</Text>
-                    <Text style={styles.gameNote}>{g.data?.note || "Not available."}</Text>
-                  </View>
-                );
-              }
-
-              if (g.type === "nassau") {
-                const segs = g.data?.segments || [];
-                return (
-                  <View key={g.key} style={styles.gameCard}>
-                    <Text style={styles.gameTitle}>Nassau</Text>
-                    {segs.length ? (
-                      <View style={{ marginTop: 10, gap: 8 }}>
-                        {segs.map((s) => (
-                          <View key={s.label} style={styles.smallRow}>
-                            <Text style={styles.smallLeft}>
-                              {s.label} winner{(s.winners || []).length > 1 ? "s" : ""}:{" "}
-                              {(s.winners || []).map((pid) => nameById[pid] || "Player").join(", ")}
-                            </Text>
-                            <Text style={styles.smallRight}>{dollars(s.pot)}</Text>
-                          </View>
-                        ))}
-                      </View>
-                    ) : (
-                      <Text style={styles.gameNote}>No Nassau segments enabled.</Text>
-                    )}
-                  </View>
-                );
-              }
-
-              if (g.type === "skins") {
-                const details = (g.data?.details || []).filter((d) => d.winner);
-                return (
-                  <View key={g.key} style={styles.gameCard}>
-                    <Text style={styles.gameTitle}>Skins</Text>
-                    {details.length ? (
-                      <View style={{ marginTop: 10, gap: 8 }}>
-                        {details.slice(0, 8).map((d) => (
-                          <View key={`skin-${d.hole}`} style={styles.smallRow}>
-                            <Text style={styles.smallLeft}>
-                              Hole {d.hole}: {nameById[d.winner] || "Player"}
-                            </Text>
-                            <Text style={styles.smallRight}>{dollars(d.value)}</Text>
-                          </View>
-                        ))}
-                        {details.length > 8 ? (
-                          <Text style={styles.gameNote}>More skins exist. We can add “Show all” next.</Text>
-                        ) : null}
-                      </View>
-                    ) : (
-                      <Text style={styles.gameNote}>No skins won (or all holes tied).</Text>
-                    )}
-                  </View>
-                );
-              }
-
-              if (g.type === "perStroke") {
-                const leaders = g.data?.leaderIds || [];
-                return (
-                  <View key={g.key} style={styles.gameCard}>
-                    <Text style={styles.gameTitle}>Per stroke</Text>
-                    <Text style={styles.gameNote}>
-                      Leader{leaders.length > 1 ? "s" : ""}:{" "}
-                      {leaders.length ? leaders.map((pid) => nameById[pid] || "Player").join(", ") : "—"}
+                  <View key={p.id} style={styles.balanceRow}>
+                    <Text style={styles.balanceName} numberOfLines={1}>
+                      {p.name}
                     </Text>
+                    <Text style={styles.balanceAmt}>{dollars(amt)}</Text>
                   </View>
                 );
-              }
+              })}
+            </View>
+          </View>
+        </View>
 
-              return null;
-            })}
+        <View style={styles.greenRing}>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>By game</Text>
+            <Text style={styles.cardSub}>
+              Current rules are premium-simple: Skins (carry), Nassau (group totals), Per-stroke (vs leader). KP needs winners.
+            </Text>
+
+            <View style={{ marginTop: 12, gap: 10 }}>
+              {(results?.byGame || []).map((g) => {
+                if (g.type === "kps") {
+                  return (
+                    <View key={g.key} style={styles.greenRingSmall}>
+                      <View style={styles.gameCard}>
+                        <Text style={styles.gameTitle}>KPs</Text>
+                        <Text style={styles.gameNote}>{g.data?.note || "Not available."}</Text>
+                      </View>
+                    </View>
+                  );
+                }
+
+                if (g.type === "nassau") {
+                  const segs = g.data?.segments || [];
+                  return (
+                    <View key={g.key} style={styles.greenRingSmall}>
+                      <View style={styles.gameCard}>
+                        <Text style={styles.gameTitle}>Nassau</Text>
+                        {segs.length ? (
+                          <View style={{ marginTop: 10, gap: 8 }}>
+                            {segs.map((s) => (
+                              <View key={s.label} style={styles.smallRow}>
+                                <Text style={styles.smallLeft}>
+                                  {s.label} winner{(s.winners || []).length > 1 ? "s" : ""}:{" "}
+                                  {(s.winners || []).map((pid) => nameById[pid] || "Player").join(", ")}
+                                </Text>
+                                <Text style={styles.smallRight}>{dollars(s.pot)}</Text>
+                              </View>
+                            ))}
+                          </View>
+                        ) : (
+                          <Text style={styles.gameNote}>No Nassau segments enabled.</Text>
+                        )}
+                      </View>
+                    </View>
+                  );
+                }
+
+                if (g.type === "skins") {
+                  const details = (g.data?.details || []).filter((d) => d.winner);
+                  return (
+                    <View key={g.key} style={styles.greenRingSmall}>
+                      <View style={styles.gameCard}>
+                        <Text style={styles.gameTitle}>Skins</Text>
+                        {details.length ? (
+                          <View style={{ marginTop: 10, gap: 8 }}>
+                            {details.slice(0, 8).map((d) => (
+                              <View key={`skin-${d.hole}`} style={styles.smallRow}>
+                                <Text style={styles.smallLeft}>
+                                  Hole {d.hole}: {nameById[d.winner] || "Player"}
+                                </Text>
+                                <Text style={styles.smallRight}>{dollars(d.value)}</Text>
+                              </View>
+                            ))}
+                            {details.length > 8 ? (
+                              <Text style={styles.gameNote}>More skins exist. We can add “Show all” next.</Text>
+                            ) : null}
+                          </View>
+                        ) : (
+                          <Text style={styles.gameNote}>No skins won (or all holes tied).</Text>
+                        )}
+                      </View>
+                    </View>
+                  );
+                }
+
+                if (g.type === "perStroke") {
+                  const leaders = g.data?.leaderIds || [];
+                  return (
+                    <View key={g.key} style={styles.greenRingSmall}>
+                      <View style={styles.gameCard}>
+                        <Text style={styles.gameTitle}>Per stroke</Text>
+                        <Text style={styles.gameNote}>
+                          Leader{leaders.length > 1 ? "s" : ""}:{" "}
+                          {leaders.length ? leaders.map((pid) => nameById[pid] || "Player").join(", ") : "—"}
+                        </Text>
+                      </View>
+                    </View>
+                  );
+                }
+
+                return null;
+              })}
+            </View>
           </View>
         </View>
 
@@ -450,13 +467,29 @@ export default function PayoutsScreen({ navigation, route }) {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: BG },
 
+  greenRing: {
+    borderRadius: 24,
+    padding: 2,
+    borderWidth: 1,
+    borderColor: GREEN_BORDER,
+    backgroundColor: "transparent",
+    marginBottom: 12,
+  },
+
+  greenRingSmall: {
+    borderRadius: 20,
+    padding: 2,
+    borderWidth: 1,
+    borderColor: GREEN_BORDER,
+    backgroundColor: "transparent",
+  },
+
   card: {
     borderRadius: 22,
     padding: 16,
     borderWidth: 1,
     borderColor: BORDER,
     backgroundColor: CARD,
-    marginBottom: 12,
   },
 
   cardTitle: { color: WHITE, fontSize: 15, fontWeight: "900" },

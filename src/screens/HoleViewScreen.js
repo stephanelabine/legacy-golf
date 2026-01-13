@@ -157,6 +157,15 @@ export default function HoleViewScreen({ navigation, route }) {
 
   const [currentHole, setCurrentHole] = useState(params.hole || 1);
 
+  // Critical: keep currentHole in sync when route params change (fix-missing flow returns here)
+  useEffect(() => {
+    const incoming = Number(params?.hole);
+    if (Number.isFinite(incoming) && incoming >= 1 && incoming <= 18 && incoming !== currentHole) {
+      setCurrentHole(incoming);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params?.hole]);
+
   const [courseData, setCourseData] = useState(null);
   const [user, setUser] = useState(null);
 

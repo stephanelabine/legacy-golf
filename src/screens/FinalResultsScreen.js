@@ -16,6 +16,9 @@ const WHITE = "#FFFFFF";
 const INNER = "rgba(0,0,0,0.18)";
 const BLUE = theme?.colors?.primary || "#2E7DFF";
 
+// Green accent ring (matches ScoreEntryScreen)
+const GREEN_BORDER = "rgba(46,204,113,0.70)";
+
 function toInt(v) {
   const n = parseInt(String(v ?? "").replace(/[^\d]/g, ""), 10);
   return Number.isFinite(n) ? n : 0;
@@ -221,143 +224,149 @@ export default function FinalResultsScreen({ navigation, route }) {
         contentContainerStyle={{ padding: 16, paddingBottom: 28 }}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Leaderboard</Text>
-          <Text style={styles.cardSub}>Gross strokes. Tap a player to expand hole-by-hole.</Text>
+        <View style={styles.greenRing}>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Leaderboard</Text>
+            <Text style={styles.cardSub}>Gross strokes. Tap a player to expand hole-by-hole.</Text>
 
-          <View style={{ marginTop: 12, gap: 10 }}>
-            {leaderboard.map((p, idx) => {
-              const isOpen = !!expanded[p.id];
-              return (
-                <Pressable
-                  key={p.id}
-                  onPress={() => togglePlayer(p.id)}
-                  style={({ pressed }) => [styles.leaderRow, pressed && styles.pressed]}
-                >
-                  <View style={styles.rankPill}>
-                    <Text style={styles.rankText}>{idx + 1}</Text>
-                  </View>
-
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={styles.leaderName} numberOfLines={1}>
-                      {p.name}
-                    </Text>
-                    <Text style={styles.leaderSub}>{isOpen ? "Tap to collapse" : "Tap to expand"}</Text>
-                  </View>
-
-                  <View style={styles.totalBox}>
-                    <Text style={styles.totalVal}>{p.total > 0 ? String(p.total) : "—"}</Text>
-                    <Text style={styles.totalFoot}>strokes</Text>
-                  </View>
-
-                  {isOpen ? (
-                    <View style={styles.expandWrap}>
-                      <View style={styles.expandDivider} />
-                      <View style={styles.holesGrid}>
-                        {Array.from({ length: 18 }).map((_, i) => {
-                          const h = i + 1;
-                          const v = readStroke(round, h, p.id);
-                          return (
-                            <View key={`${p.id}-${h}`} style={styles.holeChip}>
-                              <Text style={styles.holeChipTop}>{h}</Text>
-                              <Text style={styles.holeChipVal}>{v > 0 ? String(v) : "—"}</Text>
-                            </View>
-                          );
-                        })}
-                      </View>
-                    </View>
-                  ) : null}
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Stats snapshot</Text>
-          <Text style={styles.cardSub}>Based on what has been tracked so far.</Text>
-
-          <View style={{ marginTop: 12, gap: 10 }}>
-            {stats.map((s) => (
-              <View key={s.id} style={styles.statRow}>
-                <Text style={styles.statName} numberOfLines={1}>
-                  {s.name}
-                </Text>
-                <View style={styles.statPills}>
-                  <View style={styles.statPill}>
-                    <Text style={styles.statK}>FIR</Text>
-                    <Text style={styles.statV}>{s.fir}</Text>
-                  </View>
-                  <View style={styles.statPill}>
-                    <Text style={styles.statK}>GIR</Text>
-                    <Text style={styles.statV}>{s.gir}</Text>
-                  </View>
-                  <View style={styles.statPill}>
-                    <Text style={styles.statK}>Putts</Text>
-                    <Text style={styles.statV}>{s.puttsAvg}</Text>
-                  </View>
-                  <View style={styles.statPill}>
-                    <Text style={styles.statK}>U&D</Text>
-                    <Text style={styles.statV}>{s.updown}</Text>
-                  </View>
-                  <View style={styles.statPill}>
-                    <Text style={styles.statK}>Sand</Text>
-                    <Text style={styles.statV}>{s.sand}</Text>
-                  </View>
-                </View>
-              </View>
-            ))}
-          </View>
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Wagers & payouts</Text>
-          <Text style={styles.cardSub}>
-            Wagers are attached to this round. Payouts are calculated from strokes where possible.
-          </Text>
-
-          {wagers ? (
             <View style={{ marginTop: 12, gap: 10 }}>
-              {wagers?.skins?.enabled ? (
-                <View style={styles.wagerRow}>
-                  <Text style={styles.wagerName}>Skins</Text>
-                  <Text style={styles.wagerVal}>${Math.round(Number(wagers.skins.amount || 0))}</Text>
-                </View>
-              ) : null}
+              {leaderboard.map((p, idx) => {
+                const isOpen = !!expanded[p.id];
+                return (
+                  <Pressable
+                    key={p.id}
+                    onPress={() => togglePlayer(p.id)}
+                    style={({ pressed }) => [styles.leaderRow, pressed && styles.pressed]}
+                  >
+                    <View style={styles.rankPill}>
+                      <Text style={styles.rankText}>{idx + 1}</Text>
+                    </View>
 
-              {wagers?.kps?.enabled ? (
-                <View style={styles.wagerRow}>
-                  <Text style={styles.wagerName}>KPs</Text>
-                  <Text style={styles.wagerVal}>${Math.round(Number(wagers.kps.amount || 0))}</Text>
-                </View>
-              ) : null}
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={styles.leaderName} numberOfLines={1}>
+                        {p.name}
+                      </Text>
+                      <Text style={styles.leaderSub}>{isOpen ? "Tap to collapse" : "Tap to expand"}</Text>
+                    </View>
 
-              {wagers?.nassau?.enabled ? (
-                <View style={styles.wagerRow}>
-                  <Text style={styles.wagerName}>Nassau</Text>
-                  <Text style={styles.wagerVal}>
-                    F ${Math.round(Number(wagers.nassau.front || 0))} • B ${Math.round(Number(wagers.nassau.back || 0))} • T $
-                    {Math.round(Number(wagers.nassau.total || 0))}
+                    <View style={styles.totalBox}>
+                      <Text style={styles.totalVal}>{p.total > 0 ? String(p.total) : "—"}</Text>
+                      <Text style={styles.totalFoot}>strokes</Text>
+                    </View>
+
+                    {isOpen ? (
+                      <View style={styles.expandWrap}>
+                        <View style={styles.expandDivider} />
+                        <View style={styles.holesGrid}>
+                          {Array.from({ length: 18 }).map((_, i) => {
+                            const h = i + 1;
+                            const v = readStroke(round, h, p.id);
+                            return (
+                              <View key={`${p.id}-${h}`} style={styles.holeChip}>
+                                <Text style={styles.holeChipTop}>{h}</Text>
+                                <Text style={styles.holeChipVal}>{v > 0 ? String(v) : "—"}</Text>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      </View>
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.greenRing}>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Stats snapshot</Text>
+            <Text style={styles.cardSub}>Based on what has been tracked so far.</Text>
+
+            <View style={{ marginTop: 12, gap: 10 }}>
+              {stats.map((s) => (
+                <View key={s.id} style={styles.statRow}>
+                  <Text style={styles.statName} numberOfLines={1}>
+                    {s.name}
                   </Text>
+                  <View style={styles.statPills}>
+                    <View style={styles.statPill}>
+                      <Text style={styles.statK}>FIR</Text>
+                      <Text style={styles.statV}>{s.fir}</Text>
+                    </View>
+                    <View style={styles.statPill}>
+                      <Text style={styles.statK}>GIR</Text>
+                      <Text style={styles.statV}>{s.gir}</Text>
+                    </View>
+                    <View style={styles.statPill}>
+                      <Text style={styles.statK}>Putts</Text>
+                      <Text style={styles.statV}>{s.puttsAvg}</Text>
+                    </View>
+                    <View style={styles.statPill}>
+                      <Text style={styles.statK}>U&D</Text>
+                      <Text style={styles.statV}>{s.updown}</Text>
+                    </View>
+                    <View style={styles.statPill}>
+                      <Text style={styles.statK}>Sand</Text>
+                      <Text style={styles.statV}>{s.sand}</Text>
+                    </View>
+                  </View>
                 </View>
-              ) : null}
-
-              {wagers?.perStroke?.enabled ? (
-                <View style={styles.wagerRow}>
-                  <Text style={styles.wagerName}>Per stroke</Text>
-                  <Text style={styles.wagerVal}>${Number(wagers.perStroke.amount || 0)} / stroke</Text>
-                </View>
-              ) : null}
-
-              <Pressable onPress={onViewPayouts} style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}>
-                <Text style={styles.primaryText}>View payouts</Text>
-              </Pressable>
+              ))}
             </View>
-          ) : (
-            <View style={{ marginTop: 12 }}>
-              <Text style={styles.emptyText}>No wagers were set for this round.</Text>
-            </View>
-          )}
+          </View>
+        </View>
+
+        <View style={styles.greenRing}>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Wagers & payouts</Text>
+            <Text style={styles.cardSub}>
+              Wagers are attached to this round. Payouts are calculated from strokes where possible.
+            </Text>
+
+            {wagers ? (
+              <View style={{ marginTop: 12, gap: 10 }}>
+                {wagers?.skins?.enabled ? (
+                  <View style={styles.wagerRow}>
+                    <Text style={styles.wagerName}>Skins</Text>
+                    <Text style={styles.wagerVal}>${Math.round(Number(wagers.skins.amount || 0))}</Text>
+                  </View>
+                ) : null}
+
+                {wagers?.kps?.enabled ? (
+                  <View style={styles.wagerRow}>
+                    <Text style={styles.wagerName}>KPs</Text>
+                    <Text style={styles.wagerVal}>${Math.round(Number(wagers.kps.amount || 0))}</Text>
+                  </View>
+                ) : null}
+
+                {wagers?.nassau?.enabled ? (
+                  <View style={styles.wagerRow}>
+                    <Text style={styles.wagerName}>Nassau</Text>
+                    <Text style={styles.wagerVal}>
+                      F ${Math.round(Number(wagers.nassau.front || 0))} • B ${Math.round(Number(wagers.nassau.back || 0))} • T $
+                      {Math.round(Number(wagers.nassau.total || 0))}
+                    </Text>
+                  </View>
+                ) : null}
+
+                {wagers?.perStroke?.enabled ? (
+                  <View style={styles.wagerRow}>
+                    <Text style={styles.wagerName}>Per stroke</Text>
+                    <Text style={styles.wagerVal}>${Number(wagers.perStroke.amount || 0)} / stroke</Text>
+                  </View>
+                ) : null}
+
+                <Pressable onPress={onViewPayouts} style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}>
+                  <Text style={styles.primaryText}>View payouts</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <View style={{ marginTop: 12 }}>
+                <Text style={styles.emptyText}>No wagers were set for this round.</Text>
+              </View>
+            )}
+          </View>
         </View>
 
         <Pressable onPress={onDone} style={({ pressed }) => [styles.cta, pressed && styles.pressed]}>
@@ -371,13 +380,21 @@ export default function FinalResultsScreen({ navigation, route }) {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: BG },
 
+  greenRing: {
+    borderRadius: 24,
+    padding: 2,
+    borderWidth: 1,
+    borderColor: GREEN_BORDER,
+    backgroundColor: "transparent",
+    marginBottom: 12,
+  },
+
   card: {
     borderRadius: 22,
     padding: 16,
     borderWidth: 1,
     borderColor: BORDER,
     backgroundColor: CARD,
-    marginBottom: 12,
   },
 
   cardTitle: { color: WHITE, fontSize: 15, fontWeight: "900" },

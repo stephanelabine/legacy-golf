@@ -3,6 +3,14 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const KEY = "legacy_rounds_v1";
 
+function normalizeStatus(raw) {
+  const s = String(raw || "").trim().toLowerCase();
+  if (!s) return "in_progress";
+  if (s.includes("complete") || s.includes("finished") || s.includes("done")) return "completed";
+  if (s.includes("active") || s.includes("progress") || s.includes("in_progress")) return "in_progress";
+  return "in_progress";
+}
+
 export async function getRounds() {
   try {
     const raw = await AsyncStorage.getItem(KEY);
@@ -52,7 +60,7 @@ export async function saveRound(round) {
           "Course"
       ),
       teeName: String(safe.teeName || safe.tee?.name || "Tees"),
-      status: String(safe.status || "in_progress"),
+      status: normalizeStatus(safe.status),
       updatedAt: safe.updatedAt || Date.now(),
     };
 

@@ -239,6 +239,24 @@ function extractActiveSummary(state) {
   };
 }
 
+function isRoundCompletedAnyShape(r) {
+  const s = String(r?.status || "").trim().toLowerCase();
+  if (s.includes("complete") || s.includes("finished") || s.includes("done")) return true;
+  if (s.includes("in_progress") || s.includes("active") || s.includes("progress")) return false;
+
+  const players = Array.isArray(r?.players) ? r.players : [];
+  const ids = players.map((p, idx) => String(p?.id ?? String(idx)));
+  if (!ids.length) return false;
+
+  for (let h = 1; h <= 18; h++) {
+    for (const pid of ids) {
+      const v = readStroke(r, h, pid);
+      if (toInt(v) <= 0) return false;
+    }
+  }
+  return true;
+}
+
 export default function HistoryScreen({ navigation }) {
   const insets = useSafeAreaInsets();
 
@@ -448,7 +466,6 @@ export default function HistoryScreen({ navigation }) {
                 const gross = sumGrossAnyShape(r, p1Id);
                 const net = calcNet(gross, p1?.handicap);
 
-                // Not displayed, but left here for future
                 void gross;
                 void net;
 
@@ -517,16 +534,7 @@ export default function HistoryScreen({ navigation }) {
               const gross = sumGrossAnyShape(r, p1Id);
               const net = calcNet(gross, p1?.handicap);
 
-              const completed = (() => {
-                const holes = Array.isArray(r?.holes) ? r.holes : [];
-                if (holes.length < 18) return false;
-                for (let i = 0; i < 18; i++) {
-                  const raw = holes?.[i]?.scores?.[p1Id];
-                  if (raw === undefined || raw === null || String(raw).trim() === "") return false;
-                }
-                return true;
-              })();
-
+              const completed = isRoundCompletedAnyShape(r);
               const status = completed ? "COMPLETED" : "IN PROGRESS";
 
               const grossLabel = gross ? String(gross) : "—";
