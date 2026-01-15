@@ -79,9 +79,7 @@ function Seg3({ value, onChange }) {
               pressed && styles.pressed,
             ]}
           >
-            <Text style={[styles.segText, active && styles.segTextActive]}>
-              {o.t}
-            </Text>
+            <Text style={[styles.segText, active && styles.segTextActive]}>{o.t}</Text>
           </Pressable>
         );
       })}
@@ -193,9 +191,7 @@ export default function ScoreEntryScreen({ navigation, route }) {
 
   function updateRow(playerId, field, value) {
     const pid = String(playerId);
-    setRows((prev) =>
-      prev.map((r) => (String(r.playerId) === pid ? { ...r, [field]: value } : r))
-    );
+    setRows((prev) => prev.map((r) => (String(r.playerId) === pid ? { ...r, [field]: value } : r)));
   }
 
   function validateStrokesForThisHole() {
@@ -206,11 +202,7 @@ export default function ScoreEntryScreen({ navigation, route }) {
     }
 
     if (missingPlayers.length) {
-      Alert.alert(
-        "Missing strokes",
-        `Please enter strokes for:\n\n${missingPlayers.join("\n")}`,
-        [{ text: "OK" }]
-      );
+      Alert.alert("Missing strokes", `Please enter strokes for:\n\n${missingPlayers.join("\n")}`, [{ text: "OK" }]);
       return false;
     }
     return true;
@@ -272,17 +264,30 @@ export default function ScoreEntryScreen({ navigation, route }) {
       state.isActive = true;
       state.updatedAt = Date.now();
 
-      // Normal mode: update resume fields.
       // Fix mode: do NOT change resume/currentHole (we’re repairing, not advancing play).
       if (!opts?.skipResumeUpdate) {
+        const advance = !!opts?.advance;
         const nextHole = hole >= 18 ? 18 : hole + 1;
-        const resumeHole = opts?.resumeHole ? Number(opts.resumeHole) : nextHole;
+
+        // Default behavior: keep resume hole on the current hole.
+        // Only advance when explicitly requested (Next Hole).
+        const resumeHole = Number.isFinite(Number(opts?.resumeHole))
+          ? Number(opts.resumeHole)
+          : advance
+          ? nextHole
+          : hole;
 
         state.currentHole = resumeHole;
         state.holeNumber = resumeHole;
         state.hole = resumeHole;
-        state.holeIndex = resumeHole - 1;
-        state.startHole = resumeHole;
+        state.resumeHole = resumeHole;
+
+        // Track last completed hole separately (useful for history/analytics)
+        state.lastHole = hole;
+
+        // IMPORTANT: avoid index-based ambiguity (this caused +1 behavior elsewhere)
+        delete state.holeIndex;
+        delete state.holeIdx;
       }
 
       const ok = await saveActiveRound(state);
@@ -298,14 +303,15 @@ export default function ScoreEntryScreen({ navigation, route }) {
   useEffect(() => {
     const unsub = navigation.addListener("beforeRemove", (e) => {
       if (skipBeforeRemoveRef.current) return;
-
       if (leavingRef.current) return;
+
       e.preventDefault();
       leavingRef.current = true;
 
       (async () => {
         try {
-          await persistHole();
+          // Autosave should NOT advance holes
+          await persistHole({ advance: false });
         } catch {}
         navigation.dispatch(e.data.action);
         leavingRef.current = false;
@@ -339,33 +345,51 @@ export default function ScoreEntryScreen({ navigation, route }) {
     Keyboard.dismiss();
 
     if (isFixMode) {
-      // “Fix mode” back = return to Hole 18 (finish context)
       goToHoleView(Number(finishReturnHole || 18));
       return;
     }
 
-    const res = await persistHole();
+    const res = await persistHole({ advance: false });
+
+    // Prevent beforeRemove double-save
+    skipBeforeRemoveRef.current = true;
     goToHoleView(hole, { roundId: res?.roundId || roundIdParam || null });
+    requestAnimationFrame(() => {
+      skipBeforeRemoveRef.current = false;
+    });
   }
 
   async function continueNextHole() {
     Keyboard.dismiss();
-    const nextHole = hole >= 18 ? 18 : hole + 1;
-    const res = await persistHole({ resumeHole: nextHole });
 
+    // Optional: keep your current behavior (no validation here).
+    // If you WANT validation before next, uncomment:
+    // if (!validateStrokesForThisHole()) return;
+
+    const nextHole = hole >= 18 ? 18 : hole + 1;
+    const res = await persistHole({ advance: true, resumeHole: nextHole });
+
+    skipBeforeRemoveRef.current = true;
     goToHoleView(nextHole, { roundId: res?.roundId || roundIdParam || null });
+    requestAnimationFrame(() => {
+      skipBeforeRemoveRef.current = false;
+    });
   }
 
   async function openScorecard() {
     Keyboard.dismiss();
-    const res = await persistHole();
+    const res = await persistHole({ advance: false });
 
+    skipBeforeRemoveRef.current = true;
     navigation.navigate(ROUTES.SCORECARD, {
       course,
       tee,
       players,
       holeMeta,
       roundId: res?.roundId || roundIdParam || null,
+    });
+    requestAnimationFrame(() => {
+      skipBeforeRemoveRef.current = false;
     });
   }
 
@@ -374,19 +398,19 @@ export default function ScoreEntryScreen({ navigation, route }) {
 
     if (!validateStrokesForThisHole()) return;
 
-    // Save hole, but do not modify resume hole fields
     await persistHole({ skipResumeUpdate: true });
 
     const state = (await loadActiveRound()) || {};
     const remaining = getMissingHolesFromState(state, normalizedPlayers);
 
     if (!remaining.length) {
-      // All fixed: return to Hole 18 and prompt to finish
-      goToHoleView(Number(finishReturnHole || 18), { showFinishPrompt: true, hole: Number(finishReturnHole || 18) });
+      goToHoleView(Number(finishReturnHole || 18), {
+        showFinishPrompt: true,
+        hole: Number(finishReturnHole || 18),
+      });
       return;
     }
 
-    // Pick next missing hole in original missing order
     const original = Array.isArray(missingHoles) ? missingHoles : [];
     let nextHole = null;
     let nextIdx = Number.isFinite(Number(missingIndex)) ? Number(missingIndex) : -1;
@@ -408,7 +432,6 @@ export default function ScoreEntryScreen({ navigation, route }) {
       if (nextIdx < 0) nextIdx = 0;
     }
 
-    // Replace this screen with the next missing hole (no stack growth)
     skipBeforeRemoveRef.current = true;
     navigation.dispatch(
       StackActions.replace(ROUTES.SCORE_ENTRY, {
@@ -432,10 +455,7 @@ export default function ScoreEntryScreen({ navigation, route }) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScreenHeader navigation={navigation} title="Input Scores" subtitle={subtitle} />
 
         <ScrollView
@@ -459,9 +479,7 @@ export default function ScoreEntryScreen({ navigation, route }) {
                       <Text style={styles.playerTitle} numberOfLines={1}>
                         {p.name}
                       </Text>
-                      <Text style={styles.playerSub}>
-                        Player {index + 1} • HCP {formatHdcp(p.handicap)}
-                      </Text>
+                      <Text style={styles.playerSub}>Player {index + 1} • HCP {formatHdcp(p.handicap)}</Text>
                     </View>
 
                     <View style={styles.hdcpPill}>
@@ -556,10 +574,7 @@ export default function ScoreEntryScreen({ navigation, route }) {
               <Text style={styles.midText}>Scorecard</Text>
             </Pressable>
 
-            <Pressable
-              style={styles.primaryBtn}
-              onPress={isFixMode ? doneFixMode : continueNextHole}
-            >
+            <Pressable style={styles.primaryBtn} onPress={isFixMode ? doneFixMode : continueNextHole}>
               <Text style={styles.primaryText}>{isFixMode ? "Done" : "Next Hole"}</Text>
             </Pressable>
           </View>
