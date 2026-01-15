@@ -1,9 +1,8 @@
+// src/screens/BootScreen.js
 import React, { useEffect, useRef } from "react";
 import { View, StyleSheet, Image, ImageBackground, Animated, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { CommonActions } from "@react-navigation/native";
 import { Easing } from "react-native";
-import ROUTES from "../navigation/routes";
 
 const TOTAL_MS = 3500;
 
@@ -13,19 +12,15 @@ const T1_ZOOM_IN_MS = 1600;
 const T2_HOLD_MS = 1200;
 const T3_FADE_OUT_MS = 350;
 
-export default function BootScreen({ navigation }) {
+export default function BootScreen() {
   const insets = useSafeAreaInsets();
-  const didNav = useRef(false);
 
   const logoOpacity = useRef(new Animated.Value(0)).current;
   const logoScale = useRef(new Animated.Value(0.045)).current; // start smaller
   const logoY = useRef(new Animated.Value(26)).current;
-
   const fadeOut = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    didNav.current = false;
-
     logoOpacity.setValue(0);
     logoScale.setValue(0.045);
     logoY.setValue(26);
@@ -42,7 +37,7 @@ export default function BootScreen({ navigation }) {
           useNativeDriver: true,
         }),
         Animated.timing(logoScale, {
-          toValue: 1.95, // BIGGER finish
+          toValue: 1.95,
           duration: T1_ZOOM_IN_MS,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
@@ -73,25 +68,12 @@ export default function BootScreen({ navigation }) {
       ]),
     ]);
 
-    const t = setTimeout(() => {
-      if (didNav.current) return;
-      didNav.current = true;
-
-      navigation.dispatch(
-        CommonActions.reset({
-          index: 0,
-          routes: [{ name: ROUTES.HOME }],
-        })
-      );
-    }, TOTAL_MS);
-
     anim.start();
 
     return () => {
-      clearTimeout(t);
       anim.stop?.();
     };
-  }, [navigation, logoOpacity, logoScale, logoY, fadeOut]);
+  }, [logoOpacity, logoScale, logoY, fadeOut]);
 
   return (
     <View style={styles.root}>
@@ -117,8 +99,6 @@ const styles = StyleSheet.create({
   bg: { flex: 1 },
   endFade: { ...StyleSheet.absoluteFillObject, backgroundColor: "#070A10" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-
-  // Bigger base size
   logo: {
     width: Platform.OS === "ios" ? 310 : 290,
     height: Platform.OS === "ios" ? 310 : 290,

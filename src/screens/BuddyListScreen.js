@@ -29,11 +29,11 @@ function clampHandicap(n) {
 }
 
 function cleanPhone(s) {
-  return (s || "").replace(/[^\d]/g, "");
+  return String(s || "").replace(/[^\d]/g, "");
 }
 
 function isValidEmail(email) {
-  const e = (email || "").trim();
+  const e = String(email || "").trim();
   if (!e) return true;
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 }
@@ -79,7 +79,7 @@ export default function BuddyListScreen({ navigation }) {
     };
   }, [navigation]);
 
-  const canAdd = useMemo(() => (name || "").trim().length > 0, [name]);
+  const canAdd = useMemo(() => String(name || "").trim().length > 0, [name]);
 
   async function persist(next) {
     setSaving(true);
@@ -89,7 +89,7 @@ export default function BuddyListScreen({ navigation }) {
   }
 
   async function onAdd() {
-    const trimmed = (name || "").trim();
+    const trimmed = String(name || "").trim();
     if (!trimmed) return;
 
     if (!isValidEmail(email)) {
@@ -97,15 +97,15 @@ export default function BuddyListScreen({ navigation }) {
       return;
     }
 
-    const exists = buddies.some((b) => (b?.name || "").toLowerCase() === trimmed.toLowerCase());
+    const exists = buddies.some((b) => String(b?.name || "").toLowerCase() === trimmed.toLowerCase());
     if (exists) {
       Alert.alert("Already added", "That buddy is already on your list.");
       return;
     }
 
-    const h = clampHandicap(Number.parseInt((handicap || "").trim() || "0", 10));
+    const h = clampHandicap(Number.parseInt(String(handicap || "").trim() || "0", 10));
     const p = cleanPhone(phone);
-    const e = (email || "").trim();
+    const e = String(email || "").trim();
 
     const next = [{ id: makeId(), name: trimmed, handicap: h, phone: p, email: e, notes: "" }, ...buddies];
 
@@ -120,11 +120,11 @@ export default function BuddyListScreen({ navigation }) {
 
   function openEdit(buddy) {
     setEditing(buddy);
-    setEditName(buddy?.name || "");
+    setEditName(String(buddy?.name || ""));
     setEditHandicap(String(buddy?.handicap ?? 0));
-    setEditPhone(buddy?.phone || "");
-    setEditEmail(buddy?.email || "");
-    setEditNotes(buddy?.notes || "");
+    setEditPhone(String(buddy?.phone || ""));
+    setEditEmail(String(buddy?.email || ""));
+    setEditNotes(String(buddy?.notes || ""));
   }
 
   function closeEdit() {
@@ -140,7 +140,7 @@ export default function BuddyListScreen({ navigation }) {
   async function saveEdit() {
     if (!editing) return;
 
-    const trimmed = (editName || "").trim();
+    const trimmed = String(editName || "").trim();
     if (!trimmed) {
       Alert.alert("Name required", "Buddy name can't be blank.");
       return;
@@ -151,10 +151,10 @@ export default function BuddyListScreen({ navigation }) {
       return;
     }
 
-    const h = clampHandicap(Number.parseInt((editHandicap || "").trim() || "0", 10));
+    const h = clampHandicap(Number.parseInt(String(editHandicap || "").trim() || "0", 10));
     const p = cleanPhone(editPhone);
-    const e = (editEmail || "").trim();
-    const notes = (editNotes || "").trim();
+    const e = String(editEmail || "").trim();
+    const notes = String(editNotes || "").trim();
 
     const next = buddies.map((b) =>
       b.id === editing.id ? { ...b, name: trimmed, handicap: h, phone: p, email: e, notes } : b
@@ -172,7 +172,7 @@ export default function BuddyListScreen({ navigation }) {
   }
 
   function formatPhoneForDisplay(digits) {
-    const s = (digits || "").trim();
+    const s = String(digits || "").trim();
     if (!s) return "";
     if (s.length === 10) return `(${s.slice(0, 3)}) ${s.slice(3, 6)}-${s.slice(6)}`;
     return s;
@@ -182,7 +182,7 @@ export default function BuddyListScreen({ navigation }) {
     <View style={styles.screen}>
       <ScreenHeader navigation={navigation} title="Buddies" subtitle="Your saved players" />
 
-      <View style={styles.card}>
+      <View style={styles.card} pointerEvents={saving ? "none" : "auto"}>
         <Text style={styles.label}>Add a buddy</Text>
 
         <View style={styles.row}>
@@ -193,17 +193,18 @@ export default function BuddyListScreen({ navigation }) {
             placeholder="Name"
             placeholderTextColor="rgba(255,255,255,0.35)"
             autoCapitalize="words"
-            returnKeyType="done"
+            returnKeyType="next"
           />
 
           <TextInput
             style={styles.hcapInput}
             value={handicap}
-            onChangeText={setHandicap}
+            onChangeText={(t) => setHandicap(String(t || "").replace(/[^\d]/g, ""))}
             placeholder="HCP"
             placeholderTextColor="rgba(255,255,255,0.35)"
             keyboardType="number-pad"
             maxLength={2}
+            returnKeyType="done"
           />
 
           <Pressable
@@ -223,19 +224,28 @@ export default function BuddyListScreen({ navigation }) {
           <TextInput
             style={styles.input2}
             value={phone}
-            onChangeText={setPhone}
+            onChangeText={(t) => setPhone(cleanPhone(t))}
             placeholder="Phone (optional)"
             placeholderTextColor="rgba(255,255,255,0.35)"
             keyboardType="phone-pad"
+            returnKeyType="next"
+            autoCorrect={false}
+            autoComplete="tel"
+            textContentType="telephoneNumber"
           />
+
           <TextInput
             style={styles.input2}
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(t) => setEmail(String(t || ""))}
             placeholder="Email (optional)"
             placeholderTextColor="rgba(255,255,255,0.35)"
             autoCapitalize="none"
             keyboardType="email-address"
+            returnKeyType="done"
+            autoCorrect={false}
+            autoComplete="email"
+            textContentType="emailAddress"
           />
         </View>
 
@@ -247,6 +257,7 @@ export default function BuddyListScreen({ navigation }) {
         keyExtractor={(it) => it.id}
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 30 }}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         renderItem={({ item }) => (
           <Pressable
             onPress={() => openEdit(item)}
@@ -274,7 +285,6 @@ export default function BuddyListScreen({ navigation }) {
 
             <Pressable
               onPress={(e) => {
-                // Prevent the parent row onPress from firing.
                 e?.stopPropagation?.();
                 onDelete(item.id);
               }}
@@ -291,17 +301,11 @@ export default function BuddyListScreen({ navigation }) {
         }
       />
 
-      {/* Edit modal: premium keyboard-safe layout (Save/Cancel always reachable) */}
       <Modal visible={!!editing} transparent animationType="fade" onRequestClose={closeEdit}>
         <View style={styles.modalOverlay}>
-          {/* Backdrop closes the modal */}
           <Pressable style={styles.modalBackdrop} onPress={closeEdit} />
 
-          <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
-            style={styles.modalKav}
-          >
-            {/* Tapping inside card dismisses keyboard (does NOT close modal) */}
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalKav}>
             <Pressable style={styles.modalCard} onPress={Keyboard.dismiss}>
               <ScrollView
                 keyboardShouldPersistTaps="handled"
@@ -324,7 +328,7 @@ export default function BuddyListScreen({ navigation }) {
                   <TextInput
                     style={[styles.modalInput, { flex: 1 }]}
                     value={editHandicap}
-                    onChangeText={setEditHandicap}
+                    onChangeText={(t) => setEditHandicap(String(t || "").replace(/[^\d]/g, ""))}
                     placeholder="Handicap (0–36)"
                     placeholderTextColor="rgba(255,255,255,0.35)"
                     keyboardType="number-pad"
@@ -334,29 +338,35 @@ export default function BuddyListScreen({ navigation }) {
                   <TextInput
                     style={[styles.modalInput, { flex: 2 }]}
                     value={editPhone}
-                    onChangeText={setEditPhone}
+                    onChangeText={(t) => setEditPhone(cleanPhone(t))}
                     placeholder="Phone"
                     placeholderTextColor="rgba(255,255,255,0.35)"
                     keyboardType="phone-pad"
                     returnKeyType="next"
+                    autoCorrect={false}
+                    autoComplete="tel"
+                    textContentType="telephoneNumber"
                   />
                 </View>
 
                 <TextInput
                   style={styles.modalInput}
                   value={editEmail}
-                  onChangeText={setEditEmail}
+                  onChangeText={(t) => setEditEmail(String(t || ""))}
                   placeholder="Email"
                   placeholderTextColor="rgba(255,255,255,0.35)"
                   autoCapitalize="none"
                   keyboardType="email-address"
                   returnKeyType="next"
+                  autoCorrect={false}
+                  autoComplete="email"
+                  textContentType="emailAddress"
                 />
 
                 <TextInput
                   style={[styles.modalInput, styles.modalNotes]}
                   value={editNotes}
-                  onChangeText={setEditNotes}
+                  onChangeText={(t) => setEditNotes(String(t || ""))}
                   placeholder="Notes (optional)"
                   placeholderTextColor="rgba(255,255,255,0.35)"
                   multiline
@@ -364,11 +374,9 @@ export default function BuddyListScreen({ navigation }) {
                   returnKeyType="done"
                 />
 
-                {/* Spacer so content never sits under sticky buttons */}
                 <View style={{ height: 10 }} />
               </ScrollView>
 
-              {/* Sticky action bar (always visible above keyboard) */}
               <View style={styles.modalStickyBar}>
                 <Pressable
                   onPress={closeEdit}
@@ -377,10 +385,7 @@ export default function BuddyListScreen({ navigation }) {
                   <Text style={styles.modalBtnText}>Cancel</Text>
                 </Pressable>
 
-                <Pressable
-                  onPress={saveEdit}
-                  style={({ pressed }) => [styles.modalBtn, pressed && styles.pressed]}
-                >
+                <Pressable onPress={saveEdit} style={({ pressed }) => [styles.modalBtn, pressed && styles.pressed]}>
                   <Text style={styles.modalBtnText}>Save</Text>
                 </Pressable>
               </View>
@@ -494,7 +499,6 @@ const styles = StyleSheet.create({
 
   empty: { color: "rgba(255,255,255,0.6)", fontWeight: "800" },
 
-  // Modal layout: backdrop + KAV + sticky action bar
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.55)",

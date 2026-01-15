@@ -33,7 +33,15 @@
       "package": "com.anonymous.legacygolf"
     },
     "extra": {
-      "MAPBOX_TOKEN": "pk.eyJ1Ijoic3RlcGhhbmVsYWJpbmUiLCJhIjoiY21qeXZrMDdxMDhydDNocTNlYmI2cnJ1bCJ9.lP-pkAlnfKfHPu5PiJ4xyg"
+      "MAPBOX_TOKEN": "pk.eyJ1Ijoic3RlcGhhbmVsYWJpbmUiLCJhIjoiY21qeXZrMDdxMDhydDNocTNlYmI2cnJ1bCJ9.lP-pkAlnfKfHPu5PiJ4xyg",
+      "firebaseConfig": {
+        "apiKey": "AIzaSyCU1bCi2C_y65uUTnaOv20lKXBUYReAwvc",
+        "authDomain": "legacy-golf.firebaseapp.com",
+        "projectId": "legacy-golf",
+        "storageBucket": "legacy-golf.firebasestorage.app",
+        "messagingSenderId": "126362129345",
+        "appId": "1:126362129345:web:c02c8cfb87b4f97e2b5540"
+      }
     }
   }
 }

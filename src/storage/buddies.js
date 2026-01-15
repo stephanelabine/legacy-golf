@@ -1,30 +1,34 @@
 // src/storage/buddies.js
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { collection, doc, getDocs, serverTimestamp, writeBatch } from "firebase/firestore";
+import { auth, db } from "../firebase/firebase";
 
 /**
- * Primary key (existing)
- * - Keep this for backwards compatibility.
+ * Local keys (backup/cache)
  */
 const KEY = "LEGACY_GOLF_BUDDIES_V1";
-
-/**
- * Secondary “safe” key (new)
- * - Intentionally does NOT start with LEGACY_ so it survives any future “clear legacy keys” logic.
- * - We always write to both keys.
- * - We always read from both keys.
- */
 const SAFE_KEY = "LG_BUDDIES_SAFE_V1";
 
-// If you ever changed keys in the past, we can safely migrate from these.
-const LEGACY_KEYS = [
-  KEY,
-  SAFE_KEY,
+/**
+ * Keys we read once for migration, then remove to prevent “zombie” buddies.
+ */
+const MIGRATION_ONLY_KEYS = [
   "LEGACY_GOLF_BUDDY_LIST_V1",
   "LEGACY_GOLF_BUDDY_LIST",
   "LEGACY_GOLF_BUDDIES",
   "BUDDIES_V1",
   "BUDDIES",
 ];
+
+const CLOUD_TIMEOUT_MS = 3500;
+
+function withTimeout(promise, ms, label) {
+  let t;
+  const timeout = new Promise((_, reject) => {
+    t = setTimeout(() => reject(new Error(`${label || "Operation"} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(t));
+}
 
 function safeJsonParse(raw) {
   try {
@@ -64,13 +68,10 @@ function normalizeBuddy(b) {
 function mergeBuddy(a, b) {
   const next = { ...a };
 
-  // name stays as a.name, but just in case
   if (!next.name && b.name) next.name = b.name;
 
-  // prefer non-zero handicap
   if ((next.handicap ?? 0) === 0 && (b.handicap ?? 0) > 0) next.handicap = b.handicap;
 
-  // prefer filled contact fields
   if (!next.phone && b.phone) next.phone = b.phone;
   if (!next.email && b.email) next.email = b.email;
   if (!next.notes && b.notes) next.notes = b.notes;
@@ -80,7 +81,7 @@ function mergeBuddy(a, b) {
 
 function dedupeAndMerge(list) {
   const mapById = new Map();
-  const mapByName = new Map(); // lowercased name
+  const mapByName = new Map();
 
   for (const item of list) {
     const b = normalizeBuddy(item);
@@ -89,13 +90,11 @@ function dedupeAndMerge(list) {
     const idKey = b.id;
     const nameKey = b.name.toLowerCase();
 
-    // merge by id
     if (mapById.has(idKey)) {
       mapById.set(idKey, mergeBuddy(mapById.get(idKey), b));
       continue;
     }
 
-    // merge by name (even if id differs)
     if (mapByName.has(nameKey)) {
       const existing = mapByName.get(nameKey);
       const merged = mergeBuddy(existing, b);
@@ -103,9 +102,7 @@ function dedupeAndMerge(list) {
       mapByName.set(nameKey, merged);
       mapById.set(merged.id, merged);
 
-      if (existing.id !== merged.id) {
-        mapById.delete(existing.id);
-      }
+      if (existing.id !== merged.id) mapById.delete(existing.id);
       continue;
     }
 
@@ -113,7 +110,6 @@ function dedupeAndMerge(list) {
     mapByName.set(nameKey, b);
   }
 
-  // Keep stable order: newest first (best effort)
   return Array.from(mapById.values()).reverse();
 }
 
@@ -123,11 +119,11 @@ function extractBuddyArray(parsed) {
   return null;
 }
 
-// Read ALL candidate keys and UNION the lists into one master list.
-async function readUnionListFromStorage() {
+async function readLocalUnion() {
   const combined = [];
+  const READ_KEYS = [KEY, SAFE_KEY, ...MIGRATION_ONLY_KEYS];
 
-  for (const k of LEGACY_KEYS) {
+  for (const k of READ_KEYS) {
     try {
       const raw = await AsyncStorage.getItem(k);
       if (!raw) continue;
@@ -138,83 +134,161 @@ async function readUnionListFromStorage() {
 
       combined.push(...arr);
     } catch {
-      // keep going
+      // ignore
     }
   }
 
   return dedupeAndMerge(combined);
 }
 
-async function writeBothKeys(cleaned) {
-  // Always write to both keys. This is the “never disappear” hardening.
+async function writeLocalBoth(cleaned) {
   const payload = JSON.stringify(cleaned);
 
-  // Write primary first, then safe. If one fails, we still try the other.
-  let okA = false;
-  let okB = false;
+  let okPrimary = false;
+  let okSafe = false;
 
   try {
     await AsyncStorage.setItem(KEY, payload);
-    okA = true;
-  } catch {
-    okA = false;
-  }
+    okPrimary = true;
+  } catch {}
 
   try {
     await AsyncStorage.setItem(SAFE_KEY, payload);
-    okB = true;
+    okSafe = true;
+  } catch {}
+
+  return { okPrimary, okSafe };
+}
+
+async function cleanupMigrationKeys() {
+  try {
+    await AsyncStorage.multiRemove(MIGRATION_ONLY_KEYS);
+    return true;
   } catch {
-    okB = false;
+    try {
+      for (const k of MIGRATION_ONLY_KEYS) {
+        // eslint-disable-next-line no-await-in-loop
+        await AsyncStorage.removeItem(k);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+function buddiesCollectionRef(uid) {
+  return collection(db, "users", uid, "buddies");
+}
+
+async function getCloudBuddies(uid) {
+  const snap = await withTimeout(getDocs(buddiesCollectionRef(uid)), CLOUD_TIMEOUT_MS, "Firestore getDocs");
+  const list = [];
+  snap.forEach((d) => {
+    const data = d.data() || {};
+    list.push({
+      id: d.id,
+      name: String(data.name || "").trim(),
+      handicap: clampHandicap(data.handicap ?? 0),
+      phone: cleanPhone(data.phone || ""),
+      email: String(data.email || "").trim(),
+      notes: String(data.notes || "").trim(),
+    });
+  });
+  return dedupeAndMerge(list);
+}
+
+async function saveCloudBuddies(uid, list) {
+  const cleaned = dedupeAndMerge(list);
+
+  const batch = writeBatch(db);
+
+  for (const b of cleaned) {
+    const ref = doc(db, "users", uid, "buddies", b.id);
+    batch.set(ref, { ...b, updatedAt: serverTimestamp() }, { merge: true });
   }
 
-  return okA || okB;
+  const userRef = doc(db, "users", uid);
+  batch.set(userRef, { updatedAt: serverTimestamp() }, { merge: true });
+
+  await withTimeout(batch.commit(), CLOUD_TIMEOUT_MS, "Firestore batch.commit");
+  return cleaned;
 }
 
 // Public: load
 export async function getBuddies() {
-  try {
-    const cleaned = await readUnionListFromStorage();
+  const user = auth.currentUser;
 
-    // Best-effort migrate into both keys so future loads are consistent.
+  // Not logged in: local only
+  if (!user?.uid) {
     try {
-      await writeBothKeys(cleaned);
+      const cleaned = await readLocalUnion();
+      const { okPrimary, okSafe } = await writeLocalBoth(cleaned);
+      if (okPrimary && okSafe) await cleanupMigrationKeys();
+      return cleaned;
     } catch {
-      // ignore migration failure
+      return [];
+    }
+  }
+
+  // Logged in: return local immediately, then attempt cloud (fast timeout)
+  const local = await readLocalUnion();
+
+  try {
+    const cloud = await getCloudBuddies(user.uid);
+
+    // Merge so local items don't disappear if cloud is slow/outdated
+    const merged = dedupeAndMerge([...(cloud || []), ...(local || [])]);
+
+    const { okPrimary, okSafe } = await writeLocalBoth(merged);
+    if (okPrimary && okSafe) await cleanupMigrationKeys();
+
+    // If cloud empty but we have local, seed cloud once (best effort)
+    if ((cloud || []).length === 0 && (merged || []).length > 0) {
+      try {
+        await saveCloudBuddies(user.uid, merged);
+      } catch {}
     }
 
-    return cleaned;
+    return merged;
   } catch {
-    return [];
+    return local;
   }
 }
 
-// Public: save (always to BOTH keys, no risky cleanup)
+// Public: save
 export async function saveBuddies(list) {
+  const cleaned = dedupeAndMerge(Array.isArray(list) ? list : []);
+  const user = auth.currentUser;
+
+  // Always write local cache first
+  const localWrite = await writeLocalBoth(cleaned);
+  if (localWrite.okPrimary && localWrite.okSafe) {
+    await cleanupMigrationKeys();
+  }
+
+  // Not logged in: local is truth
+  if (!user?.uid) return localWrite.okPrimary || localWrite.okSafe;
+
+  // Logged in: attempt cloud write (short timeout), but keep local regardless
   try {
-    const cleaned = dedupeAndMerge(Array.isArray(list) ? list : []);
-
-    const ok = await writeBothKeys(cleaned);
-    if (!ok) return false;
-
-    // IMPORTANT:
-    // Do NOT auto-delete “legacy” keys during save.
-    // Cleanup is not worth the risk of losing data in dev / Expo Go edge cases.
-    // We prefer redundant storage over accidental loss.
-
+    await saveCloudBuddies(user.uid, cleaned);
     return true;
   } catch {
-    return false;
+    return localWrite.okPrimary || localWrite.okSafe;
   }
 }
 
 // Optional helper if you ever want a hard reset button later
 export async function clearBuddiesEverywhere() {
+  const ALL_KEYS = [KEY, SAFE_KEY, ...MIGRATION_ONLY_KEYS];
+
   try {
-    await AsyncStorage.multiRemove(LEGACY_KEYS);
+    await AsyncStorage.multiRemove(ALL_KEYS);
     return true;
   } catch {
     try {
-      for (const k of LEGACY_KEYS) {
+      for (const k of ALL_KEYS) {
         // eslint-disable-next-line no-await-in-loop
         await AsyncStorage.removeItem(k);
       }

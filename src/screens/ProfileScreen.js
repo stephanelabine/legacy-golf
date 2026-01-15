@@ -1,3 +1,4 @@
+// src/screens/ProfileScreen.js
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
@@ -17,6 +18,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect } from "@react-navigation/native";
+import { signOut } from "firebase/auth";
+import { auth } from "../firebase/firebase";
 import ROUTES from "../navigation/routes";
 
 const PROFILE_KEY = "LEGACY_GOLF_PROFILE_V1";
@@ -72,6 +75,8 @@ export default function ProfileScreen({ navigation }) {
   const [profile, setProfile] = useState(DEFAULT_PROFILE);
   const [roundsPlayed, setRoundsPlayed] = useState(0);
 
+  const signedInEmail = auth?.currentUser?.email || "";
+
   const loadProfile = useCallback(async () => {
     const raw = await AsyncStorage.getItem(PROFILE_KEY);
     const parsed = raw ? safeParse(raw) : null;
@@ -91,7 +96,7 @@ export default function ProfileScreen({ navigation }) {
     Keyboard.dismiss();
     await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
     setEditing(false);
-    navigation.navigate("Home");
+    navigation.navigate(ROUTES.HOME);
   }
 
   async function ensureImagePermissions() {
@@ -146,6 +151,25 @@ export default function ProfileScreen({ navigation }) {
     ]);
   }
 
+  async function onPressSignOut() {
+    Alert.alert("Sign out", "Sign out of Legacy Golf on this device?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Sign out",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            setEditing(false);
+            await signOut(auth);
+            // RootNavigator will route to Login automatically.
+          } catch (e) {
+            Alert.alert("Sign out failed", String(e?.message || "Please try again."));
+          }
+        },
+      },
+    ]);
+  }
+
   const initials = useMemo(() => {
     const n = (profile.name || "").trim();
     if (!n) return "LG";
@@ -171,13 +195,7 @@ export default function ProfileScreen({ navigation }) {
       }
 
       if (parsed && typeof parsed === "object") {
-        const candidates = [
-          parsed.rounds,
-          parsed.items,
-          parsed.history,
-          parsed.savedRounds,
-          parsed.data,
-        ];
+        const candidates = [parsed.rounds, parsed.items, parsed.history, parsed.savedRounds, parsed.data];
 
         for (const c of candidates) {
           if (Array.isArray(c)) {
@@ -220,7 +238,7 @@ export default function ProfileScreen({ navigation }) {
 
         <View style={styles.topRow}>
           <Pressable
-            onPress={() => navigation.goBack?.() || navigation.navigate("Home")}
+            onPress={() => navigation.goBack?.() || navigation.navigate(ROUTES.HOME)}
             hitSlop={12}
             style={({ pressed }) => [styles.headerPill, pressed && styles.pressed]}
           >
@@ -274,11 +292,7 @@ export default function ProfileScreen({ navigation }) {
                 <Text style={styles.avatarText}>{initials}</Text>
                 {editing ? (
                   <View style={styles.avatarBadge}>
-                    <MaterialCommunityIcons
-                      name="camera-plus"
-                      size={14}
-                      color="rgba(255,255,255,0.90)"
-                    />
+                    <MaterialCommunityIcons name="camera-plus" size={14} color="rgba(255,255,255,0.90)" />
                   </View>
                 ) : null}
               </>
@@ -386,14 +400,44 @@ export default function ProfileScreen({ navigation }) {
           <StatCard icon="circle-slice-6" label="Putts/Rd" value={profile.puttsPerRound} />
           <StatCard icon="check-circle" label="Up & Down" value={`${profile.upAndDown}%`} />
         </View>
+
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitle}>Account</Text>
+          <Text style={styles.sectionHint} numberOfLines={1}>
+            {signedInEmail ? signedInEmail : "Signed in"}
+          </Text>
+        </View>
+
+        <View style={styles.accountCard}>
+          <View style={styles.accountRow}>
+            <View style={styles.accountIcon}>
+              <MaterialCommunityIcons name="account-circle" size={18} color="rgba(255,255,255,0.88)" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.accountLabel}>Signed in as</Text>
+              <Text style={styles.accountValue} numberOfLines={1}>
+                {signedInEmail || "—"}
+              </Text>
+            </View>
+          </View>
+
+          <Pressable
+            onPress={onPressSignOut}
+            style={({ pressed }) => [styles.signOutBtn, pressed && styles.pressed]}
+          >
+            <MaterialCommunityIcons name="logout-variant" size={18} color="#fff" />
+            <Text style={styles.signOutText}>Sign Out</Text>
+          </Pressable>
+
+          <Text style={styles.accountFootnote}>
+            Signing out returns you to the login screen. Your cloud data stays tied to this account.
+          </Text>
+        </View>
       </ScrollView>
 
       {editing ? (
         <View style={[styles.bottomBar, { paddingBottom: 14 + insets.bottom }]}>
-          <Pressable
-            onPress={onDone}
-            style={({ pressed }) => [styles.donePill, pressed && styles.pressed]}
-          >
+          <Pressable onPress={onDone} style={({ pressed }) => [styles.donePill, pressed && styles.pressed]}>
             <Text style={styles.donePillText}>Done</Text>
           </Pressable>
         </View>
@@ -446,16 +490,7 @@ function StatCard({ icon, label, value }) {
   );
 }
 
-function Field({
-  icon,
-  label,
-  value,
-  editing,
-  onChange,
-  keyboardType,
-  autoCapitalize,
-  placeholder,
-}) {
+function Field({ icon, label, value, editing, onChange, keyboardType, autoCapitalize, placeholder }) {
   return (
     <View style={{ marginTop: 14 }}>
       <Text style={styles.fieldLabel}>{label}</Text>
@@ -606,7 +641,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   sectionTitle: { color: "#fff", fontSize: 18, fontWeight: "900" },
-  sectionHint: { color: "rgba(255,255,255,0.55)", fontSize: 12, fontWeight: "800" },
+  sectionHint: { color: "rgba(255,255,255,0.55)", fontSize: 12, fontWeight: "800", maxWidth: "55%" },
 
   roundsPill: {
     flexDirection: "row",
@@ -662,12 +697,9 @@ const styles = StyleSheet.create({
     width: "48%",
     borderRadius: 18,
     padding: 14,
-
     borderWidth: 1,
     borderColor: "rgba(15,122,74,0.55)",
-
     backgroundColor: "rgba(255,255,255,0.04)",
-
     shadowColor: COLORS.green,
     shadowOpacity: 0.16,
     shadowRadius: 10,
@@ -688,6 +720,42 @@ const styles = StyleSheet.create({
   },
   statLabel: { color: "rgba(255,255,255,0.76)", fontSize: 12, fontWeight: "900" },
   statValue: { color: "#fff", fontSize: 18, fontWeight: "900", marginTop: 10 },
+
+  accountCard: {
+    borderRadius: 24,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+    backgroundColor: "rgba(255,255,255,0.04)",
+  },
+  accountRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  accountIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  accountLabel: { color: "rgba(255,255,255,0.72)", fontSize: 12, fontWeight: "900" },
+  accountValue: { color: "#fff", fontSize: 16, fontWeight: "900", marginTop: 4 },
+
+  signOutBtn: {
+    marginTop: 14,
+    height: 54,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 10,
+  },
+  signOutText: { color: "#fff", fontSize: 15, fontWeight: "900" },
+  accountFootnote: { marginTop: 10, color: "rgba(255,255,255,0.55)", fontSize: 12, fontWeight: "800" },
 
   bottomBar: {
     position: "absolute",

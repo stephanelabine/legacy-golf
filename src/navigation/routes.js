@@ -2,6 +2,9 @@
 const ROUTES = {
   BOOT: "Boot",
 
+  AUTH_LOGIN: "AuthLogin",
+  AUTH_SIGNUP: "AuthSignup",
+
   HOME: "Home",
   GAMES: "Games",
   GAME_SETUP: "GameSetup",
