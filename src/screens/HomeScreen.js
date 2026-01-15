@@ -17,6 +17,39 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import ROUTES from "../navigation/routes";
 import { useTheme } from "../theme/ThemeProvider";
 
+const HERO_BG = require("../../assets/landing-hero.jpg");
+const LOGO = require("../../assets/legacy-logo-transparent.png");
+
+// Prevent overlay from ever being fully opaque (which makes the photo look “missing” / black)
+function safeOverlayColor(input, isDark) {
+  const fallback = isDark ? "rgba(0,0,0,0.45)" : "rgba(0,0,0,0.25)";
+  const raw = typeof input === "string" ? input.trim() : "";
+  if (!raw) return fallback;
+
+  // If theme accidentally gives a solid color, force an alpha overlay instead.
+  if (raw === "#000" || raw === "#000000" || raw.toLowerCase() === "black") return fallback;
+
+  // If it's rgb(...) (no alpha), convert to rgba with a safe alpha.
+  if (/^rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)$/i.test(raw)) {
+    const inner = raw.slice(raw.indexOf("(") + 1, raw.lastIndexOf(")"));
+    return `rgba(${inner},${isDark ? "0.45" : "0.25"})`;
+  }
+
+  // If it's rgba(...), clamp alpha so it can’t hit full opacity.
+  const m = raw.match(/^rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([0-9.]+)\s*\)$/i);
+  if (m) {
+    const r = m[1];
+    const g = m[2];
+    const b = m[3];
+    const a = Number(m[4]);
+    const safeA = Number.isFinite(a) ? Math.min(a, 0.75) : isDark ? 0.45 : 0.25;
+    return `rgba(${r},${g},${b},${safeA})`;
+  }
+
+  // Otherwise trust it.
+  return raw;
+}
+
 function ThemeToggle({ mode, setMode, theme }) {
   const W = 140;
   const H = 30;
@@ -111,26 +144,23 @@ export default function HomeScreen({ navigation }) {
   const { mode, scheme, theme, setMode } = useTheme();
   const isDark = scheme === "dark";
 
-  const bottomPad = useMemo(
-    () => Math.max(18, (insets?.bottom || 0) + 14),
-    [insets?.bottom]
-  );
+  const bottomPad = useMemo(() => Math.max(18, (insets?.bottom || 0) + 14), [insets?.bottom]);
+
+  const overlayColor = useMemo(() => safeOverlayColor(theme?.heroOverlay, isDark), [theme?.heroOverlay, isDark]);
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.bg }]}>
       <ImageBackground
-        source={require("../../assets/landing-hero.jpg")}
+        source={HERO_BG}
+        defaultSource={HERO_BG} // iOS fallback so the hero never appears “missing”
         style={styles.bg}
         resizeMode="cover"
       >
-        <View style={[styles.overlay, { backgroundColor: theme.heroOverlay }]} />
+        <View style={[styles.overlay, { backgroundColor: overlayColor }]} />
 
         <Image
-          source={require("../../assets/legacy-logo-transparent.png")}
-          style={[
-            styles.floatingLogo,
-            { top: Math.max(0, (insets?.top || 0) - 50) },
-          ]}
+          source={LOGO}
+          style={[styles.floatingLogo, { top: Math.max(0, (insets?.top || 0) - 50) }]}
           resizeMode="contain"
           pointerEvents="none"
         />
@@ -144,14 +174,11 @@ export default function HomeScreen({ navigation }) {
           <View style={styles.brand}>
             <Text style={[styles.welcome, { color: theme.muted }]}>WELCOME TO</Text>
 
-            {/* tighter word spacing + slightly reduced letterSpacing */}
             <Text style={[styles.title, { color: theme.text }]}>
               {"Legacy\u2009Golf"}
             </Text>
 
-            <Text style={[styles.tagline, { color: theme.muted }]}>
-              Start building your legacy
-            </Text>
+            <Text style={[styles.tagline, { color: theme.muted }]}>Start building your legacy</Text>
           </View>
 
           <View style={styles.actions}>
@@ -161,36 +188,18 @@ export default function HomeScreen({ navigation }) {
                 styles.btn,
                 styles.btnPrimary,
                 {
-                  backgroundColor: isDark
-                    ? "rgba(255,255,255,0.92)"
-                    : "rgba(10,15,26,0.92)",
+                  backgroundColor: isDark ? "rgba(255,255,255,0.92)" : "rgba(10,15,26,0.92)",
                 },
                 pressed && styles.pressed,
               ]}
             >
               <View style={styles.btnRow}>
-                <MaterialCommunityIcons
-                  name="golf-tee"
-                  size={18}
-                  color={isDark ? "#0A0F1A" : "#FFFFFF"}
-                />
-                <Text
-                  style={[
-                    styles.btnPrimaryText,
-                    { color: isDark ? "#0A0F1A" : "#FFFFFF" },
-                  ]}
-                >
-                  Start Round
-                </Text>
+                <MaterialCommunityIcons name="golf-tee" size={18} color={isDark ? "#0A0F1A" : "#FFFFFF"} />
+                <Text style={[styles.btnPrimaryText, { color: isDark ? "#0A0F1A" : "#FFFFFF" }]}>Start Round</Text>
               </View>
             </Pressable>
 
-            <View
-              style={[
-                styles.quickCard,
-                { borderColor: theme.border, backgroundColor: theme.card2 },
-              ]}
-            >
+            <View style={[styles.quickCard, { borderColor: theme.border, backgroundColor: theme.card2 }]}>
               <Pressable
                 onPress={() => navigation.navigate(ROUTES.HISTORY)}
                 style={({ pressed }) => [styles.quickRow, pressed && styles.pressedRow]}
@@ -200,17 +209,11 @@ export default function HomeScreen({ navigation }) {
                     style={[
                       styles.quickIcon,
                       {
-                        borderColor: isDark
-                          ? "rgba(255,255,255,0.14)"
-                          : "rgba(10,15,26,0.10)",
+                        borderColor: isDark ? "rgba(255,255,255,0.14)" : "rgba(10,15,26,0.10)",
                       },
                     ]}
                   >
-                    <MaterialCommunityIcons
-                      name="history"
-                      size={18}
-                      color={isDark ? "#fff" : "#0A0F1A"}
-                    />
+                    <MaterialCommunityIcons name="history" size={18} color={isDark ? "#fff" : "#0A0F1A"} />
                   </View>
                   <Text style={[styles.quickText, { color: theme.text }]}>Round History</Text>
                 </View>
@@ -232,17 +235,11 @@ export default function HomeScreen({ navigation }) {
                     style={[
                       styles.quickIcon,
                       {
-                        borderColor: isDark
-                          ? "rgba(255,255,255,0.14)"
-                          : "rgba(10,15,26,0.10)",
+                        borderColor: isDark ? "rgba(255,255,255,0.14)" : "rgba(10,15,26,0.10)",
                       },
                     ]}
                   >
-                    <MaterialCommunityIcons
-                      name="account"
-                      size={18}
-                      color={isDark ? "#fff" : "#0A0F1A"}
-                    />
+                    <MaterialCommunityIcons name="account" size={18} color={isDark ? "#fff" : "#0A0F1A"} />
                   </View>
                   <Text style={[styles.quickText, { color: theme.text }]}>Player Profile</Text>
                 </View>
@@ -264,17 +261,11 @@ export default function HomeScreen({ navigation }) {
                     style={[
                       styles.quickIcon,
                       {
-                        borderColor: isDark
-                          ? "rgba(255,255,255,0.14)"
-                          : "rgba(10,15,26,0.10)",
+                        borderColor: isDark ? "rgba(255,255,255,0.14)" : "rgba(10,15,26,0.10)",
                       },
                     ]}
                   >
-                    <MaterialCommunityIcons
-                      name="account-multiple"
-                      size={18}
-                      color={isDark ? "#fff" : "#0A0F1A"}
-                    />
+                    <MaterialCommunityIcons name="account-multiple" size={18} color={isDark ? "#fff" : "#0A0F1A"} />
                   </View>
                   <Text style={[styles.quickText, { color: theme.text }]}>Buddy List</Text>
                 </View>
@@ -379,7 +370,7 @@ const styles = StyleSheet.create({
     fontFamily: "Cinzel",
     fontSize: 50,
     fontWeight: Platform.select({ ios: "700", android: "700", default: "700" }),
-    letterSpacing: 0.6, // reduced from 1.0
+    letterSpacing: 0.6,
     textAlign: "center",
     marginBottom: 6,
   },
