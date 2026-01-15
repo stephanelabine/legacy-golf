@@ -105,6 +105,15 @@ function getMissingHolesFromState(state, normalizedPlayers) {
   return missing;
 }
 
+function defaultTrackStatsForPlayer(p) {
+  // Phase 1 heuristic:
+  // "me" defaults to ON, everyone else defaults to OFF (easy guest workflow)
+  // We can later override this using real subscription status (Option 2).
+  const src = String(p?.source || "").toLowerCase();
+  if (src === "me") return true;
+  return false;
+}
+
 export default function ScoreEntryScreen({ navigation, route }) {
   const params = route?.params || {};
   const {
@@ -127,12 +136,16 @@ export default function ScoreEntryScreen({ navigation, route }) {
       id: String(p?.id ?? String(idx)),
       name: p?.name || `Player ${idx + 1}`,
       handicap: p?.handicap ?? 0,
+      source: p?.source || null,
+      uid: p?.uid || p?.userId || null, // future use (Option 2)
+      email: p?.email || null, // future use (Option 2)
     }));
   }, [players]);
 
   const [rows, setRows] = useState(() =>
     normalizedPlayers.map((p) => ({
       playerId: p.id,
+      trackStats: defaultTrackStatsForPlayer(p),
       strokes: "",
       putts: "",
       fairway: "na",
@@ -153,17 +166,21 @@ export default function ScoreEntryScreen({ navigation, route }) {
       const m = new Map(prev.map((r) => [String(r.playerId), r]));
       return normalizedPlayers.map((p) => {
         const key = String(p.id);
-        return (
-          m.get(key) || {
-            playerId: key,
-            strokes: "",
-            putts: "",
-            fairway: "na",
-            green: "na",
-            sandSave: "na",
-            updown: "na",
-          }
-        );
+        const existing = m.get(key);
+
+        // Keep existing row if present (preserves edits while players array refreshes)
+        if (existing) return existing;
+
+        return {
+          playerId: key,
+          trackStats: defaultTrackStatsForPlayer(p),
+          strokes: "",
+          putts: "",
+          fairway: "na",
+          green: "na",
+          sandSave: "na",
+          updown: "na",
+        };
       });
     });
   }, [normalizedPlayers]);
@@ -180,7 +197,13 @@ export default function ScoreEntryScreen({ navigation, route }) {
       setRows((prev) =>
         prev.map((r) => {
           const saved = savedHole[String(r.playerId)];
-          return saved ? { ...r, ...saved } : r;
+          if (!saved) return r;
+
+          // If older data doesn't include trackStats, keep current default.
+          const nextTrack =
+            typeof saved?.trackStats === "boolean" ? saved.trackStats : r.trackStats;
+
+          return { ...r, ...saved, trackStats: nextTrack };
         })
       );
     })();
@@ -191,7 +214,34 @@ export default function ScoreEntryScreen({ navigation, route }) {
 
   function updateRow(playerId, field, value) {
     const pid = String(playerId);
-    setRows((prev) => prev.map((r) => (String(r.playerId) === pid ? { ...r, [field]: value } : r)));
+    setRows((prev) =>
+      prev.map((r) => (String(r.playerId) === pid ? { ...r, [field]: value } : r))
+    );
+  }
+
+  function toggleTrackStats(playerId) {
+    const pid = String(playerId);
+    setRows((prev) =>
+      prev.map((r) => {
+        if (String(r.playerId) !== pid) return r;
+        const nextOn = !r.trackStats;
+
+        // If turning OFF, we clear stat fields so we don't accidentally persist stale data.
+        if (!nextOn) {
+          return {
+            ...r,
+            trackStats: false,
+            putts: "",
+            fairway: "na",
+            green: "na",
+            sandSave: "na",
+            updown: "na",
+          };
+        }
+
+        return { ...r, trackStats: true };
+      })
+    );
   }
 
   function validateStrokesForThisHole() {
@@ -202,7 +252,11 @@ export default function ScoreEntryScreen({ navigation, route }) {
     }
 
     if (missingPlayers.length) {
-      Alert.alert("Missing strokes", `Please enter strokes for:\n\n${missingPlayers.join("\n")}`, [{ text: "OK" }]);
+      Alert.alert(
+        "Missing strokes",
+        `Please enter strokes for:\n\n${missingPlayers.join("\n")}`,
+        [{ text: "OK" }]
+      );
       return false;
     }
     return true;
@@ -247,13 +301,17 @@ export default function ScoreEntryScreen({ navigation, route }) {
 
       const payload = {};
       rows.forEach((r) => {
+        const track = !!r.trackStats;
+
         payload[String(r.playerId)] = {
+          trackStats: track,
           strokes: String(r.strokes ?? ""),
-          putts: String(r.putts ?? ""),
-          fairway: r.fairway ?? "na",
-          green: r.green ?? "na",
-          sandSave: r.sandSave ?? "na",
-          updown: r.updown ?? "na",
+          // If not tracking stats, we store blanks / na so this player's round remains strokes-only.
+          putts: track ? String(r.putts ?? "") : "",
+          fairway: track ? (r.fairway ?? "na") : "na",
+          green: track ? (r.green ?? "na") : "na",
+          sandSave: track ? (r.sandSave ?? "na") : "na",
+          updown: track ? (r.updown ?? "na") : "na",
         };
       });
 
@@ -264,30 +322,17 @@ export default function ScoreEntryScreen({ navigation, route }) {
       state.isActive = true;
       state.updatedAt = Date.now();
 
+      // Normal mode: update resume fields.
       // Fix mode: do NOT change resume/currentHole (we’re repairing, not advancing play).
       if (!opts?.skipResumeUpdate) {
-        const advance = !!opts?.advance;
         const nextHole = hole >= 18 ? 18 : hole + 1;
-
-        // Default behavior: keep resume hole on the current hole.
-        // Only advance when explicitly requested (Next Hole).
-        const resumeHole = Number.isFinite(Number(opts?.resumeHole))
-          ? Number(opts.resumeHole)
-          : advance
-          ? nextHole
-          : hole;
+        const resumeHole = opts?.resumeHole ? Number(opts.resumeHole) : nextHole;
 
         state.currentHole = resumeHole;
         state.holeNumber = resumeHole;
         state.hole = resumeHole;
-        state.resumeHole = resumeHole;
-
-        // Track last completed hole separately (useful for history/analytics)
-        state.lastHole = hole;
-
-        // IMPORTANT: avoid index-based ambiguity (this caused +1 behavior elsewhere)
-        delete state.holeIndex;
-        delete state.holeIdx;
+        state.holeIndex = resumeHole - 1;
+        state.startHole = resumeHole;
       }
 
       const ok = await saveActiveRound(state);
@@ -303,15 +348,14 @@ export default function ScoreEntryScreen({ navigation, route }) {
   useEffect(() => {
     const unsub = navigation.addListener("beforeRemove", (e) => {
       if (skipBeforeRemoveRef.current) return;
-      if (leavingRef.current) return;
 
+      if (leavingRef.current) return;
       e.preventDefault();
       leavingRef.current = true;
 
       (async () => {
         try {
-          // Autosave should NOT advance holes
-          await persistHole({ advance: false });
+          await persistHole();
         } catch {}
         navigation.dispatch(e.data.action);
         leavingRef.current = false;
@@ -349,47 +393,30 @@ export default function ScoreEntryScreen({ navigation, route }) {
       return;
     }
 
-    const res = await persistHole({ advance: false });
-
-    // Prevent beforeRemove double-save
-    skipBeforeRemoveRef.current = true;
+    const res = await persistHole();
     goToHoleView(hole, { roundId: res?.roundId || roundIdParam || null });
-    requestAnimationFrame(() => {
-      skipBeforeRemoveRef.current = false;
-    });
   }
 
   async function continueNextHole() {
     Keyboard.dismiss();
 
-    // Optional: keep your current behavior (no validation here).
-    // If you WANT validation before next, uncomment:
-    // if (!validateStrokesForThisHole()) return;
+    if (!validateStrokesForThisHole()) return;
 
     const nextHole = hole >= 18 ? 18 : hole + 1;
-    const res = await persistHole({ advance: true, resumeHole: nextHole });
-
-    skipBeforeRemoveRef.current = true;
+    const res = await persistHole({ resumeHole: nextHole });
     goToHoleView(nextHole, { roundId: res?.roundId || roundIdParam || null });
-    requestAnimationFrame(() => {
-      skipBeforeRemoveRef.current = false;
-    });
   }
 
   async function openScorecard() {
     Keyboard.dismiss();
-    const res = await persistHole({ advance: false });
+    const res = await persistHole();
 
-    skipBeforeRemoveRef.current = true;
     navigation.navigate(ROUTES.SCORECARD, {
       course,
       tee,
       players,
       holeMeta,
       roundId: res?.roundId || roundIdParam || null,
-    });
-    requestAnimationFrame(() => {
-      skipBeforeRemoveRef.current = false;
     });
   }
 
@@ -455,7 +482,10 @@ export default function ScoreEntryScreen({ navigation, route }) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
         <ScreenHeader navigation={navigation} title="Input Scores" subtitle={subtitle} />
 
         <ScrollView
@@ -467,6 +497,8 @@ export default function ScoreEntryScreen({ navigation, route }) {
         >
           {normalizedPlayers.map((p, index) => {
             const r = rowById.get(String(p.id)) || {};
+            const trackStats = !!r.trackStats;
+
             return (
               <View key={String(p.id)} style={styles.greenRing}>
                 <View style={styles.card}>
@@ -479,12 +511,23 @@ export default function ScoreEntryScreen({ navigation, route }) {
                       <Text style={styles.playerTitle} numberOfLines={1}>
                         {p.name}
                       </Text>
-                      <Text style={styles.playerSub}>Player {index + 1} • HCP {formatHdcp(p.handicap)}</Text>
+                      <Text style={styles.playerSub}>
+                        Player {index + 1} • HCP {formatHdcp(p.handicap)}
+                      </Text>
                     </View>
 
-                    <View style={styles.hdcpPill}>
-                      <Text style={styles.hdcpText}>HCP {formatHdcp(p.handicap)}</Text>
-                    </View>
+                    <Pressable
+                      onPress={() => toggleTrackStats(p.id)}
+                      style={({ pressed }) => [
+                        styles.statsPill,
+                        trackStats ? styles.statsPillOn : styles.statsPillOff,
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <Text style={[styles.statsPillText, trackStats ? styles.statsPillTextOn : styles.statsPillTextOff]}>
+                        Stats {trackStats ? "ON" : "OFF"}
+                      </Text>
+                    </Pressable>
                   </View>
 
                   <View style={styles.bigInputsRow}>
@@ -506,58 +549,76 @@ export default function ScoreEntryScreen({ navigation, route }) {
                       />
                     </View>
 
-                    <View style={[styles.bigField, styles.bigFieldPutts]}>
-                      <View style={styles.fieldHeaderRow}>
-                        <Text style={styles.kicker}>Putts</Text>
-                        <View style={[styles.miniChip, styles.miniChipBlue]}>
-                          <Text style={styles.miniChipText}>P</Text>
+                    {trackStats ? (
+                      <View style={[styles.bigField, styles.bigFieldPutts]}>
+                        <View style={styles.fieldHeaderRow}>
+                          <Text style={styles.kicker}>Putts</Text>
+                          <View style={[styles.miniChip, styles.miniChipBlue]}>
+                            <Text style={styles.miniChipText}>P</Text>
+                          </View>
+                        </View>
+                        <TextInput
+                          value={r.putts ?? ""}
+                          onChangeText={(v) => updateRow(p.id, "putts", v)}
+                          keyboardType="number-pad"
+                          placeholder="0"
+                          placeholderTextColor="rgba(255,255,255,0.35)"
+                          style={[styles.bigInput, styles.bigInputPutts]}
+                          maxLength={2}
+                        />
+                      </View>
+                    ) : (
+                      <View style={[styles.bigField, styles.bigFieldGhost]}>
+                        <View style={styles.fieldHeaderRow}>
+                          <Text style={styles.kicker}>Stats</Text>
+                          <View style={[styles.miniChip, styles.miniChipGhost]}>
+                            <Text style={styles.miniChipText}>—</Text>
+                          </View>
+                        </View>
+                        <View style={styles.ghostCenter}>
+                          <Text style={styles.ghostText}>Strokes only</Text>
                         </View>
                       </View>
-                      <TextInput
-                        value={r.putts ?? ""}
-                        onChangeText={(v) => updateRow(p.id, "putts", v)}
-                        keyboardType="number-pad"
-                        placeholder="0"
-                        placeholderTextColor="rgba(255,255,255,0.35)"
-                        style={[styles.bigInput, styles.bigInputPutts]}
-                        maxLength={2}
-                      />
-                    </View>
+                    )}
                   </View>
 
-                  <View style={styles.divider} />
+                  {trackStats ? (
+                    <>
+                      <View style={styles.divider} />
 
-                  <View style={styles.statRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.statTitle}>Fairway Hit</Text>
-                      <Text style={styles.statHint}>Off the tee</Text>
-                    </View>
-                    <Seg3 value={r.fairway ?? "na"} onChange={(v) => updateRow(p.id, "fairway", v)} />
-                  </View>
+                      <View style={styles.statRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.statTitle}>Fairway Hit</Text>
+                          <Text style={styles.statHint}>Off the tee</Text>
+                        </View>
+                        <Seg3 value={r.fairway ?? "na"} onChange={(v) => updateRow(p.id, "fairway", v)} />
+                      </View>
 
-                  <View style={styles.statRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.statTitle}>GIR</Text>
-                      <Text style={styles.statHint}>Green in regulation</Text>
-                    </View>
-                    <Seg3 value={r.green ?? "na"} onChange={(v) => updateRow(p.id, "green", v)} />
-                  </View>
+                      <View style={styles.statRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.statTitle}>GIR</Text>
+                          <Text style={styles.statHint}>Green in regulation</Text>
+                        </View>
+                        <Seg3 value={r.green ?? "na"} onChange={(v) => updateRow(p.id, "green", v)} />
+                      </View>
 
-                  <View style={styles.statRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.statTitle}>Sand Save</Text>
-                      <Text style={styles.statHint}>Bunker save</Text>
-                    </View>
-                    <Seg3 value={r.sandSave ?? "na"} onChange={(v) => updateRow(p.id, "sandSave", v)} />
-                  </View>
+                      <View style={styles.statRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.statTitle}>Sand Save</Text>
+                          <Text style={styles.statHint}>Bunker save</Text>
+                        </View>
+                        <Seg3 value={r.sandSave ?? "na"} onChange={(v) => updateRow(p.id, "sandSave", v)} />
+                      </View>
 
-                  <View style={styles.statRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.statTitle}>Up & Down</Text>
-                      <Text style={styles.statHint}>Save par or better</Text>
-                    </View>
-                    <Seg3 value={r.updown ?? "na"} onChange={(v) => updateRow(p.id, "updown", v)} />
-                  </View>
+                      <View style={styles.statRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.statTitle}>Up & Down</Text>
+                          <Text style={styles.statHint}>Save par or better</Text>
+                        </View>
+                        <Seg3 value={r.updown ?? "na"} onChange={(v) => updateRow(p.id, "updown", v)} />
+                      </View>
+                    </>
+                  ) : null}
                 </View>
               </View>
             );
@@ -574,7 +635,10 @@ export default function ScoreEntryScreen({ navigation, route }) {
               <Text style={styles.midText}>Scorecard</Text>
             </Pressable>
 
-            <Pressable style={styles.primaryBtn} onPress={isFixMode ? doneFixMode : continueNextHole}>
+            <Pressable
+              style={styles.primaryBtn}
+              onPress={isFixMode ? doneFixMode : continueNextHole}
+            >
               <Text style={styles.primaryText}>{isFixMode ? "Done" : "Next Hole"}</Text>
             </Pressable>
           </View>
@@ -622,17 +686,25 @@ const styles = StyleSheet.create({
   playerTitle: { color: WHITE, fontWeight: "900", fontSize: 16 },
   playerSub: { marginTop: 6, color: MUTED, fontWeight: "800", fontSize: 12 },
 
-  hdcpPill: {
+  statsPill: {
     height: 34,
     paddingHorizontal: 12,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: INNER2,
     alignItems: "center",
     justifyContent: "center",
   },
-  hdcpText: { color: WHITE, fontWeight: "900", fontSize: 12 },
+  statsPillOn: {
+    backgroundColor: "rgba(46,204,113,0.16)",
+    borderColor: "rgba(46,204,113,0.40)",
+  },
+  statsPillOff: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+  statsPillText: { fontWeight: "900", fontSize: 12, letterSpacing: 0.2 },
+  statsPillTextOn: { color: WHITE, opacity: 0.95 },
+  statsPillTextOff: { color: WHITE, opacity: 0.75 },
 
   bigInputsRow: { flexDirection: "row", gap: 12 },
 
@@ -651,6 +723,11 @@ const styles = StyleSheet.create({
   bigFieldPutts: {
     borderColor: PUTTS_BORDER,
     backgroundColor: PUTTS_TINT,
+  },
+
+  bigFieldGhost: {
+    borderColor: "rgba(255,255,255,0.14)",
+    backgroundColor: "rgba(255,255,255,0.04)",
   },
 
   fieldHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
@@ -679,6 +756,10 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(46,125,255,0.18)",
     borderColor: "rgba(46,125,255,0.35)",
   },
+  miniChipGhost: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderColor: "rgba(255,255,255,0.14)",
+  },
   miniChipText: { color: WHITE, fontWeight: "900", fontSize: 12, opacity: 0.95 },
 
   bigInput: {
@@ -699,6 +780,9 @@ const styles = StyleSheet.create({
   bigInputPutts: {
     borderColor: "rgba(46,125,255,0.30)",
   },
+
+  ghostCenter: { marginTop: 12, height: 52, alignItems: "center", justifyContent: "center" },
+  ghostText: { color: "rgba(255,255,255,0.70)", fontWeight: "900" },
 
   divider: { marginTop: 14, height: 1, backgroundColor: "rgba(255,255,255,0.08)" },
 
