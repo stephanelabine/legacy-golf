@@ -399,7 +399,6 @@ export default function HoleViewScreen({ navigation, route }) {
   }
 
   const headerTitle = useMemo(() => shortCourseTitle(courseName), [courseName]);
-  const bottomPad = Math.max(10, (insets?.bottom || 0) + 8);
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -470,14 +469,10 @@ export default function HoleViewScreen({ navigation, route }) {
 
   function onPressSaveRound() {
     if (savingRound) return;
-    Alert.alert(
-      "Save round?",
-      "This will save the round to Round History so you can review or resume later.",
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Save", onPress: () => doSaveRoundNow({ status: "in_progress" }) },
-      ]
-    );
+    Alert.alert("Save round?", "This will save the round to Round History so you can review or resume later.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Save", onPress: () => doSaveRoundNow({ status: "in_progress" }) },
+    ]);
   }
 
   async function onPressFinishRound() {
@@ -489,26 +484,22 @@ export default function HoleViewScreen({ navigation, route }) {
 
       if (missing.length) {
         const list = missing.join(", ");
-        Alert.alert(
-          "Missing scores",
-          `Some holes are missing strokes.\n\nMissing holes: ${list}`,
-          [
-            { text: "Cancel", style: "cancel" },
-            {
-              text: "Fix now",
-              onPress: () => {
-                const first = missing[0];
-                openScoreEntry({
-                  hole: first,
-                  fixMissing: true,
-                  missingHoles: missing,
-                  missingIndex: 0,
-                  finishReturnHole: 18,
-                });
-              },
+        Alert.alert("Missing scores", `Some holes are missing strokes.\n\nMissing holes: ${list}`, [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Fix now",
+            onPress: () => {
+              const first = missing[0];
+              openScoreEntry({
+                hole: first,
+                fixMissing: true,
+                missingHoles: missing,
+                missingIndex: 0,
+                finishReturnHole: 18,
+              });
             },
-          ]
-        );
+          },
+        ]);
         return;
       }
 
@@ -570,10 +561,9 @@ export default function HoleViewScreen({ navigation, route }) {
 
   const showFinish = currentHole === 18 && holeHasAllStrokes(activeSnap || {}, 18, players);
 
-  // Center-lock hole pills (including 1 and 18)
+  // Center-lock hole pills (including 1 and 18) — FIXED
   const holeListRef = useRef(null);
   const [holeBarWidth, setHoleBarWidth] = useState(0);
-  const [holeListReady, setHoleListReady] = useState(false);
 
   const sidePad = useMemo(() => {
     if (!holeBarWidth) return 0;
@@ -590,48 +580,34 @@ export default function HoleViewScreen({ navigation, route }) {
   const scrollHoleToCenter = useCallback((h, animated = true) => {
     if (!holeListRef.current) return;
     const idx = Math.min(17, Math.max(0, Number(h || 1) - 1));
+    const offset = HOLE_STEP * idx;
 
-    try {
-      holeListRef.current.scrollToIndex({
-        index: idx,
-        animated,
-        viewPosition: 0.5,
+    InteractionManager.runAfterInteractions(() => {
+      requestAnimationFrame(() => {
+        holeListRef.current?.scrollToOffset?.({ offset, animated });
       });
-    } catch {
-      holeListRef.current?.scrollToOffset?.({ offset: HOLE_STEP * idx, animated });
-    }
+    });
   }, []);
 
-  const forceRecenter = useCallback(
-    (animated = true) => {
-      if (!holeBarWidth) return;
-      if (!holeListRef.current) return;
-
-      const h = currentHole;
-
-      // Do it in a few timed passes to survive navigation transitions and layout timing.
-      requestAnimationFrame(() => scrollHoleToCenter(h, animated));
-      setTimeout(() => scrollHoleToCenter(h, false), 60);
-      setTimeout(() => scrollHoleToCenter(h, false), 180);
-    },
-    [currentHole, holeBarWidth, scrollHoleToCenter]
-  );
-
-  // When currentHole changes, center it (reliably).
+  // Every time the hole changes OR the bar measures, re-center (no gating)
   useEffect(() => {
     if (!holeBarWidth) return;
-    if (!holeListReady) return;
-    forceRecenter(true);
-  }, [currentHole, holeBarWidth, holeListReady, forceRecenter]);
+    scrollHoleToCenter(currentHole, true);
+    setTimeout(() => scrollHoleToCenter(currentHole, false), 60);
+    setTimeout(() => scrollHoleToCenter(currentHole, false), 180);
+  }, [currentHole, holeBarWidth, scrollHoleToCenter]);
 
-  // On focus, re-center again (this is where it was failing for you after score entry).
+  // When coming back from Score Entry, re-center again (navigation timing)
   useFocusEffect(
     useCallback(() => {
-      const t = setTimeout(() => {
-        forceRecenter(false);
-      }, 40);
-      return () => clearTimeout(t);
-    }, [forceRecenter])
+      if (!holeBarWidth) return undefined;
+      const t1 = setTimeout(() => scrollHoleToCenter(currentHole, false), 40);
+      const t2 = setTimeout(() => scrollHoleToCenter(currentHole, false), 160);
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+      };
+    }, [currentHole, holeBarWidth, scrollHoleToCenter])
   );
 
   return (
@@ -655,19 +631,10 @@ export default function HoleViewScreen({ navigation, route }) {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={[styles.holePills, { paddingHorizontal: sidePad }]}
             extraData={currentHole}
-            initialScrollIndex={Math.min(17, Math.max(0, (Number(currentHole) || 1) - 1))}
             getItemLayout={getItemLayout}
-            onScrollToIndexFailed={(info) => {
-              const idx = Math.min(17, Math.max(0, Number(info?.index ?? 0)));
-              setTimeout(() => {
-                holeListRef.current?.scrollToOffset?.({ offset: HOLE_STEP * idx, animated: false });
-                setTimeout(() => scrollHoleToCenter(currentHole, false), 60);
-              }, 60);
-            }}
             onContentSizeChange={() => {
-              if (!holeListReady) setHoleListReady(true);
-              // Once content is measured, lock center.
-              setTimeout(() => forceRecenter(false), 0);
+              // once content measures, snap to current hole
+              setTimeout(() => scrollHoleToCenter(currentHole, false), 0);
             }}
             renderItem={({ item }) => {
               const h = item;
@@ -703,10 +670,7 @@ export default function HoleViewScreen({ navigation, route }) {
         </View>
 
         <View style={styles.ybWrap}>
-          <Pressable
-            onPress={() => setYardageOpen(true)}
-            style={({ pressed }) => [styles.ybCard, pressed && styles.pressed]}
-          >
+          <Pressable onPress={() => setYardageOpen(true)} style={({ pressed }) => [styles.ybCard, pressed && styles.pressed]}>
             <Text style={styles.ybCenterText}>Yardage Book</Text>
           </Pressable>
         </View>
@@ -741,19 +705,13 @@ export default function HoleViewScreen({ navigation, route }) {
           <View style={styles.hintCard}>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.hintTitle}>No green points yet</Text>
-              <Text style={styles.hintSub}>
-                Set front / mid / back once, and yardages will be perfect every round.
-              </Text>
+              <Text style={styles.hintSub}>Set front / mid / back once, and yardages will be perfect every round.</Text>
             </View>
 
             <Pressable
               onPress={() => openHoleMap(true)}
               disabled={!courseId}
-              style={({ pressed }) => [
-                styles.hintBtn,
-                pressed && styles.pressed,
-                !courseId && { opacity: 0.45 },
-              ]}
+              style={({ pressed }) => [styles.hintBtn, pressed && styles.pressed, !courseId && { opacity: 0.45 }]}
             >
               <Text style={styles.hintBtnT}>Set points</Text>
               <Text style={styles.hintBtnS}>→</Text>
@@ -778,9 +736,7 @@ export default function HoleViewScreen({ navigation, route }) {
             ]}
             disabled={savingRound}
           >
-            <Text style={styles.miniBtnText}>
-              {savingRound ? "Saving…" : showFinish ? "Finish Round" : "Save Round"}
-            </Text>
+            <Text style={styles.miniBtnText}>{savingRound ? "Saving…" : showFinish ? "Finish Round" : "Save Round"}</Text>
           </Pressable>
 
           <Pressable
@@ -807,10 +763,7 @@ export default function HoleViewScreen({ navigation, route }) {
                 </Text>
               </View>
 
-              <Pressable
-                onPress={() => setYardageOpen(false)}
-                style={({ pressed }) => [styles.modalX, pressed && styles.pressed]}
-              >
+              <Pressable onPress={() => setYardageOpen(false)} style={({ pressed }) => [styles.modalX, pressed && styles.pressed]}>
                 <Text style={styles.modalXText}>✕</Text>
               </Pressable>
             </View>
@@ -847,10 +800,7 @@ export default function HoleViewScreen({ navigation, route }) {
             <Text style={styles.confirmSub}>Are you sure you want to delete this round? This can’t be undone.</Text>
 
             <View style={styles.confirmRow}>
-              <Pressable
-                onPress={() => setDeleteOpen(false)}
-                style={({ pressed }) => [styles.confirmBtn, pressed && styles.pressed]}
-              >
+              <Pressable onPress={() => setDeleteOpen(false)} style={({ pressed }) => [styles.confirmBtn, pressed && styles.pressed]}>
                 <Text style={styles.confirmBtnT}>Cancel</Text>
               </Pressable>
 

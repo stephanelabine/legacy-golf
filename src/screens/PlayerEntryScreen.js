@@ -37,14 +37,6 @@ function makeJoinCode() {
   return out;
 }
 
-function initials(name) {
-  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return "G";
-  const a = parts[0]?.[0] || "";
-  const b = parts.length > 1 ? parts[parts.length - 1]?.[0] || "" : "";
-  return (a + b).toUpperCase();
-}
-
 function pickGameLabel(params) {
   const raw =
     params?.gameFormat ||
@@ -132,6 +124,21 @@ function makeActiveRoundSnapshot({
   };
 }
 
+function displayNameFirstLastInitial(name) {
+  const parts = String(name || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (!parts.length) return "Guest";
+  if (parts.length === 1) return parts[0];
+
+  const first = parts[0];
+  const last = parts[parts.length - 1];
+  const li = last?.[0] ? `${last[0].toUpperCase()}` : "";
+  return li ? `${first} ${li}` : first;
+}
+
 export default function PlayerEntryScreen({ navigation, route }) {
   const params = route?.params || {};
 
@@ -164,6 +171,35 @@ export default function PlayerEntryScreen({ navigation, route }) {
 
   const [inviteModal, setInviteModal] = useState(false);
   const joinCode = useMemo(() => makeJoinCode(), []);
+
+  // Edit Handicap modal (tap HCP pill)
+  const [editHcpModal, setEditHcpModal] = useState(false);
+  const [editPlayerId, setEditPlayerId] = useState(null);
+  const [editHcpValue, setEditHcpValue] = useState("");
+
+  function openEditHandicap(player) {
+    if (!player?.id) return;
+    setEditPlayerId(player.id);
+    setEditHcpValue(String(player.handicap ?? 0));
+    setEditHcpModal(true);
+  }
+
+  function closeEditHandicap() {
+    setEditHcpModal(false);
+    setEditPlayerId(null);
+    setEditHcpValue("");
+    Keyboard.dismiss();
+  }
+
+  function saveEditHandicap() {
+    if (!editPlayerId) return;
+
+    const n = Number.parseInt(String(editHcpValue || "").trim() || "0", 10);
+    const next = clampHandicap(n);
+
+    setPlayers((prev) => prev.map((p) => (p.id === editPlayerId ? { ...p, handicap: next } : p)));
+    closeEditHandicap();
+  }
 
   // Always pull Player 1 from Profile (name + handicap)
   useEffect(() => {
@@ -251,12 +287,6 @@ export default function PlayerEntryScreen({ navigation, route }) {
   function removePlayer(id) {
     if (id === "me") return;
     setPlayers((prev) => prev.filter((p) => p.id !== id));
-  }
-
-  function bumpHandicap(id, delta) {
-    setPlayers((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, handicap: clampHandicap((p.handicap ?? 0) + delta) } : p))
-    );
   }
 
   function openGuest() {
@@ -411,54 +441,27 @@ export default function PlayerEntryScreen({ navigation, route }) {
         keyExtractor={(it) => it.id}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }}
-        renderItem={({ item, index }) => {
+        renderItem={({ item }) => {
           const isMe = item.id === "me";
-          const sourceLabel = isMe ? "You" : item.source === "buddy" ? "Buddy" : "Guest";
+          const nameShort = displayNameFirstLastInitial(item.name);
 
           return (
             <View style={[styles.playerCard, isMe && styles.playerCardMe]}>
               <View style={styles.playerRing} pointerEvents="none" />
 
               <View style={styles.playerInner}>
-                <View style={[styles.avatar, isMe && styles.avatarMe]}>
-                  <Text style={styles.avatarText}>{initials(item.name)}</Text>
-                </View>
-
                 <View style={{ flex: 1, minWidth: 0 }}>
-                  <View style={styles.playerTopRow}>
-                    <Text style={styles.playerName} numberOfLines={1}>
-                      {item.name}
-                    </Text>
-
-                    <View style={[styles.typePill, isMe && styles.typePillMe]}>
-                      <Text style={styles.typePillText}>{sourceLabel}</Text>
-                    </View>
-                  </View>
-
-                  <Text style={styles.playerMeta} numberOfLines={1}>
-                    HCP {item.handicap ?? 0} • Player {index + 1}
+                  <Text style={styles.playerName} numberOfLines={1}>
+                    {nameShort}
                   </Text>
                 </View>
 
-                <View style={styles.hcpControls}>
-                  <Pressable
-                    onPress={() => bumpHandicap(item.id, -1)}
-                    style={({ pressed }) => [styles.hcpBtn, pressed && styles.pressed]}
-                  >
-                    <Text style={styles.hcpBtnText}>−</Text>
-                  </Pressable>
-
-                  <View style={styles.hcpBubble}>
-                    <Text style={styles.hcpBubbleText}>{item.handicap ?? 0}</Text>
-                  </View>
-
-                  <Pressable
-                    onPress={() => bumpHandicap(item.id, +1)}
-                    style={({ pressed }) => [styles.hcpBtn, pressed && styles.pressed]}
-                  >
-                    <Text style={styles.hcpBtnText}>+</Text>
-                  </Pressable>
-                </View>
+                <Pressable
+                  onPress={() => openEditHandicap(item)}
+                  style={({ pressed }) => [styles.hcpPill, pressed && styles.pressed]}
+                >
+                  <Text style={styles.hcpPillText}>HCP {item.handicap ?? 0}</Text>
+                </Pressable>
 
                 {!isMe ? (
                   <Pressable
@@ -620,6 +623,36 @@ export default function PlayerEntryScreen({ navigation, route }) {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* Edit Handicap Modal */}
+      <Modal visible={editHcpModal} transparent animationType="fade" onRequestClose={closeEditHandicap}>
+        <Pressable style={styles.modalWrap} onPress={closeEditHandicap}>
+          <Pressable style={styles.modalCardSmall} onPress={() => {}}>
+            <Text style={styles.modalTitle}>Edit Handicap</Text>
+
+            <TextInput
+              style={styles.modalInput}
+              value={editHcpValue}
+              onChangeText={setEditHcpValue}
+              placeholder="0–36"
+              placeholderTextColor="rgba(255,255,255,0.35)"
+              keyboardType="number-pad"
+              maxLength={2}
+              returnKeyType="done"
+            />
+
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 8 }}>
+              <Pressable onPress={closeEditHandicap} style={({ pressed }) => [styles.modalGhostBtn, pressed && styles.pressed]}>
+                <Text style={styles.modalGhostText}>Cancel</Text>
+              </Pressable>
+
+              <Pressable onPress={saveEditHandicap} style={({ pressed }) => [styles.modalPrimaryBtn, pressed && styles.pressed]}>
+                <Text style={styles.modalPrimaryText}>Save</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -704,7 +737,7 @@ const styles = StyleSheet.create({
 
   divider: { marginTop: 12, height: 1, backgroundColor: "rgba(255,255,255,0.08)" },
 
-  // PLAYER CARDS (green border premium look)
+  // PLAYER CARDS (simple name + HCP pill)
   playerCard: {
     marginTop: 12,
     borderRadius: 20,
@@ -729,66 +762,26 @@ const styles = StyleSheet.create({
     opacity: 0.14,
   },
   playerInner: {
-    paddingVertical: 12,
-    paddingHorizontal: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
   },
 
-  avatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
+  playerName: { color: "#fff", fontWeight: "900", fontSize: 16 },
+
+  hcpPill: {
+    height: 34,
+    paddingHorizontal: 12,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: GREEN_ACCENT_BORDER_SOFT,
     backgroundColor: GREEN_ACCENT_SOFT,
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarMe: { borderColor: GREEN_ACCENT_BORDER, backgroundColor: "rgba(255,255,255,0.10)" },
-  avatarText: { color: "#fff", fontWeight: "900" },
-
-  playerTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
-  playerName: { color: "#fff", fontWeight: "900", fontSize: 16, flex: 1 },
-
-  typePill: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: GREEN_ACCENT_BORDER_SOFT,
-    backgroundColor: GREEN_ACCENT_SOFT,
-  },
-  typePillMe: { borderColor: GREEN_ACCENT_BORDER_SOFT, backgroundColor: "rgba(255,255,255,0.08)" },
-  typePillText: { color: "#fff", fontWeight: "900", fontSize: 11, letterSpacing: 0.4, opacity: 0.95 },
-
-  playerMeta: { marginTop: 4, color: "rgba(255,255,255,0.62)", fontWeight: "800", fontSize: 12 },
-
-  hcpControls: { flexDirection: "row", alignItems: "center", gap: 8 },
-  hcpBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.06)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  hcpBtnText: { color: "#fff", fontWeight: "900", fontSize: 16 },
-  hcpBubble: {
-    minWidth: 40,
-    height: 34,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: GREEN_ACCENT_BORDER_SOFT,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  hcpBubbleText: { color: "#fff", fontWeight: "900" },
+  hcpPillText: { color: "#fff", fontWeight: "900", fontSize: 12, letterSpacing: 0.2 },
 
   removeBtn: {
     height: 34,
@@ -840,6 +833,15 @@ const styles = StyleSheet.create({
   modalCard: {
     width: "100%",
     maxHeight: "82%",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.16)",
+    backgroundColor: theme?.bg || theme?.colors?.bg || "#0B1220",
+    padding: 14,
+  },
+  modalCardSmall: {
+    width: "100%",
+    maxWidth: 420,
     borderRadius: 18,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.16)",
