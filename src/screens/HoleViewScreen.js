@@ -14,6 +14,7 @@ import {
   Alert,
   FlatList,
   InteractionManager,
+  ScrollView,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -116,20 +117,19 @@ function pickHoleFromActive(activeState) {
   const root = unwrapRound(activeState);
   if (!root) return null;
 
-  const holeRaw = pickFirstNumber(
+  const holeNumberDirect = pickFirstNumber(
     root?.holeNumber,
     root?.currentHole,
     root?.hole,
     root?.lastHole,
-    root?.resumeHole,
-    root?.holeIndex
+    root?.resumeHole
   );
 
-  let holeNumber = holeRaw;
+  let holeNumber = holeNumberDirect;
 
-  if (holeNumber !== null && holeNumber >= 0 && holeNumber <= 17) {
-    const isIndex = root?.holeIndex !== undefined || holeNumber === 0;
-    if (isIndex) holeNumber = holeNumber + 1;
+  if (holeNumber === null || holeNumber === undefined) {
+    const idx = Number(root?.holeIndex);
+    if (Number.isFinite(idx) && idx >= 0 && idx <= 17) holeNumber = idx + 1;
   }
 
   if (!Number.isFinite(holeNumber)) return null;
@@ -201,7 +201,6 @@ export default function HoleViewScreen({ navigation, route }) {
 
   const par = holeMeta?.[String(currentHole)]?.par ?? 4;
 
-  // When HoleView gets params.hole updates (some flows navigate back with a new hole param)
   useEffect(() => {
     const incoming = Number(params?.hole);
     if (Number.isFinite(incoming) && incoming >= 1 && incoming <= 18 && incoming !== currentHole) {
@@ -210,7 +209,6 @@ export default function HoleViewScreen({ navigation, route }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params?.hole]);
 
-  // On focus: reload active round AND sync currentHole from active round state.
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
@@ -223,8 +221,8 @@ export default function HoleViewScreen({ navigation, route }) {
           setActiveSnap(s || null);
 
           const fromActive = pickHoleFromActive(s);
-          if (fromActive && fromActive !== currentHole) {
-            setCurrentHole(fromActive);
+          if (fromActive) {
+            setCurrentHole((prev) => (fromActive !== prev ? fromActive : prev));
           }
         } catch {
           if (!cancelled) setActiveSnap(null);
@@ -561,7 +559,6 @@ export default function HoleViewScreen({ navigation, route }) {
 
   const showFinish = currentHole === 18 && holeHasAllStrokes(activeSnap || {}, 18, players);
 
-  // Center-lock hole pills (including 1 and 18) — FIXED
   const holeListRef = useRef(null);
   const [holeBarWidth, setHoleBarWidth] = useState(0);
 
@@ -589,7 +586,6 @@ export default function HoleViewScreen({ navigation, route }) {
     });
   }, []);
 
-  // Every time the hole changes OR the bar measures, re-center (no gating)
   useEffect(() => {
     if (!holeBarWidth) return;
     scrollHoleToCenter(currentHole, true);
@@ -597,7 +593,6 @@ export default function HoleViewScreen({ navigation, route }) {
     setTimeout(() => scrollHoleToCenter(currentHole, false), 180);
   }, [currentHole, holeBarWidth, scrollHoleToCenter]);
 
-  // When coming back from Score Entry, re-center again (navigation timing)
   useFocusEffect(
     useCallback(() => {
       if (!holeBarWidth) return undefined;
@@ -621,7 +616,11 @@ export default function HoleViewScreen({ navigation, route }) {
         onRightPress={onPressHome}
       />
 
-      <View style={styles.body}>
+      <ScrollView
+        style={styles.body}
+        contentContainerStyle={styles.bodyContent}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.holeBarWrap} onLayout={(e) => setHoleBarWidth(e?.nativeEvent?.layout?.width || 0)}>
           <FlatList
             ref={holeListRef}
@@ -633,7 +632,6 @@ export default function HoleViewScreen({ navigation, route }) {
             extraData={currentHole}
             getItemLayout={getItemLayout}
             onContentSizeChange={() => {
-              // once content measures, snap to current hole
               setTimeout(() => scrollHoleToCenter(currentHole, false), 0);
             }}
             renderItem={({ item }) => {
@@ -670,7 +668,10 @@ export default function HoleViewScreen({ navigation, route }) {
         </View>
 
         <View style={styles.ybWrap}>
-          <Pressable onPress={() => setYardageOpen(true)} style={({ pressed }) => [styles.ybCard, pressed && styles.pressed]}>
+          <Pressable
+            onPress={() => setYardageOpen(true)}
+            style={({ pressed }) => [styles.ybCard, pressed && styles.pressed]}
+          >
             <Text style={styles.ybCenterText}>Yardage Book</Text>
           </Pressable>
         </View>
@@ -718,7 +719,7 @@ export default function HoleViewScreen({ navigation, route }) {
             </Pressable>
           </View>
         ) : null}
-      </View>
+      </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: Math.max(10, (insets?.bottom || 0) + 8) }]}>
         <Pressable style={styles.greenBtn} onPress={() => openScoreEntry()}>
@@ -821,7 +822,9 @@ export default function HoleViewScreen({ navigation, route }) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: BG },
-  body: { flex: 1, paddingBottom: 6 },
+
+  body: { flex: 1 },
+  bodyContent: { paddingBottom: 14 },
 
   holeBarWrap: { paddingTop: 8, paddingBottom: 6 },
   holePills: { alignItems: "center" },
@@ -836,7 +839,6 @@ const styles = StyleSheet.create({
     marginRight: HOLE_PILL_GAP,
   },
 
-  // keep active pill circular (no square-ish look)
   holePillActive: { backgroundColor: GREEN, borderRadius: HOLE_PILL_SIZE / 2 },
   holePillText: { color: WHITE, fontWeight: "900" },
   holePillTextActive: { color: GREEN_TEXT },
@@ -859,18 +861,19 @@ const styles = StyleSheet.create({
   modeTextPrimary: { color: WHITE },
 
   ybWrap: { marginHorizontal: 16, marginTop: 8 },
+
+  // 50% bigger Yardage Book pill
   ybCard: {
-    height: 56,
-    borderRadius: 18,
-    borderWidth: 3,
+    height: 84,
+    borderRadius: 27,
+    borderWidth: 4,
     borderColor: YELLOW,
     backgroundColor: "rgba(255,255,255,0.04)",
     alignItems: "center",
     justifyContent: "center",
   },
-  ybCenterText: { color: WHITE, fontWeight: "900", fontSize: 14, letterSpacing: 0.3 },
+  ybCenterText: { color: WHITE, fontWeight: "900", fontSize: 16, letterSpacing: 0.3 },
 
-  // bigger Hole View box (your request)
   mapCard: {
     marginHorizontal: 16,
     marginTop: 8,
