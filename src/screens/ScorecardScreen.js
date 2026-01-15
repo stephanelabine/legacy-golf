@@ -15,6 +15,9 @@ const WHITE = "#FFFFFF";
 const INNER = "rgba(0,0,0,0.18)";
 
 const BLUE = theme?.colors?.primary || "#2E7DFF";
+const LIVE_GREEN = "#2ECC71";
+const LIVE_GREEN_SOFT = "rgba(46,204,113,0.18)";
+const LIVE_GREEN_BORDER = "rgba(46,204,113,0.75)";
 
 function toInt(v) {
   const n = parseInt(String(v ?? "").replace(/[^\d]/g, ""), 10);
@@ -35,7 +38,7 @@ function readStroke(roundRoot, holeNumber, playerId) {
   // A) roundState shape (object keyed by hole number)
   const a =
     roundRoot?.holes?.[String(holeNumber)]?.players?.[rid]?.strokes ??
-    roundRoot?.holes?.[String(holeNumber)]?.scores?.[rid]; // extra fallback if any screen used "scores"
+    roundRoot?.holes?.[String(holeNumber)]?.scores?.[rid];
   const aInt = toInt(a);
   if (aInt > 0) return aInt;
 
@@ -65,6 +68,39 @@ function holePlayerStroke(roundRoot, holeNumber, playerId) {
   return n > 0 ? String(n) : "—";
 }
 
+// Model A (Stroke Index allocation)
+// - A handicap of 12 gets 1 stroke on SI 1-12
+// - A handicap of 20 gets 1 stroke on all 18 + 1 extra on SI 1-2
+function strokesReceivedOnHole(handicap, strokeIndex) {
+  const h = Math.max(0, Math.floor(Number(handicap) || 0));
+  const si = Math.max(1, Math.min(18, Math.floor(Number(strokeIndex) || 18)));
+
+  const base = Math.floor(h / 18);
+  const rem = h % 18;
+
+  // SI is 1..18, so "rem" strokes go to SI 1..rem
+  const extra = si <= rem ? 1 : 0;
+  return base + extra;
+}
+
+function sumPlayerNetTotal(roundRoot, playerId, handicap, holeMeta) {
+  let total = 0;
+
+  for (let hole = 1; hole <= 18; hole++) {
+    const gross = readStroke(roundRoot, hole, playerId);
+    if (gross <= 0) continue;
+
+    const si = holeMeta?.[String(hole)]?.si ?? holeMeta?.[String(hole)]?.strokeIndex ?? 18;
+    const recv = strokesReceivedOnHole(handicap, si);
+
+    // Keep net reasonable; if gross exists, net cannot go below 1.
+    const net = Math.max(1, gross - recv);
+    total += net;
+  }
+
+  return total;
+}
+
 export default function ScorecardScreen({ navigation, route }) {
   const params = route?.params || {};
   const [active, setActive] = useState(null);
@@ -87,6 +123,12 @@ export default function ScorecardScreen({ navigation, route }) {
 
   const course = params.course || root?.course || active?.course || null;
   const tee = params.tee || root?.tee || active?.tee || null;
+
+  // Hole meta passed from HoleViewScreen (or fallback to stored)
+  const holeMeta = useMemo(() => {
+    const m = params?.holeMeta || root?.meta?.holeMeta || active?.meta?.holeMeta || null;
+    return m && typeof m === "object" ? m : null;
+  }, [params?.holeMeta, root, active]);
 
   const players = useMemo(() => {
     const fromParams = Array.isArray(params.players) ? params.players : [];
@@ -124,12 +166,25 @@ export default function ScorecardScreen({ navigation, route }) {
 
   const totals = useMemo(() => {
     const r = root || active || {};
-    return players.map((p) => ({
-      id: String(p.id),
-      name: String(p.name || "").trim() || "Player",
-      total: sumPlayerTotal(r, String(p.id)),
-    }));
-  }, [root, active, players]);
+    return players.map((p) => {
+      const id = String(p.id);
+      const name = String(p.name || "").trim() || "Player";
+      const gross = sumPlayerTotal(r, id);
+
+      // Only compute Net if we have holeMeta (SI per hole). Otherwise show dash.
+      const net =
+        holeMeta && typeof holeMeta === "object" ? sumPlayerNetTotal(r, id, p?.handicap ?? 0, holeMeta) : 0;
+
+      return {
+        id,
+        name,
+        handicap: Number(p?.handicap ?? 0),
+        gross,
+        net,
+        hasMeta: !!holeMeta,
+      };
+    });
+  }, [root, active, players, holeMeta]);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -140,18 +195,35 @@ export default function ScorecardScreen({ navigation, route }) {
         contentContainerStyle={{ padding: 16, paddingBottom: 28 }}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Totals</Text>
-          <Text style={styles.cardSub}>Live totals are based on what’s entered so far.</Text>
+        <View style={[styles.card, styles.liveCard]}>
+          <View style={styles.cardTopRow}>
+            <Text style={styles.cardTitle}>Totals</Text>
+            <View style={styles.liveBadge}>
+              <View style={styles.liveDot} />
+              <Text style={styles.liveBadgeText}>LIVE</Text>
+            </View>
+          </View>
+
+          <Text style={styles.cardSub}>
+            Totals update as scores are entered. Net totals use Model A (Stroke Index allocation).
+          </Text>
 
           <View style={styles.strokeRow}>
             {totals.map((p) => (
-              <View key={p.id} style={styles.playerStrokeBox}>
+              <View key={p.id} style={[styles.playerStrokeBox, styles.playerStrokeBoxLive]}>
                 <Text style={styles.playerStrokeName} numberOfLines={1}>
                   {p.name}
                 </Text>
-                <Text style={styles.playerStrokeVal}>{p.total > 0 ? String(p.total) : "—"}</Text>
-                <Text style={styles.playerStrokeFoot}>strokes</Text>
+
+                <Text style={styles.playerStrokeVal}>{p.gross > 0 ? String(p.gross) : "—"}</Text>
+                <Text style={styles.playerStrokeFoot}>gross strokes</Text>
+
+                <View style={styles.netRow}>
+                  <Text style={styles.netLabel}>net</Text>
+                  <Text style={styles.netValue}>
+                    {p.hasMeta ? (p.net > 0 ? String(p.net) : "—") : "—"}
+                  </Text>
+                </View>
               </View>
             ))}
           </View>
@@ -166,7 +238,7 @@ export default function ScorecardScreen({ navigation, route }) {
           </View>
 
           <Text style={[styles.cardSub, { marginTop: 8 }]}>
-            Each player is shown in their own box for quick scanning.
+            Hole label is shown above the entry boxes for quick scanning.
           </Text>
 
           <View style={styles.divider} />
@@ -174,14 +246,12 @@ export default function ScorecardScreen({ navigation, route }) {
           {players.length === 0 ? (
             <Text style={styles.emptyText}>No players found for this round yet.</Text>
           ) : (
-            <View style={{ gap: 10 }}>
+            <View style={{ gap: 12 }}>
               {Array.from({ length: 18 }).map((_, i) => {
                 const holeNumber = i + 1;
                 return (
-                  <View key={holeNumber} style={styles.holeRow}>
-                    <View style={styles.holePill}>
-                      <Text style={styles.holePillText}>{holeNumber}</Text>
-                    </View>
+                  <View key={holeNumber} style={styles.holeBlock}>
+                    <Text style={styles.holeLabel}>Hole {holeNumber}</Text>
 
                     <View style={styles.holePlayersRow}>
                       {players.map((p) => (
@@ -205,13 +275,10 @@ export default function ScorecardScreen({ navigation, route }) {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Next</Text>
           <Text style={styles.cardSub}>
-            We can add par/handicap strokes and show Net totals once we confirm the handicap model you want.
+            Next we can show Par and Net-by-hole (and later add any wager/game math using Net or Gross).
           </Text>
 
-          <Pressable
-            onPress={() => navigation.goBack()}
-            style={({ pressed }) => [styles.cta, pressed && styles.pressed]}
-          >
+          <Pressable onPress={() => navigation.goBack()} style={({ pressed }) => [styles.cta, pressed && styles.pressed]}>
             <Text style={styles.ctaText}>Back</Text>
           </Pressable>
         </View>
@@ -232,10 +299,39 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
 
+  liveCard: {
+    borderColor: LIVE_GREEN_BORDER,
+    backgroundColor: "rgba(46,204,113,0.06)",
+    shadowColor: LIVE_GREEN,
+    shadowOpacity: 0.22,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+  },
+
   cardTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
 
   cardTitle: { color: WHITE, fontSize: 15, fontWeight: "900" },
   cardSub: { marginTop: 6, color: MUTED, fontSize: 12, fontWeight: "800", lineHeight: 17 },
+
+  liveBadge: {
+    height: 28,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: LIVE_GREEN_BORDER,
+    backgroundColor: LIVE_GREEN_SOFT,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 6,
+  },
+  liveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: LIVE_GREEN,
+  },
+  liveBadgeText: { color: WHITE, fontWeight: "900", fontSize: 11, letterSpacing: 0.6 },
 
   badge: {
     height: 28,
@@ -269,8 +365,13 @@ const styles = StyleSheet.create({
     backgroundColor: INNER,
   },
 
+  playerStrokeBoxLive: {
+    borderColor: "rgba(46,204,113,0.45)",
+    backgroundColor: "rgba(46,204,113,0.08)",
+  },
+
   playerStrokeName: {
-    color: "rgba(255,255,255,0.75)",
+    color: "rgba(255,255,255,0.78)",
     fontWeight: "900",
     fontSize: 11,
     letterSpacing: 0.4,
@@ -291,20 +392,28 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
 
-  holeRow: { gap: 10 },
-
-  holePill: {
-    alignSelf: "flex-start",
-    height: 34,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.06)",
+  netRow: {
+    marginTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.10)",
+    paddingTop: 10,
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "space-between",
+    gap: 10,
   },
-  holePillText: { color: WHITE, fontWeight: "900" },
+  netLabel: { color: "rgba(255,255,255,0.70)", fontWeight: "900", fontSize: 11, letterSpacing: 0.35 },
+  netValue: { color: WHITE, fontWeight: "900", fontSize: 16 },
+
+  holeBlock: { gap: 10 },
+
+  holeLabel: {
+    color: "rgba(255,255,255,0.80)",
+    fontWeight: "900",
+    fontSize: 12,
+    letterSpacing: 0.4,
+    marginLeft: 2,
+  },
 
   holePlayersRow: {
     flexDirection: "row",
