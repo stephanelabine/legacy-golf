@@ -3,7 +3,7 @@ import { useFonts } from "expo-font";
 
 export default function useAppFonts() {
   const [fontsLoaded] = useFonts({
-    Cinzel: require("../assets/fonts/Cinzel.ttf"),
+    Cinzel: require("../assets/Cinzel.ttf"),
   });
 
   return fontsLoaded;

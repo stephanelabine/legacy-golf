@@ -22,6 +22,11 @@ import { signOut } from "firebase/auth";
 import { auth } from "../firebase/firebase";
 import ROUTES from "../navigation/routes";
 
+const COLORS = {
+  bg: "#0B1220",
+  green: "#0F7A4A",
+};
+
 const PROFILE_KEY = "LEGACY_GOLF_PROFILE_V1";
 
 const ROUND_KEYS_TO_TRY = [
@@ -421,10 +426,7 @@ export default function ProfileScreen({ navigation }) {
             </View>
           </View>
 
-          <Pressable
-            onPress={onPressSignOut}
-            style={({ pressed }) => [styles.signOutBtn, pressed && styles.pressed]}
-          >
+          <Pressable onPress={onPressSignOut} style={({ pressed }) => [styles.signOutBtn, pressed && styles.pressed]}>
             <MaterialCommunityIcons name="logout-variant" size={18} color="#fff" />
             <Text style={styles.signOutText}>Sign Out</Text>
           </Pressable>
@@ -522,11 +524,6 @@ function Field({ icon, label, value, editing, onChange, keyboardType, autoCapita
     </View>
   );
 }
-
-const COLORS = {
-  bg: "#0B1220",
-  green: "#0F7A4A",
-};
 
 const styles = StyleSheet.create({
   headerWrap: {

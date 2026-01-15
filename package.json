@@ -33,8 +33,5 @@
     "react-native-web": "^0.21.0",
     "react-native-webview": "^13.16.0"
   },
-  "private": true,
-  "devDependencies": {
-    "dotenv": "^17.2.3"
-  }
+  "private": true
 }

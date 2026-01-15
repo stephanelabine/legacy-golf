@@ -1,18 +1,19 @@
 // src/screens/HoleViewScreen.js
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import {
   SafeAreaView,
   View,
   Text,
   StyleSheet,
   Pressable,
-  ScrollView,
   Modal,
   TextInput,
   KeyboardAvoidingView,
   Platform,
   Keyboard,
   Alert,
+  FlatList,
+  InteractionManager,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -34,11 +35,14 @@ const WHITE = "#FFFFFF";
 const GREEN = "#2ECC71";
 const GREEN_TEXT = "#0B1F12";
 const DANGER = "#D62828";
-const BLUE = "#2E7DFF";
 const YELLOW = "#F2C94C";
 
 const DEFAULT_PARS = [4, 4, 3, 5, 4, 4, 3, 4, 5, 4, 3, 4, 4, 5, 4, 3, 4, 4];
 const DEFAULT_SI = [10, 2, 16, 4, 12, 6, 14, 8, 18, 1, 15, 3, 11, 5, 13, 7, 17, 9];
+
+const HOLE_PILL_SIZE = 44;
+const HOLE_PILL_GAP = 8;
+const HOLE_STEP = HOLE_PILL_SIZE + HOLE_PILL_GAP;
 
 function buildDefaultHoleMeta() {
   const meta = {};
@@ -51,12 +55,6 @@ function notesKey(courseName) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_");
   return `LEGACY_YARDAGE_BOOK_${safe}`;
-}
-
-function compactNote(s) {
-  const raw = String(s || "").trim();
-  if (!raw) return "";
-  return raw.replace(/\s+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function shortCourseTitle(name) {
@@ -99,6 +97,44 @@ function yds(m) {
 function toInt(v) {
   const n = parseInt(String(v ?? "").replace(/[^\d]/g, ""), 10);
   return Number.isFinite(n) ? n : 0;
+}
+
+function pickFirstNumber(...vals) {
+  for (const v of vals) {
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+function unwrapRound(state) {
+  if (!state || typeof state !== "object") return null;
+  return state?.activeRound || state?.currentRound || state?.round || state;
+}
+
+function pickHoleFromActive(activeState) {
+  const root = unwrapRound(activeState);
+  if (!root) return null;
+
+  const holeRaw = pickFirstNumber(
+    root?.holeNumber,
+    root?.currentHole,
+    root?.hole,
+    root?.lastHole,
+    root?.resumeHole,
+    root?.holeIndex
+  );
+
+  let holeNumber = holeRaw;
+
+  if (holeNumber !== null && holeNumber >= 0 && holeNumber <= 17) {
+    const isIndex = root?.holeIndex !== undefined || holeNumber === 0;
+    if (isIndex) holeNumber = holeNumber + 1;
+  }
+
+  if (!Number.isFinite(holeNumber)) return null;
+  if (holeNumber < 1 || holeNumber > 18) return null;
+  return holeNumber;
 }
 
 function getMissingHolesFromState(state, playersList) {
@@ -151,24 +187,12 @@ export default function HoleViewScreen({ navigation, route }) {
     (typeof courseParam === "string" ? courseParam : "Course");
 
   const teeName = teeParam?.name ?? (typeof teeParam === "string" ? teeParam : "Tees");
-
   const players = params.players || [];
   const roundId = params.roundId ?? null;
 
   const [currentHole, setCurrentHole] = useState(params.hole || 1);
-
-  // Critical: keep currentHole in sync when route params change (fix-missing flow returns here)
-  useEffect(() => {
-    const incoming = Number(params?.hole);
-    if (Number.isFinite(incoming) && incoming >= 1 && incoming <= 18 && incoming !== currentHole) {
-      setCurrentHole(incoming);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params?.hole]);
-
   const [courseData, setCourseData] = useState(null);
   const [user, setUser] = useState(null);
-
   const [activeSnap, setActiveSnap] = useState(null);
 
   const holeMeta = useMemo(() => {
@@ -177,6 +201,16 @@ export default function HoleViewScreen({ navigation, route }) {
 
   const par = holeMeta?.[String(currentHole)]?.par ?? 4;
 
+  // When HoleView gets params.hole updates (some flows navigate back with a new hole param)
+  useEffect(() => {
+    const incoming = Number(params?.hole);
+    if (Number.isFinite(incoming) && incoming >= 1 && incoming <= 18 && incoming !== currentHole) {
+      setCurrentHole(incoming);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params?.hole]);
+
+  // On focus: reload active round AND sync currentHole from active round state.
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
@@ -185,7 +219,13 @@ export default function HoleViewScreen({ navigation, route }) {
       (async () => {
         try {
           const s = await RoundState.loadActiveRound();
-          if (!cancelled) setActiveSnap(s || null);
+          if (cancelled) return;
+          setActiveSnap(s || null);
+
+          const fromActive = pickHoleFromActive(s);
+          if (fromActive && fromActive !== currentHole) {
+            setCurrentHole(fromActive);
+          }
         } catch {
           if (!cancelled) setActiveSnap(null);
         }
@@ -213,34 +253,16 @@ export default function HoleViewScreen({ navigation, route }) {
               setUser({ lat: p.coords.latitude, lon: p.coords.longitude });
             }
           );
-        } catch {
-          // safe
-        }
+        } catch {}
       })();
 
       return () => {
         cancelled = true;
         if (sub) sub.remove();
       };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [courseId])
   );
-
-  useEffect(() => {
-    const flag = !!params?.showFinishPrompt;
-    if (!flag) return;
-
-    Alert.alert(
-      "Ready to finish",
-      "All missing scores are filled. Tap Finish Round to complete the round.",
-      [{ text: "OK" }]
-    );
-
-    // clear it so it doesn't re-fire
-    try {
-      navigation.setParams({ showFinishPrompt: undefined });
-    } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params?.showFinishPrompt]);
 
   const savedGpsHole = useMemo(() => {
     const gps = courseData?.gps;
@@ -256,7 +278,6 @@ export default function HoleViewScreen({ navigation, route }) {
     if (!user || !green) return { front: "—", middle: "—", back: "—" };
 
     const out = { front: "—", middle: "—", back: "—" };
-
     if (green.front && Number.isFinite(green.front.lat) && Number.isFinite(green.front.lon)) {
       out.front = yds(haversineMeters(user, green.front));
     }
@@ -266,7 +287,6 @@ export default function HoleViewScreen({ navigation, route }) {
     if (green.back && Number.isFinite(green.back.lat) && Number.isFinite(green.back.lon)) {
       out.back = yds(haversineMeters(user, green.back));
     }
-
     return out;
   }, [user, green]);
 
@@ -292,9 +312,6 @@ export default function HoleViewScreen({ navigation, route }) {
       live = false;
     };
   }, [courseName, currentHole]);
-
-  const notePreview = useMemo(() => compactNote(yardageText), [yardageText]);
-  const hasNote = notePreview.length > 0;
 
   async function saveYardageNoteAndClose() {
     setSaving(true);
@@ -382,10 +399,7 @@ export default function HoleViewScreen({ navigation, route }) {
   }
 
   const headerTitle = useMemo(() => shortCourseTitle(courseName), [courseName]);
-  const bottomPad = Math.max(16, (insets?.bottom || 0) + 12);
-
-  // footer space for 3 actions
-  const FOOTER_SPACE = 210 + bottomPad;
+  const bottomPad = Math.max(10, (insets?.bottom || 0) + 8);
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -498,17 +512,14 @@ export default function HoleViewScreen({ navigation, route }) {
         return;
       }
 
-      // complete: save as completed, clear active round, go to Final Results (if route exists)
       const res = await doSaveRoundNow({ status: "completed" });
 
-      // clear active round so “resume” doesn’t show
       try {
         await RoundState.clearActiveRoundEverywhere();
       } catch {}
 
       const FINAL_RESULTS = ROUTES.FINAL_RESULTS || "FinalResults";
 
-      // Navigate if screen exists; otherwise fall back to History
       navigation.dispatch(
         CommonActions.navigate({
           name: FINAL_RESULTS,
@@ -527,8 +538,101 @@ export default function HoleViewScreen({ navigation, route }) {
     }
   }
 
-  const showFinish =
-    currentHole === 18 && holeHasAllStrokes(activeSnap || {}, 18, players);
+  function onPressHome() {
+    Alert.alert("Exit round?", "Are you sure you want to exit the round and return Home?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Exit (no save)",
+        style: "destructive",
+        onPress: () => {
+          navigation.dispatch(
+            CommonActions.reset({
+              index: 0,
+              routes: [{ name: ROUTES.HOME }],
+            })
+          );
+        },
+      },
+      {
+        text: "Save & Exit",
+        onPress: async () => {
+          await doSaveRoundNow({ status: "in_progress" });
+          navigation.dispatch(
+            CommonActions.reset({
+              index: 0,
+              routes: [{ name: ROUTES.HOME }],
+            })
+          );
+        },
+      },
+    ]);
+  }
+
+  const showFinish = currentHole === 18 && holeHasAllStrokes(activeSnap || {}, 18, players);
+
+  // Center-lock hole pills (including 1 and 18)
+  const holeListRef = useRef(null);
+  const [holeBarWidth, setHoleBarWidth] = useState(0);
+  const [holeListReady, setHoleListReady] = useState(false);
+
+  const sidePad = useMemo(() => {
+    if (!holeBarWidth) return 0;
+    const pad = holeBarWidth / 2 - HOLE_PILL_SIZE / 2;
+    return Math.max(0, Math.round(pad));
+  }, [holeBarWidth]);
+
+  const holesData = useMemo(() => Array.from({ length: 18 }).map((_, i) => i + 1), []);
+
+  const getItemLayout = useCallback((data, index) => {
+    return { length: HOLE_STEP, offset: HOLE_STEP * index, index };
+  }, []);
+
+  const scrollHoleToCenter = useCallback((h, animated = true) => {
+    if (!holeListRef.current) return;
+    const idx = Math.min(17, Math.max(0, Number(h || 1) - 1));
+
+    try {
+      holeListRef.current.scrollToIndex({
+        index: idx,
+        animated,
+        viewPosition: 0.5,
+      });
+    } catch {
+      holeListRef.current?.scrollToOffset?.({ offset: HOLE_STEP * idx, animated });
+    }
+  }, []);
+
+  const forceRecenter = useCallback(
+    (animated = true) => {
+      if (!holeBarWidth) return;
+      if (!holeListRef.current) return;
+
+      const h = currentHole;
+
+      // Do it in a few timed passes to survive navigation transitions and layout timing.
+      requestAnimationFrame(() => scrollHoleToCenter(h, animated));
+      setTimeout(() => scrollHoleToCenter(h, false), 60);
+      setTimeout(() => scrollHoleToCenter(h, false), 180);
+    },
+    [currentHole, holeBarWidth, scrollHoleToCenter]
+  );
+
+  // When currentHole changes, center it (reliably).
+  useEffect(() => {
+    if (!holeBarWidth) return;
+    if (!holeListReady) return;
+    forceRecenter(true);
+  }, [currentHole, holeBarWidth, holeListReady, forceRecenter]);
+
+  // On focus, re-center again (this is where it was failing for you after score entry).
+  useFocusEffect(
+    useCallback(() => {
+      const t = setTimeout(() => {
+        forceRecenter(false);
+      }, 40);
+      return () => clearTimeout(t);
+    }, [forceRecenter])
+  );
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -537,28 +641,52 @@ export default function HoleViewScreen({ navigation, route }) {
         title={headerTitle}
         subtitle={`${teeName} • Hole ${currentHole} • Par ${par}`}
         safeTop={false}
+        rightLabel="Home"
+        onRightPress={onPressHome}
       />
 
-      <ScrollView
-        style={styles.scroll}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: FOOTER_SPACE }]}
-      >
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.holePills}>
-          {Array.from({ length: 18 }).map((_, i) => {
-            const h = i + 1;
-            const active = h === currentHole;
-            return (
-              <Pressable
-                key={h}
-                onPress={() => setCurrentHole(h)}
-                style={[styles.holePill, active && styles.holePillActive]}
-              >
-                <Text style={[styles.holePillText, active && styles.holePillTextActive]}>{h}</Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+      <View style={styles.body}>
+        <View style={styles.holeBarWrap} onLayout={(e) => setHoleBarWidth(e?.nativeEvent?.layout?.width || 0)}>
+          <FlatList
+            ref={holeListRef}
+            data={holesData}
+            keyExtractor={(item) => String(item)}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={[styles.holePills, { paddingHorizontal: sidePad }]}
+            extraData={currentHole}
+            initialScrollIndex={Math.min(17, Math.max(0, (Number(currentHole) || 1) - 1))}
+            getItemLayout={getItemLayout}
+            onScrollToIndexFailed={(info) => {
+              const idx = Math.min(17, Math.max(0, Number(info?.index ?? 0)));
+              setTimeout(() => {
+                holeListRef.current?.scrollToOffset?.({ offset: HOLE_STEP * idx, animated: false });
+                setTimeout(() => scrollHoleToCenter(currentHole, false), 60);
+              }, 60);
+            }}
+            onContentSizeChange={() => {
+              if (!holeListReady) setHoleListReady(true);
+              // Once content is measured, lock center.
+              setTimeout(() => forceRecenter(false), 0);
+            }}
+            renderItem={({ item }) => {
+              const h = item;
+              const active = h === currentHole;
+              return (
+                <Pressable
+                  onPress={() => setCurrentHole(h)}
+                  style={({ pressed }) => [
+                    styles.holePill,
+                    active && styles.holePillActive,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={[styles.holePillText, active && styles.holePillTextActive]}>{h}</Text>
+                </Pressable>
+              );
+            }}
+          />
+        </View>
 
         <View style={styles.modeRow}>
           <Pressable onPress={openScorecard} style={[styles.modeBtn, styles.modeBtnPrimary]}>
@@ -579,22 +707,7 @@ export default function HoleViewScreen({ navigation, route }) {
             onPress={() => setYardageOpen(true)}
             style={({ pressed }) => [styles.ybCard, pressed && styles.pressed]}
           >
-            <View style={styles.ybTopRow}>
-              <Text style={styles.ybTitle}>Yardage Book</Text>
-              <Text style={styles.ybAction}>{hasNote ? "View" : "Add"}</Text>
-            </View>
-
-            {hasNote ? (
-              <Text style={styles.ybPreview} numberOfLines={2} ellipsizeMode="tail">
-                {notePreview}
-              </Text>
-            ) : (
-              <Text style={styles.ybPreviewMuted} numberOfLines={2}>
-                No notes yet.
-              </Text>
-            )}
-
-            <Text style={styles.ybHint}>{hasNote ? "Tap to view or edit" : "Tap to add notes"}</Text>
+            <Text style={styles.ybCenterText}>Yardage Book</Text>
           </Pressable>
         </View>
 
@@ -647,33 +760,36 @@ export default function HoleViewScreen({ navigation, route }) {
             </Pressable>
           </View>
         ) : null}
-      </ScrollView>
+      </View>
 
-      <View style={[styles.footer, { paddingBottom: bottomPad }]}>
+      <View style={[styles.footer, { paddingBottom: Math.max(10, (insets?.bottom || 0) + 8) }]}>
         <Pressable style={styles.greenBtn} onPress={() => openScoreEntry()}>
           <Text style={styles.greenText}>Input Scores</Text>
         </Pressable>
 
-        <Pressable
-          onPress={showFinish ? onPressFinishRound : onPressSaveRound}
-          style={({ pressed }) => [
-            styles.saveBtn,
-            pressed && styles.pressed,
-            savingRound && { opacity: 0.7 },
-          ]}
-          disabled={savingRound}
-        >
-          <Text style={styles.saveText}>
-            {savingRound ? "Saving…" : showFinish ? "Finish Round" : "Save Round"}
-          </Text>
-        </Pressable>
+        <View style={styles.footerMiniRow}>
+          <Pressable
+            onPress={showFinish ? onPressFinishRound : onPressSaveRound}
+            style={({ pressed }) => [
+              styles.miniBtn,
+              styles.saveMiniBtn,
+              pressed && styles.pressed,
+              savingRound && { opacity: 0.7 },
+            ]}
+            disabled={savingRound}
+          >
+            <Text style={styles.miniBtnText}>
+              {savingRound ? "Saving…" : showFinish ? "Finish Round" : "Save Round"}
+            </Text>
+          </Pressable>
 
-        <Pressable
-          onPress={() => setDeleteOpen(true)}
-          style={({ pressed }) => [styles.deleteBtn, pressed && styles.pressed]}
-        >
-          <Text style={styles.deleteText}>Delete Round</Text>
-        </Pressable>
+          <Pressable
+            onPress={() => setDeleteOpen(true)}
+            style={({ pressed }) => [styles.miniBtn, styles.deleteMiniBtn, pressed && styles.pressed]}
+          >
+            <Text style={styles.miniBtnText}>Delete Round</Text>
+          </Pressable>
+        </View>
       </View>
 
       <Modal visible={yardageOpen} transparent animationType="fade" onRequestClose={() => setYardageOpen(false)}>
@@ -691,7 +807,10 @@ export default function HoleViewScreen({ navigation, route }) {
                 </Text>
               </View>
 
-              <Pressable onPress={() => setYardageOpen(false)} style={({ pressed }) => [styles.modalX, pressed && styles.pressed]}>
+              <Pressable
+                onPress={() => setYardageOpen(false)}
+                style={({ pressed }) => [styles.modalX, pressed && styles.pressed]}
+              >
                 <Text style={styles.modalXText}>✕</Text>
               </Pressable>
             </View>
@@ -699,7 +818,7 @@ export default function HoleViewScreen({ navigation, route }) {
             <TextInput
               value={yardageText}
               onChangeText={setYardageText}
-              placeholder="Example: Wind left-to-right. Aim at right edge. Long is trouble. Best miss short-left…"
+              placeholder="Example: Wind left-to-right. Aim at right edge. Long is trouble…"
               placeholderTextColor="rgba(255,255,255,0.45)"
               style={styles.modalInput}
               multiline
@@ -728,38 +847,21 @@ export default function HoleViewScreen({ navigation, route }) {
             <Text style={styles.confirmSub}>Are you sure you want to delete this round? This can’t be undone.</Text>
 
             <View style={styles.confirmRow}>
-              <Pressable onPress={() => setDeleteOpen(false)} style={({ pressed }) => [styles.confirmBtn, pressed && styles.pressed]}>
+              <Pressable
+                onPress={() => setDeleteOpen(false)}
+                style={({ pressed }) => [styles.confirmBtn, pressed && styles.pressed]}
+              >
                 <Text style={styles.confirmBtnT}>Cancel</Text>
               </Pressable>
 
               <Pressable
                 onPress={doDeleteRound}
                 disabled={deleting}
-                style={({ pressed }) => [
-                  styles.confirmBtnDanger,
-                  pressed && styles.pressed,
-                  deleting && { opacity: 0.7 },
-                ]}
+                style={({ pressed }) => [styles.confirmBtnDanger, pressed && styles.pressed, deleting && { opacity: 0.7 }]}
               >
                 <Text style={styles.confirmBtnDangerT}>{deleting ? "Deleting…" : "Delete"}</Text>
               </Pressable>
             </View>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={deletedOpen} transparent animationType="fade" onRequestClose={() => setDeletedOpen(false)}>
-        <View style={styles.toastBg}>
-          <View style={styles.toastCard}>
-            <Text style={styles.toastText}>Round deleted</Text>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={savedOpen} transparent animationType="fade" onRequestClose={() => setSavedOpen(false)}>
-        <View style={styles.toastBg}>
-          <View style={styles.toastCard}>
-            <Text style={styles.toastText}>Round saved</Text>
           </View>
         </View>
       </Modal>
@@ -769,29 +871,30 @@ export default function HoleViewScreen({ navigation, route }) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: BG },
+  body: { flex: 1, paddingBottom: 6 },
 
-  scroll: { flex: 1 },
-  scrollContent: {},
-
-  holePills: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 10 },
+  holeBarWrap: { paddingTop: 8, paddingBottom: 6 },
+  holePills: { alignItems: "center" },
 
   holePill: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: HOLE_PILL_SIZE,
+    height: HOLE_PILL_SIZE,
+    borderRadius: HOLE_PILL_SIZE / 2,
     backgroundColor: INNER,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 8,
+    marginRight: HOLE_PILL_GAP,
   },
-  holePillActive: { backgroundColor: GREEN },
+
+  // keep active pill circular (no square-ish look)
+  holePillActive: { backgroundColor: GREEN, borderRadius: HOLE_PILL_SIZE / 2 },
   holePillText: { color: WHITE, fontWeight: "900" },
   holePillTextActive: { color: GREEN_TEXT },
 
-  modeRow: { flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 6 },
+  modeRow: { flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 4 },
   modeBtn: {
     flex: 1,
-    height: 46,
+    height: 44,
     borderRadius: 18,
     backgroundColor: INNER2,
     alignItems: "center",
@@ -805,44 +908,23 @@ const styles = StyleSheet.create({
   modeText: { color: WHITE, fontWeight: "900" },
   modeTextPrimary: { color: WHITE },
 
-  ybWrap: { marginHorizontal: 16, marginTop: 10 },
+  ybWrap: { marginHorizontal: 16, marginTop: 8 },
   ybCard: {
+    height: 56,
     borderRadius: 18,
-    padding: 12,
     borderWidth: 3,
     borderColor: YELLOW,
     backgroundColor: "rgba(255,255,255,0.04)",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  ybTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
-  ybTitle: { color: WHITE, fontWeight: "900", fontSize: 13, letterSpacing: 0.2 },
-  ybAction: { color: "rgba(255,255,255,0.70)", fontWeight: "900", fontSize: 12, letterSpacing: 0.3 },
+  ybCenterText: { color: WHITE, fontWeight: "900", fontSize: 14, letterSpacing: 0.3 },
 
-  ybPreview: {
-    marginTop: 8,
-    color: "rgba(255,255,255,0.92)",
-    fontWeight: "800",
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  ybPreviewMuted: {
-    marginTop: 8,
-    color: "rgba(255,255,255,0.65)",
-    fontWeight: "800",
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  ybHint: {
-    marginTop: 6,
-    color: "rgba(255,255,255,0.70)",
-    fontWeight: "900",
-    fontSize: 11,
-    letterSpacing: 0.2,
-  },
-
+  // bigger Hole View box (your request)
   mapCard: {
     marginHorizontal: 16,
-    marginTop: 10,
-    height: 170,
+    marginTop: 8,
+    height: 210,
     borderRadius: 22,
     backgroundColor: CARD,
     alignItems: "center",
@@ -851,8 +933,8 @@ const styles = StyleSheet.create({
   mapTitle: { color: WHITE, fontWeight: "900", fontSize: 18 },
   mapSub: { color: MUTED, marginTop: 8, fontWeight: "700", fontSize: 14 },
 
-  yardageRow: { flexDirection: "row", gap: 12, marginHorizontal: 16, marginTop: 14 },
-  yardCard: { flex: 1, backgroundColor: CARD, borderRadius: 20, alignItems: "center", paddingVertical: 14 },
+  yardageRow: { flexDirection: "row", gap: 12, marginHorizontal: 16, marginTop: 10 },
+  yardCard: { flex: 1, backgroundColor: CARD, borderRadius: 20, alignItems: "center", paddingVertical: 10 },
   yardLabel: { color: MUTED, fontSize: 11, fontWeight: "900" },
   yardValue: { color: WHITE, fontSize: 30, fontWeight: "900", marginTop: 6 },
   yardUnit: { color: MUTED, fontSize: 12, fontWeight: "700" },
@@ -870,9 +952,9 @@ const styles = StyleSheet.create({
 
   hintCard: {
     marginHorizontal: 16,
-    marginTop: 12,
+    marginTop: 10,
     borderRadius: 22,
-    padding: 14,
+    padding: 12,
     backgroundColor: "rgba(46,125,255,0.10)",
     borderWidth: 1,
     borderColor: "rgba(46,125,255,0.26)",
@@ -899,43 +981,37 @@ const styles = StyleSheet.create({
   hintBtnS: { color: "rgba(255,255,255,0.82)", fontWeight: "900", fontSize: 14 },
 
   footer: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    paddingTop: 12,
+    paddingTop: 10,
     paddingHorizontal: 16,
     backgroundColor: BG,
     borderTopWidth: 1,
     borderTopColor: "rgba(255,255,255,0.08)",
   },
 
-  greenBtn: { height: 56, borderRadius: 999, backgroundColor: GREEN, alignItems: "center", justifyContent: "center" },
+  greenBtn: {
+    height: 56,
+    borderRadius: 999,
+    backgroundColor: GREEN,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   greenText: { color: GREEN_TEXT, fontSize: 17, fontWeight: "900" },
 
-  saveBtn: {
-    marginTop: 10,
-    height: 52,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(46,125,255,0.18)",
-    borderWidth: 1,
-    borderColor: "rgba(46,125,255,0.45)",
-  },
-  saveText: { color: WHITE, fontWeight: "900", letterSpacing: 0.3 },
+  footerMiniRow: { marginTop: 10, flexDirection: "row", gap: 10 },
 
-  deleteBtn: {
-    marginTop: 10,
-    height: 52,
+  miniBtn: {
+    flex: 1,
+    height: 44,
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(214,40,40,0.12)",
     borderWidth: 1,
-    borderColor: "rgba(214,40,40,0.35)",
   },
-  deleteText: { color: WHITE, fontWeight: "900", letterSpacing: 0.3 },
+
+  saveMiniBtn: { backgroundColor: "rgba(46,125,255,0.18)", borderColor: "rgba(46,125,255,0.45)" },
+  deleteMiniBtn: { backgroundColor: "rgba(214,40,40,0.12)", borderColor: "rgba(214,40,40,0.35)" },
+
+  miniBtnText: { color: WHITE, fontWeight: "900", letterSpacing: 0.25, fontSize: 13 },
 
   modalBg: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.60)" },
   modalWrap: { flex: 1, justifyContent: "center", padding: 18 },
@@ -1018,17 +1094,6 @@ const styles = StyleSheet.create({
     backgroundColor: DANGER,
   },
   confirmBtnDangerT: { color: WHITE, fontWeight: "900" },
-
-  toastBg: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.62)" },
-  toastCard: {
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 18,
-    backgroundColor: "rgba(18,22,30,0.96)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-  },
-  toastText: { color: WHITE, fontWeight: "900" },
 
   pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
 });

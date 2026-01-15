@@ -16,6 +16,7 @@ import {
   Alert,
 } from "react-native";
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
+
 import ROUTES from "../navigation/routes";
 import { auth } from "../firebase/firebase";
 
@@ -31,54 +32,40 @@ const C = {
   danger: "#FF6B6B",
 };
 
-function friendlyAuthError(err) {
-  const code = String(err?.code || "");
-  if (code.includes("auth/invalid-email")) return "That email address doesn’t look valid.";
-  if (code.includes("auth/user-not-found")) return "No account found with that email.";
-  if (code.includes("auth/wrong-password")) return "Incorrect password. Try again.";
-  if (code.includes("auth/invalid-credential")) return "Email or password is incorrect.";
-  if (code.includes("auth/too-many-requests")) return "Too many attempts. Wait a bit and try again.";
-  if (code.includes("auth/network-request-failed")) return "Network error. Check your connection and try again.";
-  if (code.includes("auth/app-not-authorized"))
-    return "This app isn’t authorized for Firebase. Check Firebase project settings.";
-  if (code.includes("auth/operation-not-allowed"))
-    return "Email/password sign-in is not enabled in Firebase Auth settings.";
-  // IMPORTANT: don't force api-key-missing unless that is the actual code
-  return String(err?.message || "Sign in failed. Please try again.");
-}
-
 export default function LoginScreen({ navigation }) {
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
   const [err, setErr] = useState("");
-  const [errDebug, setErrDebug] = useState("");
   const [loading, setLoading] = useState(false);
 
   const canSubmit = useMemo(() => {
-    return String(email).trim().length > 3 && String(pw).length >= 6 && !loading;
+    const e = String(email || "").trim();
+    const p = String(pw || "");
+    return e.length > 3 && p.length >= 6 && !loading;
   }, [email, pw, loading]);
 
   async function onLogin() {
+    if (loading) return;
     setErr("");
-    setErrDebug("");
     setLoading(true);
 
     try {
+      Keyboard.dismiss();
       const e = String(email || "").trim();
       const p = String(pw || "");
       await signInWithEmailAndPassword(auth, e, p);
-      // RootNavigator will route automatically when auth state changes
-    } catch (e1) {
-      setErr(friendlyAuthError(e1));
-      setErrDebug(`code: ${String(e1?.code || "n/a")} | msg: ${String(e1?.message || "n/a")}`);
+      // RootNavigator will switch to the app when auth state changes.
+    } catch (e) {
+      setErr(String(e?.message || "Sign in failed. Please try again."));
     } finally {
       setLoading(false);
     }
   }
 
   async function onForgot() {
+    if (loading) return;
     setErr("");
-    setErrDebug("");
+    Keyboard.dismiss();
 
     const e = String(email || "").trim();
     if (!e) {
@@ -86,18 +73,24 @@ export default function LoginScreen({ navigation }) {
       return;
     }
 
+    setLoading(true);
     try {
       await sendPasswordResetEmail(auth, e);
-      Alert.alert("Email sent", "Check your inbox for a password reset link.");
+      Alert.alert("Email sent", "Check your inbox (and spam) for a password reset link.");
     } catch (e2) {
-      setErr(friendlyAuthError(e2));
-      setErrDebug(`code: ${String(e2?.code || "n/a")} | msg: ${String(e2?.message || "n/a")}`);
+      setErr(String(e2?.message || "Could not send reset email. Please try again."));
+    } finally {
+      setLoading(false);
     }
   }
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ImageBackground source={require("../../assets/landing-page3.jpg")} resizeMode="cover" style={styles.bg}>
+      <ImageBackground
+        source={require("../../assets/landing-page3.jpg")}
+        resizeMode="cover"
+        style={styles.bg}
+      >
         <View style={styles.overlay} />
 
         <KeyboardAvoidingView
@@ -105,7 +98,11 @@ export default function LoginScreen({ navigation }) {
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           keyboardVerticalOffset={Platform.OS === "ios" ? 10 : 0}
         >
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+          >
             <View style={styles.brandBlock}>
               <Image
                 source={require("../../assets/legacy-logo-transparent.png")}
@@ -129,6 +126,7 @@ export default function LoginScreen({ navigation }) {
                 placeholderTextColor={C.subtle}
                 style={styles.input}
                 returnKeyType="next"
+                editable={!loading}
                 onSubmitEditing={() => Keyboard.dismiss()}
               />
 
@@ -143,33 +141,37 @@ export default function LoginScreen({ navigation }) {
                 placeholderTextColor={C.subtle}
                 style={styles.input}
                 returnKeyType="done"
+                editable={!loading}
                 onSubmitEditing={onLogin}
               />
 
               <View style={styles.linksRow}>
-                <Pressable onPress={onForgot} style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.75 }]}>
+                <Pressable
+                  onPress={onForgot}
+                  disabled={loading}
+                  style={({ pressed }) => [styles.linkBtn, (pressed || loading) && { opacity: 0.75 }]}
+                >
                   <Text style={styles.linkText}>Forgot password?</Text>
                 </Pressable>
               </View>
 
-              {!!err && (
-                <View style={{ marginTop: 10 }}>
-                  <Text style={styles.error}>{err}</Text>
-                  {!!errDebug && <Text style={styles.errorDebug}>{errDebug}</Text>}
-                </View>
-              )}
+              {!!err && <Text style={styles.error}>{err}</Text>}
 
               <Pressable
                 onPress={onLogin}
                 disabled={!canSubmit}
-                style={({ pressed }) => [styles.primaryBtn, (!canSubmit || pressed) && { opacity: 0.85 }]}
+                style={({ pressed }) => [
+                  styles.primaryBtn,
+                  (!canSubmit || pressed) && { opacity: 0.85 },
+                ]}
               >
                 <Text style={styles.primaryBtnText}>{loading ? "Signing in..." : "Sign In"}</Text>
               </Pressable>
 
               <Pressable
                 onPress={() => navigation.navigate(ROUTES.AUTH_SIGNUP)}
-                style={({ pressed }) => [styles.bottomCta, pressed && { opacity: 0.75 }]}
+                disabled={loading}
+                style={({ pressed }) => [styles.bottomCta, (pressed || loading) && { opacity: 0.75 }]}
               >
                 <Text style={styles.bottomCtaText}>
                   New here? <Text style={styles.bottomCtaTextStrong}>Create account</Text>
@@ -183,19 +185,33 @@ export default function LoginScreen({ navigation }) {
   );
 }
 
-const LOGO_SIZE = 320;
+const LOGO_SIZE = 400;
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#000" },
   bg: { flex: 1 },
   overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: C.overlay },
-  scrollContent: { flexGrow: 1, paddingHorizontal: 18, paddingTop: 18, paddingBottom: 24 },
+  scrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 24,
+  },
 
-  brandBlock: { alignItems: "center", paddingTop: 6, paddingBottom: 0 },
-  logo: { width: LOGO_SIZE, height: LOGO_SIZE, marginBottom: -70 },
+  brandBlock: {
+    alignItems: "center",
+    paddingTop: 6,
+    paddingBottom: 0,
+    transform: [{ translateY: -30 }],
+  },
+  logo: {
+    width: LOGO_SIZE,
+    height: LOGO_SIZE,
+    marginBottom: -90,
+  },
   tagline: {
     marginTop: 0,
-    width: LOGO_SIZE,
+    width: LOGO_SIZE + 40,
     textAlign: "center",
     color: C.gold,
     fontSize: 18,
@@ -220,10 +236,15 @@ const styles = StyleSheet.create({
   linkBtn: { paddingVertical: 6, paddingHorizontal: 4 },
   linkText: { color: C.text, fontSize: 14 },
 
-  error: { color: C.danger, fontSize: 13, lineHeight: 18 },
-  errorDebug: { marginTop: 6, color: "rgba(247,247,247,0.65)", fontSize: 11, lineHeight: 16 },
+  error: { marginTop: 10, color: C.danger, fontSize: 13, lineHeight: 18 },
 
-  primaryBtn: { marginTop: 14, backgroundColor: C.gold, borderRadius: 16, paddingVertical: 15, alignItems: "center" },
+  primaryBtn: {
+    marginTop: 14,
+    backgroundColor: C.gold,
+    borderRadius: 16,
+    paddingVertical: 15,
+    alignItems: "center",
+  },
   primaryBtnText: { color: C.goldText, fontSize: 16, fontWeight: "800", letterSpacing: 0.2 },
 
   bottomCta: { marginTop: 12, paddingVertical: 10, alignItems: "center" },

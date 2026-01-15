@@ -5,12 +5,12 @@ module.exports = ({ config }) => {
     extra: {
       ...(config.extra || {}),
       firebase: {
-        apiKey: "REMOVED",
-        authDomain:  "legacy-golf.firebaseapp.com",
-        projectId: "legacy-golf",
-        storageBucket: "legacy-golf.firebasestorage.app",
-        messagingSenderId: "126362129345",
-        appId: "1:126362129345:web:c02c8cfb87b4f97e2b5540"
+        apiKey:  "AIzaSyA11y-RDPYlIZ30K7X1l37C0J76gtkV1o4",
+        authDomain:"legacy-golf-dev.firebaseapp.com",
+        projectId:  "legacy-golf-dev",
+        storageBucket:  "legacy-golf-dev.firebasestorage.app",
+        messagingSenderId: "87329359611",
+        appId: "1:87329359611:web:36ea3311124453e980925e"
       },
     },
   };

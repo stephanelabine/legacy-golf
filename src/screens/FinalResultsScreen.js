@@ -1,7 +1,7 @@
 // src/screens/FinalResultsScreen.js
 import React, { useCallback, useMemo, useState } from "react";
 import { SafeAreaView, View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, CommonActions } from "@react-navigation/native";
 
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
@@ -198,7 +198,12 @@ export default function FinalResultsScreen({ navigation, route }) {
   }
 
   function onDone() {
-    navigation.navigate(ROUTES.HISTORY);
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 0,
+        routes: [{ name: ROUTES.HOME }],
+      })
+    );
   }
 
   if (!round) {
@@ -208,7 +213,7 @@ export default function FinalResultsScreen({ navigation, route }) {
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
           <Text style={{ color: MUTED, fontWeight: "800" }}>Round not found.</Text>
           <Pressable onPress={onDone} style={({ pressed }) => [styles.cta, pressed && styles.pressed]}>
-            <Text style={styles.ctaText}>Go to History</Text>
+            <Text style={styles.ctaText}>Go Home</Text>
           </Pressable>
         </View>
       </SafeAreaView>

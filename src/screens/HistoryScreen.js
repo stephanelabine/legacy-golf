@@ -1,21 +1,18 @@
 // src/screens/HistoryScreen.js
 import React, { useCallback, useMemo, useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  Pressable,
-  Alert,
-  Platform,
-} from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, Alert, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 import ROUTES from "../navigation/routes";
+import { auth } from "../firebase/firebase";
 import { getRounds, deleteRound } from "../storage/rounds";
 import { loadActiveRound, clearActiveRoundEverywhere } from "../storage/roundState";
+import * as RoundState from "../storage/roundState";
+
+const BG = "#0B1220";
+const WHITE = "#FFFFFF";
 
 function pickFirstString(...vals) {
   for (const v of vals) {
@@ -94,13 +91,6 @@ function sumGrossAnyShape(roundRoot, playerId) {
   return total > 0 ? total : 0;
 }
 
-function calcNet(gross, handicap) {
-  const h = Number(handicap);
-  const strokes = Number.isFinite(h) ? Math.round(h) : 0;
-  if (!gross) return 0;
-  return Math.max(0, gross - Math.max(0, strokes));
-}
-
 function formatDateAny(round) {
   const raw =
     round?.playedAt ||
@@ -115,6 +105,108 @@ function formatDateAny(round) {
     month: "short",
     day: "numeric",
   });
+}
+
+function isRoundCompletedAnyShape(r) {
+  const s = String(r?.status || "").trim().toLowerCase();
+  if (s.includes("complete") || s.includes("finished") || s.includes("done")) return true;
+  if (s.includes("in_progress") || s.includes("active") || s.includes("progress")) return false;
+
+  const players = Array.isArray(r?.players) ? r.players : [];
+  const ids = players.map((p, idx) => String(p?.id ?? String(idx)));
+  if (!ids.length) return false;
+
+  for (let h = 1; h <= 18; h++) {
+    for (const pid of ids) {
+      const v = readStroke(r, h, pid);
+      if (toInt(v) <= 0) return false;
+    }
+  }
+  return true;
+}
+
+function pickHoleNumberAny(r, fallback = null) {
+  const holeRaw = pickFirstNumber(
+    r?.holeNumber,
+    r?.currentHole,
+    r?.hole,
+    r?.lastHole,
+    r?.resumeHole,
+    r?.holeIndex
+  );
+
+  let holeNumber = holeRaw;
+
+  if (holeNumber !== null && holeNumber >= 0 && holeNumber <= 17) {
+    const isIndex = r?.holeIndex !== undefined || holeNumber === 0;
+    if (isIndex) holeNumber = holeNumber + 1;
+  }
+
+  if (!Number.isFinite(holeNumber)) return fallback;
+  if (holeNumber < 1 || holeNumber > 18) return fallback;
+  return holeNumber;
+}
+
+function getSignedInUserKey() {
+  const uid = auth?.currentUser?.uid;
+  return uid ? String(uid) : null;
+}
+
+function pickUserPlayer(roundRoot) {
+  const players = Array.isArray(roundRoot?.players) ? roundRoot.players : [];
+  if (!players.length) return null;
+
+  const uid = getSignedInUserKey();
+
+  // 1) match by uid/userId
+  if (uid) {
+    const byUid = players.find((p) => String(p?.uid || p?.userId || p?.firebaseUid || "") === uid);
+    if (byUid) return byUid;
+  }
+
+  // 2) explicit flags
+  const byFlag = players.find((p) => p?.isYou === true || p?.isMe === true || p?.me === true);
+  if (byFlag) return byFlag;
+
+  // 3) fallback
+  return players[0];
+}
+
+function extractActiveSummary(state) {
+  const root = unwrapRound(state);
+  if (!root) return null;
+
+  const courseName = pickFirstString(
+    root?.course?.name,
+    root?.courseName,
+    root?.course?.title,
+    root?.place?.name,
+    state?.course?.name,
+    state?.courseName
+  );
+
+  const holeNumber = pickHoleNumberAny(root, null);
+
+  const isActiveExplicit =
+    !!root?.isActive ||
+    !!state?.isActive ||
+    root?.status === "active" ||
+    state?.status === "active" ||
+    root?.inProgress === true ||
+    state?.inProgress === true;
+
+  const hasEnoughToShow = !!courseName || isActiveExplicit || !!root?.course || !!root?.players;
+  if (!hasEnoughToShow) return null;
+
+  const roundId = root?.roundId ?? root?.id ?? state?.roundId ?? state?.id ?? null;
+
+  return {
+    roundId: roundId ? String(roundId) : null,
+    courseName: courseName || "Current Round",
+    holeNumber: holeNumber,
+    startedAt: root?.startedAt ?? state?.startedAt ?? null,
+    root,
+  };
 }
 
 function extractActiveRoundParams(state) {
@@ -141,29 +233,7 @@ function extractActiveRoundParams(state) {
     state?.scoringType ??
     "net";
 
-  const holeRaw = pickFirstNumber(
-    root?.holeNumber,
-    root?.currentHole,
-    root?.hole,
-    root?.holeIndex,
-    root?.resumeHole,
-    state?.holeNumber,
-    state?.currentHole,
-    state?.hole,
-    state?.holeIndex,
-    state?.resumeHole
-  );
-
-  let startHole = holeRaw ?? 1;
-
-  if (startHole !== null && startHole >= 0 && startHole <= 17) {
-    const isIndex =
-      root?.holeIndex !== undefined || state?.holeIndex !== undefined || startHole === 0;
-    if (isIndex) startHole = startHole + 1;
-  }
-
-  if (!Number.isFinite(startHole)) startHole = 1;
-  if (startHole < 1 || startHole > 18) startHole = 1;
+  const startHole = pickHoleNumberAny(root, 1);
 
   const courseName = pickFirstString(course?.name, root?.courseName, state?.courseName);
   const roundId = root?.roundId ?? root?.id ?? state?.roundId ?? state?.id ?? null;
@@ -183,78 +253,32 @@ function extractActiveRoundParams(state) {
   };
 }
 
-function extractActiveSummary(state) {
-  const root = unwrapRound(state);
-  if (!root) return null;
+function extractResumeParamsFromSavedRound(r) {
+  if (!r || typeof r !== "object") return null;
 
-  const courseName = pickFirstString(
-    root?.course?.name,
-    root?.courseName,
-    root?.course?.title,
-    root?.place?.name,
-    state?.course?.name,
-    state?.courseName
-  );
+  const course = r?.course || { name: r?.courseName || "Course", id: r?.courseId || r?.id || null };
+  const tee = r?.tee || { name: r?.teeName || "Tees" };
+  const players = Array.isArray(r?.players) ? r.players : [];
+  if (!players.length) return null;
 
-  const holeRaw = pickFirstNumber(
-    root?.holeNumber,
-    root?.currentHole,
-    root?.hole,
-    root?.holeIndex,
-    root?.resumeHole,
-    state?.holeNumber,
-    state?.currentHole,
-    state?.hole,
-    state?.holeIndex,
-    state?.resumeHole
-  );
+  const holeMeta = r?.holeMeta ?? r?.meta?.holeMeta ?? null;
+  const startHole = pickHoleNumberAny(r, 1);
 
-  let holeNumber = holeRaw;
-
-  if (holeNumber !== null && holeNumber >= 0 && holeNumber <= 17) {
-    const isIndex =
-      root?.holeIndex !== undefined || state?.holeIndex !== undefined || holeNumber === 0;
-    if (isIndex) holeNumber = holeNumber + 1;
-  }
-
-  const isActiveExplicit =
-    !!root?.isActive ||
-    !!state?.isActive ||
-    root?.status === "active" ||
-    state?.status === "active" ||
-    root?.inProgress === true ||
-    state?.inProgress === true;
-
-  const hasEnoughToShow = !!courseName || isActiveExplicit || !!root?.course || !!root?.players;
-  if (!hasEnoughToShow) return null;
-
-  const roundId = root?.roundId ?? root?.id ?? state?.roundId ?? state?.id ?? null;
+  const courseName = pickFirstString(r?.courseName, course?.name);
+  const roundId = r?.id ? String(r.id) : null;
 
   return {
-    roundId: roundId ? String(roundId) : null,
-    courseName: courseName || "Current Round",
-    holeNumber: holeNumber && holeNumber >= 1 && holeNumber <= 18 ? holeNumber : null,
-    startedAt: root?.startedAt ?? state?.startedAt ?? null,
-    root,
+    ...r,
+    course,
+    tee,
+    players,
+    holeMeta: holeMeta && typeof holeMeta === "object" ? holeMeta : undefined,
+    startHole,
+    hole: startHole,
+    holeIndex: startHole - 1,
+    courseName: courseName || course?.name,
+    roundId,
   };
-}
-
-function isRoundCompletedAnyShape(r) {
-  const s = String(r?.status || "").trim().toLowerCase();
-  if (s.includes("complete") || s.includes("finished") || s.includes("done")) return true;
-  if (s.includes("in_progress") || s.includes("active") || s.includes("progress")) return false;
-
-  const players = Array.isArray(r?.players) ? r.players : [];
-  const ids = players.map((p, idx) => String(p?.id ?? String(idx)));
-  if (!ids.length) return false;
-
-  for (let h = 1; h <= 18; h++) {
-    for (const pid of ids) {
-      const v = readStroke(r, h, pid);
-      if (toInt(v) <= 0) return false;
-    }
-  }
-  return true;
 }
 
 export default function HistoryScreen({ navigation }) {
@@ -312,7 +336,7 @@ export default function HistoryScreen({ navigation }) {
     });
   }
 
-  function onPressActivePinned() {
+  async function onPressActivePinned() {
     if (deleteMode) {
       toggleSelectRound(activePinnedId);
       return;
@@ -327,15 +351,42 @@ export default function HistoryScreen({ navigation }) {
     navigation.navigate(ROUTES.GAMES, { resume: true });
   }
 
-  function onPressRound(r) {
+  async function onPressRound(r) {
     if (deleteMode) {
       toggleSelectRound(r?.id);
       return;
     }
-    navigation.navigate({
-      name: ROUTES.ROUND_DETAILS,
-      params: { roundId: r.id },
-    });
+
+    const completed = isRoundCompletedAnyShape(r);
+
+    if (completed) {
+      navigation.navigate({
+        name: ROUTES.ROUND_DETAILS,
+        params: { roundId: r.id },
+      });
+      return;
+    }
+
+    const params = extractResumeParamsFromSavedRound(r);
+    if (!params) {
+      Alert.alert("Can’t resume", "This round is missing data needed to resume.");
+      return;
+    }
+
+    try {
+      // Set this saved round as the active round so the rest of the app has full context.
+      // This keeps wagers/players/holes aligned as you move around.
+      if (typeof RoundState.saveActiveRound === "function") {
+        await RoundState.saveActiveRound({
+          ...r,
+          id: String(r?.id || `r_${Date.now()}`),
+          status: "in_progress",
+          lastHole: pickHoleNumberAny(r, params?.hole || 1),
+        });
+      }
+    } catch {}
+
+    navigation.navigate(ROUTES.HOLE_VIEW, params);
   }
 
   async function confirmDeleteSelected() {
@@ -385,6 +436,79 @@ export default function HistoryScreen({ navigation }) {
   const bottomPad = Math.max(14, (insets?.bottom || 0) + 12);
   const headerPadTop = insets?.top || 0;
 
+  function renderRoundRow({
+    id,
+    courseName,
+    dateText,
+    statusText,
+    statusKind,
+    rightPrimary,
+    rightSecondary,
+    onPress,
+    pinned = false,
+  }) {
+    const isSelected = !!selected[String(id)];
+
+    return (
+      <Pressable
+        key={String(id)}
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.card,
+          pinned && styles.cardPinned,
+          deleteMode && isSelected && styles.cardSelected,
+          pressed && styles.pressed,
+        ]}
+      >
+        {deleteMode ? (
+          <View style={styles.selectIconWrap}>
+            <MaterialCommunityIcons
+              name={isSelected ? "check-circle" : "circle-outline"}
+              size={22}
+              color={isSelected ? "#FF4D4D" : "rgba(255,255,255,0.55)"}
+            />
+          </View>
+        ) : null}
+
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={styles.course} numberOfLines={2}>
+            {shortCourseTitle(courseName)}
+          </Text>
+
+          <Text style={styles.date} numberOfLines={1}>
+            {dateText}
+          </Text>
+
+          <View style={styles.statusRow}>
+            <View
+              style={[
+                styles.statusChip,
+                statusKind === "completed" ? styles.statusChipDone : styles.statusChipProg,
+              ]}
+            >
+              <Text style={styles.statusText}>{statusText}</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.rightBox}>
+          <Text style={styles.rightPrimary} numberOfLines={1}>
+            {rightPrimary}
+          </Text>
+          <Text style={styles.rightSecondary} numberOfLines={1}>
+            {rightSecondary}
+          </Text>
+        </View>
+
+        {!deleteMode ? (
+          <View style={styles.chev}>
+            <MaterialCommunityIcons name="chevron-right" size={22} color="rgba(255,255,255,0.60)" />
+          </View>
+        ) : null}
+      </Pressable>
+    );
+  }
+
   return (
     <View style={[styles.screen, { paddingTop: headerPadTop }]}>
       <View style={styles.headerWrap}>
@@ -393,7 +517,9 @@ export default function HistoryScreen({ navigation }) {
 
         <View style={styles.headerRow}>
           <Pressable
-            onPress={() => (navigation.canGoBack?.() ? navigation.goBack() : navigation.navigate(ROUTES.HOME))}
+            onPress={() =>
+              navigation.canGoBack?.() ? navigation.goBack() : navigation.navigate(ROUTES.HOME)
+            }
             hitSlop={12}
             style={({ pressed }) => [styles.headerPill, pressed && styles.pressed]}
           >
@@ -408,7 +534,9 @@ export default function HistoryScreen({ navigation }) {
                   ? `${selectedCount} selected`
                   : "Tap items to select"
                 : hasAny
-                ? `${(hasActive ? 1 : 0) + items.length} item${(hasActive ? 1 : 0) + items.length === 1 ? "" : "s"}`
+                ? `${(hasActive ? 1 : 0) + items.length} item${
+                    (hasActive ? 1 : 0) + items.length === 1 ? "" : "s"
+                  }`
                 : "Your rounds, beautifully organized"}
             </Text>
           </View>
@@ -447,156 +575,65 @@ export default function HistoryScreen({ navigation }) {
                   size={18}
                   color="rgba(255,255,255,0.78)"
                 />
-                <Text style={styles.selectHintText}>Select item(s) to delete. You can choose multiple.</Text>
+                <Text style={styles.selectHintText}>
+                  Select item(s) to delete. You can choose multiple.
+                </Text>
               </View>
             ) : null}
 
-            {/* Pinned active round */}
-            {hasActive ? (
-              (() => {
-                const r = activeSummary?.root || unwrapRound(activeState) || {};
-                const course = shortCourseTitle(String(activeSummary?.courseName || "Current Round").trim());
-                const date = formatDateAny(r);
+            {hasActive
+              ? (() => {
+                  const root = activeSummary?.root || unwrapRound(activeState) || {};
+                  const courseName = String(activeSummary?.courseName || "Current Round").trim();
+                  const dateText = formatDateAny(root);
+                  const holeNum = activeSummary?.holeNumber || pickHoleNumberAny(root, null);
 
-                const holeNum = activeSummary?.holeNumber || null;
-                const holeBadge = holeNum ? String(holeNum) : "▶";
+                  const statusText = "In Progress";
 
-                const p1 = Array.isArray(r?.players) ? r.players[0] : null;
-                const p1Id = p1?.id ? String(p1.id) : "p1";
-                const gross = sumGrossAnyShape(r, p1Id);
-                const net = calcNet(gross, p1?.handicap);
+                  const rightPrimary = holeNum ? `Hole ${holeNum}` : "Resume";
+                  const rightSecondary = holeNum ? "Currently on" : "Tap to continue";
 
-                void gross;
-                void net;
+                  return renderRoundRow({
+                    id: activePinnedId,
+                    courseName,
+                    dateText,
+                    statusText,
+                    statusKind: "in_progress",
+                    rightPrimary,
+                    rightSecondary,
+                    pinned: true,
+                    onPress: onPressActivePinned,
+                  });
+                })()
+              : null}
 
-                const isSelected = !!selected[activePinnedId];
-
-                return (
-                  <Pressable
-                    key={activePinnedId}
-                    onPress={onPressActivePinned}
-                    style={({ pressed }) => [
-                      styles.card,
-                      styles.cardPinned,
-                      deleteMode && isSelected && styles.cardSelected,
-                      pressed && styles.pressed,
-                    ]}
-                  >
-                    {deleteMode ? (
-                      <View style={styles.selectIconWrap}>
-                        <MaterialCommunityIcons
-                          name={isSelected ? "check-circle" : "circle-outline"}
-                          size={22}
-                          color={isSelected ? "#FF4D4D" : "rgba(255,255,255,0.55)"}
-                        />
-                      </View>
-                    ) : null}
-
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={styles.pinnedCourse} numberOfLines={2}>
-                        {course}
-                      </Text>
-
-                      <Text style={styles.pinnedStatus}>IN PROGRESS</Text>
-
-                      <Text style={styles.meta} numberOfLines={1}>
-                        {holeNum ? `Resume on Hole ${holeNum}` : "Resume"} • {date}
-                      </Text>
-                    </View>
-
-                    <View style={styles.rightWrap}>
-                      <View style={styles.holeCircle}>
-                        <Text style={styles.holeCircleText}>{holeBadge}</Text>
-                      </View>
-
-                      {!deleteMode ? (
-                        <View style={styles.chevPinned}>
-                          <MaterialCommunityIcons
-                            name="chevron-right"
-                            size={22}
-                            color="rgba(255,255,255,0.72)"
-                          />
-                        </View>
-                      ) : null}
-                    </View>
-                  </Pressable>
-                );
-              })()
-            ) : null}
-
-            {/* Saved rounds */}
             {items.map((r) => {
-              const course = shortCourseTitle(String(r?.courseName || "Course").trim());
-              const date = formatDateAny(r);
-
-              const p1 = Array.isArray(r?.players) ? r.players[0] : null;
-              const p1Id = p1?.id ? String(p1.id) : "p1";
-              const gross = sumGrossAnyShape(r, p1Id);
-              const net = calcNet(gross, p1?.handicap);
+              const rid = String(r?.id);
+              const courseName = String(r?.courseName || r?.course?.name || "Course").trim();
+              const dateText = formatDateAny(r);
 
               const completed = isRoundCompletedAnyShape(r);
-              const status = completed ? "COMPLETED" : "IN PROGRESS";
+              const statusText = completed ? "Completed" : "In Progress";
 
-              const grossLabel = gross ? String(gross) : "—";
-              const netLabel = gross ? String(net) : "—";
+              const holeNum = pickHoleNumberAny(r, null);
 
-              const rid = String(r?.id);
-              const isSelected = !!selected[rid];
+              const userPlayer = pickUserPlayer(r);
+              const userId = userPlayer?.id ? String(userPlayer.id) : "p1";
+              const gross = sumGrossAnyShape(r, userId);
 
-              return (
-                <Pressable
-                  key={rid}
-                  onPress={() => onPressRound(r)}
-                  style={({ pressed }) => [
-                    styles.card,
-                    deleteMode && isSelected && styles.cardSelected,
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  {deleteMode ? (
-                    <View style={styles.selectIconWrap}>
-                      <MaterialCommunityIcons
-                        name={isSelected ? "check-circle" : "circle-outline"}
-                        size={22}
-                        color={isSelected ? "#FF4D4D" : "rgba(255,255,255,0.55)"}
-                      />
-                    </View>
-                  ) : null}
+              const rightPrimary = completed ? (gross ? String(gross) : "—") : holeNum ? `Hole ${holeNum}` : "Resume";
+              const rightSecondary = completed ? "Gross" : holeNum ? "Currently on" : "Tap to continue";
 
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <View style={styles.cardTopRow}>
-                      <Text style={styles.course} numberOfLines={1}>
-                        {course}
-                      </Text>
-
-                      <View style={[styles.statusChip, completed ? styles.statusChipDone : styles.statusChipProg]}>
-                        <Text style={styles.statusText}>{status}</Text>
-                      </View>
-                    </View>
-
-                    <Text style={styles.meta} numberOfLines={1}>
-                      {date}
-                    </Text>
-                  </View>
-
-                  <View style={styles.scorePill}>
-                    <View style={styles.scoreRow}>
-                      <Text style={styles.scoreKey}>gross</Text>
-                      <Text style={styles.scoreVal}>{grossLabel}</Text>
-                    </View>
-                    <View style={styles.scoreRow}>
-                      <Text style={styles.scoreKey}>net</Text>
-                      <Text style={styles.scoreVal}>{netLabel}</Text>
-                    </View>
-                  </View>
-
-                  {!deleteMode ? (
-                    <View style={styles.chev}>
-                      <MaterialCommunityIcons name="chevron-right" size={22} color="rgba(255,255,255,0.60)" />
-                    </View>
-                  ) : null}
-                </Pressable>
-              );
+              return renderRoundRow({
+                id: rid,
+                courseName,
+                dateText,
+                statusText,
+                statusKind: completed ? "completed" : "in_progress",
+                rightPrimary,
+                rightSecondary,
+                onPress: () => onPressRound(r),
+              });
             })}
           </View>
         )}
@@ -642,7 +679,7 @@ export default function HistoryScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#0B1220" },
+  screen: { flex: 1, backgroundColor: BG },
 
   headerWrap: {
     paddingHorizontal: 16,
@@ -695,10 +732,10 @@ const styles = StyleSheet.create({
     borderColor: "rgba(214,40,40,0.40)",
     backgroundColor: "rgba(214,40,40,0.16)",
   },
-  headerPillText: { color: "#fff", fontWeight: "900", fontSize: 13 },
+  headerPillText: { color: WHITE, fontWeight: "900", fontSize: 13 },
 
   headerCenter: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 10 },
-  headerTitle: { color: "#fff", fontSize: 20, fontWeight: "900", letterSpacing: 0.6 },
+  headerTitle: { color: WHITE, fontSize: 20, fontWeight: "900", letterSpacing: 0.6 },
   headerSub: { marginTop: 4, color: "rgba(255,255,255,0.60)", fontSize: 12, fontWeight: "800" },
 
   emptyCard: {
@@ -711,7 +748,7 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 6,
   },
-  emptyTitle: { color: "#fff", fontSize: 14, fontWeight: "900" },
+  emptyTitle: { color: WHITE, fontSize: 14, fontWeight: "900" },
   emptyText: { color: "rgba(255,255,255,0.65)", fontSize: 12, fontWeight: "800", textAlign: "center" },
 
   selectHint: {
@@ -754,24 +791,10 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
 
-  pinnedCourse: { color: "#fff", fontSize: 16, fontWeight: "900" },
-  pinnedStatus: {
-    marginTop: 6,
-    color: "rgba(255,255,255,0.78)",
-    fontSize: 12,
-    fontWeight: "900",
-    letterSpacing: 0.7,
-  },
+  course: { color: WHITE, fontSize: 16, fontWeight: "900" },
+  date: { marginTop: 6, color: "rgba(255,255,255,0.70)", fontSize: 12, fontWeight: "800" },
 
-  cardTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-  },
-
-  course: { color: "#fff", fontSize: 16, fontWeight: "900", flex: 1 },
-  meta: { marginTop: 6, color: "rgba(255,255,255,0.70)", fontSize: 12, fontWeight: "800" },
+  statusRow: { marginTop: 8, flexDirection: "row", alignItems: "center" },
 
   statusChip: {
     paddingHorizontal: 10,
@@ -779,43 +802,32 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
   },
-  statusChipDone: { borderColor: "rgba(15,122,74,0.45)", backgroundColor: "rgba(15,122,74,0.16)" },
-  statusChipProg: { borderColor: "rgba(46,125,255,0.45)", backgroundColor: "rgba(46,125,255,0.14)" },
 
-  statusText: { color: "#fff", fontWeight: "900", fontSize: 11, letterSpacing: 0.9, opacity: 0.9 },
+  // In Progress = blue
+  statusChipProg: { borderColor: "rgba(46,125,255,0.55)", backgroundColor: "rgba(46,125,255,0.16)" },
 
-  rightWrap: { alignItems: "center", justifyContent: "center", marginLeft: 10 },
+  // Completed = green
+  statusChipDone: { borderColor: "rgba(46,204,113,0.60)", backgroundColor: "rgba(46,204,113,0.16)" },
 
-  holeCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.16)",
-    backgroundColor: "rgba(0,0,0,0.20)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  holeCircleText: { color: "#fff", fontWeight: "900", fontSize: 16 },
+  statusText: { color: WHITE, fontWeight: "900", fontSize: 11, letterSpacing: 0.9, opacity: 0.92 },
 
-  scorePill: {
-    minWidth: 98,
+  rightBox: {
+    minWidth: 112,
     borderRadius: 16,
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
     backgroundColor: "rgba(0,0,0,0.18)",
-    alignItems: "stretch",
+    alignItems: "flex-end",
+    justifyContent: "center",
     gap: 6,
     marginLeft: 10,
   },
-  scoreRow: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" },
-  scoreKey: { color: "rgba(255,255,255,0.62)", fontSize: 12, fontWeight: "900", letterSpacing: 0.6 },
-  scoreVal: { color: "#fff", fontSize: 16, fontWeight: "900" },
+  rightPrimary: { color: WHITE, fontSize: 18, fontWeight: "900" },
+  rightSecondary: { color: "rgba(255,255,255,0.62)", fontSize: 12, fontWeight: "900", letterSpacing: 0.3 },
 
   chev: { width: 28, alignItems: "flex-end", justifyContent: "center", marginLeft: 8 },
-  chevPinned: { marginTop: 8 },
 
   fabWrap: {
     position: "absolute",
@@ -841,7 +853,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 10 },
     elevation: 6,
   },
-  fabText: { color: "#fff", fontWeight: "900", letterSpacing: 0.2, fontSize: 13 },
+  fabText: { color: WHITE, fontWeight: "900", letterSpacing: 0.2, fontSize: 13 },
 
   deleteDock: {
     borderRadius: 22,
@@ -865,7 +877,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     minWidth: 92,
   },
-  dockBtnText: { color: "#fff", fontWeight: "900", letterSpacing: 0.2 },
+  dockBtnText: { color: WHITE, fontWeight: "900", letterSpacing: 0.2 },
 
   dockBtnDanger: {
     flex: 1,
@@ -878,7 +890,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 12,
   },
-  dockBtnDangerText: { color: "#fff", fontWeight: "900", letterSpacing: 0.25 },
+  dockBtnDangerText: { color: WHITE, fontWeight: "900", letterSpacing: 0.25 },
   dockBtnDangerSub: { marginTop: 2, color: "rgba(255,255,255,0.80)", fontWeight: "800", fontSize: 11 },
 
   pressed: {

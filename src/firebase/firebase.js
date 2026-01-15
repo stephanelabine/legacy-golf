@@ -1,59 +1,45 @@
 // src/firebase/firebase.js
 import { initializeApp, getApp, getApps } from "firebase/app";
-import { getAuth } from "firebase/auth";
 import Constants from "expo-constants";
+import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
 
-function maskKey(k) {
-  const s = String(k || "");
-  if (!s) return "(missing)";
-  const head = s.slice(0, 6);
-  const tail = s.slice(-4);
-  return `${head}…${tail} (len ${s.length})`;
+function getExtraFirebase() {
+  return (
+    Constants?.expoConfig?.extra?.firebase ||
+    Constants?.manifest?.extra?.firebase ||
+    {}
+  );
 }
 
-const extraFirebase =
-  Constants?.expoConfig?.extra?.firebase ||
-  Constants?.manifest?.extra?.firebase ||
-  {};
-
-const envKey = process.env.EXPO_PUBLIC_FIREBASE_API_KEY;
-const extraKey = extraFirebase.apiKey;
-
-const apiKey = envKey || extraKey;
+const extraFirebase = getExtraFirebase();
 
 const firebaseConfig = {
-  apiKey,
-  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || extraFirebase.authDomain,
-  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || extraFirebase.projectId,
-  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET || extraFirebase.storageBucket,
-  messagingSenderId:
-    process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || extraFirebase.messagingSenderId,
-  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID || extraFirebase.appId,
+  apiKey: extraFirebase.apiKey,
+  authDomain: extraFirebase.authDomain,
+  projectId: extraFirebase.projectId,
+  storageBucket: extraFirebase.storageBucket,
+  messagingSenderId: extraFirebase.messagingSenderId,
+  appId: extraFirebase.appId,
 };
 
 if (!firebaseConfig.apiKey) {
   throw new Error(
-    "FIREBASE CONFIG CHECK:\n" +
-      `apiKey: ${maskKey(firebaseConfig.apiKey)}\n` +
-      `authDomain: ${firebaseConfig.authDomain || "(missing)"}\n` +
-      `projectId: ${firebaseConfig.projectId || "(missing)"}\n` +
-      `envKey present: ${!!envKey}\n` +
-      `extraKey present: ${!!extraKey}`
+    "Firebase config missing apiKey. Check app.config.js extra.firebase, then restart Expo with: npx expo start -c"
   );
 }
 
-// Even if apiKey exists, show what we're using (masked) if Auth still errors later.
-console.log(
-  "[FIREBASE CONFIG CHECK]",
-  {
-    apiKey: maskKey(firebaseConfig.apiKey),
-    authDomain: firebaseConfig.authDomain,
-    projectId: firebaseConfig.projectId,
-    envKeyPresent: !!envKey,
-    extraKeyPresent: !!extraKey,
-  }
-);
-
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export default app;
+
+// Auth with RN persistence
+let auth;
+try {
+  const { initializeAuth, getReactNativePersistence } = require("firebase/auth");
+  auth = initializeAuth(app, {
+    persistence: getReactNativePersistence(ReactNativeAsyncStorage),
+  });
+} catch (e) {
+  const { getAuth } = require("firebase/auth");
+  auth = getAuth(app);
+}
+
+export { app, auth };
