@@ -433,15 +433,23 @@ export default function HoleViewScreen({ navigation, route }) {
       const safeTee = active?.tee || teeParam || { name: teeName };
       const safeHoles = active?.holes || {};
 
+      // NEW: persist wagers + holeMeta to the saved round
+      const safeWagers = active?.wagers || params?.wagers || null;
+      const safeMeta = active?.meta && typeof active.meta === "object" ? active.meta : {};
+      const mergedMeta = { ...safeMeta, holeMeta };
+
       const id = String(active?.id || roundId || `r_${Date.now()}`);
 
       const payload = {
         id,
         courseName: String(safeCourse?.name || courseName || "Course"),
+        teeName: String(safeTee?.name || teeName || "Tees"),
         course: safeCourse,
         tee: safeTee,
         players: safePlayers,
         holes: safeHoles,
+        wagers: safeWagers,
+        meta: mergedMeta,
         playedAt: active?.playedAt || active?.startedAt || new Date().toISOString(),
         startedAt: active?.startedAt || new Date().toISOString(),
         status: status || "in_progress",
@@ -816,6 +824,30 @@ export default function HoleViewScreen({ navigation, route }) {
           </View>
         </View>
       </Modal>
+
+      <Modal visible={deletedOpen} transparent animationType="fade" onRequestClose={() => setDeletedOpen(false)}>
+        <Pressable style={styles.confirmBg} onPress={() => setDeletedOpen(false)}>
+          <View />
+        </Pressable>
+        <View style={styles.confirmWrap}>
+          <View style={styles.confirmCard}>
+            <Text style={styles.confirmTitle}>Round deleted</Text>
+            <Text style={styles.confirmSub}>Returning Home…</Text>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={savedOpen} transparent animationType="fade" onRequestClose={() => setSavedOpen(false)}>
+        <Pressable style={styles.confirmBg} onPress={() => setSavedOpen(false)}>
+          <View />
+        </Pressable>
+        <View style={styles.confirmWrap}>
+          <View style={styles.confirmCard}>
+            <Text style={styles.confirmTitle}>Round saved</Text>
+            <Text style={styles.confirmSub}>Saved to Round History.</Text>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -862,7 +894,6 @@ const styles = StyleSheet.create({
 
   ybWrap: { marginHorizontal: 16, marginTop: 8 },
 
-  // 50% bigger Yardage Book pill
   ybCard: {
     height: 84,
     borderRadius: 27,
