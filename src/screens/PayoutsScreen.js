@@ -12,7 +12,6 @@ const CARD = "rgba(255,255,255,0.05)";
 const BORDER = "rgba(255,255,255,0.14)";
 const MUTED = "rgba(255,255,255,0.65)";
 const WHITE = "#FFFFFF";
-const INNER = "rgba(0,0,0,0.18)";
 const BLUE = theme?.colors?.primary || "#2E7DFF";
 
 // Green accent ring (matches ScoreEntryScreen)
@@ -52,23 +51,38 @@ function sumTotal(roundRoot, playerId) {
   return total;
 }
 
-function dollars(n) {
+function toCents(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100);
+}
+
+function fromCents(c) {
+  const n = Number(c);
+  if (!Number.isFinite(n)) return 0;
+  return n / 100;
+}
+
+function dollarsSigned(n) {
   const v = Number(n);
-  if (!Number.isFinite(v)) return "$0";
-  const asInt = Math.round(v);
-  if (Math.abs(v - asInt) < 0.000001) return `$${asInt}`;
-  return `$${v.toFixed(2)}`;
+  if (!Number.isFinite(v) || Math.abs(v) < 0.000001) return "$0";
+  const neg = v < 0;
+  const abs = Math.abs(v);
+  const asInt = Math.round(abs);
+  const str = Math.abs(abs - asInt) < 0.000001 ? `$${asInt}` : `$${abs.toFixed(2)}`;
+  return neg ? `-${str}` : str;
 }
 
 // Given balances: positive means receive, negative means pay
-function settleTransactions(balances) {
+// This version uses cents to avoid floating issues
+function settleTransactionsCents(balancesCents) {
   const creditors = [];
   const debtors = [];
 
-  Object.keys(balances || {}).forEach((pid) => {
-    const amt = Number(balances[pid] || 0);
-    if (amt > 0.000001) creditors.push({ pid, amt });
-    else if (amt < -0.000001) debtors.push({ pid, amt: -amt });
+  Object.keys(balancesCents || {}).forEach((pid) => {
+    const amt = Number(balancesCents[pid] || 0);
+    if (amt > 0) creditors.push({ pid, amt });
+    else if (amt < 0) debtors.push({ pid, amt: -amt });
   });
 
   creditors.sort((a, b) => b.amt - a.amt);
@@ -82,70 +96,70 @@ function settleTransactions(balances) {
     const c = creditors[j];
     const pay = Math.min(d.amt, c.amt);
 
-    tx.push({ from: d.pid, to: c.pid, amount: pay });
+    if (pay > 0) tx.push({ from: d.pid, to: c.pid, cents: pay });
 
     d.amt -= pay;
     c.amt -= pay;
 
-    if (d.amt <= 0.000001) i += 1;
-    if (c.amt <= 0.000001) j += 1;
+    if (d.amt <= 0) i += 1;
+    if (c.amt <= 0) j += 1;
   }
 
   return tx;
 }
 
 // Skins: unique low score wins; ties carry; each skin pays (N-1)*amount to winner
-function calcSkins(round, players, amount) {
+function calcSkinsCents(round, players, amount) {
   const n = players.length;
-  const perSkinValue = (n - 1) * Number(amount || 0);
-  if (n < 2 || perSkinValue <= 0) return { balances: {}, details: [] };
+  const betC = toCents(amount || 0);
+  const perSkinValueC = (n - 1) * betC;
+  if (n < 2 || perSkinValueC <= 0) return { balancesCents: {}, details: [] };
 
-  const balances = {};
-  players.forEach((p) => (balances[p.id] = 0));
+  const balancesCents = {};
+  players.forEach((p) => (balancesCents[p.id] = 0));
 
   let carry = 0;
   const details = [];
 
   for (let h = 1; h <= 18; h++) {
     const scores = players.map((p) => ({ pid: p.id, s: readStroke(round, h, p.id) }));
-    if (scores.some((x) => x.s <= 0)) {
-      // If missing/invalid strokes, skip (should not happen after validation)
-      continue;
-    }
+    if (scores.some((x) => x.s <= 0)) continue;
 
     scores.sort((a, b) => a.s - b.s);
     const best = scores[0].s;
     const tied = scores.filter((x) => x.s === best);
+
     if (tied.length === 1) {
       const winner = tied[0].pid;
-      const pot = perSkinValue * (1 + carry);
-      balances[winner] += pot;
+      const potC = perSkinValueC * (1 + carry);
+
+      balancesCents[winner] += potC;
       players.forEach((p) => {
-        if (p.id !== winner) balances[p.id] -= (Number(amount || 0) * (1 + carry));
+        if (p.id !== winner) balancesCents[p.id] -= betC * (1 + carry);
       });
 
-      details.push({ hole: h, winner, value: pot, carryUsed: carry });
+      details.push({ hole: h, winner, valueCents: potC, carryUsed: carry });
       carry = 0;
     } else {
       carry += 1;
-      details.push({ hole: h, winner: null, value: 0, carryUsed: carry });
+      details.push({ hole: h, winner: null, valueCents: 0, carryUsed: carry });
     }
   }
 
-  return { balances, details };
+  return { balancesCents, details };
 }
 
 // Nassau (group version): lowest total wins each segment; ties split pot
-function calcNassau(round, players, frontAmt, backAmt, totalAmt) {
+function calcNassauCents(round, players, frontAmt, backAmt, totalAmt) {
   const n = players.length;
-  if (n < 2) return { balances: {}, segments: [] };
+  if (n < 2) return { balancesCents: {}, segments: [] };
 
-  const balances = {};
-  players.forEach((p) => (balances[p.id] = 0));
+  const balancesCents = {};
+  players.forEach((p) => (balancesCents[p.id] = 0));
 
   function segmentWinner(hFrom, hTo, amt, label) {
-    const bet = Number(amt || 0);
-    if (bet <= 0) return null;
+    const betC = toCents(amt || 0);
+    if (betC <= 0) return null;
 
     const segTotals = players.map((p) => {
       let t = 0;
@@ -156,15 +170,26 @@ function calcNassau(round, players, frontAmt, backAmt, totalAmt) {
     const min = Math.min(...segTotals.map((x) => x.total));
     const winners = segTotals.filter((x) => x.total === min).map((x) => x.pid);
 
-    const pot = bet * (n - 1);
-    const share = pot / winners.length;
+    const potC = betC * (n - 1);
+    const shareC = Math.floor(potC / winners.length);
+    const remainder = potC - shareC * winners.length;
 
-    winners.forEach((w) => (balances[w] += share));
-    players.forEach((p) => {
-      if (!winners.includes(p.id)) balances[p.id] -= bet;
+    winners.forEach((w, idx) => {
+      balancesCents[w] += shareC + (idx < remainder ? 1 : 0);
     });
 
-    return { label, bet, winners, pot, share };
+    players.forEach((p) => {
+      if (!winners.includes(p.id)) balancesCents[p.id] -= betC;
+    });
+
+    return {
+      label,
+      betCents: betC,
+      winners,
+      potCents: potC,
+      shareCents: shareC,
+      remainderCents: remainder,
+    };
   }
 
   const segments = [];
@@ -175,36 +200,42 @@ function calcNassau(round, players, frontAmt, backAmt, totalAmt) {
   const c = segmentWinner(1, 18, totalAmt, "Total 18");
   if (c) segments.push(c);
 
-  return { balances, segments };
+  return { balancesCents, segments };
 }
 
 // Per-stroke: everyone pays (their total - leaderTotal) * amt to the leader (ties split)
-function calcPerStroke(round, players, amt) {
+function calcPerStrokeCents(round, players, amt) {
   const n = players.length;
-  const a = Number(amt || 0);
-  if (n < 2 || a <= 0) return { balances: {}, leaderIds: [], leaderTotal: 0 };
+  const betC = toCents(amt || 0);
+  if (n < 2 || betC <= 0) return { balancesCents: {}, leaderIds: [], leaderTotal: 0 };
 
   const totals = players.map((p) => ({ pid: p.id, total: sumTotal(round, p.id) }));
   const min = Math.min(...totals.map((x) => x.total));
   const leaders = totals.filter((x) => x.total === min).map((x) => x.pid);
 
-  const balances = {};
-  players.forEach((p) => (balances[p.id] = 0));
+  const balancesCents = {};
+  players.forEach((p) => (balancesCents[p.id] = 0));
 
   totals.forEach((t) => {
     const diff = t.total - min;
     if (diff <= 0) return;
-    const pay = diff * a;
-    balances[t.pid] -= pay;
-    const share = pay / leaders.length;
-    leaders.forEach((l) => (balances[l] += share));
+
+    const payC = diff * betC;
+    balancesCents[t.pid] -= payC;
+
+    const shareC = Math.floor(payC / leaders.length);
+    const remainder = payC - shareC * leaders.length;
+
+    leaders.forEach((l, idx) => {
+      balancesCents[l] += shareC + (idx < remainder ? 1 : 0);
+    });
   });
 
-  return { balances, leaderIds: leaders, leaderTotal: min };
+  return { balancesCents, leaderIds: leaders, leaderTotal: min };
 }
 
-export default function PayoutsScreen({ navigation, route }) {
-  const params = route?.params || {};
+export default function PayoutsScreen({ navigation }) {
+  const params = navigation?.getState?.()?.routes?.slice(-1)?.[0]?.params || {};
   const roundId = String(params.roundId || "");
   const [round, setRound] = useState(null);
 
@@ -236,41 +267,6 @@ export default function PayoutsScreen({ navigation, route }) {
     return w;
   }, [round]);
 
-  const results = useMemo(() => {
-    if (!round || !players.length || !wagers) return null;
-
-    const balances = {};
-    players.forEach((p) => (balances[p.id] = 0));
-
-    const byGame = [];
-
-    if (wagers?.skins?.enabled && Number(wagers?.skins?.amount || 0) > 0) {
-      const skins = calcSkins(round, players, wagers.skins.amount);
-      Object.keys(skins.balances || {}).forEach((pid) => (balances[pid] += skins.balances[pid] || 0));
-      byGame.push({ key: "Skins", type: "skins", data: skins });
-    }
-
-    if (wagers?.nassau?.enabled) {
-      const nas = calcNassau(round, players, wagers.nassau.front, wagers.nassau.back, wagers.nassau.total);
-      Object.keys(nas.balances || {}).forEach((pid) => (balances[pid] += nas.balances[pid] || 0));
-      byGame.push({ key: "Nassau", type: "nassau", data: nas });
-    }
-
-    if (wagers?.perStroke?.enabled && Number(wagers?.perStroke?.amount || 0) > 0) {
-      const ps = calcPerStroke(round, players, wagers.perStroke.amount);
-      Object.keys(ps.balances || {}).forEach((pid) => (balances[pid] += ps.balances[pid] || 0));
-      byGame.push({ key: "Per stroke", type: "perStroke", data: ps });
-    }
-
-    if (wagers?.kps?.enabled && Number(wagers?.kps?.amount || 0) > 0) {
-      byGame.push({ key: "KPs", type: "kps", data: { note: "KP winners are not tracked yet, so payouts cannot be calculated." } });
-    }
-
-    const tx = settleTransactions(balances);
-
-    return { balances, tx, byGame };
-  }, [round, players, wagers]);
-
   const nameById = useMemo(() => {
     const m = {};
     players.forEach((p) => (m[p.id] = p.name));
@@ -282,6 +278,51 @@ export default function PayoutsScreen({ navigation, route }) {
     const t = String(round?.teeName || round?.tee?.name || "Tees");
     return `${c} • ${t}`;
   }, [round]);
+
+  const results = useMemo(() => {
+    if (!round || !players.length || !wagers) return null;
+
+    const balancesCents = {};
+    players.forEach((p) => (balancesCents[p.id] = 0));
+
+    const byGame = [];
+
+    if (wagers?.skins?.enabled && Number(wagers?.skins?.amount || 0) > 0) {
+      const skins = calcSkinsCents(round, players, wagers.skins.amount);
+      Object.keys(skins.balancesCents || {}).forEach((pid) => (balancesCents[pid] += skins.balancesCents[pid] || 0));
+      byGame.push({ key: "Skins", type: "skins", data: skins });
+    }
+
+    if (wagers?.nassau?.enabled) {
+      const nas = calcNassauCents(round, players, wagers.nassau.front, wagers.nassau.back, wagers.nassau.total);
+      Object.keys(nas.balancesCents || {}).forEach((pid) => (balancesCents[pid] += nas.balancesCents[pid] || 0));
+      byGame.push({ key: "Nassau", type: "nassau", data: nas });
+    }
+
+    if (wagers?.perStroke?.enabled && Number(wagers?.perStroke?.amount || 0) > 0) {
+      const ps = calcPerStrokeCents(round, players, wagers.perStroke.amount);
+      Object.keys(ps.balancesCents || {}).forEach((pid) => (balancesCents[pid] += ps.balancesCents[pid] || 0));
+      byGame.push({ key: "Per stroke", type: "perStroke", data: ps });
+    }
+
+    if (wagers?.kps?.enabled && Number(wagers?.kps?.amount || 0) > 0) {
+      byGame.push({
+        key: "KPs",
+        type: "kps",
+        data: { note: "KP winners are not tracked yet, so payouts cannot be calculated." },
+      });
+    }
+
+    const tx = settleTransactionsCents(balancesCents);
+
+    const balancesList = players
+      .map((p) => ({ ...p, cents: Number(balancesCents[p.id] || 0) }))
+      .sort((a, b) => b.cents - a.cents);
+
+    const txSorted = [...tx].sort((a, b) => b.cents - a.cents);
+
+    return { balancesCents, balancesList, tx: txSorted, byGame };
+  }, [round, players, wagers]);
 
   if (!round) {
     return (
@@ -311,11 +352,7 @@ export default function PayoutsScreen({ navigation, route }) {
     <SafeAreaView style={styles.safe}>
       <ScreenHeader navigation={navigation} title="Payouts" subtitle={subtitle} />
 
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{ padding: 16, paddingBottom: 28 }}
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 28 }} showsVerticalScrollIndicator={false}>
         <View style={styles.greenRing}>
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Settle up</Text>
@@ -328,7 +365,7 @@ export default function PayoutsScreen({ navigation, route }) {
                     <Text style={styles.txText}>
                       {nameById[t.from] || "Player"} pays {nameById[t.to] || "Player"}
                     </Text>
-                    <Text style={styles.txAmt}>{dollars(t.amount)}</Text>
+                    <Text style={styles.txAmt}>{dollarsSigned(fromCents(t.cents))}</Text>
                   </View>
                 ))}
               </View>
@@ -343,20 +380,17 @@ export default function PayoutsScreen({ navigation, route }) {
         <View style={styles.greenRing}>
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Balances</Text>
-            <Text style={styles.cardSub}>Positive means receive. Negative means pay.</Text>
+            <Text style={styles.cardSub}>Top = receives most. Bottom = owes most.</Text>
 
             <View style={{ marginTop: 12, gap: 10 }}>
-              {players.map((p) => {
-                const amt = Number(results?.balances?.[p.id] || 0);
-                return (
-                  <View key={p.id} style={styles.balanceRow}>
-                    <Text style={styles.balanceName} numberOfLines={1}>
-                      {p.name}
-                    </Text>
-                    <Text style={styles.balanceAmt}>{dollars(amt)}</Text>
-                  </View>
-                );
-              })}
+              {(results?.balancesList || []).map((p) => (
+                <View key={p.id} style={styles.balanceRow}>
+                  <Text style={styles.balanceName} numberOfLines={1}>
+                    {p.name}
+                  </Text>
+                  <Text style={styles.balanceAmt}>{dollarsSigned(fromCents(p.cents))}</Text>
+                </View>
+              ))}
             </View>
           </View>
         </View>
@@ -395,7 +429,7 @@ export default function PayoutsScreen({ navigation, route }) {
                                   {s.label} winner{(s.winners || []).length > 1 ? "s" : ""}:{" "}
                                   {(s.winners || []).map((pid) => nameById[pid] || "Player").join(", ")}
                                 </Text>
-                                <Text style={styles.smallRight}>{dollars(s.pot)}</Text>
+                                <Text style={styles.smallRight}>{dollarsSigned(fromCents(s.potCents))}</Text>
                               </View>
                             ))}
                           </View>
@@ -420,12 +454,10 @@ export default function PayoutsScreen({ navigation, route }) {
                                 <Text style={styles.smallLeft}>
                                   Hole {d.hole}: {nameById[d.winner] || "Player"}
                                 </Text>
-                                <Text style={styles.smallRight}>{dollars(d.value)}</Text>
+                                <Text style={styles.smallRight}>{dollarsSigned(fromCents(d.valueCents))}</Text>
                               </View>
                             ))}
-                            {details.length > 8 ? (
-                              <Text style={styles.gameNote}>More skins exist. We can add “Show all” next.</Text>
-                            ) : null}
+                            {details.length > 8 ? <Text style={styles.gameNote}>More skins exist. We can add “Show all” next.</Text> : null}
                           </View>
                         ) : (
                           <Text style={styles.gameNote}>No skins won (or all holes tied).</Text>
