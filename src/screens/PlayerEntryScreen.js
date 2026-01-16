@@ -1,5 +1,5 @@
 // src/screens/PlayerEntryScreen.js
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   SafeAreaView,
   View,
@@ -13,15 +13,19 @@ import {
   Platform,
   Share,
   Alert,
+  ScrollView,
+  KeyboardAvoidingView,
 } from "react-native";
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 
 import theme from "../theme";
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import { getBuddies } from "../storage/buddies";
 import { saveActiveRound } from "../storage/roundState";
+import { auth, db } from "../firebase/firebase";
 
 const PROFILE_KEY = "LEGACY_GOLF_PROFILE_V1";
 
@@ -85,16 +89,7 @@ function parseProfile(raw) {
   }
 }
 
-function makeActiveRoundSnapshot({
-  params,
-  course,
-  tee,
-  holeMeta,
-  scoring,
-  players,
-  playerCount,
-  joinCode,
-}) {
+function makeActiveRoundSnapshot({ params, course, tee, holeMeta, scoring, players, playerCount, joinCode }) {
   const gameId = params?.gameId || params?.gameFormat || params?.format || params?.gameType || null;
   const gameTitle = params?.gameTitle || params?.title || null;
 
@@ -139,6 +134,14 @@ function displayNameFirstLastInitial(name) {
   return li ? `${first} ${li}` : first;
 }
 
+function normalizeJoinCode(v) {
+  return String(v || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .trim()
+    .slice(0, 8);
+}
+
 export default function PlayerEntryScreen({ navigation, route }) {
   const params = route?.params || {};
 
@@ -154,15 +157,21 @@ export default function PlayerEntryScreen({ navigation, route }) {
 
   const [buddies, setBuddies] = useState([]);
 
-  // Player 1 ("me") always exists
   const [players, setPlayers] = useState([
-    { id: "me", name: "Stephane L", handicap: 0, phone: "", email: "", source: "me" },
+    {
+      id: "me",
+      uid: auth?.currentUser?.uid || null,
+      name: "Stephane L",
+      handicap: 0,
+      phone: "",
+      email: "",
+      source: "me",
+      trackStats: true,
+    },
   ]);
 
   const [buddyModal, setBuddyModal] = useState(false);
   const [buddyQuery, setBuddyQuery] = useState("");
-
-  // when true, Buddy modal "Done" becomes blue
   const [buddyAddedThisSession, setBuddyAddedThisSession] = useState(false);
 
   const [guestModal, setGuestModal] = useState(false);
@@ -170,9 +179,17 @@ export default function PlayerEntryScreen({ navigation, route }) {
   const [guestHcp, setGuestHcp] = useState("");
 
   const [inviteModal, setInviteModal] = useState(false);
-  const joinCode = useMemo(() => makeJoinCode(), []);
 
-  // Edit Handicap modal (tap HCP pill)
+  const hostJoinCode = useMemo(() => makeJoinCode(), []);
+  const [joinCodeInput, setJoinCodeInput] = useState("");
+  const [joining, setJoining] = useState(false);
+
+  const [lobbyCode, setLobbyCode] = useState(hostJoinCode);
+  const [lobbyDoc, setLobbyDoc] = useState(null);
+
+  const lobbyUnsubRef = useRef(null);
+  const lobbyCreatedRef = useRef(false);
+
   const [editHcpModal, setEditHcpModal] = useState(false);
   const [editPlayerId, setEditPlayerId] = useState(null);
   const [editHcpValue, setEditHcpValue] = useState("");
@@ -201,7 +218,6 @@ export default function PlayerEntryScreen({ navigation, route }) {
     closeEditHandicap();
   }
 
-  // Always pull Player 1 from Profile (name + handicap)
   useEffect(() => {
     let mounted = true;
 
@@ -216,7 +232,19 @@ export default function PlayerEntryScreen({ navigation, route }) {
           const hasMe = prev.some((p) => p?.id === "me");
           const base = hasMe
             ? prev
-            : [{ id: "me", name: "Stephane L", handicap: 0, phone: "", email: "", source: "me" }, ...prev];
+            : [
+                {
+                  id: "me",
+                  uid: auth?.currentUser?.uid || null,
+                  name: "Stephane L",
+                  handicap: 0,
+                  phone: "",
+                  email: "",
+                  source: "me",
+                  trackStats: true,
+                },
+                ...prev,
+              ];
 
           return base.map((p) => {
             if (p.id !== "me") return p;
@@ -224,12 +252,17 @@ export default function PlayerEntryScreen({ navigation, route }) {
             const nextName = parsed?.name || "Stephane L";
             const nextHcp = parsed?.handicap ?? clampHandicap(p.handicap ?? 0);
 
-            return { ...p, name: nextName, handicap: nextHcp, source: "me" };
+            return {
+              ...p,
+              uid: auth?.currentUser?.uid || p.uid || null,
+              name: nextName,
+              handicap: nextHcp,
+              source: "me",
+              trackStats: true,
+            };
           });
         });
-      } catch {
-        // ignore
-      }
+      } catch {}
     })();
 
     return () => {
@@ -273,11 +306,13 @@ export default function PlayerEntryScreen({ navigation, route }) {
       ...prev,
       {
         id: b.id,
+        uid: b.uid || null,
         name: b.name || "Buddy",
         handicap: clampHandicap(Number(b.handicap ?? 0)),
         phone: b.phone || "",
         email: b.email || "",
         source: "buddy",
+        trackStats: true,
       },
     ]);
 
@@ -286,7 +321,9 @@ export default function PlayerEntryScreen({ navigation, route }) {
 
   function removePlayer(id) {
     if (id === "me") return;
-    setPlayers((prev) => prev.filter((p) => p.id !== id));
+    const p = players.find((x) => x.id === id);
+    if (p?.source === "remote") return;
+    setPlayers((prev) => prev.filter((pp) => pp.id !== id));
   }
 
   function openGuest() {
@@ -304,7 +341,19 @@ export default function PlayerEntryScreen({ navigation, route }) {
     const h = clampHandicap(Number.parseInt((guestHcp || "").trim() || "0", 10));
     const id = `guest-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
 
-    setPlayers((prev) => [...prev, { id, name, handicap: h, phone: "", email: "", source: "guest" }]);
+    setPlayers((prev) => [
+      ...prev,
+      {
+        id,
+        uid: null,
+        name,
+        handicap: h,
+        phone: "",
+        email: "",
+        source: "guest",
+        trackStats: false,
+      },
+    ]);
     setGuestModal(false);
     Keyboard.dismiss();
   }
@@ -312,7 +361,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
   async function onShareInvite() {
     try {
       await Share.share({
-        message: `Legacy Golf — Join my game\nJoin Code: ${joinCode}\n(QR join coming soon)`,
+        message: `Legacy Golf — Join my game\nJoin Code: ${lobbyCode}\n(QR join coming soon)`,
       });
     } catch {}
   }
@@ -320,7 +369,6 @@ export default function PlayerEntryScreen({ navigation, route }) {
   async function onStartRound() {
     if (!canStart) return;
 
-    // Save Active Round snapshot (for Resume + stable downstream screens)
     try {
       const activeRound = makeActiveRoundSnapshot({
         params,
@@ -330,14 +378,11 @@ export default function PlayerEntryScreen({ navigation, route }) {
         scoring,
         players,
         playerCount,
-        joinCode,
+        joinCode: lobbyCode,
       });
       await saveActiveRound(activeRound);
-    } catch {
-      // do not block starting the round
-    }
+    } catch {}
 
-    // Go to Round Hub (Hole View screen)
     try {
       navigation.navigate(ROUTES.HOLE_VIEW, {
         ...params,
@@ -347,7 +392,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
         scoring,
         players,
         playerCount,
-        joinCode,
+        joinCode: lobbyCode,
         startHole: 1,
       });
     } catch {
@@ -365,10 +410,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
   const summaryLine2 = `${courseName} • ${teeName}${teeYards ? ` (${teeYards})` : ""}`;
 
   const rightInvite = (
-    <Pressable
-      onPress={() => setInviteModal(true)}
-      style={({ pressed }) => [styles.headerRight, pressed && styles.pressed]}
-    >
+    <Pressable onPress={() => setInviteModal(true)} style={({ pressed }) => [styles.headerRight, pressed && styles.pressed]}>
       <Text style={styles.headerRightText}>Invite</Text>
     </Pressable>
   );
@@ -386,14 +428,194 @@ export default function PlayerEntryScreen({ navigation, route }) {
 
   const doneIsPrimary = buddyAddedThisSession;
 
+  async function ensureLobbyCreated() {
+    const uid = auth?.currentUser?.uid || null;
+    if (!uid) return;
+
+    if (lobbyCreatedRef.current) return;
+    lobbyCreatedRef.current = true;
+
+    const code = normalizeJoinCode(hostJoinCode);
+    setLobbyCode(code);
+
+    try {
+      const ref = doc(db, "lobbies", code);
+      await setDoc(
+        ref,
+        {
+          code,
+          status: "open",
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          hostUid: uid,
+          course: course || null,
+          tee: tee || null,
+          playerCount: playerCount,
+          scoring: scoring,
+          gameLabel: gameLabel,
+          members: {
+            [uid]: {
+              uid,
+              name: players?.find((p) => p.id === "me")?.name || "Player",
+              handicap: Number(players?.find((p) => p.id === "me")?.handicap ?? 0),
+              joinedAt: serverTimestamp(),
+              role: "host",
+            },
+          },
+        },
+        { merge: true }
+      );
+
+      setLobbyCode(code);
+      subscribeToLobby(code);
+    } catch {
+      Alert.alert(
+        "Lobby not created",
+        "Firestore could not create the lobby. This usually means Firestore rules are blocking writes.\n\nWe can fix this next."
+      );
+    }
+  }
+
+  function subscribeToLobby(code) {
+    const clean = normalizeJoinCode(code);
+    if (!clean) return;
+
+    try {
+      if (lobbyUnsubRef.current) {
+        lobbyUnsubRef.current();
+        lobbyUnsubRef.current = null;
+      }
+
+      const ref = doc(db, "lobbies", clean);
+      lobbyUnsubRef.current = onSnapshot(
+        ref,
+        (snap) => {
+          if (!snap.exists()) {
+            setLobbyDoc(null);
+            return;
+          }
+
+          const data = snap.data() || {};
+          setLobbyDoc(data);
+
+          const members = data?.members && typeof data.members === "object" ? data.members : {};
+          const myUid = auth?.currentUser?.uid || null;
+
+          const remotePlayers = Object.values(members)
+            .filter((m) => m && typeof m === "object")
+            .map((m) => ({
+              id: String(m.uid || ""),
+              uid: String(m.uid || ""),
+              name: String(m.name || "Player"),
+              handicap: clampHandicap(Number(m.handicap ?? 0)),
+              phone: "",
+              email: "",
+              source: "remote",
+              trackStats: true,
+            }))
+            .filter((p) => p.uid && p.uid !== myUid);
+
+          setPlayers((prev) => {
+            const me = prev.find((p) => p.id === "me") || {
+              id: "me",
+              uid: myUid,
+              name: "Me",
+              handicap: 0,
+              source: "me",
+              trackStats: true,
+            };
+
+            const manual = prev.filter((p) => p.id !== "me" && p.source !== "remote");
+            const next = [me, ...remotePlayers, ...manual].slice(0, playerCount);
+            return next;
+          });
+        },
+        () => {}
+      );
+    } catch {}
+  }
+
+  useEffect(() => {
+    ensureLobbyCreated();
+
+    return () => {
+      if (lobbyUnsubRef.current) {
+        lobbyUnsubRef.current();
+        lobbyUnsubRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function joinLobbyByCode() {
+    const uid = auth?.currentUser?.uid || null;
+    if (!uid) {
+      Alert.alert("Not signed in", "You must be signed in to join a game.");
+      return;
+    }
+
+    const code = normalizeJoinCode(joinCodeInput);
+    if (!code || code.length < 4) {
+      Alert.alert("Invalid code", "Please enter a valid join code.");
+      return;
+    }
+
+    setJoining(true);
+
+    try {
+      const ref = doc(db, "lobbies", code);
+      const snap = await getDoc(ref);
+
+      if (!snap.exists()) {
+        Alert.alert("Not found", "No lobby found for that join code.");
+        setJoining(false);
+        return;
+      }
+
+      const me = players.find((p) => p.id === "me") || {};
+      const payload = {
+        uid,
+        name: String(me.name || "Player"),
+        handicap: clampHandicap(Number(me.handicap ?? 0)),
+        joinedAt: serverTimestamp(),
+        role: "player",
+      };
+
+      await updateDoc(ref, {
+        [`members.${uid}`]: payload,
+        updatedAt: serverTimestamp(),
+      });
+
+      setLobbyCode(code);
+      setJoinCodeInput("");
+      subscribeToLobby(code);
+
+      Alert.alert("Joined", `You joined game ${code}.`);
+    } catch {
+      Alert.alert("Join failed", "Could not join the lobby. This is usually Firestore rules blocking reads/writes.");
+    } finally {
+      setJoining(false);
+    }
+  }
+
+  const lobbyMembersList = useMemo(() => {
+    const members = lobbyDoc?.members && typeof lobbyDoc.members === "object" ? lobbyDoc.members : {};
+    const arr = Object.values(members)
+      .filter((m) => m && typeof m === "object" && m.uid)
+      .map((m) => ({
+        uid: String(m.uid),
+        name: String(m.name || "Player"),
+        handicap: clampHandicap(Number(m.handicap ?? 0)),
+        role: String(m.role || "player"),
+      }));
+
+    arr.sort((a, b) => (a.role === "host" ? -1 : 1) - (b.role === "host" ? -1 : 1));
+    return arr;
+  }, [lobbyDoc]);
+
   return (
     <SafeAreaView style={styles.safe}>
-      <ScreenHeader
-        navigation={navigation}
-        title="Add Players"
-        subtitle={`${players.length} of ${playerCount}`}
-        right={rightInvite}
-      />
+      <ScreenHeader navigation={navigation} title="Add Players" subtitle={`${players.length} of ${playerCount}`} right={rightInvite} />
 
       <View style={styles.topSection}>
         <View style={styles.progressTrack}>
@@ -411,24 +633,15 @@ export default function PlayerEntryScreen({ navigation, route }) {
         </View>
 
         <View style={styles.actionRow}>
-          <Pressable
-            onPress={openBuddyModal}
-            style={({ pressed }) => [styles.actionPillPrimary, pressed && styles.pressed]}
-          >
+          <Pressable onPress={openBuddyModal} style={({ pressed }) => [styles.actionPillPrimary, pressed && styles.pressed]}>
             <Text style={styles.actionPillText}>Buddy List</Text>
           </Pressable>
 
-          <Pressable
-            onPress={openGuest}
-            style={({ pressed }) => [styles.actionPillGhost, pressed && styles.pressed]}
-          >
+          <Pressable onPress={openGuest} style={({ pressed }) => [styles.actionPillGhost, pressed && styles.pressed]}>
             <Text style={styles.actionPillText}>Guest</Text>
           </Pressable>
 
-          <Pressable
-            onPress={() => setInviteModal(true)}
-            style={({ pressed }) => [styles.actionPillGhost, pressed && styles.pressed]}
-          >
+          <Pressable onPress={() => setInviteModal(true)} style={({ pressed }) => [styles.actionPillGhost, pressed && styles.pressed]}>
             <Text style={styles.actionPillText}>Invite</Text>
           </Pressable>
         </View>
@@ -443,6 +656,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }}
         renderItem={({ item }) => {
           const isMe = item.id === "me";
+          const isRemote = item.source === "remote";
           const nameShort = displayNameFirstLastInitial(item.name);
 
           return (
@@ -454,20 +668,19 @@ export default function PlayerEntryScreen({ navigation, route }) {
                   <Text style={styles.playerName} numberOfLines={1}>
                     {nameShort}
                   </Text>
+                  {isRemote ? (
+                    <Text style={styles.playerMeta} numberOfLines={1}>
+                      Joined via code
+                    </Text>
+                  ) : null}
                 </View>
 
-                <Pressable
-                  onPress={() => openEditHandicap(item)}
-                  style={({ pressed }) => [styles.hcpPill, pressed && styles.pressed]}
-                >
+                <Pressable onPress={() => openEditHandicap(item)} style={({ pressed }) => [styles.hcpPill, pressed && styles.pressed]}>
                   <Text style={styles.hcpPillText}>HCP {item.handicap ?? 0}</Text>
                 </Pressable>
 
-                {!isMe ? (
-                  <Pressable
-                    onPress={() => removePlayer(item.id)}
-                    style={({ pressed }) => [styles.removeBtn, pressed && styles.pressed]}
-                  >
+                {!isMe && !isRemote ? (
+                  <Pressable onPress={() => removePlayer(item.id)} style={({ pressed }) => [styles.removeBtn, pressed && styles.pressed]}>
                     <Text style={styles.removeText}>Remove</Text>
                   </Pressable>
                 ) : (
@@ -525,11 +738,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
                     <Pressable
                       disabled={disabled}
                       onPress={() => addBuddy(item)}
-                      style={({ pressed }) => [
-                        styles.pickBtn,
-                        disabled && styles.pickBtnDisabled,
-                        pressed && !disabled && styles.pressed,
-                      ]}
+                      style={({ pressed }) => [styles.pickBtn, disabled && styles.pickBtnDisabled, pressed && !disabled && styles.pressed]}
                     >
                       <Text style={styles.pickBtnText}>{disabled ? "Added" : "Add"}</Text>
                     </Pressable>
@@ -538,14 +747,9 @@ export default function PlayerEntryScreen({ navigation, route }) {
               }}
             />
 
-            {/* Done becomes BLUE after at least one Add */}
             <Pressable
               onPress={closeBuddyModal}
-              style={({ pressed }) => [
-                styles.modalClose,
-                doneIsPrimary && styles.modalClosePrimary,
-                pressed && styles.pressed,
-              ]}
+              style={({ pressed }) => [styles.modalClose, doneIsPrimary && styles.modalClosePrimary, pressed && styles.pressed]}
             >
               <Text style={[styles.modalCloseText, doneIsPrimary && styles.modalCloseTextPrimary]}>Done</Text>
             </Pressable>
@@ -581,10 +785,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
             />
 
             <View style={{ flexDirection: "row", gap: 10, marginTop: 8 }}>
-              <Pressable
-                onPress={() => setGuestModal(false)}
-                style={({ pressed }) => [styles.modalGhostBtn, pressed && styles.pressed]}
-              >
+              <Pressable onPress={() => setGuestModal(false)} style={({ pressed }) => [styles.modalGhostBtn, pressed && styles.pressed]}>
                 <Text style={styles.modalGhostText}>Cancel</Text>
               </Pressable>
 
@@ -596,30 +797,80 @@ export default function PlayerEntryScreen({ navigation, route }) {
         </Pressable>
       </Modal>
 
-      {/* Invite Modal */}
+      {/* Invite / Lobby Modal (SCROLL FIX) */}
       <Modal visible={inviteModal} transparent animationType="fade" onRequestClose={() => setInviteModal(false)}>
         <Pressable style={styles.modalWrap} onPress={() => setInviteModal(false)}>
           <Pressable style={styles.modalCard} onPress={() => {}}>
-            <Text style={styles.modalTitle}>Invite Players</Text>
-
-            <View style={styles.codeCard}>
-              <Text style={styles.codeLabel}>JOIN CODE</Text>
-              <Text style={styles.codeValue}>{joinCode}</Text>
-              <Text style={styles.codeNote}>Share now. QR join coming soon.</Text>
-            </View>
-
-            <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
-              <Pressable
-                onPress={() => setInviteModal(false)}
-                style={({ pressed }) => [styles.modalGhostBtn, pressed && styles.pressed]}
+            <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.inviteScrollContent}
               >
-                <Text style={styles.modalGhostText}>Close</Text>
-              </Pressable>
+                <Text style={styles.modalTitle}>Invite Players</Text>
 
-              <Pressable onPress={onShareInvite} style={({ pressed }) => [styles.modalPrimaryBtn, pressed && styles.pressed]}>
-                <Text style={styles.modalPrimaryText}>Share</Text>
-              </Pressable>
-            </View>
+                <View style={styles.codeCard}>
+                  <Text style={styles.codeLabel}>JOIN CODE</Text>
+                  <Text style={styles.codeValue}>{lobbyCode}</Text>
+                  <Text style={styles.codeNote}>Share now. Players can join by entering this code.</Text>
+                </View>
+
+                <View style={styles.inviteBtnRow}>
+                  <Pressable onPress={() => setInviteModal(false)} style={({ pressed }) => [styles.modalGhostBtn, pressed && styles.pressed]}>
+                    <Text style={styles.modalGhostText}>Close</Text>
+                  </Pressable>
+
+                  <Pressable onPress={onShareInvite} style={({ pressed }) => [styles.modalPrimaryBtn, pressed && styles.pressed]}>
+                    <Text style={styles.modalPrimaryText}>Share</Text>
+                  </Pressable>
+                </View>
+
+                <View style={styles.modalSectionDivider} />
+
+                <Text style={styles.sectionTitle}>Joined Players</Text>
+                {lobbyMembersList.length ? (
+                  <View style={styles.joinedList}>
+                    {lobbyMembersList.map((m) => (
+                      <View key={m.uid} style={styles.joinedRow}>
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <Text style={styles.joinedName} numberOfLines={1}>
+                            {displayNameFirstLastInitial(m.name)} {m.role === "host" ? "(Host)" : ""}
+                          </Text>
+                          <Text style={styles.joinedMeta}>HCP {m.handicap}</Text>
+                        </View>
+
+                        <View style={styles.joinedBadge}>
+                          <Text style={styles.joinedBadgeText}>Joined</Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <Text style={styles.emptyTextInvite}>No one has joined yet.</Text>
+                )}
+
+                <View style={styles.modalSectionDivider} />
+
+                <Text style={styles.sectionTitle}>Join a Game (for testing)</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={joinCodeInput}
+                  onChangeText={(v) => setJoinCodeInput(normalizeJoinCode(v))}
+                  placeholder="Enter join code"
+                  placeholderTextColor="rgba(255,255,255,0.35)"
+                  autoCapitalize="characters"
+                  returnKeyType="done"
+                />
+
+                <Pressable
+                  onPress={joinLobbyByCode}
+                  disabled={joining}
+                  style={({ pressed }) => [styles.joinBtn, joining && { opacity: 0.7 }, pressed && !joining && styles.pressed]}
+                >
+                  <Text style={styles.joinBtnText}>{joining ? "Joining..." : "Join Game"}</Text>
+                </Pressable>
+              </ScrollView>
+            </KeyboardAvoidingView>
           </Pressable>
         </Pressable>
       </Modal>
@@ -660,7 +911,6 @@ export default function PlayerEntryScreen({ navigation, route }) {
 const GREEN_BG = "#0F7A4A";
 const GREEN_BORDER = "rgba(255,255,255,0.18)";
 
-// Premium green accents (same family as your other screens)
 const GREEN_ACCENT = "rgba(15, 122, 74, 0.92)";
 const GREEN_ACCENT_SOFT = "rgba(15, 122, 74, 0.14)";
 const GREEN_ACCENT_BORDER = "rgba(15, 122, 74, 0.70)";
@@ -737,7 +987,6 @@ const styles = StyleSheet.create({
 
   divider: { marginTop: 12, height: 1, backgroundColor: "rgba(255,255,255,0.08)" },
 
-  // PLAYER CARDS (simple name + HCP pill)
   playerCard: {
     marginTop: 12,
     borderRadius: 20,
@@ -770,6 +1019,7 @@ const styles = StyleSheet.create({
   },
 
   playerName: { color: "#fff", fontWeight: "900", fontSize: 16 },
+  playerMeta: { marginTop: 6, color: "rgba(255,255,255,0.65)", fontWeight: "800", fontSize: 12 },
 
   hcpPill: {
     height: 34,
@@ -795,7 +1045,7 @@ const styles = StyleSheet.create({
   },
   removeText: { color: "#fff", fontWeight: "900", fontSize: 12 },
 
-  emptyText: { color: "rgba(255,255,255,0.6)", fontWeight: "800", fontSize: 12 },
+  emptyText: { color: "rgba(255,255,255,0.6)", fontWeight: "800", fontSize: 12, marginTop: 8 },
 
   bottomBar: {
     position: "absolute",
@@ -838,6 +1088,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.16)",
     backgroundColor: theme?.bg || theme?.colors?.bg || "#0B1220",
     padding: 14,
+    overflow: "hidden",
   },
   modalCardSmall: {
     width: "100%",
@@ -937,6 +1188,50 @@ const styles = StyleSheet.create({
   codeLabel: { color: "rgba(255,255,255,0.72)", fontWeight: "900", fontSize: 12, letterSpacing: 1.1 },
   codeValue: { marginTop: 10, color: "#fff", fontWeight: "900", fontSize: 30, letterSpacing: 3 },
   codeNote: { marginTop: 10, color: "rgba(255,255,255,0.6)", fontWeight: "800", fontSize: 12 },
+
+  modalSectionDivider: { marginTop: 14, marginBottom: 10, height: 1, backgroundColor: "rgba(255,255,255,0.08)" },
+  sectionTitle: { color: "#fff", fontWeight: "900", fontSize: 13, letterSpacing: 0.4 },
+
+  inviteScrollContent: { paddingBottom: 14 },
+  inviteBtnRow: { flexDirection: "row", gap: 10, marginTop: 10 },
+
+  joinedList: { marginTop: 8 },
+  emptyTextInvite: { color: "rgba(255,255,255,0.6)", fontWeight: "800", fontSize: 12, marginTop: 8 },
+
+  joinedRow: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(255,255,255,0.03)",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 10,
+  },
+  joinedName: { color: "#fff", fontWeight: "900", fontSize: 14 },
+  joinedMeta: { marginTop: 4, color: "rgba(255,255,255,0.6)", fontWeight: "800", fontSize: 12 },
+  joinedBadge: {
+    height: 30,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(46,125,255,0.35)",
+    backgroundColor: "rgba(46,125,255,0.18)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  joinedBadgeText: { color: "#fff", fontWeight: "900", fontSize: 12 },
+
+  joinBtn: {
+    height: 48,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme?.primary || theme?.colors?.primary || "#2E7DFF",
+  },
+  joinBtnText: { color: "#fff", fontWeight: "900", fontSize: 14 },
 
   pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
 });

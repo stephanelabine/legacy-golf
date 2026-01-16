@@ -1,14 +1,11 @@
 // src/firebase/firebase.js
 import { initializeApp, getApp, getApps } from "firebase/app";
+import { getFirestore } from "firebase/firestore";
 import Constants from "expo-constants";
 import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
 
 function getExtraFirebase() {
-  return (
-    Constants?.expoConfig?.extra?.firebase ||
-    Constants?.manifest?.extra?.firebase ||
-    {}
-  );
+  return Constants?.expoConfig?.extra?.firebase || Constants?.manifest?.extra?.firebase || {};
 }
 
 const extraFirebase = getExtraFirebase();
@@ -42,4 +39,7 @@ try {
   auth = getAuth(app);
 }
 
-export { app, auth };
+// Firestore
+const db = getFirestore(app);
+
+export { app, auth, db };
