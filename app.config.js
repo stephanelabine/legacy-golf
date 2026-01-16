@@ -5,7 +5,7 @@ module.exports = ({ config }) => {
     extra: {
       ...(config.extra || {}),
       firebase: {
-        apiKey:  "AIzaSyA11y-RDPYlIZ30K7X1l37C0J76gtkV1o4",
+        apiKey: process.env.EXPO_PUBLIC_GOOGLE_API_KEY,
         authDomain:"legacy-golf-dev.firebaseapp.com",
         projectId:  "legacy-golf-dev",
         storageBucket:  "legacy-golf-dev.firebasestorage.app",

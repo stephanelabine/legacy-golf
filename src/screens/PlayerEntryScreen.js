@@ -13,12 +13,17 @@ import {
   Platform,
   Share,
   Alert,
-  ScrollView,
-  KeyboardAvoidingView,
 } from "react-native";
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  onSnapshot,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+} from "firebase/firestore";
 
 import theme from "../theme";
 import ROUTES from "../navigation/routes";
@@ -89,7 +94,16 @@ function parseProfile(raw) {
   }
 }
 
-function makeActiveRoundSnapshot({ params, course, tee, holeMeta, scoring, players, playerCount, joinCode }) {
+function makeActiveRoundSnapshot({
+  params,
+  course,
+  tee,
+  holeMeta,
+  scoring,
+  players,
+  playerCount,
+  joinCode,
+}) {
   const gameId = params?.gameId || params?.gameFormat || params?.format || params?.gameType || null;
   const gameTitle = params?.gameTitle || params?.title || null;
 
@@ -157,6 +171,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
 
   const [buddies, setBuddies] = useState([]);
 
+  // Player 1 ("me") always exists
   const [players, setPlayers] = useState([
     {
       id: "me",
@@ -172,6 +187,8 @@ export default function PlayerEntryScreen({ navigation, route }) {
 
   const [buddyModal, setBuddyModal] = useState(false);
   const [buddyQuery, setBuddyQuery] = useState("");
+
+  // when true, Buddy modal "Done" becomes blue
   const [buddyAddedThisSession, setBuddyAddedThisSession] = useState(false);
 
   const [guestModal, setGuestModal] = useState(false);
@@ -180,16 +197,21 @@ export default function PlayerEntryScreen({ navigation, route }) {
 
   const [inviteModal, setInviteModal] = useState(false);
 
+  // Host code (generated once)
   const hostJoinCode = useMemo(() => makeJoinCode(), []);
+
+  // Join UI (for now, inside Invite modal)
   const [joinCodeInput, setJoinCodeInput] = useState("");
   const [joining, setJoining] = useState(false);
 
+  // Live lobby state
   const [lobbyCode, setLobbyCode] = useState(hostJoinCode);
   const [lobbyDoc, setLobbyDoc] = useState(null);
 
   const lobbyUnsubRef = useRef(null);
   const lobbyCreatedRef = useRef(false);
 
+  // Edit Handicap modal (tap HCP pill)
   const [editHcpModal, setEditHcpModal] = useState(false);
   const [editPlayerId, setEditPlayerId] = useState(null);
   const [editHcpValue, setEditHcpValue] = useState("");
@@ -218,6 +240,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
     closeEditHandicap();
   }
 
+  // Always pull Player 1 from Profile (name + handicap)
   useEffect(() => {
     let mounted = true;
 
@@ -262,7 +285,9 @@ export default function PlayerEntryScreen({ navigation, route }) {
             };
           });
         });
-      } catch {}
+      } catch {
+        // ignore
+      }
     })();
 
     return () => {
@@ -322,7 +347,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
   function removePlayer(id) {
     if (id === "me") return;
     const p = players.find((x) => x.id === id);
-    if (p?.source === "remote") return;
+    if (p?.source === "remote") return; // joined players not removable in v1
     setPlayers((prev) => prev.filter((pp) => pp.id !== id));
   }
 
@@ -369,6 +394,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
   async function onStartRound() {
     if (!canStart) return;
 
+    // Save Active Round snapshot (for Resume + stable downstream screens)
     try {
       const activeRound = makeActiveRoundSnapshot({
         params,
@@ -381,8 +407,11 @@ export default function PlayerEntryScreen({ navigation, route }) {
         joinCode: lobbyCode,
       });
       await saveActiveRound(activeRound);
-    } catch {}
+    } catch {
+      // do not block starting the round
+    }
 
+    // Go to Round Hub (Hole View screen)
     try {
       navigation.navigate(ROUTES.HOLE_VIEW, {
         ...params,
@@ -410,7 +439,10 @@ export default function PlayerEntryScreen({ navigation, route }) {
   const summaryLine2 = `${courseName} • ${teeName}${teeYards ? ` (${teeYards})` : ""}`;
 
   const rightInvite = (
-    <Pressable onPress={() => setInviteModal(true)} style={({ pressed }) => [styles.headerRight, pressed && styles.pressed]}>
+    <Pressable
+      onPress={() => setInviteModal(true)}
+      style={({ pressed }) => [styles.headerRight, pressed && styles.pressed]}
+    >
       <Text style={styles.headerRightText}>Invite</Text>
     </Pressable>
   );
@@ -428,6 +460,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
 
   const doneIsPrimary = buddyAddedThisSession;
 
+  // LOBBY: create + subscribe
   async function ensureLobbyCreated() {
     const uid = auth?.currentUser?.uid || null;
     if (!uid) return;
@@ -468,7 +501,8 @@ export default function PlayerEntryScreen({ navigation, route }) {
 
       setLobbyCode(code);
       subscribeToLobby(code);
-    } catch {
+    } catch (e) {
+      // If Firestore rules block, we want a very clear message
       Alert.alert(
         "Lobby not created",
         "Firestore could not create the lobby. This usually means Firestore rules are blocking writes.\n\nWe can fix this next."
@@ -526,15 +560,23 @@ export default function PlayerEntryScreen({ navigation, route }) {
             };
 
             const manual = prev.filter((p) => p.id !== "me" && p.source !== "remote");
+
             const next = [me, ...remotePlayers, ...manual].slice(0, playerCount);
+
+            // If remote players push out manual players, that’s expected in v1
             return next;
           });
         },
-        () => {}
+        () => {
+          // ignore for now
+        }
       );
-    } catch {}
+    } catch {
+      // ignore
+    }
   }
 
+  // Create lobby when screen mounts (host flow)
   useEffect(() => {
     ensureLobbyCreated();
 
@@ -547,6 +589,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // JOIN: enter code, join lobby, then subscribe
   async function joinLobbyByCode() {
     const uid = auth?.currentUser?.uid || null;
     if (!uid) {
@@ -591,8 +634,11 @@ export default function PlayerEntryScreen({ navigation, route }) {
       subscribeToLobby(code);
 
       Alert.alert("Joined", `You joined game ${code}.`);
-    } catch {
-      Alert.alert("Join failed", "Could not join the lobby. This is usually Firestore rules blocking reads/writes.");
+    } catch (e) {
+      Alert.alert(
+        "Join failed",
+        "Could not join the lobby. This is usually Firestore rules blocking reads/writes."
+      );
     } finally {
       setJoining(false);
     }
@@ -609,13 +655,19 @@ export default function PlayerEntryScreen({ navigation, route }) {
         role: String(m.role || "player"),
       }));
 
+    // host first
     arr.sort((a, b) => (a.role === "host" ? -1 : 1) - (b.role === "host" ? -1 : 1));
     return arr;
   }, [lobbyDoc]);
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScreenHeader navigation={navigation} title="Add Players" subtitle={`${players.length} of ${playerCount}`} right={rightInvite} />
+      <ScreenHeader
+        navigation={navigation}
+        title="Add Players"
+        subtitle={`${players.length} of ${playerCount}`}
+        right={rightInvite}
+      />
 
       <View style={styles.topSection}>
         <View style={styles.progressTrack}>
@@ -633,15 +685,24 @@ export default function PlayerEntryScreen({ navigation, route }) {
         </View>
 
         <View style={styles.actionRow}>
-          <Pressable onPress={openBuddyModal} style={({ pressed }) => [styles.actionPillPrimary, pressed && styles.pressed]}>
+          <Pressable
+            onPress={openBuddyModal}
+            style={({ pressed }) => [styles.actionPillPrimary, pressed && styles.pressed]}
+          >
             <Text style={styles.actionPillText}>Buddy List</Text>
           </Pressable>
 
-          <Pressable onPress={openGuest} style={({ pressed }) => [styles.actionPillGhost, pressed && styles.pressed]}>
+          <Pressable
+            onPress={openGuest}
+            style={({ pressed }) => [styles.actionPillGhost, pressed && styles.pressed]}
+          >
             <Text style={styles.actionPillText}>Guest</Text>
           </Pressable>
 
-          <Pressable onPress={() => setInviteModal(true)} style={({ pressed }) => [styles.actionPillGhost, pressed && styles.pressed]}>
+          <Pressable
+            onPress={() => setInviteModal(true)}
+            style={({ pressed }) => [styles.actionPillGhost, pressed && styles.pressed]}
+          >
             <Text style={styles.actionPillText}>Invite</Text>
           </Pressable>
         </View>
@@ -675,12 +736,18 @@ export default function PlayerEntryScreen({ navigation, route }) {
                   ) : null}
                 </View>
 
-                <Pressable onPress={() => openEditHandicap(item)} style={({ pressed }) => [styles.hcpPill, pressed && styles.pressed]}>
+                <Pressable
+                  onPress={() => openEditHandicap(item)}
+                  style={({ pressed }) => [styles.hcpPill, pressed && styles.pressed]}
+                >
                   <Text style={styles.hcpPillText}>HCP {item.handicap ?? 0}</Text>
                 </Pressable>
 
                 {!isMe && !isRemote ? (
-                  <Pressable onPress={() => removePlayer(item.id)} style={({ pressed }) => [styles.removeBtn, pressed && styles.pressed]}>
+                  <Pressable
+                    onPress={() => removePlayer(item.id)}
+                    style={({ pressed }) => [styles.removeBtn, pressed && styles.pressed]}
+                  >
                     <Text style={styles.removeText}>Remove</Text>
                   </Pressable>
                 ) : (
@@ -738,7 +805,11 @@ export default function PlayerEntryScreen({ navigation, route }) {
                     <Pressable
                       disabled={disabled}
                       onPress={() => addBuddy(item)}
-                      style={({ pressed }) => [styles.pickBtn, disabled && styles.pickBtnDisabled, pressed && !disabled && styles.pressed]}
+                      style={({ pressed }) => [
+                        styles.pickBtn,
+                        disabled && styles.pickBtnDisabled,
+                        pressed && !disabled && styles.pressed,
+                      ]}
                     >
                       <Text style={styles.pickBtnText}>{disabled ? "Added" : "Add"}</Text>
                     </Pressable>
@@ -747,9 +818,14 @@ export default function PlayerEntryScreen({ navigation, route }) {
               }}
             />
 
+            {/* Done becomes BLUE after at least one Add */}
             <Pressable
               onPress={closeBuddyModal}
-              style={({ pressed }) => [styles.modalClose, doneIsPrimary && styles.modalClosePrimary, pressed && styles.pressed]}
+              style={({ pressed }) => [
+                styles.modalClose,
+                doneIsPrimary && styles.modalClosePrimary,
+                pressed && styles.pressed,
+              ]}
             >
               <Text style={[styles.modalCloseText, doneIsPrimary && styles.modalCloseTextPrimary]}>Done</Text>
             </Pressable>
@@ -785,7 +861,10 @@ export default function PlayerEntryScreen({ navigation, route }) {
             />
 
             <View style={{ flexDirection: "row", gap: 10, marginTop: 8 }}>
-              <Pressable onPress={() => setGuestModal(false)} style={({ pressed }) => [styles.modalGhostBtn, pressed && styles.pressed]}>
+              <Pressable
+                onPress={() => setGuestModal(false)}
+                style={({ pressed }) => [styles.modalGhostBtn, pressed && styles.pressed]}
+              >
                 <Text style={styles.modalGhostText}>Cancel</Text>
               </Pressable>
 
@@ -797,80 +876,78 @@ export default function PlayerEntryScreen({ navigation, route }) {
         </Pressable>
       </Modal>
 
-      {/* Invite / Lobby Modal (SCROLL FIX) */}
+      {/* Invite / Lobby Modal */}
       <Modal visible={inviteModal} transparent animationType="fade" onRequestClose={() => setInviteModal(false)}>
         <Pressable style={styles.modalWrap} onPress={() => setInviteModal(false)}>
           <Pressable style={styles.modalCard} onPress={() => {}}>
-            <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-              <ScrollView
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-                contentContainerStyle={styles.inviteScrollContent}
+            <Text style={styles.modalTitle}>Invite Players</Text>
+
+            <View style={styles.codeCard}>
+              <Text style={styles.codeLabel}>JOIN CODE</Text>
+              <Text style={styles.codeValue}>{lobbyCode}</Text>
+              <Text style={styles.codeNote}>Share now. Players can join by entering this code.</Text>
+            </View>
+
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
+              <Pressable
+                onPress={() => setInviteModal(false)}
+                style={({ pressed }) => [styles.modalGhostBtn, pressed && styles.pressed]}
               >
-                <Text style={styles.modalTitle}>Invite Players</Text>
+                <Text style={styles.modalGhostText}>Close</Text>
+              </Pressable>
 
-                <View style={styles.codeCard}>
-                  <Text style={styles.codeLabel}>JOIN CODE</Text>
-                  <Text style={styles.codeValue}>{lobbyCode}</Text>
-                  <Text style={styles.codeNote}>Share now. Players can join by entering this code.</Text>
-                </View>
+              <Pressable onPress={onShareInvite} style={({ pressed }) => [styles.modalPrimaryBtn, pressed && styles.pressed]}>
+                <Text style={styles.modalPrimaryText}>Share</Text>
+              </Pressable>
+            </View>
 
-                <View style={styles.inviteBtnRow}>
-                  <Pressable onPress={() => setInviteModal(false)} style={({ pressed }) => [styles.modalGhostBtn, pressed && styles.pressed]}>
-                    <Text style={styles.modalGhostText}>Close</Text>
-                  </Pressable>
+            <View style={styles.modalSectionDivider} />
 
-                  <Pressable onPress={onShareInvite} style={({ pressed }) => [styles.modalPrimaryBtn, pressed && styles.pressed]}>
-                    <Text style={styles.modalPrimaryText}>Share</Text>
-                  </Pressable>
-                </View>
-
-                <View style={styles.modalSectionDivider} />
-
-                <Text style={styles.sectionTitle}>Joined Players</Text>
-                {lobbyMembersList.length ? (
-                  <View style={styles.joinedList}>
-                    {lobbyMembersList.map((m) => (
-                      <View key={m.uid} style={styles.joinedRow}>
-                        <View style={{ flex: 1, minWidth: 0 }}>
-                          <Text style={styles.joinedName} numberOfLines={1}>
-                            {displayNameFirstLastInitial(m.name)} {m.role === "host" ? "(Host)" : ""}
-                          </Text>
-                          <Text style={styles.joinedMeta}>HCP {m.handicap}</Text>
-                        </View>
-
-                        <View style={styles.joinedBadge}>
-                          <Text style={styles.joinedBadgeText}>Joined</Text>
-                        </View>
-                      </View>
-                    ))}
+            <Text style={styles.sectionTitle}>Joined Players</Text>
+            {lobbyMembersList.length ? (
+              <View style={{ marginTop: 8 }}>
+                {lobbyMembersList.map((m) => (
+                  <View key={m.uid} style={styles.joinedRow}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={styles.joinedName} numberOfLines={1}>
+                        {displayNameFirstLastInitial(m.name)} {m.role === "host" ? "(Host)" : ""}
+                      </Text>
+                      <Text style={styles.joinedMeta}>HCP {m.handicap}</Text>
+                    </View>
+                    <View style={styles.joinedBadge}>
+                      <Text style={styles.joinedBadgeText}>Joined</Text>
+                    </View>
                   </View>
-                ) : (
-                  <Text style={styles.emptyTextInvite}>No one has joined yet.</Text>
-                )}
+                ))}
+              </View>
+            ) : (
+              <Text style={styles.emptyText}>No one has joined yet.</Text>
+            )}
 
-                <View style={styles.modalSectionDivider} />
+            <View style={styles.modalSectionDivider} />
 
-                <Text style={styles.sectionTitle}>Join a Game (for testing)</Text>
-                <TextInput
-                  style={styles.modalInput}
-                  value={joinCodeInput}
-                  onChangeText={(v) => setJoinCodeInput(normalizeJoinCode(v))}
-                  placeholder="Enter join code"
-                  placeholderTextColor="rgba(255,255,255,0.35)"
-                  autoCapitalize="characters"
-                  returnKeyType="done"
-                />
+            <Text style={styles.sectionTitle}>Join a Game (for testing)</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={joinCodeInput}
+              onChangeText={(v) => setJoinCodeInput(normalizeJoinCode(v))}
+              placeholder="Enter join code"
+              placeholderTextColor="rgba(255,255,255,0.35)"
+              autoCapitalize="characters"
+              returnKeyType="done"
+            />
 
-                <Pressable
-                  onPress={joinLobbyByCode}
-                  disabled={joining}
-                  style={({ pressed }) => [styles.joinBtn, joining && { opacity: 0.7 }, pressed && !joining && styles.pressed]}
-                >
-                  <Text style={styles.joinBtnText}>{joining ? "Joining..." : "Join Game"}</Text>
-                </Pressable>
-              </ScrollView>
-            </KeyboardAvoidingView>
+            <Pressable
+              onPress={joinLobbyByCode}
+              disabled={joining}
+              style={({ pressed }) => [
+                styles.joinBtn,
+                joining && { opacity: 0.7 },
+                pressed && !joining && styles.pressed,
+              ]}
+            >
+              <Text style={styles.joinBtnText}>{joining ? "Joining..." : "Join Game"}</Text>
+            </Pressable>
           </Pressable>
         </Pressable>
       </Modal>
@@ -911,6 +988,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
 const GREEN_BG = "#0F7A4A";
 const GREEN_BORDER = "rgba(255,255,255,0.18)";
 
+// Premium green accents (same family as your other screens)
 const GREEN_ACCENT = "rgba(15, 122, 74, 0.92)";
 const GREEN_ACCENT_SOFT = "rgba(15, 122, 74, 0.14)";
 const GREEN_ACCENT_BORDER = "rgba(15, 122, 74, 0.70)";
@@ -1088,7 +1166,6 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.16)",
     backgroundColor: theme?.bg || theme?.colors?.bg || "#0B1220",
     padding: 14,
-    overflow: "hidden",
   },
   modalCardSmall: {
     width: "100%",
@@ -1191,12 +1268,6 @@ const styles = StyleSheet.create({
 
   modalSectionDivider: { marginTop: 14, marginBottom: 10, height: 1, backgroundColor: "rgba(255,255,255,0.08)" },
   sectionTitle: { color: "#fff", fontWeight: "900", fontSize: 13, letterSpacing: 0.4 },
-
-  inviteScrollContent: { paddingBottom: 14 },
-  inviteBtnRow: { flexDirection: "row", gap: 10, marginTop: 10 },
-
-  joinedList: { marginTop: 8 },
-  emptyTextInvite: { color: "rgba(255,255,255,0.6)", fontWeight: "800", fontSize: 12, marginTop: 8 },
 
   joinedRow: {
     borderRadius: 16,
