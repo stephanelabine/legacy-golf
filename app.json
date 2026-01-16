@@ -35,7 +35,6 @@
     "extra": {
       "MAPBOX_TOKEN": "pk.eyJ1Ijoic3RlcGhhbmVsYWJpbmUiLCJhIjoiY21qeXZrMDdxMDhydDNocTNlYmI2cnJ1bCJ9.lP-pkAlnfKfHPu5PiJ4xyg",
       "firebaseConfig": {
-        "apiKey": "AIzaSyCU1bCi2C_y65uUTnaOv20lKXBUYReAwvc",
         "authDomain": "legacy-golf.firebaseapp.com",
         "projectId": "legacy-golf",
         "storageBucket": "legacy-golf.firebasestorage.app",
