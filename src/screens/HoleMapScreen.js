@@ -20,6 +20,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ROUTES from "../navigation/routes";
 import { MAPBOX_TOKEN } from "../config/mapbox";
 import { loadCourseData, saveCourseData } from "../storage/courseData";
+import { isAdmin as isAdminUser } from "../storage/courseDataRemote";
 
 function toRad(v) {
   return (v * Math.PI) / 180;
@@ -168,9 +169,7 @@ export default function HoleMapScreen({ navigation, route }) {
   const holeMetaParam = params.holeMeta || null;
 
   const courseId = params.courseId ?? course?.id ?? (typeof course === "string" ? course : null);
-
   const courseName = params.courseName ?? course?.name ?? course?.courseName ?? "Course";
-
   const courseCenter = params.courseCenter ?? course?.center ?? course?.courseCenter ?? null;
 
   const [holeIndex, setHoleIndex] = useState(Number.isFinite(params.holeIndex) ? params.holeIndex : 0);
@@ -182,6 +181,8 @@ export default function HoleMapScreen({ navigation, route }) {
 
   const [courseData, setCourseData] = useState(null);
   const [loadingCourseData, setLoadingCourseData] = useState(true);
+
+  const admin = isAdminUser();
 
   const reloadCourseData = async () => {
     if (!courseId) {
@@ -338,8 +339,8 @@ export default function HoleMapScreen({ navigation, route }) {
   const [savingSetup, setSavingSetup] = useState(false);
 
   const canSet = useMemo(() => {
-    return !!user && Number.isFinite(user?.lat) && Number.isFinite(user?.lon);
-  }, [user]);
+    return admin && !!user && Number.isFinite(user?.lat) && Number.isFinite(user?.lon);
+  }, [admin, user]);
 
   const currentAccuracyText = useMemo(() => {
     if (!user) return "Waiting for GPS…";
@@ -347,6 +348,7 @@ export default function HoleMapScreen({ navigation, route }) {
   }, [user]);
 
   async function setPoint(kind) {
+    if (!admin) return;
     if (!courseId || !canSet) return;
 
     setSavingSetup(true);
@@ -363,7 +365,7 @@ export default function HoleMapScreen({ navigation, route }) {
       }
 
       const gps = existing.gps && typeof existing.gps === "object" ? existing.gps : {};
-      const holes = gps.holes && typeof gps.holes === "object" ? gps.holes : {};
+      const holes = gps.holes && typeof holes === "object" ? holes : {};
       const hKey = String(holeNumber);
       const holeObj = holes[hKey] && typeof holes[hKey] === "object" ? holes[hKey] : {};
       const existingGreen = holeObj.green && typeof holeObj.green === "object" ? holeObj.green : {};
@@ -397,6 +399,7 @@ export default function HoleMapScreen({ navigation, route }) {
   }
 
   function lockGreenPoints() {
+    if (!admin) return;
     if (!courseId) return;
 
     if (!canLockNow) {
@@ -519,7 +522,9 @@ export default function HoleMapScreen({ navigation, route }) {
               </Pressable>
             </View>
 
-            <Text style={styles.modalSub}>Select a hole, stand at the green front/mid/back, then tap Set.</Text>
+            <Text style={styles.modalSub}>
+              {admin ? "Select a hole, stand at the green front/mid/back, then tap Set." : "Read-only for guests."}
+            </Text>
 
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.holePills}>
               {Array.from({ length: 18 }).map((_, i) => {
@@ -555,7 +560,9 @@ export default function HoleMapScreen({ navigation, route }) {
                         {gpsLocked ? "Green points are locked" : "Green points are editable"}
                       </Text>
                       <Text style={styles.lockSub}>
-                        {gpsLocked
+                        {!admin
+                          ? "Guests cannot set or lock points."
+                          : gpsLocked
                           ? "Set buttons are disabled forever (safeguard)."
                           : canLockNow
                           ? "All 18 holes complete — you can lock now."
@@ -563,7 +570,7 @@ export default function HoleMapScreen({ navigation, route }) {
                       </Text>
                     </View>
 
-                    {!gpsLocked ? (
+                    {admin && !gpsLocked ? (
                       <Pressable
                         onPress={lockGreenPoints}
                         disabled={!canLockNow}
@@ -577,7 +584,7 @@ export default function HoleMapScreen({ navigation, route }) {
                       </Pressable>
                     ) : (
                       <View style={styles.lockPill}>
-                        <Text style={styles.lockPillT}>LOCKED</Text>
+                        <Text style={styles.lockPillT}>{gpsLocked ? "LOCKED" : "READ ONLY"}</Text>
                       </View>
                     )}
                   </View>
@@ -596,7 +603,7 @@ export default function HoleMapScreen({ navigation, route }) {
                     >
                       <Text style={styles.setBtnT}>Set Front</Text>
                       <Text style={styles.setBtnS}>
-                        {gpsLocked ? "Locked" : green?.front ? "Saved" : "Not set"}
+                        {!admin ? "Read-only" : gpsLocked ? "Locked" : green?.front ? "Saved" : "Not set"}
                       </Text>
                     </Pressable>
 
@@ -611,7 +618,7 @@ export default function HoleMapScreen({ navigation, route }) {
                     >
                       <Text style={styles.setBtnT}>Set Mid</Text>
                       <Text style={styles.setBtnS}>
-                        {gpsLocked ? "Locked" : green?.middle ? "Saved" : "Not set"}
+                        {!admin ? "Read-only" : gpsLocked ? "Locked" : green?.middle ? "Saved" : "Not set"}
                       </Text>
                     </Pressable>
 
@@ -626,13 +633,15 @@ export default function HoleMapScreen({ navigation, route }) {
                     >
                       <Text style={styles.setBtnT}>Set Back</Text>
                       <Text style={styles.setBtnS}>
-                        {gpsLocked ? "Locked" : green?.back ? "Saved" : "Not set"}
+                        {!admin ? "Read-only" : gpsLocked ? "Locked" : green?.back ? "Saved" : "Not set"}
                       </Text>
                     </Pressable>
                   </View>
 
                   <Text style={styles.modalHint}>
-                    After you set points, the yardages will update live as you walk.
+                    {admin
+                      ? "After you set points, the yardages will update live as you walk."
+                      : "Guests can view yardages once points are published."}
                   </Text>
                 </>
               )}

@@ -2,6 +2,7 @@
   "expo": {
     "name": "Legacy Golf",
     "slug": "legacy-golf",
+    "owner": "stephanelabine",
     "icon": "./assets/icon.png",
     "splash": {
       "image": "./assets/splash.png",

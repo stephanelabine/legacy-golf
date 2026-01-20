@@ -13,7 +13,13 @@ import {
   TouchableWithoutFeedback,
   Alert,
 } from "react-native";
-import { loadCourseData, saveCourseData, clearCourseData } from "../storage/courseData";
+import {
+  loadCourseData,
+  saveCourseData,
+  clearCourseData,
+  publishLocalCourseToCloud,
+} from "../storage/courseData";
+import { isAdmin as isAdminUser } from "../storage/courseDataRemote";
 
 const BG = "#000000";
 const CARD = "#1D3557";
@@ -25,7 +31,6 @@ const GREEN_TEXT = "#0B1F12";
 const ORANGE = "#F39C12";
 const ORANGE_TEXT = "#1B1200";
 const RED = "#E74C3C";
-const RED_TEXT = "#2A0B07";
 
 function defaultHoleMeta() {
   const meta = {};
@@ -38,6 +43,9 @@ export default function CourseDataScreen({ navigation, route }) {
 
   const [holeMeta, setHoleMeta] = useState(defaultHoleMeta());
   const [loading, setLoading] = useState(true);
+  const [publishing, setPublishing] = useState(false);
+
+  const admin = isAdminUser();
 
   useEffect(() => {
     let live = true;
@@ -78,6 +86,8 @@ export default function CourseDataScreen({ navigation, route }) {
   }
 
   async function onSave() {
+    if (!admin) return;
+
     if (!isValid) {
       Alert.alert("Fix inputs", "Pars must be 3/4/5 and Stroke Index must be 1-18 with no duplicates.");
       return;
@@ -91,6 +101,8 @@ export default function CourseDataScreen({ navigation, route }) {
   }
 
   function onWipeCourse() {
+    if (!admin) return;
+
     Alert.alert(
       "Wipe this course?",
       "This will delete ALL saved data for this course (Pars/SI and all green points/GPS mapping). You will be starting fresh for this course.",
@@ -113,6 +125,24 @@ export default function CourseDataScreen({ navigation, route }) {
     );
   }
 
+  async function onPublish() {
+    if (!admin) return;
+
+    setPublishing(true);
+    try {
+      const res = await publishLocalCourseToCloud(course.id);
+      if (!res.ok) {
+        Alert.alert("Publish failed", "No local course data found to publish from this device.");
+        return;
+      }
+      Alert.alert("Published", "Course data is now saved to the cloud for all users.");
+    } catch (e) {
+      Alert.alert("Publish failed", "Could not publish to cloud. Check Firestore rules and login.");
+    } finally {
+      setPublishing(false);
+    }
+  }
+
   if (loading) {
     return (
       <SafeAreaView style={styles.safe}>
@@ -129,9 +159,25 @@ export default function CourseDataScreen({ navigation, route }) {
             <Text style={styles.title}>Course Hole Data</Text>
             <Text style={styles.sub}>{course.name}</Text>
 
-            <Pressable onPress={onWipeCourse} style={({ pressed }) => [styles.wipeBtn, pressed && styles.pressed]}>
-              <Text style={styles.wipeText}>Wipe this course</Text>
-            </Pressable>
+            {admin ? (
+              <Pressable
+                onPress={onPublish}
+                disabled={publishing}
+                style={({ pressed }) => [styles.publishBtn, pressed && styles.pressed, publishing && { opacity: 0.6 }]}
+              >
+                <Text style={styles.publishText}>{publishing ? "Publishing..." : "Publish to Cloud"}</Text>
+              </Pressable>
+            ) : (
+              <View style={styles.readOnlyPill}>
+                <Text style={styles.readOnlyText}>Read-only (guests cannot edit course data)</Text>
+              </View>
+            )}
+
+            {admin ? (
+              <Pressable onPress={onWipeCourse} style={({ pressed }) => [styles.wipeBtn, pressed && styles.pressed]}>
+                <Text style={styles.wipeText}>Wipe this course</Text>
+              </Pressable>
+            ) : null}
           </View>
 
           <ScrollView contentContainerStyle={{ paddingBottom: 120 }}>
@@ -149,9 +195,10 @@ export default function CourseDataScreen({ navigation, route }) {
                       <Text style={styles.label}>Par</Text>
                       <TextInput
                         value={parVal}
+                        editable={admin}
                         onChangeText={(v) => updateHole(h, "par", v)}
                         keyboardType="numeric"
-                        style={styles.input}
+                        style={[styles.input, !admin && { opacity: 0.85 }]}
                         placeholder="3/4/5"
                         placeholderTextColor={MUTED}
                       />
@@ -161,9 +208,10 @@ export default function CourseDataScreen({ navigation, route }) {
                       <Text style={styles.label}>Stroke Index</Text>
                       <TextInput
                         value={siVal}
+                        editable={admin}
                         onChangeText={(v) => updateHole(h, "si", v)}
                         keyboardType="numeric"
-                        style={styles.input}
+                        style={[styles.input, !admin && { opacity: 0.85 }]}
                         placeholder="1-18"
                         placeholderTextColor={MUTED}
                       />
@@ -179,9 +227,11 @@ export default function CourseDataScreen({ navigation, route }) {
               <Text style={styles.orangeText}>Cancel</Text>
             </Pressable>
 
-            <Pressable style={[styles.greenBtn, !isValid && { opacity: 0.5 }]} onPress={onSave}>
-              <Text style={styles.greenText}>Save</Text>
-            </Pressable>
+            {admin ? (
+              <Pressable style={[styles.greenBtn, !isValid && { opacity: 0.5 }]} onPress={onSave}>
+                <Text style={styles.greenText}>Save</Text>
+              </Pressable>
+            ) : null}
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
@@ -195,6 +245,30 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 10 },
   title: { color: WHITE, fontSize: 28, fontWeight: "900" },
   sub: { color: MUTED, marginTop: 6, fontWeight: "700" },
+
+  publishBtn: {
+    marginTop: 12,
+    height: 44,
+    borderRadius: 16,
+    backgroundColor: "#243E63",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+  publishText: { color: WHITE, fontWeight: "900", fontSize: 14, letterSpacing: 0.2 },
+
+  readOnlyPill: {
+    marginTop: 12,
+    height: 44,
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+  },
+  readOnlyText: { color: "rgba(255,255,255,0.80)", fontWeight: "900", fontSize: 13 },
 
   wipeBtn: {
     marginTop: 12,

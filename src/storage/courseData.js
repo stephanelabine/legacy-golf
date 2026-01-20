@@ -1,102 +1,116 @@
 // src/storage/courseData.js
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { readCourseRemote, writeCourseRemote, wipeCourseRemote, isAdmin } from "./courseDataRemote";
 
-const KEY = "LEGACY_GOLF_COURSE_DATA_V1";
-
-function looksLikePagodaKey(k) {
-  const s = String(k || "").toLowerCase();
-  return s.includes("pagoda");
+function key(courseId) {
+  return `LEGACY_GOLF_COURSE_DATA_V1:${String(courseId)}`;
 }
 
-// Hard remove any legacy Pagoda entries so they can't reappear in UI flows
-function prunePagodaEntries(all) {
-  if (!all || typeof all !== "object") return { next: all, changed: false };
+function isObj(v) {
+  return !!v && typeof v === "object" && !Array.isArray(v);
+}
 
-  let changed = false;
-  const next = { ...all };
+function deepMerge(base, patch) {
+  const out = isObj(base) ? { ...base } : {};
+  if (!isObj(patch)) return out;
 
-  for (const k of Object.keys(next)) {
-    if (looksLikePagodaKey(k)) {
-      delete next[k];
-      changed = true;
-    }
+  for (const k of Object.keys(patch)) {
+    const pv = patch[k];
+    const bv = out[k];
+
+    if (isObj(pv) && isObj(bv)) out[k] = deepMerge(bv, pv);
+    else out[k] = pv;
   }
-
-  return { next, changed };
+  return out;
 }
 
-export async function loadAllCourseData() {
+export async function loadCourseDataLocalOnly(courseId) {
   try {
-    const raw = await AsyncStorage.getItem(KEY);
-    const parsed = raw ? JSON.parse(raw) : {};
-
-    const { next, changed } = prunePagodaEntries(parsed);
-
-    // persist the prune so Pagoda can't "ghost" back later
-    if (changed) {
-      await AsyncStorage.setItem(KEY, JSON.stringify(next));
-    }
-
-    return next;
+    const raw = await AsyncStorage.getItem(key(courseId));
+    return raw ? JSON.parse(raw) : null;
   } catch {
-    return {};
+    return null;
   }
 }
 
+export async function saveCourseDataLocalOnly(courseId, data) {
+  try {
+    await AsyncStorage.setItem(key(courseId), JSON.stringify(data || {}));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function clearCourseDataLocalOnly(courseId) {
+  try {
+    await AsyncStorage.removeItem(key(courseId));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// MAIN LOAD: remote first, fallback to local
 export async function loadCourseData(courseId) {
-  const all = await loadAllCourseData();
-  return all?.[courseId] || null;
-}
+  const cid = String(courseId);
 
-// IMPORTANT:
-// - merge with existing so we don't wipe out other saved fields (like gps) when saving holeMeta.
-// - SAFEGUARD: if gps is locked, we refuse any gps overwrites at the storage layer.
-export async function saveCourseData(courseId, data) {
   try {
-    // Safety: never save data under a Pagoda key
-    if (looksLikePagodaKey(courseId)) return false;
-
-    const all = await loadAllCourseData();
-
-    const existing =
-      all?.[courseId] && typeof all[courseId] === "object" ? all[courseId] : {};
-
-    const incoming = data && typeof data === "object" ? data : {};
-
-    const next = {
-      ...existing,
-      ...incoming,
-    };
-
-    // HARD SAFEGUARD:
-    // If this course has gpsLocked=true, do not allow anything to overwrite gps.
-    // (You can still change holeMeta, etc.)
-    const gpsLocked = existing?.gpsLocked === true;
-    if (gpsLocked && Object.prototype.hasOwnProperty.call(incoming, "gps")) {
-      next.gps = existing.gps;
+    const remote = await readCourseRemote(cid);
+    if (remote) {
+      await saveCourseDataLocalOnly(cid, remote);
+      return remote;
     }
-
-    all[courseId] = next;
-    await AsyncStorage.setItem(KEY, JSON.stringify(all));
-    return true;
   } catch {
-    return false;
+    // ignore remote errors; fall back to local
   }
+
+  return await loadCourseDataLocalOnly(cid);
 }
 
-// NEW: wipe everything for ONE course (pars/SI + gps points + locks)
+// MAIN SAVE: admin writes remote + local. guests only local is blocked by UI, but keep safe here too.
+export async function saveCourseData(courseId, patchOrFull) {
+  const cid = String(courseId);
+  const existing = (await loadCourseDataLocalOnly(cid)) || {};
+  const next = deepMerge(existing, patchOrFull || {});
+
+  const okLocal = await saveCourseDataLocalOnly(cid, next);
+  if (!okLocal) return false;
+
+  if (isAdmin()) {
+    try {
+      await writeCourseRemote(cid, next, { merge: false });
+    } catch {
+      // keep local even if remote fails
+    }
+  }
+
+  return true;
+}
+
+// WIPE: admin wipes remote + local
 export async function clearCourseData(courseId) {
-  try {
-    if (!courseId) return false;
-    if (looksLikePagodaKey(courseId)) return false;
+  const cid = String(courseId);
 
-    const all = await loadAllCourseData();
-    if (all && typeof all === "object" && Object.prototype.hasOwnProperty.call(all, courseId)) {
-      delete all[courseId];
-      await AsyncStorage.setItem(KEY, JSON.stringify(all));
+  await clearCourseDataLocalOnly(cid);
+
+  if (isAdmin()) {
+    try {
+      await wipeCourseRemote(cid);
+    } catch {
+      // ignore
     }
-    return true;
-  } catch {
-    return false;
   }
+
+  return true;
+}
+
+// PUBLISH: take LOCAL ONLY data (the “correct” stuff on your device) and push to cloud
+export async function publishLocalCourseToCloud(courseId) {
+  const cid = String(courseId);
+  const local = (await loadCourseDataLocalOnly(cid)) || null;
+  if (!local) return { ok: false, reason: "no-local-data" };
+
+  await writeCourseRemote(cid, local, { merge: false });
+  return { ok: true };
 }
