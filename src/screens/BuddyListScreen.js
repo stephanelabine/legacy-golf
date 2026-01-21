@@ -15,9 +15,10 @@ import {
   ScrollView,
 } from "react-native";
 
+import { Ionicons } from "@expo/vector-icons";
 import theme from "../theme";
 import ScreenHeader from "../components/ScreenHeader";
-import { getBuddies, saveBuddies } from "../storage/buddies";
+import { getBuddies, saveBuddies, subscribeBuddies } from "../storage/buddies";
 
 function makeId() {
   return `${Date.now()}-${Math.floor(Math.random() * 100000)}`;
@@ -38,9 +39,23 @@ function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 }
 
+function sortBuddies(list) {
+  const arr = Array.isArray(list) ? [...list] : [];
+  arr.sort((a, b) => {
+    const an = String(a?.name || "").trim().toLowerCase();
+    const bn = String(b?.name || "").trim().toLowerCase();
+    if (an < bn) return -1;
+    if (an > bn) return 1;
+    return 0;
+  });
+  return arr;
+}
+
 export default function BuddyListScreen({ navigation }) {
   const [buddies, setBuddies] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
 
   const [name, setName] = useState("");
   const [handicap, setHandicap] = useState("");
@@ -54,38 +69,50 @@ export default function BuddyListScreen({ navigation }) {
   const [editEmail, setEditEmail] = useState("");
   const [editNotes, setEditNotes] = useState("");
 
-  async function load() {
+  async function loadOnce() {
     try {
       const list = await getBuddies();
-      setBuddies(Array.isArray(list) ? list : []);
+      setBuddies(sortBuddies(Array.isArray(list) ? list : []));
     } catch {
       setBuddies([]);
     }
   }
 
   useEffect(() => {
-    let mounted = true;
+    let unsub = null;
 
-    (async () => {
-      if (!mounted) return;
-      await load();
-    })();
+    const onFocus = async () => {
+      await loadOnce();
+      unsub = subscribeBuddies((list) => setBuddies(sortBuddies(Array.isArray(list) ? list : [])));
+    };
 
-    const unsub = navigation?.addListener?.("focus", load);
+    const onBlur = () => {
+      if (typeof unsub === "function") unsub();
+      unsub = null;
+    };
+
+    const u1 = navigation?.addListener?.("focus", onFocus);
+    const u2 = navigation?.addListener?.("blur", onBlur);
+
+    onFocus();
 
     return () => {
-      mounted = false;
-      if (typeof unsub === "function") unsub();
+      onBlur();
+      if (typeof u1 === "function") u1();
+      if (typeof u2 === "function") u2();
     };
   }, [navigation]);
 
+  const sortedBuddies = useMemo(() => sortBuddies(buddies), [buddies]);
   const canAdd = useMemo(() => String(name || "").trim().length > 0, [name]);
 
   async function persist(next) {
+    const sorted = sortBuddies(next);
     setSaving(true);
-    const ok = await saveBuddies(next);
+    const ok = await saveBuddies(sorted);
     setSaving(false);
     if (!ok) Alert.alert("Error", "Could not save buddies.");
+    return ok;
   }
 
   async function onAdd() {
@@ -107,18 +134,24 @@ export default function BuddyListScreen({ navigation }) {
     const p = cleanPhone(phone);
     const e = String(email || "").trim();
 
-    const next = [{ id: makeId(), name: trimmed, handicap: h, phone: p, email: e, notes: "" }, ...buddies];
+    const next = [...buddies, { id: makeId(), name: trimmed, handicap: h, phone: p, email: e, notes: "" }];
+    const sorted = sortBuddies(next);
 
-    setBuddies(next);
+    setBuddies(sorted);
     setName("");
     setHandicap("");
     setPhone("");
     setEmail("");
     Keyboard.dismiss();
-    await persist(next);
+    await persist(sorted);
   }
 
   function openEdit(buddy) {
+    if (selectMode) {
+      toggleSelected(buddy?.id);
+      return;
+    }
+
     setEditing(buddy);
     setEditName(String(buddy?.name || ""));
     setEditHandicap(String(buddy?.handicap ?? 0));
@@ -160,15 +193,48 @@ export default function BuddyListScreen({ navigation }) {
       b.id === editing.id ? { ...b, name: trimmed, handicap: h, phone: p, email: e, notes } : b
     );
 
-    setBuddies(next);
+    const sorted = sortBuddies(next);
+
+    setBuddies(sorted);
     closeEdit();
-    await persist(next);
+    await persist(sorted);
   }
 
-  async function onDelete(id) {
+  function confirmDelete(buddy) {
+    Alert.alert(
+      "Delete buddy?",
+      `Are you sure you want to delete ${buddy?.name || "this buddy"}?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: () => onDeleteConfirmed(buddy?.id) },
+      ],
+      { cancelable: true }
+    );
+  }
+
+  async function onDeleteConfirmed(id) {
+    if (!id) return;
     const next = buddies.filter((b) => b.id !== id);
-    setBuddies(next);
-    await persist(next);
+    const sorted = sortBuddies(next);
+
+    setBuddies(sorted);
+    setSelectedIds((prev) => {
+      const nextSet = new Set(prev);
+      nextSet.delete(id);
+      return nextSet;
+    });
+
+    await persist(sorted);
+  }
+
+  function toggleSelected(id) {
+    if (!id) return;
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
 
   function formatPhoneForDisplay(digits) {
@@ -178,11 +244,38 @@ export default function BuddyListScreen({ navigation }) {
     return s;
   }
 
+  function exitSelectMode() {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }
+
   return (
     <View style={styles.screen}>
       <ScreenHeader navigation={navigation} title="Buddies" subtitle="Your saved players" />
 
-      <View style={styles.card} pointerEvents={saving ? "none" : "auto"}>
+      <View style={styles.selectBar}>
+        <Pressable
+          onPress={() => {
+            if (selectMode) exitSelectMode();
+            else {
+              setSelectMode(true);
+              setSelectedIds(new Set());
+            }
+          }}
+          style={({ pressed }) => [styles.selectBtn, pressed && styles.pressed]}
+        >
+          <Ionicons name={selectMode ? "close" : "checkmark-circle-outline"} size={18} color="#fff" />
+          <Text style={styles.selectBtnText}>{selectMode ? "Done" : "Select"}</Text>
+        </Pressable>
+
+        {selectMode ? (
+          <View style={styles.selectCountPill}>
+            <Text style={styles.selectCountText}>{selectedIds.size} selected</Text>
+          </View>
+        ) : null}
+      </View>
+
+      <View style={styles.addCard} pointerEvents={saving ? "none" : "auto"}>
         <Text style={styles.label}>Add a buddy</Text>
 
         <View style={styles.row}>
@@ -253,47 +346,71 @@ export default function BuddyListScreen({ navigation }) {
       </View>
 
       <FlatList
-        data={buddies}
+        data={sortedBuddies}
         keyExtractor={(it) => it.id}
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 30 }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        renderItem={({ item }) => (
-          <Pressable
-            onPress={() => openEdit(item)}
-            style={({ pressed }) => [styles.buddyRow, pressed && styles.pressed]}
-          >
-            <View style={{ flex: 1 }}>
-              <Text style={styles.buddyName} numberOfLines={1}>
-                {item.name}
-              </Text>
+        renderItem={({ item }) => {
+          const selected = selectedIds.has(item.id);
 
-              <Text style={styles.buddyMeta}>
-                HCP: {item.handicap ?? 0}
-                {(item.phone || item.email) ? " • " : ""}
-                {item.phone ? formatPhoneForDisplay(item.phone) : ""}
-                {item.phone && item.email ? " • " : ""}
-                {item.email ? item.email : ""}
-              </Text>
-
-              {item.notes ? (
-                <Text style={styles.buddyMeta2} numberOfLines={1}>
-                  {item.notes}
-                </Text>
-              ) : null}
-            </View>
-
+          return (
             <Pressable
-              onPress={(e) => {
-                e?.stopPropagation?.();
-                onDelete(item.id);
-              }}
-              style={({ pressed }) => [styles.delBtn, pressed && styles.pressed]}
+              onPress={() => openEdit(item)}
+              style={({ pressed }) => [
+                styles.buddyRow,
+                pressed && styles.buddyRowPressed,
+                selectMode && selected && styles.buddyRowSelected,
+              ]}
             >
-              <Text style={styles.delText}>Delete</Text>
+              {selectMode ? (
+                <Pressable
+                  onPress={(e) => {
+                    e?.stopPropagation?.();
+                    toggleSelected(item.id);
+                  }}
+                  style={({ pressed }) => [styles.checkboxWrap, pressed && styles.pressed]}
+                >
+                  <View style={[styles.checkbox, selected && styles.checkboxOn]}>
+                    {selected ? <Ionicons name="checkmark" size={16} color="#0B1220" /> : null}
+                  </View>
+                </Pressable>
+              ) : null}
+
+              <View style={{ flex: 1 }}>
+                <Text style={styles.buddyName} numberOfLines={1}>
+                  {item.name}
+                </Text>
+
+                <Text style={styles.buddyMeta}>
+                  HCP: {item.handicap ?? 0}
+                  {(item.phone || item.email) ? " • " : ""}
+                  {item.phone ? formatPhoneForDisplay(item.phone) : ""}
+                  {item.phone && item.email ? " • " : ""}
+                  {item.email ? item.email : ""}
+                </Text>
+
+                {item.notes ? (
+                  <Text style={styles.buddyMeta2} numberOfLines={1}>
+                    {item.notes}
+                  </Text>
+                ) : null}
+              </View>
+
+              {!selectMode ? (
+                <Pressable
+                  onPress={(e) => {
+                    e?.stopPropagation?.();
+                    confirmDelete(item);
+                  }}
+                  style={({ pressed }) => [styles.delBtn, pressed && styles.pressed]}
+                >
+                  <Text style={styles.delText}>Delete</Text>
+                </Pressable>
+              ) : null}
             </Pressable>
-          </Pressable>
-        )}
+          );
+        }}
         ListEmptyComponent={
           <View style={{ paddingHorizontal: 16, paddingTop: 10 }}>
             <Text style={styles.empty}>No buddies yet — add your first one above.</Text>
@@ -301,7 +418,7 @@ export default function BuddyListScreen({ navigation }) {
         }
       />
 
-      <Modal visible={!!editing} transparent animationType="fade" onRequestClose={closeEdit}>
+      <Modal visible={!!editing && !selectMode} transparent animationType="fade" onRequestClose={closeEdit}>
         <View style={styles.modalOverlay}>
           <Pressable style={styles.modalBackdrop} onPress={closeEdit} />
 
@@ -397,19 +514,58 @@ export default function BuddyListScreen({ navigation }) {
   );
 }
 
+const GREEN = "#2FBF71";
+
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: theme?.colors?.bg || "#0B1220" },
 
-  card: {
+  selectBar: {
     marginHorizontal: 16,
-    marginTop: 14,
-    marginBottom: 12,
-    borderRadius: 18,
+    marginTop: 2,
+    marginBottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  selectBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    height: 40,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.16)",
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
+  selectBtnText: { color: "#fff", fontWeight: "900", fontSize: 13 },
+  selectCountPill: {
+    paddingHorizontal: 12,
+    height: 34,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(47,191,113,0.35)",
+    backgroundColor: "rgba(47,191,113,0.10)",
+  },
+  selectCountText: { color: "#fff", fontWeight: "900", fontSize: 12 },
+
+  addCard: {
+    marginHorizontal: 16,
+    marginTop: 14,
+    marginBottom: 14,
+    borderRadius: 18,
+    borderWidth: 2,
+    borderColor: "rgba(47,191,113,0.85)",
     backgroundColor: "rgba(255,255,255,0.04)",
     padding: 14,
+    ...Platform.select({
+      ios: { shadowColor: GREEN, shadowOpacity: 0.20, shadowRadius: 16, shadowOffset: { width: 0, height: 10 } },
+      android: { elevation: 4 },
+    }),
   },
+
   label: { color: "#fff", fontWeight: "900", opacity: 0.9 },
   smallNote: { marginTop: 10, color: "rgba(255,255,255,0.6)", fontWeight: "700", fontSize: 12 },
 
@@ -481,6 +637,38 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 10,
   },
+  buddyRowPressed: {
+    borderColor: "rgba(47,191,113,0.55)",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    opacity: 0.98,
+    transform: [{ scale: 0.995 }],
+  },
+  buddyRowSelected: {
+    borderColor: "rgba(47,191,113,0.75)",
+    backgroundColor: "rgba(47,191,113,0.08)",
+  },
+
+  checkboxWrap: {
+    marginRight: 6,
+    paddingRight: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.35)",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkboxOn: {
+    borderColor: "rgba(47,191,113,0.95)",
+    backgroundColor: "rgba(47,191,113,0.95)",
+  },
+
   buddyName: { color: "#fff", fontWeight: "900", fontSize: 16 },
   buddyMeta: { marginTop: 4, color: "rgba(255,255,255,0.65)", fontWeight: "800", fontSize: 12 },
   buddyMeta2: { marginTop: 4, color: "rgba(255,255,255,0.55)", fontWeight: "800", fontSize: 12 },
