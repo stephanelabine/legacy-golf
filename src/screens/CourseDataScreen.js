@@ -12,12 +12,17 @@ import {
   Keyboard,
   TouchableWithoutFeedback,
   Alert,
+  Modal,
+  ActivityIndicator,
 } from "react-native";
 import {
   loadCourseData,
   saveCourseData,
   clearCourseData,
   publishLocalCourseToCloud,
+  listLocalCourseDataSummaries,
+  copyLocalCourseData,
+  publishLocalCourseIdToCloud,
 } from "../storage/courseData";
 import { isAdmin as isAdminUser } from "../storage/courseDataRemote";
 
@@ -43,9 +48,22 @@ export default function CourseDataScreen({ navigation, route }) {
 
   const [holeMeta, setHoleMeta] = useState(defaultHoleMeta());
   const [loading, setLoading] = useState(true);
+
   const [publishing, setPublishing] = useState(false);
 
+  const [recoverOpen, setRecoverOpen] = useState(false);
+  const [recoverLoading, setRecoverLoading] = useState(false);
+  const [recoverList, setRecoverList] = useState([]);
+  const [selectedRecover, setSelectedRecover] = useState(null);
+  const [recoverActing, setRecoverActing] = useState(false);
+
   const admin = isAdminUser();
+
+  async function reload() {
+    const saved = await loadCourseData(course.id);
+    if (saved?.holeMeta) setHoleMeta(saved.holeMeta);
+    else setHoleMeta(defaultHoleMeta());
+  }
 
   useEffect(() => {
     let live = true;
@@ -132,7 +150,10 @@ export default function CourseDataScreen({ navigation, route }) {
     try {
       const res = await publishLocalCourseToCloud(course.id);
       if (!res.ok) {
-        Alert.alert("Publish failed", "No local course data found to publish from this device.");
+        Alert.alert(
+          "Publish failed",
+          "No local course data found for this courseId.\n\nUse Recover Local Data to find the saved Green Tee data, then publish it."
+        );
         return;
       }
       Alert.alert("Published", "Course data is now saved to the cloud for all users.");
@@ -140,6 +161,57 @@ export default function CourseDataScreen({ navigation, route }) {
       Alert.alert("Publish failed", "Could not publish to cloud. Check Firestore rules and login.");
     } finally {
       setPublishing(false);
+    }
+  }
+
+  async function openRecover() {
+    if (!admin) return;
+
+    setRecoverOpen(true);
+    setRecoverLoading(true);
+    setSelectedRecover(null);
+
+    try {
+      const list = await listLocalCourseDataSummaries();
+      setRecoverList(list || []);
+    } finally {
+      setRecoverLoading(false);
+    }
+  }
+
+  async function useSelected() {
+    if (!admin || !selectedRecover?.courseId) return;
+
+    setRecoverActing(true);
+    try {
+      const ok = await copyLocalCourseData(selectedRecover.courseId, course.id);
+      if (!ok) {
+        Alert.alert("Recover failed", "Could not copy that local blob into this course.");
+        return;
+      }
+      await reload();
+      setRecoverOpen(false);
+      Alert.alert("Recovered", "This course is now using the recovered local data.");
+    } finally {
+      setRecoverActing(false);
+    }
+  }
+
+  async function publishSelectedToCloud() {
+    if (!admin || !selectedRecover?.courseId) return;
+
+    setRecoverActing(true);
+    try {
+      const res = await publishLocalCourseIdToCloud(selectedRecover.courseId, course.id);
+      if (!res.ok) {
+        Alert.alert("Publish failed", "Could not publish that recovered blob to Firestore.");
+        return;
+      }
+      Alert.alert("Published", "Recovered course data is now saved to the cloud for all users.");
+    } catch {
+      Alert.alert("Publish failed", "Could not publish that recovered blob. Check Firestore rules/login.");
+    } finally {
+      setRecoverActing(false);
     }
   }
 
@@ -158,26 +230,34 @@ export default function CourseDataScreen({ navigation, route }) {
           <View style={styles.header}>
             <Text style={styles.title}>Course Hole Data</Text>
             <Text style={styles.sub}>{course.name}</Text>
+            <Text style={styles.sub2}>courseId: {String(course.id)}</Text>
 
             {admin ? (
-              <Pressable
-                onPress={onPublish}
-                disabled={publishing}
-                style={({ pressed }) => [styles.publishBtn, pressed && styles.pressed, publishing && { opacity: 0.6 }]}
-              >
-                <Text style={styles.publishText}>{publishing ? "Publishing..." : "Publish to Cloud"}</Text>
-              </Pressable>
+              <>
+                <Pressable
+                  onPress={openRecover}
+                  style={({ pressed }) => [styles.recoverBtn, pressed && styles.pressed]}
+                >
+                  <Text style={styles.recoverText}>Recover Local Data</Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={onPublish}
+                  disabled={publishing}
+                  style={({ pressed }) => [styles.publishBtn, pressed && styles.pressed, publishing && { opacity: 0.6 }]}
+                >
+                  <Text style={styles.publishText}>{publishing ? "Publishing..." : "Publish to Cloud"}</Text>
+                </Pressable>
+
+                <Pressable onPress={onWipeCourse} style={({ pressed }) => [styles.wipeBtn, pressed && styles.pressed]}>
+                  <Text style={styles.wipeText}>Wipe this course</Text>
+                </Pressable>
+              </>
             ) : (
               <View style={styles.readOnlyPill}>
                 <Text style={styles.readOnlyText}>Read-only (guests cannot edit course data)</Text>
               </View>
             )}
-
-            {admin ? (
-              <Pressable onPress={onWipeCourse} style={({ pressed }) => [styles.wipeBtn, pressed && styles.pressed]}>
-                <Text style={styles.wipeText}>Wipe this course</Text>
-              </Pressable>
-            ) : null}
           </View>
 
           <ScrollView contentContainerStyle={{ paddingBottom: 120 }}>
@@ -233,6 +313,91 @@ export default function CourseDataScreen({ navigation, route }) {
               </Pressable>
             ) : null}
           </View>
+
+          <Modal visible={recoverOpen} transparent animationType="fade" onRequestClose={() => setRecoverOpen(false)}>
+            <View style={styles.modalBg}>
+              <View style={styles.modalCard}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Recover Local Data</Text>
+                  <Pressable onPress={() => setRecoverOpen(false)} style={styles.modalClose}>
+                    <Text style={styles.modalCloseT}>Close</Text>
+                  </Pressable>
+                </View>
+
+                {recoverLoading ? (
+                  <View style={styles.modalLoading}>
+                    <ActivityIndicator />
+                    <Text style={styles.modalLoadingT}>Scanning local storage…</Text>
+                  </View>
+                ) : (
+                  <>
+                    <Text style={styles.modalSub}>
+                      Select the entry that has your real Green Tee values (not SI 1-18).
+                    </Text>
+
+                    <ScrollView style={{ maxHeight: 340 }} contentContainerStyle={{ padding: 12, paddingTop: 8 }}>
+                      {recoverList.length === 0 ? (
+                        <Text style={{ color: "rgba(255,255,255,0.72)", fontWeight: "800" }}>
+                          No local course blobs found on this device.
+                        </Text>
+                      ) : (
+                        recoverList.map((it) => {
+                          const active = selectedRecover?.key === it.key;
+                          const si1 = it?.hole1?.si ?? "—";
+                          const par1 = it?.hole1?.par ?? "—";
+                          return (
+                            <Pressable
+                              key={it.key}
+                              onPress={() => setSelectedRecover(it)}
+                              style={({ pressed }) => [
+                                styles.recoverRow,
+                                active && styles.recoverRowActive,
+                                pressed && styles.pressed,
+                              ]}
+                            >
+                              <Text style={styles.recoverRowT} numberOfLines={1}>
+                                {it.courseId}
+                              </Text>
+                              <Text style={styles.recoverRowS}>
+                                Hole1: Par {String(par1)} • SI {String(si1)} • GPS holes: {String(it.gpsHolesCount)}
+                                {it.gpsLocked ? " • LOCKED" : ""}
+                              </Text>
+                            </Pressable>
+                          );
+                        })
+                      )}
+                    </ScrollView>
+
+                    <View style={styles.modalActions}>
+                      <Pressable
+                        disabled={!selectedRecover || recoverActing}
+                        onPress={useSelected}
+                        style={({ pressed }) => [
+                          styles.actionBtn,
+                          pressed && styles.pressed,
+                          (!selectedRecover || recoverActing) && { opacity: 0.45 },
+                        ]}
+                      >
+                        <Text style={styles.actionBtnT}>Use This Data</Text>
+                      </Pressable>
+
+                      <Pressable
+                        disabled={!selectedRecover || recoverActing}
+                        onPress={publishSelectedToCloud}
+                        style={({ pressed }) => [
+                          styles.actionBtn2,
+                          pressed && styles.pressed,
+                          (!selectedRecover || recoverActing) && { opacity: 0.45 },
+                        ]}
+                      >
+                        <Text style={styles.actionBtnT2}>Publish Selected to Cloud</Text>
+                      </Pressable>
+                    </View>
+                  </>
+                )}
+              </View>
+            </View>
+          </Modal>
         </KeyboardAvoidingView>
       </SafeAreaView>
     </TouchableWithoutFeedback>
@@ -245,6 +410,19 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 10 },
   title: { color: WHITE, fontSize: 28, fontWeight: "900" },
   sub: { color: MUTED, marginTop: 6, fontWeight: "700" },
+  sub2: { color: "rgba(175,195,218,0.75)", marginTop: 4, fontWeight: "800", fontSize: 12 },
+
+  recoverBtn: {
+    marginTop: 12,
+    height: 44,
+    borderRadius: 16,
+    backgroundColor: "rgba(46,125,255,0.18)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(46,125,255,0.35)",
+  },
+  recoverText: { color: WHITE, fontWeight: "900", fontSize: 14, letterSpacing: 0.2 },
 
   publishBtn: {
     marginTop: 12,
@@ -324,4 +502,89 @@ const styles = StyleSheet.create({
   greenText: { color: GREEN_TEXT, fontWeight: "900", fontSize: 16 },
 
   pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
+
+  modalBg: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.70)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 16,
+  },
+  modalCard: {
+    width: "100%",
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    backgroundColor: "rgba(18,22,30,0.96)",
+    overflow: "hidden",
+  },
+  modalHeader: {
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.08)",
+  },
+  modalTitle: { color: "#fff", fontWeight: "900", fontSize: 16 },
+  modalClose: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+  },
+  modalCloseT: { color: "#fff", fontWeight: "900" },
+
+  modalLoading: { padding: 18, alignItems: "center", justifyContent: "center", gap: 10 },
+  modalLoadingT: { color: "rgba(255,255,255,0.72)", fontWeight: "800" },
+
+  modalSub: {
+    color: "rgba(255,255,255,0.72)",
+    fontWeight: "800",
+    fontSize: 12,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+  },
+
+  recoverRow: {
+    borderRadius: 18,
+    padding: 12,
+    marginBottom: 10,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+  },
+  recoverRowActive: {
+    backgroundColor: "rgba(46,125,255,0.18)",
+    borderColor: "rgba(46,125,255,0.35)",
+  },
+  recoverRowT: { color: "#fff", fontWeight: "900" },
+  recoverRowS: { marginTop: 6, color: "rgba(255,255,255,0.72)", fontWeight: "800", fontSize: 12 },
+
+  modalActions: { padding: 12, paddingTop: 0, flexDirection: "row", gap: 10 },
+  actionBtn: {
+    flex: 1,
+    height: 52,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(46,125,255,0.18)",
+    borderWidth: 1,
+    borderColor: "rgba(46,125,255,0.35)",
+  },
+  actionBtnT: { color: "#fff", fontWeight: "900" },
+
+  actionBtn2: {
+    flex: 1,
+    height: 52,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(46, 204, 113, 0.18)",
+    borderWidth: 1,
+    borderColor: "rgba(46, 204, 113, 0.28)",
+  },
+  actionBtnT2: { color: "#fff", fontWeight: "900" },
 });

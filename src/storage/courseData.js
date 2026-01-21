@@ -2,8 +2,14 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { readCourseRemote, writeCourseRemote, wipeCourseRemote, isAdmin } from "./courseDataRemote";
 
+const PREFIX = "LEGACY_GOLF_COURSE_DATA_V1:";
+
 function key(courseId) {
-  return `LEGACY_GOLF_COURSE_DATA_V1:${String(courseId)}`;
+  return `${PREFIX}${String(courseId)}`;
+}
+
+function courseIdFromKey(k) {
+  return String(k || "").startsWith(PREFIX) ? String(k).slice(PREFIX.length) : "";
 }
 
 function isObj(v) {
@@ -112,5 +118,79 @@ export async function publishLocalCourseToCloud(courseId) {
   if (!local) return { ok: false, reason: "no-local-data" };
 
   await writeCourseRemote(cid, local, { merge: false });
+  return { ok: true };
+}
+
+// RECOVERY: list all local saved course blobs (to find where the “correct” data is hiding)
+export async function listLocalCourseDataSummaries() {
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    const courseKeys = (keys || []).filter((k) => String(k).startsWith(PREFIX));
+
+    const out = [];
+    for (const k of courseKeys) {
+      let parsed = null;
+      try {
+        const raw = await AsyncStorage.getItem(k);
+        parsed = raw ? JSON.parse(raw) : null;
+      } catch {
+        parsed = null;
+      }
+
+      const cid = courseIdFromKey(k);
+
+      const hole1 = parsed?.holeMeta?.["1"] || null;
+      const si1 = hole1?.si ?? null;
+      const par1 = hole1?.par ?? null;
+
+      const holesObj = parsed?.gps?.holes && typeof parsed.gps.holes === "object" ? parsed.gps.holes : {};
+      const gpsHolesCount = Object.keys(holesObj || {}).length;
+
+      out.push({
+        key: k,
+        courseId: cid,
+        hasHoleMeta: !!parsed?.holeMeta,
+        hole1: { par: par1, si: si1 },
+        gpsHolesCount,
+        gpsLocked: parsed?.gpsLocked === true,
+      });
+    }
+
+    // most “complete” first
+    out.sort((a, b) => {
+      const aw = (a.hasHoleMeta ? 100 : 0) + (a.gpsHolesCount || 0) + (a.gpsLocked ? 50 : 0);
+      const bw = (b.hasHoleMeta ? 100 : 0) + (b.gpsHolesCount || 0) + (b.gpsLocked ? 50 : 0);
+      return bw - aw;
+    });
+
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+// RECOVERY: copy one local blob into another courseId (so the app reads it normally)
+export async function copyLocalCourseData(fromCourseId, toCourseId) {
+  try {
+    const raw = await AsyncStorage.getItem(key(fromCourseId));
+    if (!raw) return false;
+    await AsyncStorage.setItem(key(toCourseId), raw);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// RECOVERY: publish the local blob from one courseId into another courseId in Firestore
+export async function publishLocalCourseIdToCloud(fromCourseId, toCourseId) {
+  if (!isAdmin()) return { ok: false, reason: "not-admin" };
+
+  const from = String(fromCourseId);
+  const to = String(toCourseId);
+
+  const local = (await loadCourseDataLocalOnly(from)) || null;
+  if (!local) return { ok: false, reason: "no-local-data" };
+
+  await writeCourseRemote(to, local, { merge: false });
   return { ok: true };
 }

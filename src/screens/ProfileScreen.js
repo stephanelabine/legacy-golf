@@ -41,7 +41,7 @@ const ROUND_KEYS_TO_TRY = [
 
 const DEFAULT_PROFILE = {
   name: "Stephane L",
-  homeCourse: "Green Tee Golf & Country Club",
+  homeCourse: "Green Tee Country Club",
   email: "steph@example.com",
   phone: "",
   handicap: "12.4",
