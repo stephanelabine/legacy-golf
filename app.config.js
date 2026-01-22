@@ -1,11 +1,25 @@
 // app.config.js
+require("dotenv").config();
+
 module.exports = ({ config }) => {
+  const apiKey =
+    process.env.EXPO_PUBLIC_FIREBASE_API_KEY ||
+    process.env.EXPO_PUBLIC_GOOGLE_API_KEY ||
+    "";
+
+  if (!apiKey) {
+    // Fail fast with a clear message instead of Firebase exploding later
+    throw new Error(
+      "Firebase config missing apiKey. Set EXPO_PUBLIC_FIREBASE_API_KEY in .env, then restart Expo with: npx expo start -c"
+    );
+  }
+
   return {
     ...config,
     extra: {
       ...(config.extra || {}),
       firebase: {
-        apiKey: process.env.EXPO_PUBLIC_GOOGLE_API_KEY,
+        apiKey,
         authDomain: "legacy-golf-dev.firebaseapp.com",
         projectId: "legacy-golf-dev",
         storageBucket: "legacy-golf-dev.firebasestorage.app",
