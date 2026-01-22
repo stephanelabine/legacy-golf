@@ -37,6 +37,8 @@ const ROUTES = {
   WAGERS: "Wagers",
 
   TOURNAMENTS: "Tournaments",
+  TOURNAMENT_DASHBOARD: "TournamentDashboard",
+  JOIN_TOURNAMENT: "JoinTournament",
 
   FINAL_RESULTS: "FinalResults",
   PAYOUTS: "Payouts",
