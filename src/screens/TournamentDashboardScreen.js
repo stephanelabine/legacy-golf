@@ -18,6 +18,7 @@ export default function TournamentDashboardScreen({ navigation, route }) {
 
   const [t, setT] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [starting, setStarting] = useState(false);
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
@@ -44,6 +45,15 @@ export default function TournamentDashboardScreen({ navigation, route }) {
     return () => unsub();
   }, [tournamentId]);
 
+  const u = auth.currentUser;
+
+  const isHost = useMemo(() => {
+    if (!u || !t) return false;
+    return String(t.ownerUid || "") === String(u.uid || "");
+  }, [t, u]);
+
+  const rosterLocked = !!t?.rosterLocked;
+
   const styles = useMemo(() => {
     const blue = isDark ? "rgba(46,125,255,0.92)" : "rgba(29,53,87,0.92)";
     const blueBg = isDark ? "rgba(46,125,255,0.10)" : "rgba(29,53,87,0.10)";
@@ -53,6 +63,9 @@ export default function TournamentDashboardScreen({ navigation, route }) {
 
     const goldBorder = isDark ? "rgba(255, 210, 92, 0.55)" : "rgba(255, 210, 92, 0.58)";
     const goldBg = isDark ? "rgba(255, 210, 92, 0.10)" : "rgba(255, 210, 92, 0.14)";
+
+    const lockBg = isDark ? "rgba(255, 210, 92, 0.12)" : "rgba(255, 210, 92, 0.16)";
+    const lockBorder = isDark ? "rgba(255, 210, 92, 0.40)" : "rgba(255, 210, 92, 0.48)";
 
     const greenRing = isDark ? "rgba(15,122,74,0.55)" : "rgba(15,122,74,0.62)";
     const greenRingPressed = isDark ? "rgba(15,122,74,0.82)" : "rgba(15,122,74,0.86)";
@@ -86,6 +99,17 @@ export default function TournamentDashboardScreen({ navigation, route }) {
         fontWeight: "700",
         lineHeight: 19,
       },
+      lockPill: {
+        marginTop: 10,
+        alignSelf: "flex-start",
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 999,
+        backgroundColor: lockBg,
+        borderWidth: 1,
+        borderColor: lockBorder,
+      },
+      lockPillText: { color: theme.text, fontSize: 12, fontWeight: "900", letterSpacing: 0.2 },
 
       codeCard: {
         borderRadius: 22,
@@ -176,7 +200,7 @@ export default function TournamentDashboardScreen({ navigation, route }) {
       },
       primaryText: { color: "#fff", fontSize: 16, fontWeight: "900", letterSpacing: 0.4 },
 
-      pressed: { opacity: Platform.OS === "ios" ? 0.88 : 0.9, transform: [{ scale: 0.99 }] },
+      pressed: { opacity: Platform.OS === "ios" ? 0.88 : "0.9", transform: [{ scale: 0.99 }] },
     });
   }, [theme, isDark, footerPad]);
 
@@ -186,7 +210,9 @@ export default function TournamentDashboardScreen({ navigation, route }) {
   const players = Array.isArray(t?.memberUids) ? t.memberUids.length : 1;
 
   const courseLine = t?.courseName ? `Selected: ${String(t.courseName)}` : "Select the course for the tournament.";
-  const playersLine = `Roster: ${players} player${players === 1 ? "" : "s"} · Names saved in Firebase.`;
+  const playersLine =
+    `Roster: ${players} player${players === 1 ? "" : "s"} · Names saved in Firebase.` +
+    (rosterLocked ? " · Roster locked" : "");
 
   async function shareInvite() {
     if (!joinCode) return;
@@ -233,19 +259,61 @@ export default function TournamentDashboardScreen({ navigation, route }) {
     );
   }
 
-  async function startTournament() {
-    const u = auth.currentUser;
-    if (!u || !tournamentId) return;
+  async function doStartNow({ lockFirst }) {
+    const u2 = auth.currentUser;
+    if (!u2 || !tournamentId) return;
 
+    if (!isHost) {
+      Alert.alert("Not allowed", "Only the host can start the tournament.");
+      return;
+    }
+
+    const currentStatus = String(t?.status || "draft");
+    if (currentStatus === "live") {
+      Alert.alert("Already live", "This tournament is already started.");
+      return;
+    }
+
+    setStarting(true);
     try {
       await updateDoc(doc(db, "tournaments", tournamentId), {
         status: "live",
+        rosterLocked: lockFirst ? true : !!t?.rosterLocked,
         startedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
     } catch (e) {
       Alert.alert("Start failed", e?.message || "Could not start tournament.");
+    } finally {
+      setStarting(false);
     }
+  }
+
+  async function startTournament() {
+    if (!tournamentId) return;
+
+    if (!isHost) {
+      Alert.alert("Not allowed", "Only the host can start the tournament.");
+      return;
+    }
+
+    if (!rosterLocked) {
+      Alert.alert(
+        "Roster not locked",
+        "To prevent last-minute joiners, lock the roster before starting.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Go lock it", onPress: () => navigation.navigate(ROUTES.TOURNAMENT_PLAYERS, { tournamentId }) },
+          { text: "Lock & Start", style: "destructive", onPress: () => doStartNow({ lockFirst: true }) },
+        ]
+      );
+      return;
+    }
+
+    Alert.alert("Start tournament?", "This will set the tournament to LIVE.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Start", style: "destructive", onPress: () => doStartNow({ lockFirst: false }) },
+    ]);
   }
 
   return (
@@ -257,6 +325,11 @@ export default function TournamentDashboardScreen({ navigation, route }) {
           <Text style={styles.heroKicker}>Dashboard · {status}</Text>
           <Text style={styles.heroTitle}>{loading ? "Loading..." : name}</Text>
           <Text style={styles.heroSub}>Players: {players} · Synced in Firebase across devices.</Text>
+          {rosterLocked ? (
+            <View style={styles.lockPill}>
+              <Text style={styles.lockPillText}>ROSTER LOCKED</Text>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.codeCard}>
@@ -276,17 +349,9 @@ export default function TournamentDashboardScreen({ navigation, route }) {
 
         <Text style={styles.sectionTitle}>Setup</Text>
 
-        <SetupCard
-          title="Course"
-          sub={courseLine}
-          onPress={() => navigation.navigate(ROUTES.TOURNAMENT_COURSE, { tournamentId })}
-        />
+        <SetupCard title="Course" sub={courseLine} onPress={() => navigation.navigate(ROUTES.TOURNAMENT_COURSE, { tournamentId })} />
 
-        <SetupCard
-          title="Players"
-          sub={playersLine}
-          onPress={() => navigation.navigate(ROUTES.TOURNAMENT_PLAYERS, { tournamentId })}
-        />
+        <SetupCard title="Players" sub={playersLine} onPress={() => navigation.navigate(ROUTES.TOURNAMENT_PLAYERS, { tournamentId })} />
 
         <SetupCard
           title="Formats / Games"
@@ -294,22 +359,24 @@ export default function TournamentDashboardScreen({ navigation, route }) {
           onPress={() => comingSoon("Formats / Games")}
         />
 
-        <SetupCard
-          title="Rounds"
-          sub="Add rounds, start Round 1, and manage day-to-day scoring."
-          onPress={() => comingSoon("Rounds")}
-        />
+        <SetupCard title="Rounds" sub="Add rounds, start Round 1, and manage day-to-day scoring." onPress={() => comingSoon("Rounds")} />
 
-        <SetupCard
-          title="Leaderboard"
-          sub="Live tournament standings (coming soon)."
-          onPress={() => comingSoon("Leaderboard")}
-        />
+        <SetupCard title="Leaderboard" sub="Live tournament standings (coming soon)." onPress={() => comingSoon("Leaderboard")} />
       </ScrollView>
 
       <View style={styles.footer}>
-        <Pressable onPress={startTournament} style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}>
-          <Text style={styles.primaryText}>Start Tournament</Text>
+        <Pressable
+          onPress={startTournament}
+          disabled={starting || loading || !t || !isHost}
+          style={({ pressed }) => [
+            styles.primaryBtn,
+            pressed && styles.pressed,
+            (starting || loading || !t || !isHost) && { opacity: 0.7 },
+          ]}
+        >
+          <Text style={styles.primaryText}>
+            {!isHost ? "Host Only" : starting ? "Starting..." : rosterLocked ? "Start Tournament" : "Start (Lock Required)"}
+          </Text>
         </Pressable>
       </View>
     </View>
