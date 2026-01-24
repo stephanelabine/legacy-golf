@@ -40,6 +40,14 @@ const FALLBACK_INFO = {
 };
 
 const GAMES = [
+  {
+    id: "tournaments",
+    title: "Tournaments",
+    subtitle: "Build and run full tournaments. A future flagship module.",
+    supported: true,
+    premium: true,
+  },
+
   { id: "stroke_play", title: "Stroke Play", subtitle: "Total strokes over 18 holes. The classic.", supported: true },
   { id: "match_play", title: "Match Play", subtitle: "Win holes, not strokes.", supported: true },
   { id: "kps", title: "KPs (Closest to the Pin)", subtitle: "Track KPs + payouts.", supported: true },
@@ -50,14 +58,6 @@ const GAMES = [
   { id: "wolf", title: "Wolf", subtitle: "Rotating captain chooses a partner.", supported: true },
   { id: "snake", title: "Snake", subtitle: "3-putt tracker with payouts.", supported: true },
   { id: "legacy_points", title: "Legacy Points", subtitle: "Points-based competition, Legacy-style.", supported: true },
-
-  {
-    id: "tournaments",
-    title: "Tournaments",
-    subtitle: "Build and run full tournaments. A future flagship module.",
-    supported: true,
-    premium: true,
-  },
 
   {
     id: "legacy_card",
@@ -143,6 +143,8 @@ export default function GamesScreen({ navigation }) {
 
     const greenRing = isDark ? "rgba(15,122,74,0.55)" : "rgba(15,122,74,0.62)";
 
+    const tournamentsGlow = isDark ? "rgba(255,210,92,0.55)" : "rgba(255,210,92,0.60)";
+
     return StyleSheet.create({
       screen: { flex: 1, backgroundColor: theme.bg },
 
@@ -174,6 +176,25 @@ export default function GamesScreen({ navigation }) {
       cardPremium: { borderColor: goldBorder, backgroundColor: goldBg },
       cardPremiumActive: { borderColor: goldBorderActive, backgroundColor: goldBgActive },
 
+      cardTournaments: {
+        borderWidth: 2,
+        borderColor: goldBorderActive,
+        backgroundColor: goldBgActive,
+        shadowColor: tournamentsGlow,
+        shadowOpacity: 0.35,
+        shadowRadius: 14,
+        shadowOffset: { width: 0, height: 8 },
+        elevation: 6,
+      },
+      cardTournamentsActive: {
+        borderWidth: 2,
+        borderColor: goldBorderActive,
+        backgroundColor: goldBgActive,
+        shadowOpacity: 0.55,
+        shadowRadius: 18,
+        elevation: 8,
+      },
+
       greenRing: {
         ...StyleSheet.absoluteFillObject,
         borderRadius: 18,
@@ -183,6 +204,15 @@ export default function GamesScreen({ navigation }) {
       },
       greenRingPremium: { opacity: 0.55 },
       greenRingActive: { opacity: 0.35 },
+
+      tournamentsRing: {
+        borderColor: goldBorderActive,
+        opacity: 0.55,
+      },
+      tournamentsRingActive: {
+        borderColor: goldBorderActive,
+        opacity: 0.35,
+      },
 
       cardTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
       cardTitle: { color: theme.text, fontSize: 18, fontWeight: "900" },
@@ -302,6 +332,7 @@ export default function GamesScreen({ navigation }) {
     const active = item.id === selectedId;
     const disabled = !item.supported;
     const infoable = !!(gameFormats?.[item.id] || FALLBACK_INFO?.[item.id]);
+    const isTournaments = item.id === "tournaments";
 
     return (
       <Pressable
@@ -313,8 +344,10 @@ export default function GamesScreen({ navigation }) {
         style={({ pressed }) => [
           styles.card,
           item.premium && styles.cardPremium,
+          isTournaments && styles.cardTournaments,
           active && !item.premium && styles.cardActive,
           active && item.premium && styles.cardPremiumActive,
+          active && isTournaments && styles.cardTournamentsActive,
           disabled && styles.cardDisabled,
           pressed && !disabled && !item.infoOnly && styles.pressed,
         ]}
@@ -326,6 +359,8 @@ export default function GamesScreen({ navigation }) {
               styles.greenRing,
               item.premium && styles.greenRingPremium,
               active && styles.greenRingActive,
+              isTournaments && styles.tournamentsRing,
+              active && isTournaments && styles.tournamentsRingActive,
             ]}
           />
         ) : null}

@@ -2,8 +2,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Alert, Share, Platform, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { doc, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, serverTimestamp } from "firebase/firestore";
 
+import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import { useTheme } from "../theme/ThemeProvider";
 import { auth, db } from "../firebase/firebase";
@@ -53,7 +54,6 @@ export default function TournamentDashboardScreen({ navigation, route }) {
     const goldBorder = isDark ? "rgba(255, 210, 92, 0.55)" : "rgba(255, 210, 92, 0.58)";
     const goldBg = isDark ? "rgba(255, 210, 92, 0.10)" : "rgba(255, 210, 92, 0.14)";
 
-    // Green separation ring (subtle, premium)
     const greenRing = isDark ? "rgba(15,122,74,0.55)" : "rgba(15,122,74,0.62)";
     const greenRingPressed = isDark ? "rgba(15,122,74,0.82)" : "rgba(15,122,74,0.86)";
 
@@ -129,7 +129,6 @@ export default function TournamentDashboardScreen({ navigation, route }) {
         textTransform: "uppercase",
       },
 
-      // Cards
       card: {
         borderRadius: 18,
         padding: 16,
@@ -141,7 +140,6 @@ export default function TournamentDashboardScreen({ navigation, route }) {
         overflow: "hidden",
       },
 
-      // Green separation ring overlay
       greenRing: {
         ...StyleSheet.absoluteFillObject,
         borderRadius: 18,
@@ -187,6 +185,9 @@ export default function TournamentDashboardScreen({ navigation, route }) {
   const status = (t?.status || "draft").toUpperCase();
   const players = Array.isArray(t?.memberUids) ? t.memberUids.length : 1;
 
+  const courseLine = t?.courseName ? `Selected: ${String(t.courseName)}` : "Select the course for the tournament.";
+  const playersLine = `Roster: ${players} player${players === 1 ? "" : "s"} · Names saved in Firebase.`;
+
   async function shareInvite() {
     if (!joinCode) return;
 
@@ -203,8 +204,19 @@ export default function TournamentDashboardScreen({ navigation, route }) {
     }
   }
 
+  async function copyCode() {
+    try {
+      const { setStringAsync } = await import("expo-clipboard");
+      if (!joinCode) return;
+      await setStringAsync(joinCode);
+      Alert.alert("Copied", "Join code copied.");
+    } catch (e) {
+      Alert.alert("Copy failed", e?.message || "Could not copy join code.");
+    }
+  }
+
   function comingSoon(label) {
-    Alert.alert(label, "Coming next: course selection, player management, formats, rounds, and leaderboards.");
+    Alert.alert(label, "Coming next: formats, rounds, and leaderboards.");
   }
 
   function SetupCard({ title, sub, onPress }) {
@@ -221,6 +233,21 @@ export default function TournamentDashboardScreen({ navigation, route }) {
     );
   }
 
+  async function startTournament() {
+    const u = auth.currentUser;
+    if (!u || !tournamentId) return;
+
+    try {
+      await updateDoc(doc(db, "tournaments", tournamentId), {
+        status: "live",
+        startedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } catch (e) {
+      Alert.alert("Start failed", e?.message || "Could not start tournament.");
+    }
+  }
+
   return (
     <View style={styles.screen}>
       <ScreenHeader navigation={navigation} title="Tournament" subtitle="Manage your tournament in one place." />
@@ -229,9 +256,7 @@ export default function TournamentDashboardScreen({ navigation, route }) {
         <View style={styles.hero}>
           <Text style={styles.heroKicker}>Dashboard · {status}</Text>
           <Text style={styles.heroTitle}>{loading ? "Loading..." : name}</Text>
-          <Text style={styles.heroSub}>
-            Players: {players} · This tournament is synced in Firebase, so it stays available across devices.
-          </Text>
+          <Text style={styles.heroSub}>Players: {players} · Synced in Firebase across devices.</Text>
         </View>
 
         <View style={styles.codeCard}>
@@ -243,8 +268,8 @@ export default function TournamentDashboardScreen({ navigation, route }) {
               <Text style={styles.smallBtnText}>Share Invite</Text>
             </Pressable>
 
-            <Pressable onPress={() => comingSoon("Copy Code")} style={({ pressed }) => [styles.smallBtn, pressed && styles.pressed]}>
-              <Text style={styles.smallBtnText}>Copy (next)</Text>
+            <Pressable onPress={copyCode} style={({ pressed }) => [styles.smallBtn, pressed && styles.pressed]}>
+              <Text style={styles.smallBtnText}>Copy Code</Text>
             </Pressable>
           </View>
         </View>
@@ -253,14 +278,14 @@ export default function TournamentDashboardScreen({ navigation, route }) {
 
         <SetupCard
           title="Course"
-          sub="Select the course for the tournament. Later: tees per player."
-          onPress={() => comingSoon("Course")}
+          sub={courseLine}
+          onPress={() => navigation.navigate(ROUTES.TOURNAMENT_COURSE, { tournamentId })}
         />
 
         <SetupCard
           title="Players"
-          sub="Add players (Buddy List integration next). Manage groups and pairings later."
-          onPress={() => comingSoon("Players")}
+          sub={playersLine}
+          onPress={() => navigation.navigate(ROUTES.TOURNAMENT_PLAYERS, { tournamentId })}
         />
 
         <SetupCard
@@ -283,8 +308,8 @@ export default function TournamentDashboardScreen({ navigation, route }) {
       </ScrollView>
 
       <View style={styles.footer}>
-        <Pressable onPress={() => comingSoon("Start Tournament")} style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}>
-          <Text style={styles.primaryText}>Start Tournament (next)</Text>
+        <Pressable onPress={startTournament} style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}>
+          <Text style={styles.primaryText}>Start Tournament</Text>
         </Pressable>
       </View>
     </View>

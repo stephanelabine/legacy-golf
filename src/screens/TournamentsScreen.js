@@ -25,6 +25,8 @@ import {
   serverTimestamp,
   getDocs,
   limit,
+  setDoc,
+  doc,
 } from "firebase/firestore";
 
 import ROUTES from "../navigation/routes";
@@ -169,7 +171,14 @@ export default function TournamentsScreen({ navigation }) {
         marginTop: 8,
       },
       emptyTitle: { color: theme.text, fontSize: 15, fontWeight: "900" },
-      emptySub: { marginTop: 6, color: theme.text, opacity: 0.7, fontSize: 13, fontWeight: "700", lineHeight: 18 },
+      emptySub: {
+        marginTop: 6,
+        color: theme.text,
+        opacity: 0.7,
+        fontSize: 13,
+        fontWeight: "700",
+        lineHeight: 18,
+      },
 
       footer: {
         position: "absolute",
@@ -225,7 +234,14 @@ export default function TournamentsScreen({ navigation }) {
       },
 
       modalTitle: { color: theme.text, fontSize: 18, fontWeight: "900" },
-      modalSub: { marginTop: 6, color: theme.text, opacity: 0.7, fontSize: 13, fontWeight: "700", lineHeight: 18 },
+      modalSub: {
+        marginTop: 6,
+        color: theme.text,
+        opacity: 0.7,
+        fontSize: 13,
+        fontWeight: "700",
+        lineHeight: 18,
+      },
 
       input: {
         marginTop: 14,
@@ -276,7 +292,6 @@ export default function TournamentsScreen({ navigation }) {
     try {
       let joinCode = makeJoinCode();
 
-      // collision check
       for (let i = 0; i < 5; i++) {
         const testQ = query(collection(db, "tournaments"), where("joinCode", "==", joinCode), limit(1));
         const snap = await getDocs(testQ);
@@ -295,6 +310,18 @@ export default function TournamentsScreen({ navigation }) {
         createdAt: now,
         updatedAt: now,
       });
+
+      await setDoc(
+        doc(db, "tournaments", docRef.id, "members", u.uid),
+        {
+          uid: u.uid,
+          role: "host",
+          displayName: String(u.displayName || "").trim() || "",
+          joinedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
 
       setCreating(false);
       setName("");

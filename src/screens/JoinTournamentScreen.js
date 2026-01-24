@@ -151,14 +151,27 @@ export default function JoinTournamentScreen({ navigation }) {
 
       const docSnap = snap.docs[0];
       const tournamentId = docSnap.id;
+      const tData = docSnap.data() || {};
 
-      // Add user to tournament members list (Firebase-only)
-      await updateDoc(doc(db, "tournaments", tournamentId), {
-        memberUids: arrayUnion(u.uid),
-        updatedAt: serverTimestamp(),
-      });
+      const rosterLocked = !!tData.rosterLocked;
+      const memberUids = Array.isArray(tData.memberUids) ? tData.memberUids.map((x) => String(x)) : [];
+      const myUid = String(u.uid || "");
+      const alreadyMember = myUid && memberUids.includes(myUid);
 
-      // Create/update a member doc (future-proof for roles/handicaps/etc.)
+      if (rosterLocked && !alreadyMember) {
+        Alert.alert("Roster locked", "This tournament roster is locked. Ask the host to unlock it to join.");
+        return;
+      }
+
+      // Only add to the roster if not already on it
+      if (!alreadyMember) {
+        await updateDoc(doc(db, "tournaments", tournamentId), {
+          memberUids: arrayUnion(u.uid),
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      // Create/update a member doc (safe even if already member)
       await setDoc(
         doc(db, "tournaments", tournamentId, "members", u.uid),
         {
@@ -215,7 +228,11 @@ export default function JoinTournamentScreen({ navigation }) {
         </ScrollView>
 
         <View style={styles.footer}>
-          <Pressable onPress={joinTournament} disabled={joining} style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}>
+          <Pressable
+            onPress={joinTournament}
+            disabled={joining}
+            style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed, joining && { opacity: 0.7 }]}
+          >
             <Text style={styles.primaryText}>{joining ? "Joining..." : "Join"}</Text>
           </Pressable>
 

@@ -43,6 +43,8 @@ import HazardsScreen from "../screens/HazardsScreen";
 import TournamentsScreen from "../screens/TournamentsScreen";
 import TournamentDashboardScreen from "../screens/TournamentDashboardScreen";
 import JoinTournamentScreen from "../screens/JoinTournamentScreen";
+import TournamentCourseScreen from "../screens/TournamentCourseScreen";
+import TournamentPlayersScreen from "../screens/TournamentPlayersScreen";
 
 import FinalResultsScreen from "../screens/FinalResultsScreen";
 import PayoutsScreen from "../screens/PayoutsScreen";
@@ -113,6 +115,8 @@ export default function RootNavigator() {
           <Stack.Screen name={ROUTES.TOURNAMENTS} component={TournamentsScreen} />
           <Stack.Screen name={ROUTES.JOIN_TOURNAMENT} component={JoinTournamentScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_DASHBOARD} component={TournamentDashboardScreen} />
+          <Stack.Screen name={ROUTES.TOURNAMENT_COURSE} component={TournamentCourseScreen} />
+          <Stack.Screen name={ROUTES.TOURNAMENT_PLAYERS} component={TournamentPlayersScreen} />
 
           <Stack.Group
             screenOptions={{
