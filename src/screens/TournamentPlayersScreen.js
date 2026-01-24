@@ -25,6 +25,7 @@ import {
   deleteDoc,
   serverTimestamp,
   arrayRemove,
+  arrayUnion,
 } from "firebase/firestore";
 
 import ScreenHeader from "../components/ScreenHeader";
@@ -38,6 +39,10 @@ function initialsFromName(name, fallback) {
   const a = parts[0]?.[0] || "";
   const b = parts.length > 1 ? parts[parts.length - 1]?.[0] || "" : parts[0]?.[1] || "";
   return (a + b).toUpperCase();
+}
+
+function makeGuestId() {
+  return `guest_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export default function TournamentPlayersScreen({ navigation, route }) {
@@ -56,6 +61,7 @@ export default function TournamentPlayersScreen({ navigation, route }) {
   const [editUid, setEditUid] = useState(null);
   const [editName, setEditName] = useState("");
   const [saving, setSaving] = useState(false);
+  const [addingGuest, setAddingGuest] = useState(false);
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
@@ -123,6 +129,10 @@ export default function TournamentPlayersScreen({ navigation, route }) {
       const bHost = bu && ownerUid && bu === ownerUid ? 0 : 1;
       if (aHost !== bHost) return aHost - bHost;
 
+      const ag = a?.isGuest ? 1 : 0;
+      const bg = b?.isGuest ? 1 : 0;
+      if (ag !== bg) return ag - bg; // real accounts first, guests after
+
       const an = String(a.displayName || a.name || "").trim().toLowerCase();
       const bn = String(b.displayName || b.name || "").trim().toLowerCase();
       if (an && bn && an !== bn) return an < bn ? -1 : 1;
@@ -150,7 +160,7 @@ export default function TournamentPlayersScreen({ navigation, route }) {
     return StyleSheet.create({
       screen: { flex: 1, backgroundColor: theme.bg },
 
-      listContent: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 160 },
+      listContent: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 190 },
 
       hero: {
         borderRadius: 22,
@@ -291,10 +301,12 @@ export default function TournamentPlayersScreen({ navigation, route }) {
         borderTopColor: theme.divider,
       },
 
+      footerStack: { gap: 10 },
       footerRow: { flexDirection: "row", gap: 10 },
+
       footerBtn: {
         flex: 1,
-        height: 56,
+        height: 54,
         borderRadius: 18,
         alignItems: "center",
         justifyContent: "center",
@@ -410,18 +422,34 @@ export default function TournamentPlayersScreen({ navigation, route }) {
     );
   }
 
+  function openAddGuest() {
+    if (!isHost) return;
+
+    if (rosterLocked) {
+      Alert.alert("Roster locked", "Unlock the roster to add a guest.");
+      return;
+    }
+
+    setAddingGuest(true);
+    setEditUid("__guest__");
+    setEditName("");
+    setEditOpen(true);
+  }
+
   function openEdit(member) {
     const uid = String(member?.uid || member?.id || "");
     if (!uid) return;
 
+    const isGuest = !!member?.isGuest;
     const meUid = String(u?.uid || "");
-    const canEdit = isHost || (!rosterLocked && uid === meUid);
+    const canEdit = isHost || (!rosterLocked && !isGuest && uid === meUid);
 
     if (!canEdit) {
       Alert.alert("Roster locked", "Only the host can edit names while the roster is locked.");
       return;
     }
 
+    setAddingGuest(false);
     setEditUid(uid);
     setEditName(String(member?.displayName || ""));
     setEditOpen(true);
@@ -433,6 +461,47 @@ export default function TournamentPlayersScreen({ navigation, route }) {
     const cleaned = String(editName || "").trim();
     if (!cleaned) {
       Alert.alert("Name required", "Enter a name to save.");
+      return;
+    }
+
+    if (addingGuest) {
+      if (!isHost) return;
+      if (rosterLocked) {
+        Alert.alert("Roster locked", "Unlock the roster to add a guest.");
+        return;
+      }
+
+      const guestId = makeGuestId();
+
+      setSaving(true);
+      try {
+        await setDoc(
+          doc(db, "tournaments", tournamentId, "members", guestId),
+          {
+            uid: guestId,
+            displayName: cleaned,
+            isGuest: true,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+
+        await updateDoc(doc(db, "tournaments", tournamentId), {
+          guestIds: arrayUnion(guestId),
+          updatedAt: serverTimestamp(),
+        });
+
+        setEditOpen(false);
+        setEditUid(null);
+        setEditName("");
+        setAddingGuest(false);
+        Keyboard.dismiss();
+      } catch (e) {
+        Alert.alert("Add failed", e?.message || "Could not add guest.");
+      } finally {
+        setSaving(false);
+      }
       return;
     }
 
@@ -483,9 +552,11 @@ export default function TournamentPlayersScreen({ navigation, route }) {
       return;
     }
 
+    const isGuest = !!member?.isGuest;
+
     Alert.alert(
       "Remove player?",
-      "This will remove the player from the tournament roster. They can re-join using the join code.",
+      "This will remove the player from the tournament roster.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -493,10 +564,18 @@ export default function TournamentPlayersScreen({ navigation, route }) {
           style: "destructive",
           onPress: async () => {
             try {
-              await updateDoc(doc(db, "tournaments", tournamentId), {
-                memberUids: arrayRemove(uid),
-                updatedAt: serverTimestamp(),
-              });
+              if (isGuest) {
+                await updateDoc(doc(db, "tournaments", tournamentId), {
+                  guestIds: arrayRemove(uid),
+                  updatedAt: serverTimestamp(),
+                });
+              } else {
+                await updateDoc(doc(db, "tournaments", tournamentId), {
+                  memberUids: arrayRemove(uid),
+                  updatedAt: serverTimestamp(),
+                });
+              }
+
               await deleteDoc(doc(db, "tournaments", tournamentId, "members", uid));
             } catch (e) {
               Alert.alert("Remove failed", e?.message || "Could not remove player.");
@@ -511,23 +590,35 @@ export default function TournamentPlayersScreen({ navigation, route }) {
     const uid = String(item?.uid || item?.id || "");
     const isOwner = uid && ownerUid && uid === ownerUid;
     const me = uid && String(u?.uid || "") === uid;
+    const isGuest = !!item?.isGuest;
 
     const displayName = String(item?.displayName || "").trim();
-    const sub = isOwner ? "Host" : me ? "You" : uid ? `uid: ${uid.slice(0, 10)}…` : "";
 
-    const canEdit = isHost || (!rosterLocked && me);
+    const sub = isOwner
+      ? "Host"
+      : isGuest
+      ? "Guest (manual)"
+      : me
+      ? "You"
+      : uid
+      ? `uid: ${uid.slice(0, 10)}…`
+      : "";
+
+    const canEdit = isHost || (!rosterLocked && me && !isGuest);
 
     return (
       <View style={styles.row}>
         <View style={styles.rowTop}>
           <View style={styles.rowLeft}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{initialsFromName(displayName, isOwner ? "H" : "P")}</Text>
+              <Text style={styles.avatarText}>
+                {initialsFromName(displayName, isOwner ? "H" : isGuest ? "G" : "P")}
+              </Text>
             </View>
 
             <View style={{ flex: 1 }}>
               <Text style={styles.rowTitle} numberOfLines={1}>
-                {displayName || (isOwner ? "Host (name not set)" : "Player (name not set)")}
+                {displayName || (isOwner ? "Host (name not set)" : isGuest ? "Guest (name not set)" : "Player (name not set)")}
               </Text>
               <Text style={styles.rowSub} numberOfLines={1}>
                 {sub}
@@ -536,13 +627,13 @@ export default function TournamentPlayersScreen({ navigation, route }) {
           </View>
 
           <View style={styles.pill}>
-            <Text style={styles.pillText}>{isOwner ? "HOST" : "PLAYER"}</Text>
+            <Text style={styles.pillText}>{isOwner ? "HOST" : isGuest ? "GUEST" : "PLAYER"}</Text>
           </View>
         </View>
 
         <View style={styles.rowActions}>
           <Pressable
-            onPress={() => openEdit(item)}
+            onPress={() => (isGuest ? (isHost ? openEdit(item) : null) : openEdit(item))}
             style={({ pressed }) => [
               styles.actionBtn,
               pressed && styles.pressed,
@@ -597,7 +688,7 @@ export default function TournamentPlayersScreen({ navigation, route }) {
                   {loadingT ? "Loading..." : `Roster · ${count} player${count === 1 ? "" : "s"}`}
                 </Text>
                 <Text style={styles.heroSub}>
-                  Players join via join code. Names are saved in Firebase.
+                  Players join via join code. Host can also add guests manually.
                 </Text>
 
                 {rosterLocked ? (
@@ -642,7 +733,7 @@ export default function TournamentPlayersScreen({ navigation, route }) {
               return (
                 <View style={styles.empty}>
                   <Text style={styles.emptyTitle}>No players yet</Text>
-                  <Text style={styles.emptySub}>Share the join code so players can join this tournament.</Text>
+                  <Text style={styles.emptySub}>Share the join code so players can join this tournament (or add guests).</Text>
                 </View>
               );
             }
@@ -654,30 +745,35 @@ export default function TournamentPlayersScreen({ navigation, route }) {
       />
 
       <View style={styles.footer}>
-        <View style={styles.footerRow}>
+        <View style={styles.footerStack}>
           {isHost ? (
-            <Pressable
-              onPress={toggleRosterLock}
-              style={({ pressed }) => [
-                styles.footerBtn,
-                styles.secondaryBtn,
-                pressed && styles.pressed,
-                saving && { opacity: 0.7 },
-              ]}
-              disabled={saving}
-            >
-              <Text style={styles.secondaryText}>{rosterLocked ? "Unlock Roster" : "Lock Roster"}</Text>
-            </Pressable>
+            <View style={styles.footerRow}>
+              <Pressable
+                onPress={openAddGuest}
+                style={({ pressed }) => [
+                  styles.footerBtn,
+                  styles.secondaryBtn,
+                  pressed && styles.pressed,
+                  (saving || rosterLocked) && { opacity: 0.7 },
+                ]}
+                disabled={saving || rosterLocked}
+              >
+                <Text style={styles.secondaryText}>{rosterLocked ? "Add Guest (Locked)" : "Add Guest"}</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={toggleRosterLock}
+                style={({ pressed }) => [styles.footerBtn, styles.secondaryBtn, pressed && styles.pressed, saving && { opacity: 0.7 }]}
+                disabled={saving}
+              >
+                <Text style={styles.secondaryText}>{rosterLocked ? "Unlock Roster" : "Lock Roster"}</Text>
+              </Pressable>
+            </View>
           ) : null}
 
           <Pressable
             onPress={() => navigation.goBack()}
-            style={({ pressed }) => [
-              styles.footerBtn,
-              styles.primaryBtn,
-              pressed && styles.pressed,
-              saving && { opacity: 0.7 },
-            ]}
+            style={({ pressed }) => [styles.footerBtn, styles.primaryBtn, pressed && styles.pressed, saving && { opacity: 0.7 }]}
             disabled={saving}
           >
             <Text style={styles.primaryText}>Back</Text>
@@ -691,22 +787,21 @@ export default function TournamentPlayersScreen({ navigation, route }) {
           onPress={() => {
             Keyboard.dismiss();
             setEditOpen(false);
+            setAddingGuest(false);
           }}
         >
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
             <Pressable style={styles.modalCard} onPress={() => {}}>
-              <ScrollView
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={{ paddingBottom: 8 }}
-              >
-                <Text style={styles.modalTitle}>Player Name</Text>
-                <Text style={styles.modalSub}>Set the display name shown in this tournament.</Text>
+              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
+                <Text style={styles.modalTitle}>{addingGuest ? "Add Guest" : "Player Name"}</Text>
+                <Text style={styles.modalSub}>
+                  {addingGuest ? "Create a roster entry for someone without the app." : "Set the display name shown in this tournament."}
+                </Text>
 
                 <TextInput
                   value={editName}
                   onChangeText={setEditName}
-                  placeholder="e.g. Steph, Kim, Dave..."
+                  placeholder={addingGuest ? "e.g. Guest 1, Dad, John S." : "e.g. Steph, Kim, Dave..."}
                   placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
                   style={styles.input}
                   autoCapitalize="words"
@@ -720,6 +815,7 @@ export default function TournamentPlayersScreen({ navigation, route }) {
                       setEditOpen(false);
                       setEditUid(null);
                       setEditName("");
+                      setAddingGuest(false);
                       Keyboard.dismiss();
                     }}
                     style={({ pressed }) => [styles.modalBtn, styles.modalBtnCancel, pressed && styles.pressed]}

@@ -2,7 +2,15 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Alert, Share, Platform, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { doc, onSnapshot, updateDoc, serverTimestamp } from "firebase/firestore";
+import {
+  doc,
+  onSnapshot,
+  updateDoc,
+  serverTimestamp,
+  deleteDoc,
+  collection,
+  getDocs,
+} from "firebase/firestore";
 
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
@@ -19,6 +27,7 @@ export default function TournamentDashboardScreen({ navigation, route }) {
   const [t, setT] = useState(null);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
+  const [adminBusy, setAdminBusy] = useState(false);
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
@@ -67,12 +76,15 @@ export default function TournamentDashboardScreen({ navigation, route }) {
     const lockBg = isDark ? "rgba(255, 210, 92, 0.12)" : "rgba(255, 210, 92, 0.16)";
     const lockBorder = isDark ? "rgba(255, 210, 92, 0.40)" : "rgba(255, 210, 92, 0.48)";
 
+    const dangerBg = "rgba(231,76,60,0.14)";
+    const dangerBorder = "rgba(231,76,60,0.28)";
+
     const greenRing = isDark ? "rgba(15,122,74,0.55)" : "rgba(15,122,74,0.62)";
     const greenRingPressed = isDark ? "rgba(15,122,74,0.82)" : "rgba(15,122,74,0.86)";
 
     return StyleSheet.create({
       screen: { flex: 1, backgroundColor: theme.bg },
-      content: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 140 },
+      content: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 170 },
 
       hero: {
         borderRadius: 22,
@@ -179,6 +191,20 @@ export default function TournamentDashboardScreen({ navigation, route }) {
       cardTitle: { color: theme.text, fontSize: 17, fontWeight: "900" },
       cardSub: { marginTop: 8, color: theme.text, opacity: 0.72, fontSize: 13, fontWeight: "700", lineHeight: 18 },
 
+      adminRow: { flexDirection: "row", gap: 10, marginTop: 10 },
+      adminBtn: {
+        flex: 1,
+        height: 50,
+        borderRadius: 16,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: softBg,
+        borderWidth: 1,
+        borderColor: softBorder,
+      },
+      adminBtnText: { color: theme.text, fontSize: 14, fontWeight: "900", letterSpacing: 0.2 },
+      adminBtnDanger: { backgroundColor: dangerBg, borderColor: dangerBorder },
+
       footer: {
         position: "absolute",
         left: 0,
@@ -200,7 +226,7 @@ export default function TournamentDashboardScreen({ navigation, route }) {
       },
       primaryText: { color: "#fff", fontSize: 16, fontWeight: "900", letterSpacing: 0.4 },
 
-      pressed: { opacity: Platform.OS === "ios" ? 0.88 : "0.9", transform: [{ scale: 0.99 }] },
+      pressed: { opacity: Platform.OS === "ios" ? 0.88 : 0.9, transform: [{ scale: 0.99 }] },
     });
   }, [theme, isDark, footerPad]);
 
@@ -245,13 +271,16 @@ export default function TournamentDashboardScreen({ navigation, route }) {
     Alert.alert(label, "Coming next: formats, rounds, and leaderboards.");
   }
 
-  function SetupCard({ title, sub, onPress }) {
+  function SetupCard({ title, sub, onPress, rightTag }) {
     return (
       <Pressable onPress={onPress} style={({ pressed }) => [styles.card, pressed && styles.pressed]}>
         {({ pressed }) => (
           <>
             <View pointerEvents="none" style={[styles.greenRing, pressed && styles.greenRingPressed]} />
-            <Text style={styles.cardTitle}>{title}</Text>
+            <Text style={styles.cardTitle}>
+              {title}
+              {rightTag ? `  ·  ${rightTag}` : ""}
+            </Text>
             <Text style={styles.cardSub}>{sub}</Text>
           </>
         )}
@@ -316,6 +345,87 @@ export default function TournamentDashboardScreen({ navigation, route }) {
     ]);
   }
 
+  async function archiveTournament() {
+    if (!isHost || !tournamentId) return;
+
+    Alert.alert(
+      "Archive tournament?",
+      "This hides it from your active list (you can unarchive later).",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Archive",
+          style: "destructive",
+          onPress: async () => {
+            setAdminBusy(true);
+            try {
+              await updateDoc(doc(db, "tournaments", tournamentId), {
+                archivedAt: serverTimestamp(),
+                status: "archived",
+                updatedAt: serverTimestamp(),
+              });
+              Alert.alert("Archived", "Tournament archived.");
+              navigation.goBack();
+            } catch (e) {
+              Alert.alert("Archive failed", e?.message || "Could not archive tournament.");
+            } finally {
+              setAdminBusy(false);
+            }
+          },
+        },
+      ]
+    );
+  }
+
+  async function deleteTournamentHard() {
+    if (!isHost || !tournamentId) return;
+
+    Alert.alert(
+      "Delete tournament?",
+      "This is permanent. It will remove the tournament and its roster.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            Alert.alert(
+              "Confirm delete",
+              "Last check — delete this tournament permanently?",
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Delete permanently",
+                  style: "destructive",
+                  onPress: async () => {
+                    setAdminBusy(true);
+                    try {
+                      // delete members subcollection docs (small rosters only)
+                      const msnap = await getDocs(collection(db, "tournaments", tournamentId, "members"));
+                      const deletes = [];
+                      msnap.forEach((d) => deletes.push(deleteDoc(d.ref)));
+                      await Promise.all(deletes);
+
+                      // delete tournament doc
+                      await deleteDoc(doc(db, "tournaments", tournamentId));
+
+                      Alert.alert("Deleted", "Tournament deleted.");
+                      navigation.goBack();
+                    } catch (e) {
+                      Alert.alert("Delete failed", e?.message || "Could not delete tournament.");
+                    } finally {
+                      setAdminBusy(false);
+                    }
+                  },
+                },
+              ]
+            );
+          },
+        },
+      ]
+    );
+  }
+
   return (
     <View style={styles.screen}>
       <ScreenHeader navigation={navigation} title="Tournament" subtitle="Manage your tournament in one place." />
@@ -351,7 +461,12 @@ export default function TournamentDashboardScreen({ navigation, route }) {
 
         <SetupCard title="Course" sub={courseLine} onPress={() => navigation.navigate(ROUTES.TOURNAMENT_COURSE, { tournamentId })} />
 
-        <SetupCard title="Players" sub={playersLine} onPress={() => navigation.navigate(ROUTES.TOURNAMENT_PLAYERS, { tournamentId })} />
+        <SetupCard
+          title="Players"
+          sub={playersLine}
+          onPress={() => navigation.navigate(ROUTES.TOURNAMENT_PLAYERS, { tournamentId })}
+          rightTag={rosterLocked ? "LOCKED" : null}
+        />
 
         <SetupCard
           title="Formats / Games"
@@ -359,19 +474,57 @@ export default function TournamentDashboardScreen({ navigation, route }) {
           onPress={() => comingSoon("Formats / Games")}
         />
 
-        <SetupCard title="Rounds" sub="Add rounds, start Round 1, and manage day-to-day scoring." onPress={() => comingSoon("Rounds")} />
+        <SetupCard
+          title="Rounds"
+          sub="Add rounds, start Round 1, and manage day-to-day scoring."
+          onPress={() => comingSoon("Rounds")}
+        />
 
         <SetupCard title="Leaderboard" sub="Live tournament standings (coming soon)." onPress={() => comingSoon("Leaderboard")} />
+
+        {isHost ? (
+          <>
+            <Text style={styles.sectionTitle}>Host Admin</Text>
+
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Tournament Admin</Text>
+              <Text style={styles.cardSub}>Archive to hide it, or delete permanently.</Text>
+
+              <View style={styles.adminRow}>
+                <Pressable
+                  onPress={archiveTournament}
+                  disabled={adminBusy}
+                  style={({ pressed }) => [styles.adminBtn, pressed && styles.pressed, adminBusy && { opacity: 0.7 }]}
+                >
+                  <Text style={styles.adminBtnText}>{adminBusy ? "Working..." : "Archive"}</Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={deleteTournamentHard}
+                  disabled={adminBusy}
+                  style={({ pressed }) => [
+                    styles.adminBtn,
+                    styles.adminBtnDanger,
+                    pressed && styles.pressed,
+                    adminBusy && { opacity: 0.7 },
+                  ]}
+                >
+                  <Text style={styles.adminBtnText}>{adminBusy ? "Working..." : "Delete"}</Text>
+                </Pressable>
+              </View>
+            </View>
+          </>
+        ) : null}
       </ScrollView>
 
       <View style={styles.footer}>
         <Pressable
           onPress={startTournament}
-          disabled={starting || loading || !t || !isHost}
+          disabled={starting || adminBusy || loading || !t || !isHost}
           style={({ pressed }) => [
             styles.primaryBtn,
             pressed && styles.pressed,
-            (starting || loading || !t || !isHost) && { opacity: 0.7 },
+            (starting || adminBusy || loading || !t || !isHost) && { opacity: 0.7 },
           ]}
         >
           <Text style={styles.primaryText}>
