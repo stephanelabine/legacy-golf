@@ -1,6 +1,6 @@
 // src/screens/TournamentCourseScreen.js
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, Pressable, FlatList, Alert, Platform } from "react-native";
+import { View, Text, StyleSheet, Pressable, FlatList, Alert, Platform, TextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { doc, onSnapshot, updateDoc, serverTimestamp } from "firebase/firestore";
 
@@ -18,6 +18,7 @@ export default function TournamentCourseScreen({ navigation, route }) {
 
   const [t, setT] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [query, setQuery] = useState("");
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
@@ -47,17 +48,35 @@ export default function TournamentCourseScreen({ navigation, route }) {
     return arr;
   }, []);
 
+  const filteredCourses = useMemo(() => {
+    const q = String(query || "").trim().toLowerCase();
+    if (!q) return courses;
+
+    return courses.filter((c) => {
+      const name = String(c?.name || "").toLowerCase();
+      const id = String(c?.id ?? c?.courseId ?? "").toLowerCase();
+
+      // Optional fields if you add them later in COURSES_LOCAL:
+      const city = String(c?.city || "").toLowerCase();
+      const region = String(c?.region || c?.province || "").toLowerCase();
+
+      const haystack = `${name} ${city} ${region} ${id}`.trim();
+      return haystack.includes(q);
+    });
+  }, [courses, query]);
+
   const data = useMemo(() => {
     return [
       { _type: "current", key: "current" },
+      { _type: "search", key: "search" },
       { _type: "section", key: "section-all" },
-      ...courses.map((c, idx) => {
+      ...filteredCourses.map((c, idx) => {
         const cid = String(c?.id ?? c?.courseId ?? c?.name ?? idx);
         return { _type: "course", key: `c-${cid}`, course: c, _cid: cid };
       }),
       { _type: "end", key: "end" },
     ];
-  }, [courses]);
+  }, [filteredCourses]);
 
   const styles = useMemo(() => {
     const goldBorder = isDark ? "rgba(255, 210, 92, 0.60)" : "rgba(255, 210, 92, 0.62)";
@@ -95,6 +114,35 @@ export default function TournamentCourseScreen({ navigation, route }) {
       },
       currentTitle: { marginTop: 10, color: theme.text, fontSize: 18, fontWeight: "900" },
       currentSub: { marginTop: 8, color: theme.text, opacity: 0.74, fontSize: 13, fontWeight: "700", lineHeight: 19 },
+
+      searchWrap: {
+        borderRadius: 18,
+        padding: 12,
+        borderWidth: 1,
+        borderColor: softBorder,
+        backgroundColor: softBg,
+        marginBottom: 12,
+      },
+      searchLabel: {
+        color: theme.text,
+        opacity: 0.75,
+        fontSize: 12,
+        fontWeight: "900",
+        letterSpacing: 1.2,
+        textTransform: "uppercase",
+      },
+      searchInput: {
+        marginTop: 10,
+        height: 48,
+        borderRadius: 14,
+        paddingHorizontal: 14,
+        borderWidth: 1,
+        borderColor: theme.border,
+        backgroundColor: theme.card2,
+        color: theme.text,
+        fontSize: 15,
+        fontWeight: "800",
+      },
 
       sectionTitle: {
         marginTop: 6,
@@ -142,6 +190,17 @@ export default function TournamentCourseScreen({ navigation, route }) {
         borderColor: softBorder,
       },
       pillText: { color: theme.text, fontSize: 12, fontWeight: "900", letterSpacing: 0.2 },
+
+      emptyCard: {
+        borderRadius: 18,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: softBorder,
+        backgroundColor: softBg,
+        marginBottom: 12,
+      },
+      emptyTitle: { color: theme.text, fontSize: 15, fontWeight: "900" },
+      emptySub: { marginTop: 6, color: theme.text, opacity: 0.72, fontSize: 13, fontWeight: "700", lineHeight: 18 },
 
       footer: {
         position: "absolute",
@@ -236,8 +295,38 @@ export default function TournamentCourseScreen({ navigation, route }) {
       );
     }
 
+    if (item._type === "search") {
+      return (
+        <View style={styles.searchWrap}>
+          <Text style={styles.searchLabel}>Search</Text>
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Type a course name…"
+            placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+            style={styles.searchInput}
+            autoCapitalize="words"
+            autoCorrect={false}
+            clearButtonMode="while-editing"
+          />
+        </View>
+      );
+    }
+
     if (item._type === "section") {
       return <Text style={styles.sectionTitle}>All Courses</Text>;
+    }
+
+    if (item._type === "end") {
+      if (!filteredCourses.length) {
+        return (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>No matches</Text>
+            <Text style={styles.emptySub}>Try a different search (example: “Osoyoos”, “Kelowna”, “Bear”).</Text>
+          </View>
+        );
+      }
+      return null;
     }
 
     if (item._type !== "course") return null;
@@ -281,6 +370,7 @@ export default function TournamentCourseScreen({ navigation, route }) {
         renderItem={renderItem}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       />
 
       <View style={styles.footer}>

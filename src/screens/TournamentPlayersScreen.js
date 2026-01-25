@@ -159,7 +159,6 @@ export default function TournamentPlayersScreen({ navigation, route }) {
 
     return StyleSheet.create({
       screen: { flex: 1, backgroundColor: theme.bg },
-
       listContent: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 190 },
 
       hero: {
@@ -554,36 +553,32 @@ export default function TournamentPlayersScreen({ navigation, route }) {
 
     const isGuest = !!member?.isGuest;
 
-    Alert.alert(
-      "Remove player?",
-      "This will remove the player from the tournament roster.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Remove",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              if (isGuest) {
-                await updateDoc(doc(db, "tournaments", tournamentId), {
-                  guestIds: arrayRemove(uid),
-                  updatedAt: serverTimestamp(),
-                });
-              } else {
-                await updateDoc(doc(db, "tournaments", tournamentId), {
-                  memberUids: arrayRemove(uid),
-                  updatedAt: serverTimestamp(),
-                });
-              }
-
-              await deleteDoc(doc(db, "tournaments", tournamentId, "members", uid));
-            } catch (e) {
-              Alert.alert("Remove failed", e?.message || "Could not remove player.");
+    Alert.alert("Remove player?", "This will remove the player from the tournament roster.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Remove",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            if (isGuest) {
+              await updateDoc(doc(db, "tournaments", tournamentId), {
+                guestIds: arrayRemove(uid),
+                updatedAt: serverTimestamp(),
+              });
+            } else {
+              await updateDoc(doc(db, "tournaments", tournamentId), {
+                memberUids: arrayRemove(uid),
+                updatedAt: serverTimestamp(),
+              });
             }
-          },
+
+            await deleteDoc(doc(db, "tournaments", tournamentId, "members", uid));
+          } catch (e) {
+            Alert.alert("Remove failed", e?.message || "Could not remove player.");
+          }
         },
-      ]
-    );
+      },
+    ]);
   }
 
   function renderRow({ item }) {
@@ -618,7 +613,12 @@ export default function TournamentPlayersScreen({ navigation, route }) {
 
             <View style={{ flex: 1 }}>
               <Text style={styles.rowTitle} numberOfLines={1}>
-                {displayName || (isOwner ? "Host (name not set)" : isGuest ? "Guest (name not set)" : "Player (name not set)")}
+                {displayName ||
+                  (isOwner
+                    ? "Host (name not set)"
+                    : isGuest
+                    ? "Guest (name not set)"
+                    : "Player (name not set)")}
               </Text>
               <Text style={styles.rowSub} numberOfLines={1}>
                 {sub}
@@ -633,12 +633,8 @@ export default function TournamentPlayersScreen({ navigation, route }) {
 
         <View style={styles.rowActions}>
           <Pressable
-            onPress={() => (isGuest ? (isHost ? openEdit(item) : null) : openEdit(item))}
-            style={({ pressed }) => [
-              styles.actionBtn,
-              pressed && styles.pressed,
-              (!canEdit || saving) && { opacity: 0.6 },
-            ]}
+            onPress={() => (canEdit ? openEdit(item) : null)}
+            style={({ pressed }) => [styles.actionBtn, pressed && styles.pressed, (!canEdit || saving) && { opacity: 0.6 }]}
             disabled={!canEdit || saving}
           >
             <Text style={styles.actionText}>{canEdit ? "Edit Name" : "View"}</Text>
@@ -687,9 +683,7 @@ export default function TournamentPlayersScreen({ navigation, route }) {
                 <Text style={styles.heroTitle}>
                   {loadingT ? "Loading..." : `Roster · ${count} player${count === 1 ? "" : "s"}`}
                 </Text>
-                <Text style={styles.heroSub}>
-                  Players join via join code. Host can also add guests manually.
-                </Text>
+                <Text style={styles.heroSub}>Players join via join code. Host can also add guests manually.</Text>
 
                 {rosterLocked ? (
                   <View style={styles.lockPill}>
@@ -722,13 +716,10 @@ export default function TournamentPlayersScreen({ navigation, route }) {
             );
           }
 
-          if (item._type === "section") {
-            return <Text style={styles.sectionTitle}>Players</Text>;
-          }
+          if (item._type === "section") return <Text style={styles.sectionTitle}>Players</Text>;
 
           if (item._type === "end") {
             if (loadingM) return null;
-
             if (!members.length) {
               return (
                 <View style={styles.empty}>

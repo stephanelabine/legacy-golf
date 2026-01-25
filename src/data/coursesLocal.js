@@ -24,39 +24,42 @@ export function canonicalCourseName(name = "") {
 
 export const COURSES_LOCAL = [
   // Green Tee coordinates (Pagoda Ridge was the old name at the same location)
-  { name: "Green Tee Country Club", lat: 49.143311, lng: -122.497658 },
+  { id: "green-tee-country-club", name: "Green Tee Country Club", lat: 49.143311, lng: -122.497658 },
 
-  { name: "Langley Golf & Banquet Center", lat: 49.1029, lng: -122.6652 },
-  { name: "Redwoods Golf Course", lat: 49.1022, lng: -122.6768 },
-  { name: "Morgan Creek Golf Course", lat: 49.0596, lng: -122.7332 },
-  { name: "Northview Golf & Country Club", lat: 49.1162, lng: -122.6853 },
-  { name: "Mayfair Lakes Golf & Country Club", lat: 49.1168, lng: -122.8787 },
-  { name: "Hazelmere Golf & Tennis Club", lat: 49.0478, lng: -122.7896 },
-  { name: "Surrey Golf Club", lat: 49.0875, lng: -122.8478 },
-  { name: "Fraserview Golf Course", lat: 49.2194, lng: -123.049 },
-  { name: "McCleery Golf Course", lat: 49.2122, lng: -123.1427 },
-  { name: "University Golf Club", lat: 49.2599, lng: -123.2484 },
-  { name: "Kings Links by the Sea", lat: 49.0133, lng: -123.0863 },
-  { name: "Beach Grove Golf Club", lat: 49.0188, lng: -123.0868 },
-  { name: "Chilliwack Golf Club", lat: 49.1779, lng: -121.9407 },
-  { name: "Ledgeview Golf Club", lat: 49.0396, lng: -122.2203 },
-  { name: "Sandpiper Golf Resort", lat: 49.2066, lng: -121.7636 },
-  { name: "Squamish Valley Golf Club", lat: 49.7624, lng: -123.1195 },
-  { name: "Whistler Golf Club", lat: 50.1146, lng: -122.9544 },
-  { name: "Big Sky Golf Club", lat: 49.73, lng: -123.157 },
-  { name: "Nanaimo Golf Club", lat: 49.1914, lng: -123.9764 },
+  { id: "langley-golf-banquet-center", name: "Langley Golf & Banquet Center", lat: 49.1029, lng: -122.6652 },
+  { id: "redwoods-golf-course", name: "Redwoods Golf Course", lat: 49.1022, lng: -122.6768 },
+  { id: "morgan-creek-golf-course", name: "Morgan Creek Golf Course", lat: 49.0596, lng: -122.7332 },
+  { id: "northview-golf-country-club", name: "Northview Golf & Country Club", lat: 49.1162, lng: -122.6853 },
+  { id: "mayfair-lakes-golf-country-club", name: "Mayfair Lakes Golf & Country Club", lat: 49.1168, lng: -122.8787 },
+  { id: "hazelmere-golf-tennis-club", name: "Hazelmere Golf & Tennis Club", lat: 49.0478, lng: -122.7896 },
+  { id: "surrey-golf-club", name: "Surrey Golf Club", lat: 49.0875, lng: -122.8478 },
+  { id: "fraserview-golf-course", name: "Fraserview Golf Course", lat: 49.2194, lng: -123.049 },
+  { id: "mccleery-golf-course", name: "McCleery Golf Course", lat: 49.2122, lng: -123.1427 },
+  { id: "university-golf-club", name: "University Golf Club", lat: 49.2599, lng: -123.2484 },
+  { id: "kings-links-by-the-sea", name: "Kings Links by the Sea", lat: 49.0133, lng: -123.0863 },
+  { id: "beach-grove-golf-club", name: "Beach Grove Golf Club", lat: 49.0188, lng: -123.0868 },
+  { id: "chilliwack-golf-club", name: "Chilliwack Golf Club", lat: 49.1779, lng: -121.9407 },
+  { id: "ledgeview-golf-club", name: "Ledgeview Golf Club", lat: 49.0396, lng: -122.2203 },
+  { id: "sandpiper-golf-resort", name: "Sandpiper Golf Resort", lat: 49.2066, lng: -121.7636 },
+  { id: "squamish-valley-golf-club", name: "Squamish Valley Golf Club", lat: 49.7624, lng: -123.1195 },
+  { id: "whistler-golf-club", name: "Whistler Golf Club", lat: 50.1146, lng: -122.9544 },
+  { id: "big-sky-golf-club", name: "Big Sky Golf Club", lat: 49.73, lng: -123.157 },
+  { id: "nanaimo-golf-club", name: "Nanaimo Golf Club", lat: 49.1914, lng: -123.9764 },
 
   // Added: major Lower Mainland courses you named / referenced
-  { name: "Swaneset Bay Resort & Country Club", lat: 49.305532, lng: -122.65788 },
-  { name: "Meadow Gardens Golf Club", lat: 49.225277, lng: -122.668759 },
-  { name: "Golden Eagle Golf Club", lat: 49.2934888, lng: -122.616802 },
-  { name: "Fort Langley Golf Course", lat: 49.1785669, lng: -122.5968565 },
+  { id: "swaneset-bay-resort-country-club", name: "Swaneset Bay Resort & Country Club", lat: 49.305532, lng: -122.65788 },
+  { id: "meadow-gardens-golf-club", name: "Meadow Gardens Golf Club", lat: 49.225277, lng: -122.668759 },
+  { id: "golden-eagle-golf-club", name: "Golden Eagle Golf Club", lat: 49.2934888, lng: -122.616802 },
+  { id: "fort-langley-golf-course", name: "Fort Langley Golf Course", lat: 49.1785669, lng: -122.5968565 },
 
   // Added: other major nearby public courses
-  { name: "Westwood Plateau Golf & Country Club", lat: 49.313897, lng: -122.786593 },
-  { name: "Riverway Golf Course", lat: 49.200081, lng: -122.989658 },
-  { name: "Burnaby Mountain Golf Course", lat: 49.266041, lng: -122.943621 },
-  { name: "Guildford Golf & Country Club", lat: 49.1482806, lng: -122.8013565 },
+  { id: "westwood-plateau-golf-country-club", name: "Westwood Plateau Golf & Country Club", lat: 49.313897, lng: -122.786593 },
+  { id: "riverway-golf-course", name: "Riverway Golf Course", lat: 49.200081, lng: -122.989658 },
+  { id: "burnaby-mountain-golf-course", name: "Burnaby Mountain Golf Course", lat: 49.266041, lng: -122.943621 },
+  { id: "guildford-golf-country-club", name: "Guildford Golf & Country Club", lat: 49.1482806, lng: -122.8013565 },
+
+  // Interior BC
+  { id: "osoyoos-golf-country-club", name: "Osoyoos Golf & Country Club", lat: 49.0339, lng: -119.4681 },
 ];
 
 // Helper: find a local course by canonical name (safe for place/search results)
