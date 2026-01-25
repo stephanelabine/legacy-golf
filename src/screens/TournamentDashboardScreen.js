@@ -63,6 +63,14 @@ export default function TournamentDashboardScreen({ navigation, route }) {
 
   const rosterLocked = !!t?.rosterLocked;
 
+  const players = Array.isArray(t?.memberUids) ? t.memberUids.length : 1;
+
+  const courseReady = !!String(t?.courseId || "").trim();
+  const formatsReady = !!t?.formatsReady;
+  const roundsReady = !!t?.roundsReady;
+
+  const setupReady = courseReady && rosterLocked && formatsReady && roundsReady;
+
   const styles = useMemo(() => {
     const blue = isDark ? "rgba(46,125,255,0.92)" : "rgba(29,53,87,0.92)";
     const blueBg = isDark ? "rgba(46,125,255,0.10)" : "rgba(29,53,87,0.10)";
@@ -233,12 +241,20 @@ export default function TournamentDashboardScreen({ navigation, route }) {
   const joinCode = (t?.joinCode || "").toUpperCase();
   const name = t?.name || "Tournament";
   const status = (t?.status || "draft").toUpperCase();
-  const players = Array.isArray(t?.memberUids) ? t.memberUids.length : 1;
 
   const courseLine = t?.courseName ? `Selected: ${String(t.courseName)}` : "Select the course for the tournament.";
+
   const playersLine =
     `Roster: ${players} player${players === 1 ? "" : "s"} · Names saved in Firebase.` +
     (rosterLocked ? " · Roster locked" : "");
+
+  const formatsLine = formatsReady
+    ? `Ready · ${Number(t?.formatsCount || 0)} format${Number(t?.formatsCount || 0) === 1 ? "" : "s"} configured.`
+    : "Add KP’s, long drive, deuce pot, putting contest, etc.";
+
+  const roundsLine = roundsReady
+    ? `Ready · ${Number(t?.roundsTotal || 1)} round${Number(t?.roundsTotal || 1) === 1 ? "" : "s"}`
+    : "Set how many rounds this tournament has.";
 
   async function shareInvite() {
     if (!joinCode) return;
@@ -267,10 +283,6 @@ export default function TournamentDashboardScreen({ navigation, route }) {
     }
   }
 
-  function comingSoon(label) {
-    Alert.alert(label, "Coming next: formats, rounds, and leaderboards.");
-  }
-
   function SetupCard({ title, sub, onPress, rightTag }) {
     return (
       <Pressable onPress={onPress} style={({ pressed }) => [styles.card, pressed && styles.pressed]}>
@@ -288,7 +300,27 @@ export default function TournamentDashboardScreen({ navigation, route }) {
     );
   }
 
-  async function doStartNow({ lockFirst }) {
+  function showMissingChecklist() {
+    const missing = [];
+    if (!courseReady) missing.push("Course");
+    if (!rosterLocked) missing.push("Roster Lock");
+    if (!formatsReady) missing.push("Formats / Games");
+    if (!roundsReady) missing.push("Rounds");
+
+    Alert.alert(
+      "Tournament not ready",
+      `To start, please complete:\n\n• ${missing.join("\n• ")}`,
+      [
+        { text: "OK", style: "cancel" },
+        !courseReady ? { text: "Set Course", onPress: () => navigation.navigate(ROUTES.TOURNAMENT_COURSE, { tournamentId }) } : null,
+        !rosterLocked ? { text: "Players", onPress: () => navigation.navigate(ROUTES.TOURNAMENT_PLAYERS, { tournamentId }) } : null,
+        !formatsReady ? { text: "Formats", onPress: () => navigation.navigate(ROUTES.TOURNAMENT_FORMATS, { tournamentId }) } : null,
+        !roundsReady ? { text: "Rounds", onPress: () => navigation.navigate(ROUTES.TOURNAMENT_ROUNDS, { tournamentId }) } : null,
+      ].filter(Boolean)
+    );
+  }
+
+  async function doStartNow() {
     const u2 = auth.currentUser;
     if (!u2 || !tournamentId) return;
 
@@ -307,7 +339,6 @@ export default function TournamentDashboardScreen({ navigation, route }) {
     try {
       await updateDoc(doc(db, "tournaments", tournamentId), {
         status: "live",
-        rosterLocked: lockFirst ? true : !!t?.rosterLocked,
         startedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -326,22 +357,14 @@ export default function TournamentDashboardScreen({ navigation, route }) {
       return;
     }
 
-    if (!rosterLocked) {
-      Alert.alert(
-        "Roster not locked",
-        "To prevent last-minute joiners, lock the roster before starting.",
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "Go lock it", onPress: () => navigation.navigate(ROUTES.TOURNAMENT_PLAYERS, { tournamentId }) },
-          { text: "Lock & Start", style: "destructive", onPress: () => doStartNow({ lockFirst: true }) },
-        ]
-      );
+    if (!setupReady) {
+      showMissingChecklist();
       return;
     }
 
     Alert.alert("Start tournament?", "This will set the tournament to LIVE.", [
       { text: "Cancel", style: "cancel" },
-      { text: "Start", style: "destructive", onPress: () => doStartNow({ lockFirst: false }) },
+      { text: "Start", style: "destructive", onPress: doStartNow },
     ]);
   }
 
@@ -406,6 +429,12 @@ export default function TournamentDashboardScreen({ navigation, route }) {
                       msnap.forEach((d) => deletes.push(deleteDoc(d.ref)));
                       await Promise.all(deletes);
 
+                      // delete formats subcollection docs
+                      const fsnap = await getDocs(collection(db, "tournaments", tournamentId, "formats"));
+                      const fdeletes = [];
+                      fsnap.forEach((d) => fdeletes.push(deleteDoc(d.ref)));
+                      await Promise.all(fdeletes);
+
                       // delete tournament doc
                       await deleteDoc(doc(db, "tournaments", tournamentId));
 
@@ -459,28 +488,39 @@ export default function TournamentDashboardScreen({ navigation, route }) {
 
         <Text style={styles.sectionTitle}>Setup</Text>
 
-        <SetupCard title="Course" sub={courseLine} onPress={() => navigation.navigate(ROUTES.TOURNAMENT_COURSE, { tournamentId })} />
+        <SetupCard
+          title="Course"
+          sub={courseLine}
+          onPress={() => navigation.navigate(ROUTES.TOURNAMENT_COURSE, { tournamentId })}
+          rightTag={courseReady ? "READY" : "MISSING"}
+        />
 
         <SetupCard
           title="Players"
           sub={playersLine}
           onPress={() => navigation.navigate(ROUTES.TOURNAMENT_PLAYERS, { tournamentId })}
-          rightTag={rosterLocked ? "LOCKED" : null}
+          rightTag={rosterLocked ? "LOCKED" : "UNLOCKED"}
         />
 
         <SetupCard
           title="Formats / Games"
-          sub="Attach skins, KP’s, stableford, and more to the tournament."
-          onPress={() => comingSoon("Formats / Games")}
+          sub={formatsLine}
+          onPress={() => navigation.navigate(ROUTES.TOURNAMENT_FORMATS, { tournamentId })}
+          rightTag={formatsReady ? "READY" : "MISSING"}
         />
 
         <SetupCard
           title="Rounds"
-          sub="Add rounds, start Round 1, and manage day-to-day scoring."
-          onPress={() => comingSoon("Rounds")}
+          sub={roundsLine}
+          onPress={() => navigation.navigate(ROUTES.TOURNAMENT_ROUNDS, { tournamentId })}
+          rightTag={roundsReady ? "READY" : "MISSING"}
         />
 
-        <SetupCard title="Leaderboard" sub="Live tournament standings (coming soon)." onPress={() => comingSoon("Leaderboard")} />
+        <SetupCard
+          title="Leaderboard"
+          sub="Live tournament standings (coming soon)."
+          onPress={() => Alert.alert("Leaderboard", "Coming soon. This will show net + gross standings with side-game winners.")}
+        />
 
         {isHost ? (
           <>
@@ -528,7 +568,7 @@ export default function TournamentDashboardScreen({ navigation, route }) {
           ]}
         >
           <Text style={styles.primaryText}>
-            {!isHost ? "Host Only" : starting ? "Starting..." : rosterLocked ? "Start Tournament" : "Start (Lock Required)"}
+            {!isHost ? "Host Only" : starting ? "Starting..." : setupReady ? "Start Tournament" : "Complete Setup to Start"}
           </Text>
         </Pressable>
       </View>

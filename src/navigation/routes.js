@@ -41,6 +41,8 @@ const ROUTES = {
   JOIN_TOURNAMENT: "JoinTournament",
   TOURNAMENT_COURSE: "TournamentCourse",
   TOURNAMENT_PLAYERS: "TournamentPlayers",
+  TOURNAMENT_FORMATS: "TournamentFormats",
+  TOURNAMENT_ROUNDS: "TournamentRounds",
 
   FINAL_RESULTS: "FinalResults",
   PAYOUTS: "Payouts",

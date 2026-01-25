@@ -145,6 +145,15 @@ export default function GamesScreen({ navigation }) {
 
     const tournamentsGlow = isDark ? "rgba(255,210,92,0.55)" : "rgba(255,210,92,0.60)";
 
+    // Selected overlay styling
+    const overlayDim = isDark ? "rgba(0,0,0,0.22)" : "rgba(10,15,26,0.10)";
+    const overlayBorder = isDark ? "rgba(255,255,255,0.22)" : "rgba(10,15,26,0.18)";
+    const overlayBg = isDark ? "rgba(20,24,34,1)" : "rgba(255,255,255,1)";
+
+    const overlayText = isDark ? "rgba(255,255,255,0.96)" : "rgba(10,15,26,0.92)";
+    const premiumPillBg = isDark ? "rgba(255,210,92,0.98)" : "rgba(255,210,92,1)";
+    const premiumPillText = "rgba(10,15,26,0.92)";
+
     return StyleSheet.create({
       screen: { flex: 1, backgroundColor: theme.bg },
 
@@ -169,6 +178,7 @@ export default function GamesScreen({ navigation }) {
         backgroundColor: theme.card2,
         marginBottom: 12,
         position: "relative",
+        overflow: "hidden",
       },
       cardActive: { borderColor: blue, backgroundColor: blueBg },
       cardDisabled: { opacity: 0.55 },
@@ -229,22 +239,53 @@ export default function GamesScreen({ navigation }) {
 
       cardBottom: { marginTop: 12, flexDirection: "row", alignItems: "center" },
 
-      pillActive: {
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 999,
-        backgroundColor: isDark ? "rgba(46,125,255,0.22)" : "rgba(29,53,87,0.18)",
-        borderWidth: 1,
-        borderColor: isDark ? "rgba(46,125,255,0.55)" : "rgba(29,53,87,0.35)",
-        color: theme.text,
-        fontSize: 12,
-        fontWeight: "900",
-        overflow: "hidden",
+      // Center overlay
+      selectedDim: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: overlayDim,
       },
-      pillPremiumActive: {
-        backgroundColor: "rgba(255, 210, 92, 0.22)",
-        borderColor: "rgba(255, 210, 92, 0.65)",
-        color: theme.text,
+      selectedPillWrap: {
+        position: "absolute",
+        left: 0,
+        right: 0,
+        top: 0,
+        bottom: 0,
+        alignItems: "center",
+        justifyContent: "center",
+      },
+      selectedPill: {
+        paddingHorizontal: 24,
+        paddingVertical: 14,
+        borderRadius: 999,
+        backgroundColor: overlayBg,
+        borderWidth: 2,
+        borderColor: overlayBorder,
+        maxWidth: "92%",
+
+        shadowColor: "rgba(0,0,0,1)",
+        shadowOpacity: isDark ? 0.45 : 0.22,
+        shadowRadius: 16,
+        shadowOffset: { width: 0, height: 10 },
+        elevation: 8,
+      },
+      selectedPillText: {
+        color: overlayText,
+        fontSize: 18,
+        fontWeight: "900",
+        letterSpacing: 2.2,
+        textTransform: "uppercase",
+      },
+      selectedPillTextPremium: {
+        color: premiumPillText,
+      },
+      selectedPillPremium: {
+        backgroundColor: premiumPillBg,
+        borderColor: "rgba(255, 210, 92, 1)",
+        shadowColor: "rgba(255,210,92,1)",
+        shadowOpacity: isDark ? 0.28 : 0.22,
+        shadowRadius: 18,
+        shadowOffset: { width: 0, height: 12 },
+        elevation: 9,
       },
 
       infoBtn: {
@@ -367,10 +408,6 @@ export default function GamesScreen({ navigation }) {
 
         <View style={styles.cardTop}>
           <Text style={[styles.cardTitle, item.premium && styles.cardTitlePremium]}>{item.title}</Text>
-
-          {item.infoOnly ? null : active ? (
-            <Text style={[styles.pillActive, item.premium && styles.pillPremiumActive]}>Selected</Text>
-          ) : null}
         </View>
 
         <Text style={[styles.cardSub, item.premium && styles.cardSubPremium]}>{item.subtitle}</Text>
@@ -390,6 +427,19 @@ export default function GamesScreen({ navigation }) {
             <Text style={styles.infoText}>Info</Text>
           </Pressable>
         </View>
+
+        {!item.infoOnly && active ? (
+          <>
+            <View pointerEvents="none" style={styles.selectedDim} />
+            <View pointerEvents="none" style={styles.selectedPillWrap}>
+              <View style={[styles.selectedPill, item.premium && styles.selectedPillPremium]}>
+                <Text style={[styles.selectedPillText, item.premium && styles.selectedPillTextPremium]}>
+                  Selected
+                </Text>
+              </View>
+            </View>
+          </>
+        ) : null}
       </Pressable>
     );
   }

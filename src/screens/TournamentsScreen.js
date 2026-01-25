@@ -82,6 +82,17 @@ export default function TournamentsScreen({ navigation }) {
     return () => unsub();
   }, []);
 
+  // Hide archived tournaments from the hub list
+  const visibleItems = useMemo(() => {
+    const arr = Array.isArray(items) ? [...items] : [];
+    return arr.filter((t) => {
+      const st = String(t?.status || "").toLowerCase();
+      if (st === "archived") return false;
+      if (t?.archivedAt) return false;
+      return true;
+    });
+  }, [items]);
+
   const styles = useMemo(() => {
     const blue = isDark ? "rgba(46,125,255,0.92)" : "rgba(29,53,87,0.92)";
     const blueBg = isDark ? "rgba(46,125,255,0.10)" : "rgba(29,53,87,0.10)";
@@ -366,7 +377,7 @@ export default function TournamentsScreen({ navigation }) {
         data={[
           { _type: "hero", id: "hero" },
           { _type: "section", id: "my" },
-          ...items.map((t) => ({ _type: "tournament", ...t })),
+          ...visibleItems.map((t) => ({ _type: "tournament", ...t })),
           { _type: "end", id: "end" },
         ]}
         keyExtractor={(x) => x.id}
@@ -392,7 +403,7 @@ export default function TournamentsScreen({ navigation }) {
           if (item._type === "end") {
             if (loading) return null;
 
-            if (!items.length) {
+            if (!visibleItems.length) {
               return (
                 <View style={styles.empty}>
                   <Text style={styles.emptyTitle}>No tournaments yet</Text>
