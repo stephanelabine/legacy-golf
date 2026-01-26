@@ -12,8 +12,12 @@ export default function ScreenHeader({
   subtitle,
   safeTop = true,
 
+  // Existing API (kept for backward compatibility)
   rightLabel,
   onRightPress,
+
+  // New API (optional): pass a custom React element for the right side
+  right,
 }) {
   const insets = useSafeAreaInsets();
   const rawTop = insets?.top || 0;
@@ -46,7 +50,9 @@ export default function ScreenHeader({
           ) : null}
         </View>
 
-        {rightLabel ? (
+        {right ? (
+          <View style={styles.rightWrap}>{right}</View>
+        ) : rightLabel ? (
           <Pressable
             onPress={onRightPress}
             hitSlop={12}
@@ -89,6 +95,7 @@ const styles = StyleSheet.create({
   title: { color: WHITE, fontSize: 22, fontWeight: "900", letterSpacing: 0.4 },
   sub: { marginTop: 4, color: "rgba(255,255,255,0.70)", fontSize: 13, fontWeight: "800" },
 
+  rightWrap: { minWidth: 70, height: 38, alignItems: "flex-end", justifyContent: "center" },
   rightSpacer: { minWidth: 70, height: 38 },
 
   pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },

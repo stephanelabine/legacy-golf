@@ -1,4 +1,4 @@
-// src/screens/TournamentCourseScreen.js
+// src/screens/TournamentTeesScreen.js
 import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
@@ -32,9 +32,9 @@ import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import { useTheme } from "../theme/ThemeProvider";
 import { db } from "../firebase/firebase";
-import { COURSES_LOCAL } from "../data/coursesLocal";
+import { getTeesForCourse } from "../services/tees";
 
-export default function TournamentCourseScreen({ navigation, route }) {
+export default function TournamentTeesScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const { scheme, theme } = useTheme();
   const isDark = scheme === "dark";
@@ -44,11 +44,14 @@ export default function TournamentCourseScreen({ navigation, route }) {
   const [t, setT] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  const [roundDocs, setRoundDocs] = useState([]); // [{roundIndex, courseId, courseName}]
+  const [roundDocs, setRoundDocs] = useState([]);
 
-  // modal picker
+  // tee picker modal
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerRound, setPickerRound] = useState(1);
+  const [pickerCourseId, setPickerCourseId] = useState("");
+  const [teesLoading, setTeesLoading] = useState(false);
+  const [tees, setTees] = useState([]);
   const [qText, setQText] = useState("");
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
@@ -70,7 +73,6 @@ export default function TournamentCourseScreen({ navigation, route }) {
     return () => unsub();
   }, [tournamentId]);
 
-  // Subscribe to rounds subcollection
   useEffect(() => {
     if (!tournamentId) return;
 
@@ -93,97 +95,45 @@ export default function TournamentCourseScreen({ navigation, route }) {
   const roundsReady = !!t?.roundsReady;
   const roundsTotal = Math.max(1, Number(t?.roundsTotal || 1));
 
-  // Ensure round docs exist (lazy-create missing docs when entering screen)
-  useEffect(() => {
-    if (!tournamentId) return;
-    if (!roundsReady) return;
-
-    let cancelled = false;
-
-    async function ensureRoundsExist() {
-      try {
-        const rref = collection(db, "tournaments", tournamentId, "rounds");
-        const snap = await getDocs(rref);
-
-        const existing = new Set();
-        snap.forEach((d) => {
-          const ri = Number(d.data()?.roundIndex || Number(d.id));
-          if (Number.isFinite(ri)) existing.add(ri);
-        });
-
-        const writes = [];
-        for (let i = 1; i <= roundsTotal; i++) {
-          if (!existing.has(i)) {
-            const dref = doc(db, "tournaments", tournamentId, "rounds", String(i));
-            writes.push(
-              setDoc(
-                dref,
-                {
-                  roundIndex: i,
-                  courseId: null,
-                  courseName: null,
-                  createdAt: serverTimestamp(),
-                  updatedAt: serverTimestamp(),
-                },
-                { merge: true }
-              )
-            );
-          }
-        }
-
-        if (!cancelled && writes.length) await Promise.all(writes);
-      } catch (e) {
-        if (!cancelled) Alert.alert("Setup failed", e?.message || "Could not prepare round records.");
-      }
-    }
-
-    ensureRoundsExist();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [tournamentId, roundsReady, roundsTotal]);
-
   const roundInfo = useMemo(() => {
     const m = new Map();
     (roundDocs || []).forEach((r) => {
       const ri = Number(r?.roundIndex || r?.id);
       if (!Number.isFinite(ri)) return;
+
       m.set(ri, {
         courseId: r?.courseId ? String(r.courseId) : "",
         courseName: r?.courseName ? String(r.courseName) : "",
+        teeCode: r?.teeCode ? String(r.teeCode) : "",
+        teeName: r?.teeName ? String(r.teeName) : "",
+        teeYardage: typeof r?.teeYardage === "number" ? r.teeYardage : r?.teeYardage ? Number(r.teeYardage) : null,
       });
     });
     return m;
   }, [roundDocs]);
 
-  const missingRounds = useMemo(() => {
+  const missingTees = useMemo(() => {
     if (!roundsReady) return [];
     const missing = [];
     for (let i = 1; i <= roundsTotal; i++) {
       const info = roundInfo.get(i) || {};
       if (!String(info.courseId || "").trim()) missing.push(i);
+      else if (!String(info.teeCode || "").trim()) missing.push(i);
     }
     return missing;
   }, [roundInfo, roundsReady, roundsTotal]);
 
-  const allRoundsHaveCourses = roundsReady && missingRounds.length === 0;
+  const allRoundsHaveTees = roundsReady && missingTees.length === 0;
 
-  const courses = useMemo(() => {
-    const arr = Array.isArray(COURSES_LOCAL) ? [...COURSES_LOCAL] : [];
-    arr.sort((a, b) => String(a?.name || "").localeCompare(String(b?.name || "")));
-    return arr;
-  }, []);
-
-  const filteredCourses = useMemo(() => {
+  const filteredTees = useMemo(() => {
     const q = String(qText || "").trim().toLowerCase();
-    if (!q) return courses;
-    return courses.filter((c) => {
-      const name = String(c?.name || "").toLowerCase();
-      const id = String(c?.id || "").toLowerCase();
-      return name.includes(q) || id.includes(q);
+    if (!q) return tees;
+    return (tees || []).filter((t) => {
+      const name = String(t?.name || "").toLowerCase();
+      const code = String(t?.code || "").toLowerCase();
+      return name.includes(q) || code.includes(q);
     });
-  }, [courses, qText]);
+  }, [tees, qText]);
 
   const styles = useMemo(() => {
     const softBorder = isDark ? "rgba(255,255,255,0.14)" : "rgba(10,15,26,0.12)";
@@ -220,14 +170,7 @@ export default function TournamentCourseScreen({ navigation, route }) {
         textTransform: "uppercase",
       },
       heroTitle: { marginTop: 10, color: theme.text, fontSize: 18, fontWeight: "900" },
-      heroSub: {
-        marginTop: 8,
-        color: theme.text,
-        opacity: 0.74,
-        fontSize: 13,
-        fontWeight: "700",
-        lineHeight: 19,
-      },
+      heroSub: { marginTop: 8, color: theme.text, opacity: 0.74, fontSize: 13, fontWeight: "700", lineHeight: 19 },
 
       warn: {
         borderRadius: 18,
@@ -238,14 +181,7 @@ export default function TournamentCourseScreen({ navigation, route }) {
         marginBottom: 12,
       },
       warnTitle: { color: theme.text, fontSize: 15, fontWeight: "900" },
-      warnSub: {
-        marginTop: 6,
-        color: theme.text,
-        opacity: 0.72,
-        fontSize: 13,
-        fontWeight: "700",
-        lineHeight: 18,
-      },
+      warnSub: { marginTop: 6, color: theme.text, opacity: 0.72, fontSize: 13, fontWeight: "700", lineHeight: 18 },
 
       sectionTitle: {
         marginTop: 4,
@@ -274,7 +210,7 @@ export default function TournamentCourseScreen({ navigation, route }) {
         textAlign: "center",
       },
 
-      coursePill: {
+      teePill: {
         marginTop: 12,
         alignSelf: "center",
         width: "82%",
@@ -286,21 +222,8 @@ export default function TournamentCourseScreen({ navigation, route }) {
         borderColor: greenRing,
         backgroundColor: greenBg,
       },
-      coursePillText: {
-        color: theme.text,
-        fontSize: 16,
-        fontWeight: "900",
-        textAlign: "center",
-        lineHeight: 20,
-      },
-      coursePillSub: {
-        marginTop: 10,
-        color: theme.text,
-        opacity: 0.7,
-        fontSize: 12,
-        fontWeight: "800",
-        textAlign: "center",
-      },
+      teePillText: { color: theme.text, fontSize: 16, fontWeight: "900", textAlign: "center", lineHeight: 20 },
+      teePillSub: { marginTop: 10, color: theme.text, opacity: 0.7, fontSize: 12, fontWeight: "800", textAlign: "center" },
 
       selectBtn: {
         marginTop: 14,
@@ -366,15 +289,7 @@ export default function TournamentCourseScreen({ navigation, route }) {
         backgroundColor: theme.bg,
       },
       modalTitle: { color: theme.text, fontSize: 18, fontWeight: "900", textAlign: "center" },
-      modalSub: {
-        marginTop: 6,
-        color: theme.text,
-        opacity: 0.7,
-        fontSize: 13,
-        fontWeight: "700",
-        lineHeight: 18,
-        textAlign: "center",
-      },
+      modalSub: { marginTop: 6, color: theme.text, opacity: 0.7, fontSize: 13, fontWeight: "700", lineHeight: 18, textAlign: "center" },
 
       input: {
         marginTop: 14,
@@ -389,7 +304,7 @@ export default function TournamentCourseScreen({ navigation, route }) {
         fontWeight: "800",
       },
 
-      courseRow: {
+      teeRow: {
         marginTop: 12,
         borderRadius: 18,
         padding: 14,
@@ -398,30 +313,70 @@ export default function TournamentCourseScreen({ navigation, route }) {
         backgroundColor: theme.card2,
         overflow: "hidden",
       },
-      courseRowActive: { borderColor: blue, backgroundColor: blueBg },
-      courseRowTitle: { color: theme.text, fontSize: 15, fontWeight: "900" },
-      courseRowSub: { marginTop: 6, color: theme.text, opacity: 0.72, fontSize: 12, fontWeight: "800" },
+      teeRowActive: { borderColor: blue, backgroundColor: blueBg },
+      teeRowTitle: { color: theme.text, fontSize: 15, fontWeight: "900" },
+      teeRowSub: { marginTop: 6, color: theme.text, opacity: 0.72, fontSize: 12, fontWeight: "800" },
     });
   }, [theme, isDark, footerPad]);
 
   function openPicker(roundIndex) {
     if (!roundsReady) {
-      Alert.alert("Rounds first", "Set the number of rounds before assigning courses.");
+      Alert.alert("Rounds first", "Set the number of rounds before selecting tees.");
       return;
     }
+
+    const info = roundInfo.get(roundIndex) || {};
+    const cid = String(info.courseId || "").trim();
+
+    if (!cid) {
+      Alert.alert("Course required", `Select a course for Round ${roundIndex} first.`);
+      return;
+    }
+
     setPickerRound(roundIndex);
+    setPickerCourseId(cid);
     setQText("");
     setPickerOpen(true);
   }
 
-  async function setCourseForRound(roundIndex, course) {
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadTees() {
+      if (!pickerOpen) return;
+      if (!pickerCourseId) return;
+
+      setTeesLoading(true);
+      try {
+        const data = await getTeesForCourse(pickerCourseId);
+        const list = Array.isArray(data) ? data : [];
+        if (!mounted) return;
+        setTees(list);
+      } catch (e) {
+        if (!mounted) return;
+        Alert.alert("Tees failed", e?.message || "Could not load tees for this course.");
+        setTees([]);
+      } finally {
+        if (mounted) setTeesLoading(false);
+      }
+    }
+
+    loadTees();
+
+    return () => {
+      mounted = false;
+    };
+  }, [pickerOpen, pickerCourseId]);
+
+  async function setTeeForRound(roundIndex, tee) {
     if (!tournamentId) return;
 
-    const cid = String(course?.id ?? course?.courseId ?? "");
-    const cname = String(course?.name ?? "Course");
+    const code = String(tee?.code ?? "").trim();
+    const name = String(tee?.name ?? "").trim();
+    const yardage = typeof tee?.yardage === "number" ? tee.yardage : tee?.yardage ? Number(tee.yardage) : null;
 
-    if (!cid) {
-      Alert.alert("Missing course id", "This course is missing an id.");
+    if (!code) {
+      Alert.alert("Missing tee", "This tee is missing a code.");
       return;
     }
 
@@ -431,35 +386,27 @@ export default function TournamentCourseScreen({ navigation, route }) {
         doc(db, "tournaments", tournamentId, "rounds", String(roundIndex)),
         {
           roundIndex,
-          courseId: cid,
-          courseName: cname,
+          teeCode: code,
+          teeName: name || code,
+          teeYardage: Number.isFinite(yardage) ? yardage : null,
           updatedAt: serverTimestamp(),
         },
         { merge: true }
       );
 
-      // Backwards compatibility: keep tournament-level fields as "Round 1 default"
-      if (roundIndex === 1) {
-        await updateDoc(doc(db, "tournaments", tournamentId), {
-          courseId: cid,
-          courseName: cname,
-          updatedAt: serverTimestamp(),
-        });
-      }
-
       setPickerOpen(false);
       Keyboard.dismiss();
     } catch (e) {
-      Alert.alert("Save failed", e?.message || "Could not set course for this round.");
+      Alert.alert("Save failed", e?.message || "Could not set tees for this round.");
     } finally {
       setSaving(false);
     }
   }
 
-  async function clearCoursesForAllRounds() {
+  async function clearTeesForAllRounds() {
     if (!tournamentId) return;
 
-    Alert.alert("Clear all round courses?", "This will remove course selections for every round.", [
+    Alert.alert("Clear all round tees?", "This will remove tee selections for every round.", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Clear",
@@ -473,19 +420,13 @@ export default function TournamentCourseScreen({ navigation, route }) {
             const updates = [];
             snap.forEach((d) => {
               updates.push(
-                setDoc(d.ref, { courseId: null, courseName: null, updatedAt: serverTimestamp() }, { merge: true })
+                setDoc(d.ref, { teeCode: null, teeName: null, teeYardage: null, updatedAt: serverTimestamp() }, { merge: true })
               );
             });
 
             await Promise.all(updates);
-
-            await updateDoc(doc(db, "tournaments", tournamentId), {
-              courseId: null,
-              courseName: null,
-              updatedAt: serverTimestamp(),
-            });
           } catch (e) {
-            Alert.alert("Clear failed", e?.message || "Could not clear round courses.");
+            Alert.alert("Clear failed", e?.message || "Could not clear round tees.");
           } finally {
             setSaving(false);
           }
@@ -494,85 +435,106 @@ export default function TournamentCourseScreen({ navigation, route }) {
     ]);
   }
 
-  function handleContinue() {
+  async function handleContinue() {
     if (saving) return;
 
     if (!roundsReady) {
-      Alert.alert("Rounds not set", "Set the number of rounds first, then assign a course per round.");
+      Alert.alert("Rounds not set", "Set the number of rounds first, then select tees per round.");
       return;
     }
 
-    if (!allRoundsHaveCourses) {
-      Alert.alert("Courses missing", `Select a course for round(s): ${missingRounds.join(", ")}`);
+    if (!allRoundsHaveTees) {
+      Alert.alert("Tees missing", `Complete tee selection for round(s): ${missingTees.join(", ")}`);
       return;
     }
 
-    navigation.navigate(ROUTES.TOURNAMENT_TEES, { tournamentId });
+    try {
+      await updateDoc(doc(db, "tournaments", tournamentId), {
+        teesReady: true,
+        setupStep: "players",
+        updatedAt: serverTimestamp(),
+      });
+    } catch (e) {
+      // non-blocking
+    }
+
+    navigation.navigate(ROUTES.TOURNAMENT_PLAYERS_SETUP, { tournamentId });
   }
 
-  function renderCoursePickRow({ item }) {
-    const cid = String(item?.id ?? item?.courseId ?? "");
-    const cname = String(item?.name || "Course");
-
+  function renderTeePickRow({ item }) {
     const current = roundInfo.get(pickerRound) || {};
-    const active = String(current.courseId || "") && String(current.courseId) === cid;
+    const active = String(current.teeCode || "") && String(current.teeCode) === String(item?.code || "");
+
+    const yard = typeof item?.yardage === "number" ? item.yardage : item?.yardage ? Number(item.yardage) : null;
 
     return (
       <Pressable
-        onPress={() => setCourseForRound(pickerRound, item)}
+        onPress={() => setTeeForRound(pickerRound, item)}
         disabled={saving}
         style={({ pressed }) => [
-          styles.courseRow,
-          active && styles.courseRowActive,
+          styles.teeRow,
+          active && styles.teeRowActive,
           pressed && !saving && styles.pressed,
           saving && { opacity: 0.6 },
         ]}
       >
-        <Text style={styles.courseRowTitle}>{cname}</Text>
-        <Text style={styles.courseRowSub}>courseId: {cid}</Text>
+        <Text style={styles.teeRowTitle}>{String(item?.name || item?.code || "Tee")}</Text>
+        <Text style={styles.teeRowSub}>
+          code: {String(item?.code || "")}
+          {Number.isFinite(yard) ? `  •  ${yard} yds` : ""}
+        </Text>
       </Pressable>
     );
   }
 
   return (
     <View style={styles.screen}>
-      <ScreenHeader navigation={navigation} title="Tournament Course" subtitle="Assign a course per round." />
+      <ScreenHeader navigation={navigation} title="Tournament Tees" subtitle="Select tees per round." />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.hero}>
-          <Text style={styles.heroKicker}>Course</Text>
-          <Text style={styles.heroTitle}>{roundsReady ? "Round Courses" : "Rounds required"}</Text>
+          <Text style={styles.heroKicker}>Tees</Text>
+          <Text style={styles.heroTitle}>{roundsReady ? "Round Tees" : "Rounds required"}</Text>
           <Text style={styles.heroSub}>
             {roundsReady
-              ? "Set each round’s course below. It’s designed to be fast, clean, and obvious."
-              : "Go to Tournament Dashboard → Rounds, set the number of rounds, then come back here."}
+              ? "Choose tees for each round. This stays separate from normal round setup."
+              : "Go back and set rounds first."}
           </Text>
         </View>
 
         {!roundsReady ? (
           <View style={styles.warn}>
             <Text style={styles.warnTitle}>Rounds not set</Text>
-            <Text style={styles.warnSub}>Set the number of rounds first. Then you can assign a course per round.</Text>
+            <Text style={styles.warnSub}>Set the number of rounds first. Then you can select tees per round.</Text>
           </View>
         ) : (
           <>
-            <Text style={styles.sectionTitle}>Select Round</Text>
+            <Text style={styles.sectionTitle}>Select tees by round</Text>
 
             {Array.from({ length: roundsTotal }).map((_, idx) => {
               const r = idx + 1;
               const info = roundInfo.get(r) || {};
               const cname = String(info.courseName || "").trim();
+              const teeName = String(info.teeName || "").trim();
+              const teeCode = String(info.teeCode || "").trim();
+
+              const displayTitle = teeName || teeCode || "No tees selected";
+              const displaySub = !String(info.courseId || "").trim()
+                ? "Course required first"
+                : teeCode
+                ? "Tees selected · Ready"
+                : "Tees selected · Missing";
 
               return (
-                <View key={`round-${r}`} style={styles.roundBlock}>
+                <View key={`tee-round-${r}`} style={styles.roundBlock}>
                   <Text style={styles.roundLabel}>Round {r}</Text>
 
-                  <View style={styles.coursePill}>
-                    <Text style={styles.coursePillText} numberOfLines={2} ellipsizeMode="tail">
-                      {cname ? cname : "No course selected"}
+                  <View style={styles.teePill}>
+                    <Text style={styles.teePillText} numberOfLines={2} ellipsizeMode="tail">
+                      {displayTitle}
                     </Text>
-                    <Text style={styles.coursePillSub}>
-                      {cname ? "Course selected · Ready" : "Course selected · Missing"}
+                    <Text style={styles.teePillSub}>
+                      {cname ? `${cname}  •  ${displaySub}` : displaySub}
                     </Text>
                   </View>
 
@@ -581,7 +543,7 @@ export default function TournamentCourseScreen({ navigation, route }) {
                     disabled={saving}
                     style={({ pressed }) => [styles.selectBtn, pressed && styles.pressed, saving && { opacity: 0.7 }]}
                   >
-                    <Text style={styles.selectBtnText}>Select Round {r} Course</Text>
+                    <Text style={styles.selectBtnText}>Select Round {r} Tees</Text>
                   </Pressable>
                 </View>
               );
@@ -604,7 +566,7 @@ export default function TournamentCourseScreen({ navigation, route }) {
         </Pressable>
 
         <Pressable
-          onPress={clearCoursesForAllRounds}
+          onPress={clearTeesForAllRounds}
           disabled={saving || !roundsReady}
           style={({ pressed }) => [
             styles.secondaryBtn,
@@ -612,7 +574,7 @@ export default function TournamentCourseScreen({ navigation, route }) {
             (saving || !roundsReady) && { opacity: 0.6 },
           ]}
         >
-          <Text style={styles.secondaryText}>Clear All Round Courses</Text>
+          <Text style={styles.secondaryText}>Clear All Round Tees</Text>
         </Pressable>
       </View>
 
@@ -626,29 +588,36 @@ export default function TournamentCourseScreen({ navigation, route }) {
         >
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
             <Pressable style={styles.modalCard} onPress={() => {}}>
-              <Text style={styles.modalTitle}>Round {pickerRound} Course</Text>
-              <Text style={styles.modalSub}>Search, then tap a course to set it for this round.</Text>
+              <Text style={styles.modalTitle}>Round {pickerRound} Tees</Text>
+              <Text style={styles.modalSub}>Search, then tap tees to set them for this round.</Text>
 
               <TextInput
                 value={qText}
                 onChangeText={setQText}
-                placeholder="Search courses (e.g. Osoyoos, Desert Gold, Park Meadows)"
+                placeholder="Search tees (e.g. Blue, White, Championship)"
                 placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
                 style={styles.input}
                 autoCapitalize="none"
                 autoCorrect={false}
-                editable={!saving}
+                editable={!saving && !teesLoading}
                 returnKeyType="done"
                 onSubmitEditing={() => Keyboard.dismiss()}
               />
 
               <FlatList
-                data={filteredCourses}
-                keyExtractor={(c, i) => String(c?.id ?? c?.courseId ?? c?.name ?? i)}
-                renderItem={renderCoursePickRow}
+                data={filteredTees}
+                keyExtractor={(t, i) => String(t?.code ?? i)}
+                renderItem={renderTeePickRow}
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: 8 }}
+                ListEmptyComponent={
+                  teesLoading ? (
+                    <Text style={[styles.modalSub, { marginTop: 14 }]}>Loading tees…</Text>
+                  ) : (
+                    <Text style={[styles.modalSub, { marginTop: 14 }]}>No tees found.</Text>
+                  )
+                }
               />
             </Pressable>
           </KeyboardAvoidingView>

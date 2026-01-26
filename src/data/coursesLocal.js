@@ -58,8 +58,10 @@ export const COURSES_LOCAL = [
   { id: "burnaby-mountain-golf-course", name: "Burnaby Mountain Golf Course", lat: 49.266041, lng: -122.943621 },
   { id: "guildford-golf-country-club", name: "Guildford Golf & Country Club", lat: 49.1482806, lng: -122.8013565 },
 
-  // Interior BC
-  { id: "osoyoos-golf-country-club", name: "Osoyoos Golf & Country Club", lat: 49.0339, lng: -119.4681 },
+  // Interior BC — Osoyoos has TWO courses (choose either)
+  // Same clubhouse area; coords are fine for list/search purposes
+  { id: "osoyoos-desert-gold", name: "Osoyoos Golf Club — Desert Gold Course", lat: 49.0339, lng: -119.4681 },
+  { id: "osoyoos-park-meadows", name: "Osoyoos Golf Club — Park Meadows Course", lat: 49.0339, lng: -119.4681 },
 ];
 
 // Helper: find a local course by canonical name (safe for place/search results)

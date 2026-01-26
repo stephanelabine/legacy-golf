@@ -2,15 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Alert, Share, Platform, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import {
-  doc,
-  onSnapshot,
-  updateDoc,
-  serverTimestamp,
-  deleteDoc,
-  collection,
-  getDocs,
-} from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, serverTimestamp, deleteDoc, collection, getDocs } from "firebase/firestore";
 
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
@@ -28,6 +20,7 @@ export default function TournamentDashboardScreen({ navigation, route }) {
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
   const [adminBusy, setAdminBusy] = useState(false);
+  const [beginBusy, setBeginBusy] = useState(false);
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
@@ -61,83 +54,106 @@ export default function TournamentDashboardScreen({ navigation, route }) {
     return String(t.ownerUid || "") === String(u.uid || "");
   }, [t, u]);
 
-  const rosterLocked = !!t?.rosterLocked;
+  const joinCode = (t?.joinCode || "").toUpperCase();
+  const name = t?.name || "Tournament";
 
-  const players = Array.isArray(t?.memberUids) ? t.memberUids.length : 1;
+  const statusRaw = String(t?.status || "draft");
+  const isLive = statusRaw === "live";
 
-  const courseReady = !!String(t?.courseId || "").trim();
-  const formatsReady = !!t?.formatsReady;
+  const setupStep = String(t?.setupStep || "welcome"); // welcome | rounds | courses | players | formats | tees | review | done
   const roundsReady = !!t?.roundsReady;
+  const rosterLocked = !!t?.rosterLocked;
+  const formatsReady = !!t?.formatsReady;
 
-  const setupReady = courseReady && rosterLocked && formatsReady && roundsReady;
+  // Keep compatibility with both older single-course + newer multi-round courses
+  const courseReady = !!String(t?.courseId || "").trim() || !!t?.coursesReady;
+
+  const setupReady = roundsReady && rosterLocked && formatsReady && courseReady;
+
+  const inWelcome = !isLive && setupStep === "welcome";
+  const setupInProgress = !isLive && !setupReady && setupStep !== "welcome";
+  const showOverview = isLive || setupReady;
 
   const styles = useMemo(() => {
-    const blue = isDark ? "rgba(46,125,255,0.92)" : "rgba(29,53,87,0.92)";
-    const blueBg = isDark ? "rgba(46,125,255,0.10)" : "rgba(29,53,87,0.10)";
-
     const softBorder = isDark ? "rgba(255,255,255,0.14)" : "rgba(10,15,26,0.12)";
     const softBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(10,15,26,0.06)";
 
-    const goldBorder = isDark ? "rgba(255, 210, 92, 0.55)" : "rgba(255, 210, 92, 0.58)";
-    const goldBg = isDark ? "rgba(255, 210, 92, 0.10)" : "rgba(255, 210, 92, 0.14)";
+    const green = isDark ? "rgba(15,122,74,0.92)" : "rgba(15,122,74,0.92)";
+    const greenBg = isDark ? "rgba(15,122,74,0.18)" : "rgba(15,122,74,0.14)";
 
-    const lockBg = isDark ? "rgba(255, 210, 92, 0.12)" : "rgba(255, 210, 92, 0.16)";
-    const lockBorder = isDark ? "rgba(255, 210, 92, 0.40)" : "rgba(255, 210, 92, 0.48)";
+    const blue = isDark ? "rgba(46,125,255,0.92)" : "rgba(29,53,87,0.92)";
+    const blueBg = isDark ? "rgba(46,125,255,0.10)" : "rgba(29,53,87,0.10)";
 
     const dangerBg = "rgba(231,76,60,0.14)";
     const dangerBorder = "rgba(231,76,60,0.28)";
 
-    const greenRing = isDark ? "rgba(15,122,74,0.55)" : "rgba(15,122,74,0.62)";
-    const greenRingPressed = isDark ? "rgba(15,122,74,0.82)" : "rgba(15,122,74,0.86)";
-
     return StyleSheet.create({
       screen: { flex: 1, backgroundColor: theme.bg },
-      content: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 170 },
+      content: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: footerPad + 22 },
+
+      welcomeKicker: {
+        color: theme.text,
+        fontSize: 16,
+        fontWeight: "900",
+        letterSpacing: 2.0,
+        opacity: 0.78,
+        textTransform: "uppercase",
+        marginBottom: 10,
+        textAlign: "center",
+      },
 
       hero: {
         borderRadius: 22,
-        padding: 18,
+        padding: 16,
         borderWidth: 1,
-        borderColor: goldBorder,
-        backgroundColor: goldBg,
-        marginBottom: 14,
+        borderColor: green,
+        backgroundColor: greenBg,
+        marginBottom: 12,
+        alignItems: "center",
       },
-      heroKicker: {
-        color: theme.text,
-        fontSize: 12,
-        fontWeight: "900",
-        letterSpacing: 1.4,
-        opacity: 0.78,
-        textTransform: "uppercase",
-      },
-      heroTitle: { marginTop: 10, color: theme.text, fontSize: 22, fontWeight: "900" },
+
+      heroTitle: { color: theme.text, fontSize: 26, fontWeight: "900", textAlign: "center" },
       heroSub: {
         marginTop: 8,
         color: theme.text,
         opacity: 0.74,
         fontSize: 13,
         fontWeight: "700",
-        lineHeight: 19,
+        lineHeight: 18,
+        textAlign: "center",
       },
-      lockPill: {
-        marginTop: 10,
-        alignSelf: "flex-start",
+
+      progressPill: {
+        marginTop: 12,
+        alignSelf: "center",
         paddingHorizontal: 10,
         paddingVertical: 6,
         borderRadius: 999,
-        backgroundColor: lockBg,
+        backgroundColor: softBg,
         borderWidth: 1,
-        borderColor: lockBorder,
+        borderColor: softBorder,
       },
-      lockPillText: { color: theme.text, fontSize: 12, fontWeight: "900", letterSpacing: 0.2 },
+      progressPillText: { color: theme.text, fontSize: 12, fontWeight: "900", letterSpacing: 0.2, opacity: 0.9 },
+
+      heroBtn: {
+        marginTop: 12,
+        height: 52,
+        borderRadius: 16,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: isDark ? "rgba(46,125,255,0.92)" : "rgba(10,15,26,0.92)",
+        alignSelf: "stretch",
+      },
+      heroBtnText: { color: "#fff", fontSize: 15, fontWeight: "900", letterSpacing: 0.3 },
 
       codeCard: {
-        borderRadius: 22,
-        padding: 16,
+        borderRadius: 18,
+        padding: 14,
         borderWidth: 1,
         borderColor: blue,
         backgroundColor: blueBg,
         marginBottom: 12,
+        alignItems: "center",
       },
       codeLabel: {
         color: theme.text,
@@ -146,14 +162,22 @@ export default function TournamentDashboardScreen({ navigation, route }) {
         fontWeight: "900",
         letterSpacing: 1.2,
         textTransform: "uppercase",
+        textAlign: "center",
       },
-      codeValue: { marginTop: 10, color: theme.text, fontSize: 28, fontWeight: "900", letterSpacing: 4 },
+      codeValue: {
+        marginTop: 8,
+        color: theme.text,
+        fontSize: 22,
+        fontWeight: "900",
+        letterSpacing: 4,
+        textAlign: "center",
+      },
 
-      smallRow: { marginTop: 10, flexDirection: "row", gap: 10 },
+      smallRow: { marginTop: 10, flexDirection: "row", gap: 10, alignSelf: "stretch" },
       smallBtn: {
         flex: 1,
-        height: 52,
-        borderRadius: 18,
+        height: 50,
+        borderRadius: 16,
         alignItems: "center",
         justifyContent: "center",
         backgroundColor: softBg,
@@ -180,22 +204,7 @@ export default function TournamentDashboardScreen({ navigation, route }) {
         borderColor: theme.border,
         backgroundColor: theme.card2,
         marginBottom: 12,
-        position: "relative",
-        overflow: "hidden",
       },
-
-      greenRing: {
-        ...StyleSheet.absoluteFillObject,
-        borderRadius: 18,
-        borderWidth: 1,
-        borderColor: greenRing,
-        opacity: 0.95,
-      },
-      greenRingPressed: {
-        borderColor: greenRingPressed,
-        opacity: 0.95,
-      },
-
       cardTitle: { color: theme.text, fontSize: 17, fontWeight: "900" },
       cardSub: { marginTop: 8, color: theme.text, opacity: 0.72, fontSize: 13, fontWeight: "700", lineHeight: 18 },
 
@@ -213,48 +222,9 @@ export default function TournamentDashboardScreen({ navigation, route }) {
       adminBtnText: { color: theme.text, fontSize: 14, fontWeight: "900", letterSpacing: 0.2 },
       adminBtnDanger: { backgroundColor: dangerBg, borderColor: dangerBorder },
 
-      footer: {
-        position: "absolute",
-        left: 0,
-        right: 0,
-        bottom: 0,
-        paddingHorizontal: 16,
-        paddingBottom: footerPad,
-        paddingTop: 12,
-        backgroundColor: theme.bg,
-        borderTopWidth: 1,
-        borderTopColor: theme.divider,
-      },
-      primaryBtn: {
-        height: 56,
-        borderRadius: 18,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: isDark ? "rgba(46,125,255,0.92)" : "rgba(10,15,26,0.92)",
-      },
-      primaryText: { color: "#fff", fontSize: 16, fontWeight: "900", letterSpacing: 0.4 },
-
       pressed: { opacity: Platform.OS === "ios" ? 0.88 : 0.9, transform: [{ scale: 0.99 }] },
     });
   }, [theme, isDark, footerPad]);
-
-  const joinCode = (t?.joinCode || "").toUpperCase();
-  const name = t?.name || "Tournament";
-  const status = (t?.status || "draft").toUpperCase();
-
-  const courseLine = t?.courseName ? `Selected: ${String(t.courseName)}` : "Select the course for the tournament.";
-
-  const playersLine =
-    `Roster: ${players} player${players === 1 ? "" : "s"} · Names saved in Firebase.` +
-    (rosterLocked ? " · Roster locked" : "");
-
-  const formatsLine = formatsReady
-    ? `Ready · ${Number(t?.formatsCount || 0)} format${Number(t?.formatsCount || 0) === 1 ? "" : "s"} configured.`
-    : "Add KP’s, long drive, deuce pot, putting contest, etc.";
-
-  const roundsLine = roundsReady
-    ? `Ready · ${Number(t?.roundsTotal || 1)} round${Number(t?.roundsTotal || 1) === 1 ? "" : "s"}`
-    : "Set how many rounds this tournament has.";
 
   async function shareInvite() {
     if (!joinCode) return;
@@ -283,55 +253,51 @@ export default function TournamentDashboardScreen({ navigation, route }) {
     }
   }
 
-  function SetupCard({ title, sub, onPress, rightTag }) {
-    return (
-      <Pressable onPress={onPress} style={({ pressed }) => [styles.card, pressed && styles.pressed]}>
-        {({ pressed }) => (
-          <>
-            <View pointerEvents="none" style={[styles.greenRing, pressed && styles.greenRingPressed]} />
-            <Text style={styles.cardTitle}>
-              {title}
-              {rightTag ? `  ·  ${rightTag}` : ""}
-            </Text>
-            <Text style={styles.cardSub}>{sub}</Text>
-          </>
-        )}
-      </Pressable>
-    );
+  function routeForStep(step) {
+    const s = String(step || "");
+    if (s === "rounds") return ROUTES.TOURNAMENT_ROUNDS;
+    if (s === "courses") return ROUTES.TOURNAMENT_COURSE;
+    if (s === "players") return ROUTES.TOURNAMENT_PLAYERS;
+    if (s === "formats") return ROUTES.TOURNAMENT_FORMATS;
+    return ROUTES.TOURNAMENT_ROUNDS;
+  }
+
+  async function beginSetup() {
+    if (!tournamentId) return;
+    if (!isHost) {
+      Alert.alert("Host only", "Only the host can begin tournament setup.");
+      return;
+    }
+
+    setBeginBusy(true);
+    try {
+      await updateDoc(doc(db, "tournaments", tournamentId), {
+        setupStep: "rounds",
+        updatedAt: serverTimestamp(),
+      });
+      navigation.navigate(ROUTES.TOURNAMENT_ROUNDS, { tournamentId });
+    } catch (e) {
+      Alert.alert("Begin failed", e?.message || "Could not begin setup.");
+    } finally {
+      setBeginBusy(false);
+    }
   }
 
   function showMissingChecklist() {
     const missing = [];
-    if (!courseReady) missing.push("Course");
+    if (!roundsReady) missing.push("Rounds");
+    if (!courseReady) missing.push("Round Courses");
     if (!rosterLocked) missing.push("Roster Lock");
     if (!formatsReady) missing.push("Formats / Games");
-    if (!roundsReady) missing.push("Rounds");
 
-    Alert.alert(
-      "Tournament not ready",
-      `To start, please complete:\n\n• ${missing.join("\n• ")}`,
-      [
-        { text: "OK", style: "cancel" },
-        !courseReady ? { text: "Set Course", onPress: () => navigation.navigate(ROUTES.TOURNAMENT_COURSE, { tournamentId }) } : null,
-        !rosterLocked ? { text: "Players", onPress: () => navigation.navigate(ROUTES.TOURNAMENT_PLAYERS, { tournamentId }) } : null,
-        !formatsReady ? { text: "Formats", onPress: () => navigation.navigate(ROUTES.TOURNAMENT_FORMATS, { tournamentId }) } : null,
-        !roundsReady ? { text: "Rounds", onPress: () => navigation.navigate(ROUTES.TOURNAMENT_ROUNDS, { tournamentId }) } : null,
-      ].filter(Boolean)
-    );
+    Alert.alert("Tournament not ready", `To start, please complete:\n\n• ${missing.join("\n• ")}`, [{ text: "OK", style: "cancel" }]);
   }
 
   async function doStartNow() {
-    const u2 = auth.currentUser;
-    if (!u2 || !tournamentId) return;
+    if (!isHost || !tournamentId) return;
 
-    if (!isHost) {
-      Alert.alert("Not allowed", "Only the host can start the tournament.");
-      return;
-    }
-
-    const currentStatus = String(t?.status || "draft");
-    if (currentStatus === "live") {
-      Alert.alert("Already live", "This tournament is already started.");
+    if (!setupReady) {
+      showMissingChecklist();
       return;
     }
 
@@ -340,6 +306,7 @@ export default function TournamentDashboardScreen({ navigation, route }) {
       await updateDoc(doc(db, "tournaments", tournamentId), {
         status: "live",
         startedAt: serverTimestamp(),
+        setupStep: "done",
         updatedAt: serverTimestamp(),
       });
     } catch (e) {
@@ -350,12 +317,7 @@ export default function TournamentDashboardScreen({ navigation, route }) {
   }
 
   async function startTournament() {
-    if (!tournamentId) return;
-
-    if (!isHost) {
-      Alert.alert("Not allowed", "Only the host can start the tournament.");
-      return;
-    }
+    if (!isHost || !tournamentId) return;
 
     if (!setupReady) {
       showMissingChecklist();
@@ -368,111 +330,157 @@ export default function TournamentDashboardScreen({ navigation, route }) {
     ]);
   }
 
+  async function continueSetup() {
+    if (!tournamentId) return;
+    if (!isHost) {
+      Alert.alert("Host only", "The host is setting this tournament up.");
+      return;
+    }
+    navigation.navigate(routeForStep(setupStep), { tournamentId });
+  }
+
   async function archiveTournament() {
     if (!isHost || !tournamentId) return;
 
-    Alert.alert(
-      "Archive tournament?",
-      "This hides it from your active list (you can unarchive later).",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Archive",
-          style: "destructive",
-          onPress: async () => {
-            setAdminBusy(true);
-            try {
-              await updateDoc(doc(db, "tournaments", tournamentId), {
-                archivedAt: serverTimestamp(),
-                status: "archived",
-                updatedAt: serverTimestamp(),
-              });
-              Alert.alert("Archived", "Tournament archived.");
-              navigation.goBack();
-            } catch (e) {
-              Alert.alert("Archive failed", e?.message || "Could not archive tournament.");
-            } finally {
-              setAdminBusy(false);
-            }
-          },
+    Alert.alert("Archive tournament?", "This hides it from your active list (you can unarchive later).", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Archive",
+        style: "destructive",
+        onPress: async () => {
+          setAdminBusy(true);
+          try {
+            await updateDoc(doc(db, "tournaments", tournamentId), {
+              archivedAt: serverTimestamp(),
+              status: "archived",
+              updatedAt: serverTimestamp(),
+            });
+            Alert.alert("Archived", "Tournament archived.");
+            navigation.goBack();
+          } catch (e) {
+            Alert.alert("Archive failed", e?.message || "Could not archive tournament.");
+          } finally {
+            setAdminBusy(false);
+          }
         },
-      ]
-    );
+      },
+    ]);
   }
 
   async function deleteTournamentHard() {
     if (!isHost || !tournamentId) return;
 
-    Alert.alert(
-      "Delete tournament?",
-      "This is permanent. It will remove the tournament and its roster.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            Alert.alert(
-              "Confirm delete",
-              "Last check — delete this tournament permanently?",
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Delete permanently",
-                  style: "destructive",
-                  onPress: async () => {
-                    setAdminBusy(true);
-                    try {
-                      // delete members subcollection docs (small rosters only)
-                      const msnap = await getDocs(collection(db, "tournaments", tournamentId, "members"));
-                      const deletes = [];
-                      msnap.forEach((d) => deletes.push(deleteDoc(d.ref)));
-                      await Promise.all(deletes);
+    Alert.alert("Delete tournament?", "This is permanent. It will remove the tournament and its data.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          Alert.alert("Confirm delete", "Last check — delete this tournament permanently?", [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Delete permanently",
+              style: "destructive",
+              onPress: async () => {
+                setAdminBusy(true);
+                try {
+                  const msnap = await getDocs(collection(db, "tournaments", tournamentId, "members"));
+                  const mdeletes = [];
+                  msnap.forEach((d) => mdeletes.push(deleteDoc(d.ref)));
+                  await Promise.all(mdeletes);
 
-                      // delete formats subcollection docs
-                      const fsnap = await getDocs(collection(db, "tournaments", tournamentId, "formats"));
-                      const fdeletes = [];
-                      fsnap.forEach((d) => fdeletes.push(deleteDoc(d.ref)));
-                      await Promise.all(fdeletes);
+                  const fsnap = await getDocs(collection(db, "tournaments", tournamentId, "formats"));
+                  const fdeletes = [];
+                  fsnap.forEach((d) => fdeletes.push(deleteDoc(d.ref)));
+                  await Promise.all(fdeletes);
 
-                      // delete tournament doc
-                      await deleteDoc(doc(db, "tournaments", tournamentId));
+                  const rsnap = await getDocs(collection(db, "tournaments", tournamentId, "rounds"));
+                  const rdeletes = [];
+                  rsnap.forEach((d) => rdeletes.push(deleteDoc(d.ref)));
+                  await Promise.all(rdeletes);
 
-                      Alert.alert("Deleted", "Tournament deleted.");
-                      navigation.goBack();
-                    } catch (e) {
-                      Alert.alert("Delete failed", e?.message || "Could not delete tournament.");
-                    } finally {
-                      setAdminBusy(false);
-                    }
-                  },
-                },
-              ]
-            );
-          },
+                  await deleteDoc(doc(db, "tournaments", tournamentId));
+
+                  Alert.alert("Deleted", "Tournament deleted.");
+                  navigation.goBack();
+                } catch (e) {
+                  Alert.alert("Delete failed", e?.message || "Could not delete tournament.");
+                } finally {
+                  setAdminBusy(false);
+                }
+              },
+            },
+          ]);
         },
-      ]
-    );
+      },
+    ]);
   }
+
+  const heroSubtitle = useMemo(() => {
+    if (!isHost) return "Invite players with the code below.";
+    if (inWelcome) return "Invite players with the code below, then continue setup.";
+    if (setupInProgress) return "Invite players with the code below, then continue setup.";
+    if (setupReady && !isLive) return "Invite players with the code below. Setup is complete.";
+    if (isLive) return "Invite players with the code below. Tournament is live.";
+    return "Invite players with the code below.";
+  }, [isHost, inWelcome, setupInProgress, setupReady, isLive]);
+
+  const primaryLabel = (() => {
+    if (!t) return "Loading...";
+    if (!isHost) return "Host Only";
+    if (beginBusy) return "Working...";
+    if (inWelcome) return "Continue Setup";
+    if (setupInProgress) return "Continue Setup";
+    if (setupReady && !isLive) return starting ? "Starting..." : "Start Tournament";
+    if (isLive) return "Tournament Live";
+    return "Continue Setup";
+  })();
+
+  const primaryAction = (() => {
+    if (!t) return null;
+    if (!isHost) return null;
+    if (inWelcome) return beginSetup;
+    if (setupInProgress) return continueSetup;
+    if (setupReady && !isLive) return startTournament;
+    return continueSetup;
+  })();
+
+  const primaryDisabled = beginBusy || starting || adminBusy || loading || !t || !isHost || (isHost && isLive);
 
   return (
     <View style={styles.screen}>
-      <ScreenHeader navigation={navigation} title="Tournament" subtitle="Manage your tournament in one place." />
+      <ScreenHeader navigation={navigation} title="Tournament" subtitle="Setup, invite, and run your tournament." />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <Text style={styles.welcomeKicker}>Welcome to</Text>
+
         <View style={styles.hero}>
-          <Text style={styles.heroKicker}>Dashboard · {status}</Text>
           <Text style={styles.heroTitle}>{loading ? "Loading..." : name}</Text>
-          <Text style={styles.heroSub}>Players: {players} · Synced in Firebase across devices.</Text>
-          {rosterLocked ? (
-            <View style={styles.lockPill}>
-              <Text style={styles.lockPillText}>ROSTER LOCKED</Text>
+          <Text style={styles.heroSub}>{heroSubtitle}</Text>
+
+          {setupInProgress ? (
+            <View style={styles.progressPill}>
+              <Text style={styles.progressPillText}>SETUP IN PROGRESS</Text>
             </View>
+          ) : setupReady && !isLive ? (
+            <View style={styles.progressPill}>
+              <Text style={styles.progressPillText}>SETUP COMPLETE</Text>
+            </View>
+          ) : null}
+
+          {isHost ? (
+            <Pressable
+              onPress={primaryAction}
+              disabled={primaryDisabled}
+              style={({ pressed }) => [styles.heroBtn, pressed && styles.pressed, primaryDisabled && { opacity: 0.7 }]}
+            >
+              <Text style={styles.heroBtnText}>{primaryLabel}</Text>
+            </Pressable>
           ) : null}
         </View>
 
         <View style={styles.codeCard}>
-          <Text style={styles.codeLabel}>Join Code</Text>
+          <Text style={styles.codeLabel}>Invite Players (Join Code)</Text>
           <Text style={styles.codeValue}>{joinCode || "—"}</Text>
 
           <View style={styles.smallRow}>
@@ -486,92 +494,53 @@ export default function TournamentDashboardScreen({ navigation, route }) {
           </View>
         </View>
 
-        <Text style={styles.sectionTitle}>Setup</Text>
-
-        <SetupCard
-          title="Course"
-          sub={courseLine}
-          onPress={() => navigation.navigate(ROUTES.TOURNAMENT_COURSE, { tournamentId })}
-          rightTag={courseReady ? "READY" : "MISSING"}
-        />
-
-        <SetupCard
-          title="Players"
-          sub={playersLine}
-          onPress={() => navigation.navigate(ROUTES.TOURNAMENT_PLAYERS, { tournamentId })}
-          rightTag={rosterLocked ? "LOCKED" : "UNLOCKED"}
-        />
-
-        <SetupCard
-          title="Formats / Games"
-          sub={formatsLine}
-          onPress={() => navigation.navigate(ROUTES.TOURNAMENT_FORMATS, { tournamentId })}
-          rightTag={formatsReady ? "READY" : "MISSING"}
-        />
-
-        <SetupCard
-          title="Rounds"
-          sub={roundsLine}
-          onPress={() => navigation.navigate(ROUTES.TOURNAMENT_ROUNDS, { tournamentId })}
-          rightTag={roundsReady ? "READY" : "MISSING"}
-        />
-
-        <SetupCard
-          title="Leaderboard"
-          sub="Live tournament standings (coming soon)."
-          onPress={() => Alert.alert("Leaderboard", "Coming soon. This will show net + gross standings with side-game winners.")}
-        />
-
-        {isHost ? (
+        {showOverview ? (
           <>
-            <Text style={styles.sectionTitle}>Host Admin</Text>
+            <Text style={styles.sectionTitle}>Tournament Overview</Text>
 
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>Tournament Admin</Text>
-              <Text style={styles.cardSub}>Archive to hide it, or delete permanently.</Text>
-
-              <View style={styles.adminRow}>
-                <Pressable
-                  onPress={archiveTournament}
-                  disabled={adminBusy}
-                  style={({ pressed }) => [styles.adminBtn, pressed && styles.pressed, adminBusy && { opacity: 0.7 }]}
-                >
-                  <Text style={styles.adminBtnText}>{adminBusy ? "Working..." : "Archive"}</Text>
-                </Pressable>
-
-                <Pressable
-                  onPress={deleteTournamentHard}
-                  disabled={adminBusy}
-                  style={({ pressed }) => [
-                    styles.adminBtn,
-                    styles.adminBtnDanger,
-                    pressed && styles.pressed,
-                    adminBusy && { opacity: 0.7 },
-                  ]}
-                >
-                  <Text style={styles.adminBtnText}>{adminBusy ? "Working..." : "Delete"}</Text>
-                </Pressable>
-              </View>
+              <Text style={styles.cardTitle}>Setup complete</Text>
+              <Text style={styles.cardSub}>
+                This tournament is ready. Next: start the tournament, then we’ll show live standings and side-game winners.
+              </Text>
             </View>
+
+            {isHost ? (
+              <>
+                <Text style={styles.sectionTitle}>Host Admin</Text>
+
+                <View style={styles.card}>
+                  <Text style={styles.cardTitle}>Tournament Admin</Text>
+                  <Text style={styles.cardSub}>Archive to hide it, or delete permanently.</Text>
+
+                  <View style={styles.adminRow}>
+                    <Pressable
+                      onPress={archiveTournament}
+                      disabled={adminBusy}
+                      style={({ pressed }) => [styles.adminBtn, pressed && styles.pressed, adminBusy && { opacity: 0.7 }]}
+                    >
+                      <Text style={styles.adminBtnText}>{adminBusy ? "Working..." : "Archive"}</Text>
+                    </Pressable>
+
+                    <Pressable
+                      onPress={deleteTournamentHard}
+                      disabled={adminBusy}
+                      style={({ pressed }) => [
+                        styles.adminBtn,
+                        styles.adminBtnDanger,
+                        pressed && styles.pressed,
+                        adminBusy && { opacity: 0.7 },
+                      ]}
+                    >
+                      <Text style={styles.adminBtnText}>{adminBusy ? "Working..." : "Delete"}</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              </>
+            ) : null}
           </>
         ) : null}
       </ScrollView>
-
-      <View style={styles.footer}>
-        <Pressable
-          onPress={startTournament}
-          disabled={starting || adminBusy || loading || !t || !isHost}
-          style={({ pressed }) => [
-            styles.primaryBtn,
-            pressed && styles.pressed,
-            (starting || adminBusy || loading || !t || !isHost) && { opacity: 0.7 },
-          ]}
-        >
-          <Text style={styles.primaryText}>
-            {!isHost ? "Host Only" : starting ? "Starting..." : setupReady ? "Start Tournament" : "Complete Setup to Start"}
-          </Text>
-        </Pressable>
-      </View>
     </View>
   );
 }
