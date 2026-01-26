@@ -65,7 +65,6 @@ export default function TournamentDashboardScreen({ navigation, route }) {
   const rosterLocked = !!t?.rosterLocked;
   const formatsReady = !!t?.formatsReady;
 
-  // Keep compatibility with both older single-course + newer multi-round courses
   const courseReady = !!String(t?.courseId || "").trim() || !!t?.coursesReady;
 
   const setupReady = roundsReady && rosterLocked && formatsReady && courseReady;
@@ -89,7 +88,7 @@ export default function TournamentDashboardScreen({ navigation, route }) {
 
     return StyleSheet.create({
       screen: { flex: 1, backgroundColor: theme.bg },
-      content: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: footerPad + 22 },
+      content: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: footerPad + 90 },
 
       welcomeKicker: {
         color: theme.text,
@@ -221,6 +220,27 @@ export default function TournamentDashboardScreen({ navigation, route }) {
       },
       adminBtnText: { color: theme.text, fontSize: 14, fontWeight: "900", letterSpacing: 0.2 },
       adminBtnDanger: { backgroundColor: dangerBg, borderColor: dangerBorder },
+
+      footer: {
+        position: "absolute",
+        left: 0,
+        right: 0,
+        bottom: 0,
+        paddingHorizontal: 16,
+        paddingBottom: footerPad,
+        paddingTop: 12,
+        backgroundColor: theme.bg,
+        borderTopWidth: 1,
+        borderTopColor: theme.divider,
+      },
+      footerRow: { flexDirection: "row", gap: 10 },
+      footerBtn: { flex: 1, height: 54, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+
+      primaryBtn: { backgroundColor: isDark ? "rgba(46,125,255,0.92)" : "rgba(10,15,26,0.92)" },
+      primaryText: { color: "#fff", fontSize: 16, fontWeight: "900", letterSpacing: 0.4 },
+
+      secondaryBtn: { backgroundColor: softBg, borderWidth: 1, borderColor: softBorder },
+      secondaryText: { color: theme.text, fontSize: 15, fontWeight: "900", letterSpacing: 0.3 },
 
       pressed: { opacity: Platform.OS === "ios" ? 0.88 : 0.9, transform: [{ scale: 0.99 }] },
     });
@@ -541,6 +561,26 @@ export default function TournamentDashboardScreen({ navigation, route }) {
           </>
         ) : null}
       </ScrollView>
+
+      {isHost ? (
+        <View style={styles.footer}>
+          <View style={styles.footerRow}>
+            <Pressable
+              onPress={() => navigation.navigate(ROUTES.TOURNAMENT_OVERVIEW, { tournamentId })}
+              style={({ pressed }) => [styles.footerBtn, styles.secondaryBtn, pressed && styles.pressed]}
+            >
+              <Text style={styles.secondaryText}>Overview</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => navigation.goBack()}
+              style={({ pressed }) => [styles.footerBtn, styles.primaryBtn, pressed && styles.pressed]}
+            >
+              <Text style={styles.primaryText}>Back</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
