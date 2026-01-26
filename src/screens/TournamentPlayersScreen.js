@@ -26,8 +26,10 @@ import {
   serverTimestamp,
   arrayRemove,
   arrayUnion,
+  writeBatch,
 } from "firebase/firestore";
 
+import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import { useTheme } from "../theme/ThemeProvider";
 import { auth, db } from "../firebase/firebase";
@@ -57,11 +59,42 @@ export default function TournamentPlayersScreen({ navigation, route }) {
   const [loadingT, setLoadingT] = useState(true);
   const [loadingM, setLoadingM] = useState(true);
 
+  const [saving, setSaving] = useState(false);
+
+  const [setupOpen, setSetupOpen] = useState(false);
+
+  // Organizer modal
+  const [orgOpen, setOrgOpen] = useState(false);
+  const [orgName, setOrgName] = useState("");
+  const [orgHandicap, setOrgHandicap] = useState("");
+  const [orgPhone, setOrgPhone] = useState("");
+  const [orgEmail, setOrgEmail] = useState("");
+
+  // Add Players modal
+  const [addOpen, setAddOpen] = useState(false);
+
+  // Buddy Picker modal
+  const [buddyOpen, setBuddyOpen] = useState(false);
+  const [buddySearch, setBuddySearch] = useState("");
+  const [buddyRaw, setBuddyRaw] = useState([]);
+  const [buddyLoading, setBuddyLoading] = useState(false);
+  const [buddySelected, setBuddySelected] = useState({}); // uid -> true
+
+  // Guest modal
+  const [guestOpen, setGuestOpen] = useState(false);
+  const [guestName, setGuestName] = useState("");
+  const [guestHandicap, setGuestHandicap] = useState("");
+  const [guestPhone, setGuestPhone] = useState("");
+  const [guestEmail, setGuestEmail] = useState("");
+
+  // Edit Player modal (non-organizer)
   const [editOpen, setEditOpen] = useState(false);
   const [editUid, setEditUid] = useState(null);
   const [editName, setEditName] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [addingGuest, setAddingGuest] = useState(false);
+  const [editHcp, setEditHcp] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editIsGuest, setEditIsGuest] = useState(false);
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
@@ -131,7 +164,7 @@ export default function TournamentPlayersScreen({ navigation, route }) {
 
       const ag = a?.isGuest ? 1 : 0;
       const bg = b?.isGuest ? 1 : 0;
-      if (ag !== bg) return ag - bg; // real accounts first, guests after
+      if (ag !== bg) return ag - bg;
 
       const an = String(a.displayName || a.name || "").trim().toLowerCase();
       const bn = String(b.displayName || b.name || "").trim().toLowerCase();
@@ -144,6 +177,110 @@ export default function TournamentPlayersScreen({ navigation, route }) {
     return rows;
   }, [rawMembers, ownerUid]);
 
+  const existingMemberUidSet = useMemo(() => {
+    const s = new Set();
+    (members || []).forEach((m) => {
+      const uid = String(m.uid || m.id || "");
+      if (uid) s.add(uid);
+    });
+    return s;
+  }, [members]);
+
+  const hostMember = useMemo(() => {
+    const byUid = members.find((m) => String(m.uid || m.id || "") === ownerUid);
+    return byUid || null;
+  }, [members, ownerUid]);
+
+  const organizer = useMemo(() => {
+    const n =
+      String(t?.organizerName || "").trim() ||
+      String(hostMember?.displayName || "").trim() ||
+      String(u?.displayName || "").trim();
+
+    const h =
+      String(t?.organizerHandicap ?? "").trim() ||
+      String(hostMember?.handicap ?? "").trim() ||
+      "";
+
+    const p =
+      String(t?.organizerPhone || "").trim() ||
+      String(hostMember?.phone || "").trim() ||
+      "";
+
+    const e =
+      String(t?.organizerEmail || "").trim() ||
+      String(hostMember?.email || "").trim() ||
+      "";
+
+    return { name: n, handicap: h, phone: p, email: e };
+  }, [t, hostMember, u]);
+
+  useEffect(() => {
+    setOrgName(organizer.name || "");
+    setOrgHandicap(String(organizer.handicap || ""));
+    setOrgPhone(organizer.phone || "");
+    setOrgEmail(organizer.email || "");
+  }, [organizer.name, organizer.handicap, organizer.phone, organizer.email]);
+
+  // Load Buddy List (Firestore) when buddy modal is opened
+  useEffect(() => {
+    if (!buddyOpen) return;
+    if (!u?.uid) {
+      setBuddyRaw([]);
+      setBuddyLoading(false);
+      return;
+    }
+
+    setBuddyLoading(true);
+
+    // Expected path: users/{uid}/buddies
+    // Expected doc shape: { buddyUid, displayName, handicap, phone, email }
+    const bref = collection(db, "users", String(u.uid), "buddies");
+
+    const unsub = onSnapshot(
+      bref,
+      (snap) => {
+        const rows = [];
+        snap.forEach((d) => rows.push({ id: d.id, ...d.data() }));
+        setBuddyRaw(rows);
+        setBuddyLoading(false);
+      },
+      (err) => {
+        setBuddyLoading(false);
+        Alert.alert("Buddy List error", err?.message || "Could not load Buddy List.");
+      }
+    );
+
+    return () => unsub();
+  }, [buddyOpen, u?.uid]);
+
+  const buddies = useMemo(() => {
+    const rows = Array.isArray(buddyRaw) ? [...buddyRaw] : [];
+    rows.sort((a, b) => {
+      const an = String(a.displayName || a.name || "").trim().toLowerCase();
+      const bn = String(b.displayName || b.name || "").trim().toLowerCase();
+      if (an && bn && an !== bn) return an < bn ? -1 : 1;
+      if (an && !bn) return -1;
+      if (!an && bn) return 1;
+      return String(a.id || "").localeCompare(String(b.id || ""));
+    });
+    return rows;
+  }, [buddyRaw]);
+
+  const filteredBuddies = useMemo(() => {
+    const q = String(buddySearch || "").trim().toLowerCase();
+    if (!q) return buddies;
+
+    return buddies.filter((b) => {
+      const name = String(b.displayName || b.name || "").toLowerCase();
+      const email = String(b.email || "").toLowerCase();
+      const phone = String(b.phone || "").toLowerCase();
+      return name.includes(q) || email.includes(q) || phone.includes(q);
+    });
+  }, [buddies, buddySearch]);
+
+  const selectedCount = useMemo(() => Object.keys(buddySelected || {}).length, [buddySelected]);
+
   const styles = useMemo(() => {
     const blue = isDark ? "rgba(46,125,255,0.92)" : "rgba(29,53,87,0.92)";
     const blueBg = isDark ? "rgba(46,125,255,0.10)" : "rgba(29,53,87,0.10)";
@@ -154,44 +291,26 @@ export default function TournamentPlayersScreen({ navigation, route }) {
     const goldBorder = isDark ? "rgba(255, 210, 92, 0.55)" : "rgba(255, 210, 92, 0.58)";
     const goldBg = isDark ? "rgba(255, 210, 92, 0.10)" : "rgba(255, 210, 92, 0.14)";
 
-    const lockBg = isDark ? "rgba(255, 210, 92, 0.12)" : "rgba(255, 210, 92, 0.16)";
-    const lockBorder = isDark ? "rgba(255, 210, 92, 0.40)" : "rgba(255, 210, 92, 0.48)";
+    const greenBg = isDark ? "rgba(15,122,74,0.14)" : "rgba(15,122,74,0.12)";
+    const greenBorder = isDark ? "rgba(15,122,74,0.40)" : "rgba(15,122,74,0.40)";
+
+    const selectedBg = isDark ? "rgba(46,125,255,0.16)" : "rgba(29,53,87,0.12)";
+    const selectedBorder = isDark ? "rgba(46,125,255,0.42)" : "rgba(29,53,87,0.34)";
 
     return StyleSheet.create({
       screen: { flex: 1, backgroundColor: theme.bg },
       listContent: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 190 },
 
-      hero: {
-        borderRadius: 22,
-        padding: 16,
-        borderWidth: 1,
-        borderColor: goldBorder,
-        backgroundColor: goldBg,
-        marginBottom: 12,
-      },
-      heroTitle: { color: theme.text, fontSize: 18, fontWeight: "900" },
-      heroSub: { marginTop: 6, color: theme.text, opacity: 0.72, fontSize: 13, fontWeight: "700", lineHeight: 18 },
-
-      lockPill: {
-        marginTop: 10,
-        alignSelf: "flex-start",
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 999,
-        backgroundColor: lockBg,
-        borderWidth: 1,
-        borderColor: lockBorder,
-      },
-      lockPillText: { color: theme.text, fontSize: 12, fontWeight: "900", letterSpacing: 0.2 },
-
+      // Slim join code
       codeCard: {
-        borderRadius: 22,
-        padding: 16,
+        borderRadius: 18,
+        padding: 12,
         borderWidth: 1,
         borderColor: blue,
         backgroundColor: blueBg,
         marginBottom: 12,
       },
+      codeTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
       codeLabel: {
         color: theme.text,
         opacity: 0.8,
@@ -200,23 +319,69 @@ export default function TournamentPlayersScreen({ navigation, route }) {
         letterSpacing: 1.2,
         textTransform: "uppercase",
       },
-      codeValue: { marginTop: 10, color: theme.text, fontSize: 26, fontWeight: "900", letterSpacing: 4 },
+      codeValue: { color: theme.text, fontSize: 18, fontWeight: "900", letterSpacing: 3 },
 
-      smallRow: { marginTop: 10, flexDirection: "row", gap: 10 },
+      codeActions: { marginTop: 10, flexDirection: "row", gap: 10 },
       smallBtn: {
         flex: 1,
-        height: 52,
-        borderRadius: 18,
+        height: 46,
+        borderRadius: 16,
         alignItems: "center",
         justifyContent: "center",
         backgroundColor: softBg,
         borderWidth: 1,
         borderColor: softBorder,
       },
-      smallBtnText: { color: theme.text, fontSize: 14, fontWeight: "900", letterSpacing: 0.3 },
+      smallBtnText: { color: theme.text, fontSize: 13, fontWeight: "900", letterSpacing: 0.2 },
+
+      organizerCard: {
+        borderRadius: 20,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: goldBorder,
+        backgroundColor: goldBg,
+        marginBottom: 12,
+      },
+      orgTitle: { color: theme.text, fontSize: 18, fontWeight: "900" },
+      orgSub: { marginTop: 4, color: theme.text, opacity: 0.72, fontSize: 13, fontWeight: "800" },
+      orgLines: { marginTop: 12, gap: 6 },
+      orgLine: { color: theme.text, opacity: 0.88, fontSize: 13, fontWeight: "800" },
+      orgBtn: {
+        marginTop: 12,
+        height: 50,
+        borderRadius: 16,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: softBg,
+        borderWidth: 1,
+        borderColor: softBorder,
+      },
+      orgBtnText: { color: theme.text, fontSize: 14, fontWeight: "900" },
+
+      addCard: {
+        borderRadius: 20,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: greenBorder,
+        backgroundColor: greenBg,
+        marginBottom: 12,
+      },
+      addTitle: { color: theme.text, fontSize: 18, fontWeight: "900" },
+      addSub: { marginTop: 8, color: theme.text, opacity: 0.74, fontSize: 13, fontWeight: "700", lineHeight: 18 },
+      addBtn: {
+        marginTop: 12,
+        height: 50,
+        borderRadius: 16,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: softBg,
+        borderWidth: 1,
+        borderColor: softBorder,
+      },
+      addBtnText: { color: theme.text, fontSize: 14, fontWeight: "900" },
 
       sectionTitle: {
-        marginTop: 12,
+        marginTop: 8,
         marginBottom: 10,
         color: theme.text,
         fontSize: 13,
@@ -299,28 +464,13 @@ export default function TournamentPlayersScreen({ navigation, route }) {
         borderTopWidth: 1,
         borderTopColor: theme.divider,
       },
-
-      footerStack: { gap: 10 },
       footerRow: { flexDirection: "row", gap: 10 },
+      footerBtn: { flex: 1, height: 54, borderRadius: 18, alignItems: "center", justifyContent: "center" },
 
-      footerBtn: {
-        flex: 1,
-        height: 54,
-        borderRadius: 18,
-        alignItems: "center",
-        justifyContent: "center",
-      },
-
-      primaryBtn: {
-        backgroundColor: isDark ? "rgba(46,125,255,0.92)" : "rgba(10,15,26,0.92)",
-      },
+      primaryBtn: { backgroundColor: isDark ? "rgba(46,125,255,0.92)" : "rgba(10,15,26,0.92)" },
       primaryText: { color: "#fff", fontSize: 16, fontWeight: "900", letterSpacing: 0.4 },
 
-      secondaryBtn: {
-        backgroundColor: softBg,
-        borderWidth: 1,
-        borderColor: softBorder,
-      },
+      secondaryBtn: { backgroundColor: softBg, borderWidth: 1, borderColor: softBorder },
       secondaryText: { color: theme.text, fontSize: 15, fontWeight: "900", letterSpacing: 0.3 },
 
       pressed: { opacity: Platform.OS === "ios" ? 0.88 : 0.9, transform: [{ scale: 0.99 }] },
@@ -332,19 +482,22 @@ export default function TournamentPlayersScreen({ navigation, route }) {
         justifyContent: "center",
         paddingHorizontal: 16,
       },
+
       modalCard: {
         width: "100%",
+        maxHeight: "86%",
         borderRadius: 22,
-        padding: 16,
+        padding: 18,
         borderWidth: 1,
         borderColor: theme.border,
         backgroundColor: theme.bg,
       },
+
       modalTitle: { color: theme.text, fontSize: 18, fontWeight: "900" },
       modalSub: { marginTop: 6, color: theme.text, opacity: 0.7, fontSize: 13, fontWeight: "700", lineHeight: 18 },
 
       input: {
-        marginTop: 14,
+        marginTop: 12,
         height: 52,
         borderRadius: 16,
         paddingHorizontal: 14,
@@ -369,8 +522,79 @@ export default function TournamentPlayersScreen({ navigation, route }) {
       modalBtnSave: { backgroundColor: blue, borderColor: blue },
       modalBtnText: { color: theme.text, fontSize: 15, fontWeight: "900" },
       modalBtnTextSave: { color: "#fff" },
+
+      optionList: { marginTop: 12, gap: 10 },
+      optionItem: {
+        borderRadius: 18,
+        padding: 14,
+        borderWidth: 1,
+        borderColor: softBorder,
+        backgroundColor: softBg,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+      },
+      optionTitle: { color: theme.text, fontSize: 15, fontWeight: "900" },
+      optionSub: { marginTop: 6, color: theme.text, opacity: 0.7, fontSize: 13, fontWeight: "700", lineHeight: 18 },
+      optionRight: {
+        paddingHorizontal: 10,
+        paddingVertical: 7,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.12)",
+        backgroundColor: "rgba(255,255,255,0.06)",
+      },
+      optionRightText: { color: theme.text, fontSize: 12, fontWeight: "900", opacity: 0.95 },
+
+      // Buddy list rows
+      buddyRow: {
+        borderRadius: 18,
+        padding: 14,
+        borderWidth: 1,
+        borderColor: softBorder,
+        backgroundColor: softBg,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        marginTop: 10,
+      },
+      buddyRowSelected: {
+        backgroundColor: selectedBg,
+        borderColor: selectedBorder,
+      },
+      buddyLeft: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1 },
+      buddyName: { color: theme.text, fontSize: 15, fontWeight: "900" },
+      buddyMeta: { marginTop: 4, color: theme.text, opacity: 0.7, fontSize: 12, fontWeight: "800" },
+
+      checkPill: {
+        paddingHorizontal: 10,
+        paddingVertical: 7,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: softBorder,
+        backgroundColor: "rgba(255,255,255,0.04)",
+      },
+      checkPillOn: {
+        borderColor: blue,
+        backgroundColor: blueBg,
+      },
+      checkText: { color: theme.text, fontSize: 12, fontWeight: "900" },
     });
   }, [theme, isDark, footerPad]);
+
+  function openSetup() {
+    if (!isHost) return;
+    Keyboard.dismiss();
+    setSetupOpen(true);
+  }
+
+  function goSetup(routeName) {
+    if (!tournamentId) return;
+    setSetupOpen(false);
+    navigation.navigate(routeName, { tournamentId });
+  }
 
   async function shareInvite() {
     if (!joinCode) return;
@@ -386,6 +610,333 @@ export default function TournamentPlayersScreen({ navigation, route }) {
     } catch (e) {
       Alert.alert("Share failed", e?.message || "Could not open share sheet.");
     }
+  }
+
+  async function saveOrganizer() {
+    if (!isHost || !tournamentId) return;
+
+    const cleanedName = String(orgName || "").trim();
+    const cleanedHcp = String(orgHandicap || "").trim();
+    const cleanedPhone = String(orgPhone || "").trim();
+    const cleanedEmail = String(orgEmail || "").trim();
+
+    if (!cleanedName) {
+      Alert.alert("Name required", "Enter the tournament organizer's name.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await updateDoc(doc(db, "tournaments", tournamentId), {
+        organizerName: cleanedName,
+        organizerHandicap: cleanedHcp,
+        organizerPhone: cleanedPhone,
+        organizerEmail: cleanedEmail,
+        updatedAt: serverTimestamp(),
+      });
+
+      if (ownerUid) {
+        await setDoc(
+          doc(db, "tournaments", tournamentId, "members", ownerUid),
+          {
+            uid: ownerUid,
+            displayName: cleanedName,
+            handicap: cleanedHcp,
+            phone: cleanedPhone,
+            email: cleanedEmail,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
+
+      setOrgOpen(false);
+      Keyboard.dismiss();
+    } catch (e) {
+      Alert.alert("Save failed", e?.message || "Could not save organizer.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function openAddPlayers() {
+    if (!isHost) return;
+    if (rosterLocked) {
+      Alert.alert("Roster locked", "Unlock the roster to add players.");
+      return;
+    }
+    Keyboard.dismiss();
+    setAddOpen(true);
+  }
+
+  function openBuddyPicker() {
+    if (!isHost) return;
+    if (rosterLocked) {
+      Alert.alert("Roster locked", "Unlock the roster to add players.");
+      return;
+    }
+    Keyboard.dismiss();
+    setAddOpen(false);
+    setBuddySearch("");
+    setBuddySelected({});
+    setBuddyOpen(true);
+  }
+
+  function openGuest() {
+    if (!isHost) return;
+    if (rosterLocked) {
+      Alert.alert("Roster locked", "Unlock the roster to add a guest.");
+      return;
+    }
+    setAddOpen(false);
+    setGuestName("");
+    setGuestHandicap("");
+    setGuestPhone("");
+    setGuestEmail("");
+    setGuestOpen(true);
+  }
+
+  async function addGuestNow() {
+    if (!isHost || !tournamentId) return;
+    if (rosterLocked) return;
+
+    const n = String(guestName || "").trim();
+    const h = String(guestHandicap || "").trim();
+    const p = String(guestPhone || "").trim();
+    const e = String(guestEmail || "").trim();
+
+    if (!n) {
+      Alert.alert("Name required", "Enter the guest name.");
+      return;
+    }
+    if (!h) {
+      Alert.alert("Handicap required", "Enter the guest handicap.");
+      return;
+    }
+
+    const guestId = makeGuestId();
+
+    setSaving(true);
+    try {
+      await setDoc(
+        doc(db, "tournaments", tournamentId, "members", guestId),
+        {
+          uid: guestId,
+          displayName: n,
+          handicap: h,
+          phone: p,
+          email: e,
+          isGuest: true,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      await updateDoc(doc(db, "tournaments", tournamentId), {
+        guestIds: arrayUnion(guestId),
+        updatedAt: serverTimestamp(),
+      });
+
+      setGuestOpen(false);
+      Keyboard.dismiss();
+    } catch (e2) {
+      Alert.alert("Add failed", e2?.message || "Could not add guest.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function toggleBuddy(uid) {
+    const k = String(uid || "");
+    if (!k) return;
+    setBuddySelected((prev) => {
+      const next = { ...(prev || {}) };
+      if (next[k]) delete next[k];
+      else next[k] = true;
+      return next;
+    });
+  }
+
+  async function addSelectedBuddiesToTournament() {
+    if (!isHost || !tournamentId) return;
+    if (rosterLocked) return;
+
+    const keys = Object.keys(buddySelected || {});
+    if (!keys.length) {
+      Alert.alert("No selection", "Select at least one buddy to add.");
+      return;
+    }
+
+    // Don’t add organizer, don’t add duplicates already in roster
+    const toAdd = keys
+      .map((k) => String(k))
+      .filter((k) => k && k !== ownerUid && !existingMemberUidSet.has(k));
+
+    if (!toAdd.length) {
+      Alert.alert("Nothing to add", "All selected buddies are already in the roster.");
+      return;
+    }
+
+    // Build data lookup by uid from buddyRaw (best effort)
+    const buddyByUid = new Map();
+    (buddies || []).forEach((b) => {
+      const uid = String(b.buddyUid || b.uid || b.id || "");
+      if (uid) buddyByUid.set(uid, b);
+    });
+
+    setSaving(true);
+    try {
+      const batch = writeBatch(db);
+
+      // Member docs
+      toAdd.forEach((uid) => {
+        const b = buddyByUid.get(uid) || {};
+        const displayName = String(b.displayName || b.name || "").trim();
+        const handicap = String(b.handicap ?? "").trim();
+        const phone = String(b.phone || "").trim();
+        const email = String(b.email || "").trim();
+
+        batch.set(
+          doc(db, "tournaments", tournamentId, "members", uid),
+          {
+            uid,
+            displayName,
+            handicap,
+            phone,
+            email,
+            isGuest: false,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      });
+
+      // Tournament roster array update
+      batch.update(doc(db, "tournaments", tournamentId), {
+        memberUids: arrayUnion(...toAdd),
+        updatedAt: serverTimestamp(),
+      });
+
+      await batch.commit();
+
+      setBuddyOpen(false);
+      setBuddySelected({});
+      setBuddySearch("");
+      Keyboard.dismiss();
+    } catch (e) {
+      Alert.alert("Add failed", e?.message || "Could not add buddies to roster.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function openEditPlayer(member) {
+    if (!isHost) return;
+    if (rosterLocked) {
+      Alert.alert("Roster locked", "Unlock the roster to edit players.");
+      return;
+    }
+
+    const uid = String(member?.uid || member?.id || "");
+    if (!uid) return;
+    if (uid === ownerUid) {
+      setOrgOpen(true);
+      return;
+    }
+
+    setEditUid(uid);
+    setEditIsGuest(!!member?.isGuest);
+    setEditName(String(member?.displayName || "").trim());
+    setEditHcp(String(member?.handicap ?? "").trim());
+    setEditPhone(String(member?.phone ?? "").trim());
+    setEditEmail(String(member?.email ?? "").trim());
+    setEditOpen(true);
+  }
+
+  async function savePlayerEdit() {
+    if (!isHost || !tournamentId || !editUid) return;
+    if (rosterLocked) return;
+
+    const n = String(editName || "").trim();
+    const h = String(editHcp || "").trim();
+    const p = String(editPhone || "").trim();
+    const e = String(editEmail || "").trim();
+
+    if (!n) {
+      Alert.alert("Name required", "Enter a name to save.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await setDoc(
+        doc(db, "tournaments", tournamentId, "members", editUid),
+        {
+          uid: editUid,
+          displayName: n,
+          handicap: h,
+          phone: p,
+          email: e,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      setEditOpen(false);
+      setEditUid(null);
+      Keyboard.dismiss();
+    } catch (e2) {
+      Alert.alert("Save failed", e2?.message || "Could not save player.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removePlayer(member) {
+    if (!isHost) return;
+
+    if (rosterLocked) {
+      Alert.alert("Roster locked", "Unlock the roster to remove players.");
+      return;
+    }
+
+    const uid = String(member?.uid || member?.id || "");
+    if (!uid) return;
+
+    if (uid === ownerUid) {
+      Alert.alert("Not allowed", "You can’t remove the organizer/host.");
+      return;
+    }
+
+    const isGuest = !!member?.isGuest;
+
+    Alert.alert("Remove player?", "This will remove the player from the tournament roster.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Remove",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            if (isGuest) {
+              await updateDoc(doc(db, "tournaments", tournamentId), {
+                guestIds: arrayRemove(uid),
+                updatedAt: serverTimestamp(),
+              });
+            } else {
+              await updateDoc(doc(db, "tournaments", tournamentId), {
+                memberUids: arrayRemove(uid),
+                updatedAt: serverTimestamp(),
+              });
+            }
+
+            await deleteDoc(doc(db, "tournaments", tournamentId, "members", uid));
+          } catch (e2) {
+            Alert.alert("Remove failed", e2?.message || "Could not remove player.");
+          }
+        },
+      },
+    ]);
   }
 
   async function toggleRosterLock() {
@@ -421,241 +972,132 @@ export default function TournamentPlayersScreen({ navigation, route }) {
     );
   }
 
-  function openAddGuest() {
-    if (!isHost) return;
-
-    if (rosterLocked) {
-      Alert.alert("Roster locked", "Unlock the roster to add a guest.");
-      return;
-    }
-
-    setAddingGuest(true);
-    setEditUid("__guest__");
-    setEditName("");
-    setEditOpen(true);
-  }
-
-  function openEdit(member) {
-    const uid = String(member?.uid || member?.id || "");
-    if (!uid) return;
-
-    const isGuest = !!member?.isGuest;
-    const meUid = String(u?.uid || "");
-    const canEdit = isHost || (!rosterLocked && !isGuest && uid === meUid);
-
-    if (!canEdit) {
-      Alert.alert("Roster locked", "Only the host can edit names while the roster is locked.");
-      return;
-    }
-
-    setAddingGuest(false);
-    setEditUid(uid);
-    setEditName(String(member?.displayName || ""));
-    setEditOpen(true);
-  }
-
-  async function saveName() {
-    if (!tournamentId || !editUid) return;
-
-    const cleaned = String(editName || "").trim();
-    if (!cleaned) {
-      Alert.alert("Name required", "Enter a name to save.");
-      return;
-    }
-
-    if (addingGuest) {
-      if (!isHost) return;
-      if (rosterLocked) {
-        Alert.alert("Roster locked", "Unlock the roster to add a guest.");
-        return;
-      }
-
-      const guestId = makeGuestId();
-
-      setSaving(true);
-      try {
-        await setDoc(
-          doc(db, "tournaments", tournamentId, "members", guestId),
-          {
-            uid: guestId,
-            displayName: cleaned,
-            isGuest: true,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
-
-        await updateDoc(doc(db, "tournaments", tournamentId), {
-          guestIds: arrayUnion(guestId),
-          updatedAt: serverTimestamp(),
-        });
-
-        setEditOpen(false);
-        setEditUid(null);
-        setEditName("");
-        setAddingGuest(false);
-        Keyboard.dismiss();
-      } catch (e) {
-        Alert.alert("Add failed", e?.message || "Could not add guest.");
-      } finally {
-        setSaving(false);
-      }
-      return;
-    }
-
-    const meUid = String(u?.uid || "");
-    const canSave = isHost || (!rosterLocked && editUid === meUid);
-
-    if (!canSave) {
-      Alert.alert("Roster locked", "Only the host can edit names while the roster is locked.");
-      return;
-    }
-
-    setSaving(true);
-    try {
-      await setDoc(
-        doc(db, "tournaments", tournamentId, "members", editUid),
-        {
-          uid: editUid,
-          displayName: cleaned,
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
-
-      setEditOpen(false);
-      setEditUid(null);
-      setEditName("");
-      Keyboard.dismiss();
-    } catch (e) {
-      Alert.alert("Save failed", e?.message || "Could not save player name.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function removePlayer(member) {
-    if (!isHost) return;
-
-    if (rosterLocked) {
-      Alert.alert("Roster locked", "Unlock the roster to remove players.");
-      return;
-    }
-
-    const uid = String(member?.uid || member?.id || "");
-    if (!uid) return;
-
-    if (uid === ownerUid) {
-      Alert.alert("Not allowed", "You can’t remove the host.");
-      return;
-    }
-
-    const isGuest = !!member?.isGuest;
-
-    Alert.alert("Remove player?", "This will remove the player from the tournament roster.", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Remove",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            if (isGuest) {
-              await updateDoc(doc(db, "tournaments", tournamentId), {
-                guestIds: arrayRemove(uid),
-                updatedAt: serverTimestamp(),
-              });
-            } else {
-              await updateDoc(doc(db, "tournaments", tournamentId), {
-                memberUids: arrayRemove(uid),
-                updatedAt: serverTimestamp(),
-              });
-            }
-
-            await deleteDoc(doc(db, "tournaments", tournamentId, "members", uid));
-          } catch (e) {
-            Alert.alert("Remove failed", e?.message || "Could not remove player.");
-          }
-        },
-      },
-    ]);
+  function playerNumberFor(uid) {
+    const order = members.map((m) => String(m.uid || m.id || ""));
+    const idx = order.indexOf(String(uid || ""));
+    return idx >= 0 ? idx + 1 : null;
   }
 
   function renderRow({ item }) {
     const uid = String(item?.uid || item?.id || "");
     const isOwner = uid && ownerUid && uid === ownerUid;
-    const me = uid && String(u?.uid || "") === uid;
     const isGuest = !!item?.isGuest;
 
     const displayName = String(item?.displayName || "").trim();
+    const hcp = String(item?.handicap ?? "").trim();
+    const pnum = playerNumberFor(uid);
 
-    const sub = isOwner
-      ? "Host"
-      : isGuest
-      ? "Guest (manual)"
-      : me
-      ? "You"
-      : uid
-      ? `uid: ${uid.slice(0, 10)}…`
-      : "";
-
-    const canEdit = isHost || (!rosterLocked && me && !isGuest);
+    const sub = isOwner ? "Tournament Organizer" : isGuest ? "Guest" : "Player";
+    const badge = isOwner ? "P1" : pnum ? `P${pnum}` : "P";
 
     return (
       <View style={styles.row}>
         <View style={styles.rowTop}>
           <View style={styles.rowLeft}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                {initialsFromName(displayName, isOwner ? "H" : isGuest ? "G" : "P")}
-              </Text>
+              <Text style={styles.avatarText}>{initialsFromName(displayName, isOwner ? "P1" : "P")}</Text>
             </View>
 
             <View style={{ flex: 1 }}>
               <Text style={styles.rowTitle} numberOfLines={1}>
-                {displayName ||
-                  (isOwner
-                    ? "Host (name not set)"
-                    : isGuest
-                    ? "Guest (name not set)"
-                    : "Player (name not set)")}
+                {displayName || (isOwner ? "Organizer (name not set)" : isGuest ? "Guest (name not set)" : "Player (name not set)")}
               </Text>
               <Text style={styles.rowSub} numberOfLines={1}>
                 {sub}
+                {hcp ? ` • HCP ${hcp}` : ""}
               </Text>
             </View>
           </View>
 
           <View style={styles.pill}>
-            <Text style={styles.pillText}>{isOwner ? "HOST" : isGuest ? "GUEST" : "PLAYER"}</Text>
+            <Text style={styles.pillText}>{badge}</Text>
           </View>
         </View>
 
-        <View style={styles.rowActions}>
-          <Pressable
-            onPress={() => (canEdit ? openEdit(item) : null)}
-            style={({ pressed }) => [styles.actionBtn, pressed && styles.pressed, (!canEdit || saving) && { opacity: 0.6 }]}
-            disabled={!canEdit || saving}
-          >
-            <Text style={styles.actionText}>{canEdit ? "Edit Name" : "View"}</Text>
-          </Pressable>
-
-          {isHost && !isOwner ? (
+        {isHost ? (
+          <View style={styles.rowActions}>
             <Pressable
-              onPress={() => removePlayer(item)}
-              style={({ pressed }) => [
-                styles.actionBtn,
-                styles.actionBtnDanger,
-                pressed && styles.pressed,
-                (rosterLocked || saving) && { opacity: 0.55 },
-              ]}
-              disabled={rosterLocked || saving}
+              onPress={() => openEditPlayer(item)}
+              style={({ pressed }) => [styles.actionBtn, pressed && styles.pressed, saving && { opacity: 0.6 }]}
+              disabled={saving}
             >
-              <Text style={styles.actionText}>{rosterLocked ? "Locked" : "Remove"}</Text>
+              <Text style={styles.actionText}>{isOwner ? "Edit Organizer" : "Edit Player"}</Text>
             </Pressable>
-          ) : null}
-        </View>
+
+            {!isOwner ? (
+              <Pressable
+                onPress={() => removePlayer(item)}
+                style={({ pressed }) => [
+                  styles.actionBtn,
+                  styles.actionBtnDanger,
+                  pressed && styles.pressed,
+                  (rosterLocked || saving) && { opacity: 0.55 },
+                ]}
+                disabled={rosterLocked || saving}
+              >
+                <Text style={styles.actionText}>{rosterLocked ? "Locked" : "Remove"}</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
       </View>
+    );
+  }
+
+  function renderBuddyRow({ item }) {
+    const uid = String(item?.buddyUid || item?.uid || item?.id || "");
+    const displayName = String(item?.displayName || item?.name || "").trim();
+    const hcp = String(item?.handicap ?? "").trim();
+    const email = String(item?.email || "").trim();
+
+    const isSelected = !!buddySelected?.[uid];
+    const isAlreadyInRoster = uid && existingMemberUidSet.has(uid);
+    const isOrganizer = uid && ownerUid && uid === ownerUid;
+
+    const disabled = !uid || isAlreadyInRoster || isOrganizer;
+
+    const metaBits = [];
+    if (hcp) metaBits.push(`HCP ${hcp}`);
+    if (email) metaBits.push(email);
+    if (isOrganizer) metaBits.push("Organizer");
+    else if (isAlreadyInRoster) metaBits.push("Already added");
+
+    const meta = metaBits.join(" • ");
+
+    return (
+      <Pressable
+        onPress={() => {
+          if (disabled) return;
+          toggleBuddy(uid);
+        }}
+        style={({ pressed }) => [
+          styles.buddyRow,
+          isSelected && styles.buddyRowSelected,
+          disabled && { opacity: 0.55 },
+          pressed && !disabled && styles.pressed,
+        ]}
+      >
+        <View style={styles.buddyLeft}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>{initialsFromName(displayName, "B")}</Text>
+          </View>
+
+          <View style={{ flex: 1 }}>
+            <Text style={styles.buddyName} numberOfLines={1}>
+              {displayName || "Buddy (name not set)"}
+            </Text>
+            {meta ? (
+              <Text style={styles.buddyMeta} numberOfLines={1}>
+                {meta}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+
+        <View style={[styles.checkPill, isSelected && styles.checkPillOn]}>
+          <Text style={styles.checkText}>{disabled ? "Locked" : isSelected ? "Selected" : "Select"}</Text>
+        </View>
+      </Pressable>
     );
   }
 
@@ -663,12 +1105,19 @@ export default function TournamentPlayersScreen({ navigation, route }) {
 
   return (
     <View style={styles.screen}>
-      <ScreenHeader navigation={navigation} title="Players" subtitle="Manage the tournament roster." />
+      <ScreenHeader
+        navigation={navigation}
+        title="Players"
+        subtitle="Organizer + players for the tournament."
+        rightLabel={isHost ? "Setup" : null}
+        onRightPress={isHost ? openSetup : undefined}
+      />
 
       <FlatList
         data={[
-          { _type: "hero", key: "hero" },
           { _type: "code", key: "code" },
+          { _type: "organizer", key: "organizer" },
+          { _type: "add", key: "add" },
           { _type: "section", key: "section" },
           ...members.map((m) => ({ _type: "member", key: `m:${m.uid || m.id}`, ...m })),
           { _type: "end", key: "end" },
@@ -677,36 +1126,21 @@ export default function TournamentPlayersScreen({ navigation, route }) {
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         renderItem={({ item }) => {
-          if (item._type === "hero") {
-            return (
-              <View style={styles.hero}>
-                <Text style={styles.heroTitle}>
-                  {loadingT ? "Loading..." : `Roster · ${count} player${count === 1 ? "" : "s"}`}
-                </Text>
-                <Text style={styles.heroSub}>Players join via join code. Host can also add guests manually.</Text>
-
-                {rosterLocked ? (
-                  <View style={styles.lockPill}>
-                    <Text style={styles.lockPillText}>ROSTER LOCKED</Text>
-                  </View>
-                ) : null}
-              </View>
-            );
-          }
-
           if (item._type === "code") {
             return (
               <View style={styles.codeCard}>
-                <Text style={styles.codeLabel}>Join Code</Text>
-                <Text style={styles.codeValue}>{joinCode || "—"}</Text>
+                <View style={styles.codeTop}>
+                  <Text style={styles.codeLabel}>Join Code</Text>
+                  <Text style={styles.codeValue}>{joinCode || "—"}</Text>
+                </View>
 
-                <View style={styles.smallRow}>
+                <View style={styles.codeActions}>
                   <Pressable onPress={shareInvite} style={({ pressed }) => [styles.smallBtn, pressed && styles.pressed]}>
                     <Text style={styles.smallBtnText}>Share Invite</Text>
                   </Pressable>
 
                   <Pressable
-                    onPress={() => Alert.alert("Tip", "Have players open Legacy Golf → Games → Tournaments → Join with Code.")}
+                    onPress={() => Alert.alert("How to Join", "Open Legacy Golf → Games → Tournaments → Join with Code, then enter this join code.")}
                     style={({ pressed }) => [styles.smallBtn, pressed && styles.pressed]}
                   >
                     <Text style={styles.smallBtnText}>How to Join</Text>
@@ -716,7 +1150,54 @@ export default function TournamentPlayersScreen({ navigation, route }) {
             );
           }
 
-          if (item._type === "section") return <Text style={styles.sectionTitle}>Players</Text>;
+          if (item._type === "organizer") {
+            return (
+              <View style={styles.organizerCard}>
+                <Text style={styles.orgTitle}>Tournament Organizer</Text>
+                <Text style={styles.orgSub}>Player 1</Text>
+
+                <View style={styles.orgLines}>
+                  <Text style={styles.orgLine}>Name: {organizer.name || "—"}</Text>
+                  <Text style={styles.orgLine}>Handicap: {String(organizer.handicap || "—")}</Text>
+                  <Text style={styles.orgLine}>Phone: {organizer.phone || "—"}</Text>
+                  <Text style={styles.orgLine}>Email: {organizer.email || "—"}</Text>
+                </View>
+
+                {isHost ? (
+                  <Pressable
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      setOrgOpen(true);
+                    }}
+                    style={({ pressed }) => [styles.orgBtn, pressed && styles.pressed]}
+                  >
+                    <Text style={styles.orgBtnText}>Edit Organizer</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            );
+          }
+
+          if (item._type === "add") {
+            return (
+              <View style={styles.addCard}>
+                <Text style={styles.addTitle}>Add Players</Text>
+                <Text style={styles.addSub}>Add from Buddy List, add a Guest, or send an invitation (SMS coming next).</Text>
+
+                {isHost ? (
+                  <Pressable
+                    onPress={openAddPlayers}
+                    style={({ pressed }) => [styles.addBtn, pressed && styles.pressed, rosterLocked && { opacity: 0.6 }]}
+                    disabled={rosterLocked}
+                  >
+                    <Text style={styles.addBtnText}>{rosterLocked ? "Unlock roster to add" : "Open Options"}</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            );
+          }
+
+          if (item._type === "section") return <Text style={styles.sectionTitle}>{`Players • ${count}`}</Text>;
 
           if (item._type === "end") {
             if (loadingM) return null;
@@ -724,7 +1205,7 @@ export default function TournamentPlayersScreen({ navigation, route }) {
               return (
                 <View style={styles.empty}>
                   <Text style={styles.emptyTitle}>No players yet</Text>
-                  <Text style={styles.emptySub}>Share the join code so players can join this tournament (or add guests).</Text>
+                  <Text style={styles.emptySub}>Share the join code or add guests/buddies as host.</Text>
                 </View>
               );
             }
@@ -736,31 +1217,18 @@ export default function TournamentPlayersScreen({ navigation, route }) {
       />
 
       <View style={styles.footer}>
-        <View style={styles.footerStack}>
+        <View style={styles.footerRow}>
           {isHost ? (
-            <View style={styles.footerRow}>
-              <Pressable
-                onPress={openAddGuest}
-                style={({ pressed }) => [
-                  styles.footerBtn,
-                  styles.secondaryBtn,
-                  pressed && styles.pressed,
-                  (saving || rosterLocked) && { opacity: 0.7 },
-                ]}
-                disabled={saving || rosterLocked}
-              >
-                <Text style={styles.secondaryText}>{rosterLocked ? "Add Guest (Locked)" : "Add Guest"}</Text>
-              </Pressable>
-
-              <Pressable
-                onPress={toggleRosterLock}
-                style={({ pressed }) => [styles.footerBtn, styles.secondaryBtn, pressed && styles.pressed, saving && { opacity: 0.7 }]}
-                disabled={saving}
-              >
-                <Text style={styles.secondaryText}>{rosterLocked ? "Unlock Roster" : "Lock Roster"}</Text>
-              </Pressable>
-            </View>
-          ) : null}
+            <Pressable
+              onPress={toggleRosterLock}
+              style={({ pressed }) => [styles.footerBtn, styles.secondaryBtn, pressed && styles.pressed, saving && { opacity: 0.7 }]}
+              disabled={saving}
+            >
+              <Text style={styles.secondaryText}>{rosterLocked ? "Unlock Roster" : "Lock Roster"}</Text>
+            </Pressable>
+          ) : (
+            <View style={{ flex: 1 }} />
+          )}
 
           <Pressable
             onPress={() => navigation.goBack()}
@@ -772,41 +1240,188 @@ export default function TournamentPlayersScreen({ navigation, route }) {
         </View>
       </View>
 
-      <Modal visible={editOpen} transparent animationType="fade" onRequestClose={() => setEditOpen(false)}>
+      {/* Setup modal */}
+      <Modal visible={setupOpen} transparent animationType="fade" onRequestClose={() => setSetupOpen(false)}>
         <Pressable
           style={styles.modalOverlay}
           onPress={() => {
             Keyboard.dismiss();
-            setEditOpen(false);
-            setAddingGuest(false);
+            setSetupOpen(false);
           }}
         >
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
             <Pressable style={styles.modalCard} onPress={() => {}}>
               <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
-                <Text style={styles.modalTitle}>{addingGuest ? "Add Guest" : "Player Name"}</Text>
-                <Text style={styles.modalSub}>
-                  {addingGuest ? "Create a roster entry for someone without the app." : "Set the display name shown in this tournament."}
-                </Text>
+                <Text style={styles.modalTitle}>Tournament Setup</Text>
+                <Text style={styles.modalSub}>Jump back to any setup step.</Text>
 
-                <TextInput
-                  value={editName}
-                  onChangeText={setEditName}
-                  placeholder={addingGuest ? "e.g. Guest 1, Dad, John S." : "e.g. Steph, Kim, Dave..."}
-                  placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
-                  style={styles.input}
-                  autoCapitalize="words"
-                  returnKeyType="done"
-                  onSubmitEditing={saveName}
-                />
+                <View style={styles.optionList}>
+                  <Pressable onPress={() => goSetup(ROUTES.TOURNAMENT_ROUNDS)} style={({ pressed }) => [styles.optionItem, pressed && styles.pressed]}>
+                    <Text style={styles.optionTitle}>Edit Rounds</Text>
+                    <View style={styles.optionRight}>
+                      <Text style={styles.optionRightText}>Open</Text>
+                    </View>
+                  </Pressable>
+
+                  <Pressable onPress={() => goSetup(ROUTES.TOURNAMENT_COURSE)} style={({ pressed }) => [styles.optionItem, pressed && styles.pressed]}>
+                    <Text style={styles.optionTitle}>Edit Courses</Text>
+                    <View style={styles.optionRight}>
+                      <Text style={styles.optionRightText}>Open</Text>
+                    </View>
+                  </Pressable>
+
+                  <Pressable onPress={() => goSetup(ROUTES.TOURNAMENT_FORMATS)} style={({ pressed }) => [styles.optionItem, pressed && styles.pressed]}>
+                    <Text style={styles.optionTitle}>Edit Formats</Text>
+                    <View style={styles.optionRight}>
+                      <Text style={styles.optionRightText}>Open</Text>
+                    </View>
+                  </Pressable>
+                </View>
 
                 <View style={styles.modalBtnRow}>
                   <Pressable
                     onPress={() => {
-                      setEditOpen(false);
-                      setEditUid(null);
-                      setEditName("");
-                      setAddingGuest(false);
+                      setSetupOpen(false);
+                      Keyboard.dismiss();
+                    }}
+                    style={({ pressed }) => [styles.modalBtn, styles.modalBtnCancel, pressed && styles.pressed]}
+                  >
+                    <Text style={styles.modalBtnText}>Close</Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => {
+                      setSetupOpen(false);
+                      Keyboard.dismiss();
+                    }}
+                    style={({ pressed }) => [styles.modalBtn, styles.modalBtnSave, pressed && styles.pressed]}
+                  >
+                    <Text style={[styles.modalBtnText, styles.modalBtnTextSave]}>Done</Text>
+                  </Pressable>
+                </View>
+              </ScrollView>
+            </Pressable>
+          </KeyboardAvoidingView>
+        </Pressable>
+      </Modal>
+
+      {/* Add Players options */}
+      <Modal visible={addOpen} transparent animationType="fade" onRequestClose={() => setAddOpen(false)}>
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => {
+            Keyboard.dismiss();
+            setAddOpen(false);
+          }}
+        >
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
+            <Pressable style={styles.modalCard} onPress={() => {}}>
+              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
+                <Text style={styles.modalTitle}>Add Players</Text>
+                <Text style={styles.modalSub}>Choose how you want to add players.</Text>
+
+                <View style={styles.optionList}>
+                  <Pressable onPress={openBuddyPicker} style={({ pressed }) => [styles.optionItem, pressed && styles.pressed]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.optionTitle}>Add Buddies from List</Text>
+                      <Text style={styles.optionSub}>Pick one or more buddies and add them to this tournament.</Text>
+                    </View>
+                    <View style={styles.optionRight}>
+                      <Text style={styles.optionRightText}>Open</Text>
+                    </View>
+                  </Pressable>
+
+                  <Pressable onPress={openGuest} style={({ pressed }) => [styles.optionItem, pressed && styles.pressed]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.optionTitle}>Add Guest</Text>
+                      <Text style={styles.optionSub}>Manual entry (name + handicap required). Phone/email optional.</Text>
+                    </View>
+                    <View style={styles.optionRight}>
+                      <Text style={styles.optionRightText}>Open</Text>
+                    </View>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => {
+                      setAddOpen(false);
+                      Alert.alert("Invite by SMS", "Premium automated SMS invite is coming next.");
+                    }}
+                    style={({ pressed }) => [styles.optionItem, pressed && styles.pressed]}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.optionTitle}>Invite by SMS (Join with Code)</Text>
+                      <Text style={styles.optionSub}>Send an invite link + join code by text message.</Text>
+                    </View>
+                    <View style={styles.optionRight}>
+                      <Text style={styles.optionRightText}>Next</Text>
+                    </View>
+                  </Pressable>
+                </View>
+
+                <View style={styles.modalBtnRow}>
+                  <Pressable
+                    onPress={() => {
+                      setAddOpen(false);
+                      Keyboard.dismiss();
+                    }}
+                    style={({ pressed }) => [styles.modalBtn, styles.modalBtnCancel, pressed && styles.pressed]}
+                  >
+                    <Text style={styles.modalBtnText}>Close</Text>
+                  </Pressable>
+                </View>
+              </ScrollView>
+            </Pressable>
+          </KeyboardAvoidingView>
+        </Pressable>
+      </Modal>
+
+      {/* Buddy picker modal */}
+      <Modal visible={buddyOpen} transparent animationType="fade" onRequestClose={() => setBuddyOpen(false)}>
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => {
+            Keyboard.dismiss();
+            setBuddyOpen(false);
+          }}
+        >
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
+            <Pressable style={styles.modalCard} onPress={() => {}}>
+              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
+                <Text style={styles.modalTitle}>Select Buddies</Text>
+                <Text style={styles.modalSub}>Choose one or more buddies to add to the roster (saved to the cloud).</Text>
+
+                <TextInput
+                  value={buddySearch}
+                  onChangeText={setBuddySearch}
+                  placeholder="Search buddies"
+                  placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+                  style={styles.input}
+                  autoCapitalize="none"
+                />
+
+                {buddyLoading ? (
+                  <View style={styles.empty}>
+                    <Text style={styles.emptyTitle}>Loading Buddy List…</Text>
+                    <Text style={styles.emptySub}>Pulling your buddies from the cloud.</Text>
+                  </View>
+                ) : filteredBuddies.length ? (
+                  <FlatList
+                    data={filteredBuddies}
+                    keyExtractor={(x) => String(x.buddyUid || x.uid || x.id)}
+                    renderItem={renderBuddyRow}
+                    scrollEnabled={false}
+                  />
+                ) : (
+                  <View style={styles.empty}>
+                    <Text style={styles.emptyTitle}>No buddies found</Text>
+                    <Text style={styles.emptySub}>Add buddies in your Buddy List first, then come back here.</Text>
+                  </View>
+                )}
+
+                <View style={styles.modalBtnRow}>
+                  <Pressable
+                    onPress={() => {
+                      setBuddyOpen(false);
                       Keyboard.dismiss();
                     }}
                     style={({ pressed }) => [styles.modalBtn, styles.modalBtnCancel, pressed && styles.pressed]}
@@ -816,7 +1431,234 @@ export default function TournamentPlayersScreen({ navigation, route }) {
                   </Pressable>
 
                   <Pressable
-                    onPress={saveName}
+                    onPress={addSelectedBuddiesToTournament}
+                    style={({ pressed }) => [styles.modalBtn, styles.modalBtnSave, pressed && styles.pressed, (!selectedCount || saving) && { opacity: 0.6 }]}
+                    disabled={!selectedCount || saving}
+                  >
+                    <Text style={[styles.modalBtnText, styles.modalBtnTextSave]}>
+                      {saving ? "Adding..." : selectedCount ? `Add Selected (${selectedCount})` : "Add Selected"}
+                    </Text>
+                  </Pressable>
+                </View>
+              </ScrollView>
+            </Pressable>
+          </KeyboardAvoidingView>
+        </Pressable>
+      </Modal>
+
+      {/* Organizer edit modal */}
+      <Modal visible={orgOpen} transparent animationType="fade" onRequestClose={() => setOrgOpen(false)}>
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => {
+            Keyboard.dismiss();
+            setOrgOpen(false);
+          }}
+        >
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
+            <Pressable style={styles.modalCard} onPress={() => {}}>
+              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
+                <Text style={styles.modalTitle}>Tournament Organizer</Text>
+                <Text style={styles.modalSub}>Player 1 details (saved to the cloud).</Text>
+
+                <TextInput
+                  value={orgName}
+                  onChangeText={setOrgName}
+                  placeholder="Organizer name"
+                  placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+                  style={styles.input}
+                  autoCapitalize="words"
+                />
+                <TextInput
+                  value={orgHandicap}
+                  onChangeText={setOrgHandicap}
+                  placeholder="Handicap"
+                  placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+                  style={styles.input}
+                  keyboardType="number-pad"
+                />
+                <TextInput
+                  value={orgPhone}
+                  onChangeText={setOrgPhone}
+                  placeholder="Phone (optional)"
+                  placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+                  style={styles.input}
+                  keyboardType="phone-pad"
+                />
+                <TextInput
+                  value={orgEmail}
+                  onChangeText={setOrgEmail}
+                  placeholder="Email (optional)"
+                  placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+                  style={styles.input}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+
+                <View style={styles.modalBtnRow}>
+                  <Pressable
+                    onPress={() => {
+                      setOrgOpen(false);
+                      Keyboard.dismiss();
+                    }}
+                    style={({ pressed }) => [styles.modalBtn, styles.modalBtnCancel, pressed && styles.pressed]}
+                    disabled={saving}
+                  >
+                    <Text style={styles.modalBtnText}>Cancel</Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={saveOrganizer}
+                    style={({ pressed }) => [styles.modalBtn, styles.modalBtnSave, pressed && styles.pressed]}
+                    disabled={saving}
+                  >
+                    <Text style={[styles.modalBtnText, styles.modalBtnTextSave]}>{saving ? "Saving..." : "Save"}</Text>
+                  </Pressable>
+                </View>
+              </ScrollView>
+            </Pressable>
+          </KeyboardAvoidingView>
+        </Pressable>
+      </Modal>
+
+      {/* Guest modal */}
+      <Modal visible={guestOpen} transparent animationType="fade" onRequestClose={() => setGuestOpen(false)}>
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => {
+            Keyboard.dismiss();
+            setGuestOpen(false);
+          }}
+        >
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
+            <Pressable style={styles.modalCard} onPress={() => {}}>
+              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
+                <Text style={styles.modalTitle}>Add Guest</Text>
+                <Text style={styles.modalSub}>Name + handicap are required. Phone/email optional.</Text>
+
+                <TextInput
+                  value={guestName}
+                  onChangeText={setGuestName}
+                  placeholder="Guest name"
+                  placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+                  style={styles.input}
+                  autoCapitalize="words"
+                />
+                <TextInput
+                  value={guestHandicap}
+                  onChangeText={setGuestHandicap}
+                  placeholder="Handicap"
+                  placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+                  style={styles.input}
+                  keyboardType="number-pad"
+                />
+                <TextInput
+                  value={guestPhone}
+                  onChangeText={setGuestPhone}
+                  placeholder="Phone (optional)"
+                  placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+                  style={styles.input}
+                  keyboardType="phone-pad"
+                />
+                <TextInput
+                  value={guestEmail}
+                  onChangeText={setGuestEmail}
+                  placeholder="Email (optional)"
+                  placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+                  style={styles.input}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+
+                <View style={styles.modalBtnRow}>
+                  <Pressable
+                    onPress={() => {
+                      setGuestOpen(false);
+                      Keyboard.dismiss();
+                    }}
+                    style={({ pressed }) => [styles.modalBtn, styles.modalBtnCancel, pressed && styles.pressed]}
+                    disabled={saving}
+                  >
+                    <Text style={styles.modalBtnText}>Cancel</Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={addGuestNow}
+                    style={({ pressed }) => [styles.modalBtn, styles.modalBtnSave, pressed && styles.pressed]}
+                    disabled={saving}
+                  >
+                    <Text style={[styles.modalBtnText, styles.modalBtnTextSave]}>{saving ? "Saving..." : "Add Guest"}</Text>
+                  </Pressable>
+                </View>
+              </ScrollView>
+            </Pressable>
+          </KeyboardAvoidingView>
+        </Pressable>
+      </Modal>
+
+      {/* Edit Player modal */}
+      <Modal visible={editOpen} transparent animationType="fade" onRequestClose={() => setEditOpen(false)}>
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => {
+            Keyboard.dismiss();
+            setEditOpen(false);
+          }}
+        >
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
+            <Pressable style={styles.modalCard} onPress={() => {}}>
+              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
+                <Text style={styles.modalTitle}>{editIsGuest ? "Edit Guest" : "Edit Player"}</Text>
+                <Text style={styles.modalSub}>Update name, handicap, and optional contact details.</Text>
+
+                <TextInput
+                  value={editName}
+                  onChangeText={setEditName}
+                  placeholder="Name"
+                  placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+                  style={styles.input}
+                  autoCapitalize="words"
+                />
+                <TextInput
+                  value={editHcp}
+                  onChangeText={setEditHcp}
+                  placeholder="Handicap"
+                  placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+                  style={styles.input}
+                  keyboardType="number-pad"
+                />
+                <TextInput
+                  value={editPhone}
+                  onChangeText={setEditPhone}
+                  placeholder="Phone (optional)"
+                  placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+                  style={styles.input}
+                  keyboardType="phone-pad"
+                />
+                <TextInput
+                  value={editEmail}
+                  onChangeText={setEditEmail}
+                  placeholder="Email (optional)"
+                  placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+                  style={styles.input}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+
+                <View style={styles.modalBtnRow}>
+                  <Pressable
+                    onPress={() => {
+                      setEditOpen(false);
+                      Keyboard.dismiss();
+                    }}
+                    style={({ pressed }) => [styles.modalBtn, styles.modalBtnCancel, pressed && styles.pressed]}
+                    disabled={saving}
+                  >
+                    <Text style={styles.modalBtnText}>Cancel</Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={savePlayerEdit}
                     style={({ pressed }) => [styles.modalBtn, styles.modalBtnSave, pressed && styles.pressed]}
                     disabled={saving}
                   >
