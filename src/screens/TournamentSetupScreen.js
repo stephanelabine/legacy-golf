@@ -18,7 +18,7 @@ export default function TournamentSetupScreen({ navigation, route }) {
 
   const [t, setT] = useState(null);
   const [roundDocs, setRoundDocs] = useState([]);
-  const [players, setPlayers] = useState([]);
+  const [members, setMembers] = useState([]); // <-- use MEMBERS (single source of truth)
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
@@ -58,18 +58,19 @@ export default function TournamentSetupScreen({ navigation, route }) {
     return () => unsub();
   }, [tournamentId]);
 
+  // IMPORTANT: setup hub must reflect the real roster:
+  // tournaments/{tournamentId}/members
   useEffect(() => {
     if (!tournamentId) return;
 
-    const pref = collection(db, "tournaments", tournamentId, "players");
-    const pq = query(pref, orderBy("createdAt", "asc"));
+    const mref = collection(db, "tournaments", tournamentId, "members");
 
     const unsub = onSnapshot(
-      pq,
+      mref,
       (snap) => {
         const rows = [];
         snap.forEach((d) => rows.push({ id: d.id, ...d.data() }));
-        setPlayers(rows);
+        setMembers(rows);
       },
       (err) => Alert.alert("Players error", err?.message || "Could not load players.")
     );
@@ -77,7 +78,7 @@ export default function TournamentSetupScreen({ navigation, route }) {
     return () => unsub();
   }, [tournamentId]);
 
-  const joinCode = String(t?.joinCode || t?.code || "").trim();
+  const joinCode = String(t?.joinCode || t?.code || "").trim().toUpperCase();
   const tournamentName = String(t?.name || t?.tournamentName || "Tournament").trim();
 
   const roundsTotal = Math.max(1, Number(t?.roundsTotal || 1));
@@ -113,15 +114,20 @@ export default function TournamentSetupScreen({ navigation, route }) {
 
   const missingHcpCount = useMemo(() => {
     let n = 0;
-    (players || []).forEach((p) => {
+    (members || []).forEach((p) => {
       const h = p?.handicap;
-      const num = typeof h === "number" ? h : h === null || h === undefined || h === "" ? NaN : Number(h);
+      const num =
+        typeof h === "number"
+          ? h
+          : h === null || h === undefined || h === ""
+          ? NaN
+          : Number(String(h).trim());
       if (!Number.isFinite(num)) n += 1;
     });
     return n;
-  }, [players]);
+  }, [members]);
 
-  const playersReady = players.length >= 2 && missingHcpCount === 0;
+  const playersReady = members.length >= 2 && missingHcpCount === 0;
 
   const formatsReady = !!t?.formatsReady;
 
@@ -143,7 +149,6 @@ export default function TournamentSetupScreen({ navigation, route }) {
     const goldBorder = isDark ? "rgba(255, 210, 92, 0.60)" : "rgba(255, 210, 92, 0.62)";
     const goldBg = isDark ? "rgba(255, 210, 92, 0.12)" : "rgba(255, 210, 92, 0.16)";
 
-    const green = "rgba(15,122,74,0.92)";
     const greenBg = isDark ? "rgba(15,122,74,0.18)" : "rgba(15,122,74,0.16)";
     const greenRing = isDark ? "rgba(15,122,74,0.60)" : "rgba(15,122,74,0.70)";
 
@@ -319,11 +324,7 @@ export default function TournamentSetupScreen({ navigation, route }) {
     return (
       <Pressable
         onPress={onPress}
-        style={({ pressed }) => [
-          styles.stepCard,
-          isNext && !ok && styles.stepCardActive,
-          pressed && styles.pressed,
-        ]}
+        style={({ pressed }) => [styles.stepCard, isNext && !ok && styles.stepCardActive, pressed && styles.pressed]}
       >
         <View style={styles.stepTop}>
           <Text style={styles.stepTitle}>{title}</Text>
@@ -346,9 +347,7 @@ export default function TournamentSetupScreen({ navigation, route }) {
         <View style={styles.hero}>
           <Text style={styles.heroKicker}>Setup</Text>
           <Text style={styles.heroTitle}>{tournamentName}</Text>
-          <Text style={styles.heroSub}>
-            This is your setup hub. Tap any step to edit, or continue where you left off.
-          </Text>
+          <Text style={styles.heroSub}>This is your setup hub. Tap any step to edit, or continue where you left off.</Text>
         </View>
 
         <View style={styles.joinCard}>
@@ -359,11 +358,19 @@ export default function TournamentSetupScreen({ navigation, route }) {
           <Text style={styles.joinHint}>Copy or share the code to invite players.</Text>
 
           <View style={styles.joinRow}>
-            <Pressable onPress={copyJoinCode} disabled={!joinCode} style={({ pressed }) => [styles.miniBtn, pressed && styles.pressed, !joinCode && { opacity: 0.6 }]}>
+            <Pressable
+              onPress={copyJoinCode}
+              disabled={!joinCode}
+              style={({ pressed }) => [styles.miniBtn, pressed && styles.pressed, !joinCode && { opacity: 0.6 }]}
+            >
               <Text style={styles.miniText}>Copy</Text>
             </Pressable>
 
-            <Pressable onPress={shareInvite} disabled={!joinCode} style={({ pressed }) => [styles.miniBtn, pressed && styles.pressed, !joinCode && { opacity: 0.6 }]}>
+            <Pressable
+              onPress={shareInvite}
+              disabled={!joinCode}
+              style={({ pressed }) => [styles.miniBtn, pressed && styles.pressed, !joinCode && { opacity: 0.6 }]}
+            >
               <Text style={styles.miniText}>Share</Text>
             </Pressable>
           </View>
@@ -399,7 +406,7 @@ export default function TournamentSetupScreen({ navigation, route }) {
           title="Players"
           ok={playersReady}
           isNext={nextKey === ROUTES.TOURNAMENT_PLAYERS_SETUP}
-          sub={playersReady ? `Players ready: ${players.length}` : "Add 2+ players and set handicaps for everyone."}
+          sub={playersReady ? `Players ready: ${members.length}` : "Add 2+ players and set handicaps for everyone."}
           onPress={() => go(ROUTES.TOURNAMENT_PLAYERS_SETUP)}
         />
 

@@ -15,18 +15,7 @@ import {
   FlatList,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import {
-  doc,
-  onSnapshot,
-  updateDoc,
-  serverTimestamp,
-  collection,
-  query,
-  orderBy,
-  getDocs,
-  setDoc,
-  onSnapshot as onSnapshotQuery,
-} from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, serverTimestamp, collection, query, orderBy, getDocs, setDoc } from "firebase/firestore";
 
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
@@ -79,7 +68,7 @@ export default function TournamentTeesScreen({ navigation, route }) {
     const rref = collection(db, "tournaments", tournamentId, "rounds");
     const rq = query(rref, orderBy("roundIndex", "asc"));
 
-    const unsub = onSnapshotQuery(
+    const unsub = onSnapshot(
       rq,
       (snap) => {
         const rows = [];
@@ -128,9 +117,9 @@ export default function TournamentTeesScreen({ navigation, route }) {
   const filteredTees = useMemo(() => {
     const q = String(qText || "").trim().toLowerCase();
     if (!q) return tees;
-    return (tees || []).filter((t) => {
-      const name = String(t?.name || "").toLowerCase();
-      const code = String(t?.code || "").toLowerCase();
+    return (tees || []).filter((t2) => {
+      const name = String(t2?.name || "").toLowerCase();
+      const code = String(t2?.code || "").toLowerCase();
       return name.includes(q) || code.includes(q);
     });
   }, [tees, qText]);
@@ -202,13 +191,7 @@ export default function TournamentTeesScreen({ navigation, route }) {
         backgroundColor: theme.card2,
         marginBottom: 14,
       },
-      roundLabel: {
-        color: theme.text,
-        fontSize: 14,
-        fontWeight: "900",
-        letterSpacing: 0.4,
-        textAlign: "center",
-      },
+      roundLabel: { color: theme.text, fontSize: 14, fontWeight: "900", letterSpacing: 0.4, textAlign: "center" },
 
       teePill: {
         marginTop: 12,
@@ -458,7 +441,8 @@ export default function TournamentTeesScreen({ navigation, route }) {
       // non-blocking
     }
 
-    navigation.navigate(ROUTES.TOURNAMENT_PLAYERS_SETUP, { tournamentId });
+    // IMPORTANT: Go to the real roster screen (members), not the legacy setup players collection.
+    navigation.navigate(ROUTES.TOURNAMENT_PLAYERS, { tournamentId });
   }
 
   function renderTeePickRow({ item }) {
@@ -496,9 +480,7 @@ export default function TournamentTeesScreen({ navigation, route }) {
           <Text style={styles.heroKicker}>Tees</Text>
           <Text style={styles.heroTitle}>{roundsReady ? "Round Tees" : "Rounds required"}</Text>
           <Text style={styles.heroSub}>
-            {roundsReady
-              ? "Choose tees for each round. This stays separate from normal round setup."
-              : "Go back and set rounds first."}
+            {roundsReady ? "Choose tees for each round. This stays separate from normal round setup." : "Go back and set rounds first."}
           </Text>
         </View>
 
@@ -533,9 +515,7 @@ export default function TournamentTeesScreen({ navigation, route }) {
                     <Text style={styles.teePillText} numberOfLines={2} ellipsizeMode="tail">
                       {displayTitle}
                     </Text>
-                    <Text style={styles.teePillSub}>
-                      {cname ? `${cname}  •  ${displaySub}` : displaySub}
-                    </Text>
+                    <Text style={styles.teePillSub}>{cname ? `${cname}  •  ${displaySub}` : displaySub}</Text>
                   </View>
 
                   <Pressable
@@ -556,11 +536,7 @@ export default function TournamentTeesScreen({ navigation, route }) {
         <Pressable
           onPress={handleContinue}
           disabled={saving || !roundsReady}
-          style={({ pressed }) => [
-            styles.primaryBtn,
-            pressed && !saving && styles.pressed,
-            (saving || !roundsReady) && { opacity: 0.6 },
-          ]}
+          style={({ pressed }) => [styles.primaryBtn, pressed && !saving && styles.pressed, (saving || !roundsReady) && { opacity: 0.6 }]}
         >
           <Text style={styles.primaryText}>{saving ? "Saving..." : "Continue"}</Text>
         </Pressable>
@@ -606,7 +582,7 @@ export default function TournamentTeesScreen({ navigation, route }) {
 
               <FlatList
                 data={filteredTees}
-                keyExtractor={(t, i) => String(t?.code ?? i)}
+                keyExtractor={(t2, i) => String(t2?.code ?? i)}
                 renderItem={renderTeePickRow}
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}

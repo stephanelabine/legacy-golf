@@ -25,7 +25,9 @@ import {
   orderBy,
   getDocs,
   setDoc,
+  deleteDoc,
   onSnapshot as onSnapshotQuery,
+  writeBatch,
 } from "firebase/firestore";
 
 import ROUTES from "../navigation/routes";
@@ -44,7 +46,7 @@ export default function TournamentCourseScreen({ navigation, route }) {
   const [t, setT] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  const [roundDocs, setRoundDocs] = useState([]); // [{roundIndex, courseId, courseName}]
+  const [roundDocs, setRoundDocs] = useState([]); // canonical rounds only (r1..rN)
 
   // modal picker
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -70,86 +72,202 @@ export default function TournamentCourseScreen({ navigation, route }) {
     return () => unsub();
   }, [tournamentId]);
 
-  // Subscribe to rounds subcollection
-  useEffect(() => {
-    if (!tournamentId) return;
-
-    const rref = collection(db, "tournaments", tournamentId, "rounds");
-    const rq = query(rref, orderBy("roundIndex", "asc"));
-
-    const unsub = onSnapshotQuery(
-      rq,
-      (snap) => {
-        const rows = [];
-        snap.forEach((d) => rows.push({ id: d.id, ...d.data() }));
-        setRoundDocs(rows);
-      },
-      (err) => Alert.alert("Rounds error", err?.message || "Could not load rounds.")
-    );
-
-    return () => unsub();
-  }, [tournamentId]);
-
   const roundsReady = !!t?.roundsReady;
   const roundsTotal = Math.max(1, Number(t?.roundsTotal || 1));
 
-  // Ensure round docs exist (lazy-create missing docs when entering screen)
+  // --- helpers -------------------------------------------------------------
+
+  function isNumericId(id) {
+    return /^[0-9]+$/.test(String(id || ""));
+  }
+
+  function roundIdFor(n) {
+    return `r${n}`;
+  }
+
+  function parseRoundNumberFromDoc(docId, data) {
+    const rn =
+      Number(data?.roundNumber) ||
+      Number(data?.roundIndex) ||
+      (typeof docId === "string" && docId.startsWith("r") ? Number(docId.slice(1)) : NaN) ||
+      (isNumericId(docId) ? Number(docId) : NaN);
+
+    return Number.isFinite(rn) ? rn : null;
+  }
+
+  // --- migration + canonical seeding --------------------------------------
+
   useEffect(() => {
     if (!tournamentId) return;
     if (!roundsReady) return;
 
     let cancelled = false;
 
-    async function ensureRoundsExist() {
+    async function migrateAndSeedCanonicalRounds() {
       try {
         const rref = collection(db, "tournaments", tournamentId, "rounds");
         const snap = await getDocs(rref);
 
-        const existing = new Set();
+        // Gather any existing docs, numeric and r*
+        const numericByRound = new Map(); // 1 -> {ref, data}
+        const canonicalByRound = new Map(); // 1 -> {ref, data}
+
         snap.forEach((d) => {
-          const ri = Number(d.data()?.roundIndex || Number(d.id));
-          if (Number.isFinite(ri)) existing.add(ri);
+          const data = d.data() || {};
+          const rn = parseRoundNumberFromDoc(d.id, data);
+          if (!rn) return;
+
+          if (isNumericId(d.id)) numericByRound.set(rn, { ref: d.ref, data, id: d.id });
+          if (String(d.id || "").startsWith("r")) canonicalByRound.set(rn, { ref: d.ref, data, id: d.id });
         });
 
-        const writes = [];
+        const batch = writeBatch(db);
+
+        // Ensure canonical r1..rN exist, and migrate course/tee fields from numeric if needed.
         for (let i = 1; i <= roundsTotal; i++) {
-          if (!existing.has(i)) {
-            const dref = doc(db, "tournaments", tournamentId, "rounds", String(i));
-            writes.push(
-              setDoc(
-                dref,
-                {
-                  roundIndex: i,
-                  courseId: null,
-                  courseName: null,
-                  createdAt: serverTimestamp(),
-                  updatedAt: serverTimestamp(),
-                },
-                { merge: true }
-              )
-            );
-          }
+          const canonical = canonicalByRound.get(i);
+          const numeric = numericByRound.get(i);
+
+          const targetRef = doc(db, "tournaments", tournamentId, "rounds", roundIdFor(i));
+
+          // Prefer canonical values, but if missing, pull from numeric.
+          const sourceData = canonical?.data || {};
+          const migrateFromNumeric = numeric?.data || {};
+
+          const courseId = String(sourceData?.courseId || "").trim()
+            ? sourceData.courseId
+            : migrateFromNumeric?.courseId ?? null;
+
+          const courseName = String(sourceData?.courseName || "").trim()
+            ? sourceData.courseName
+            : migrateFromNumeric?.courseName ?? null;
+
+          const teeCode = String(sourceData?.teeCode || "").trim()
+            ? sourceData.teeCode
+            : migrateFromNumeric?.teeCode ?? null;
+
+          const teeName = String(sourceData?.teeName || "").trim()
+            ? sourceData.teeName
+            : migrateFromNumeric?.teeName ?? null;
+
+          const teeYardage =
+            typeof sourceData?.teeYardage === "number"
+              ? sourceData.teeYardage
+              : typeof migrateFromNumeric?.teeYardage === "number"
+              ? migrateFromNumeric.teeYardage
+              : migrateFromNumeric?.teeYardage
+              ? Number(migrateFromNumeric.teeYardage)
+              : null;
+
+          batch.set(
+            targetRef,
+            {
+              roundNumber: i,
+              // keep roundIndex for backward compatibility if any old code still queries it
+              roundIndex: i,
+              courseId: courseId ?? null,
+              courseName: courseName ?? null,
+              teeCode: teeCode ?? null,
+              teeName: teeName ?? null,
+              teeYardage: Number.isFinite(teeYardage) ? teeYardage : null,
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
         }
 
-        if (!cancelled && writes.length) await Promise.all(writes);
+        // Delete numeric docs (and any extra r-docs beyond roundsTotal)
+        snap.forEach((d) => {
+          const data = d.data() || {};
+          const rn = parseRoundNumberFromDoc(d.id, data);
+          if (!rn) return;
+
+          // remove numeric ids always
+          if (isNumericId(d.id)) {
+            batch.delete(d.ref);
+            return;
+          }
+
+          // remove canonical rounds that are beyond roundsTotal
+          if (String(d.id || "").startsWith("r") && rn > roundsTotal) {
+            batch.delete(d.ref);
+          }
+        });
+
+        await batch.commit();
+
+        // Also keep tournament-level courseId/courseName synced to Round 1 (optional compatibility)
+        // Only if Round 1 has a course selected.
+        const round1Ref = doc(db, "tournaments", tournamentId, "rounds", roundIdFor(1));
+        const round1Snap = await getDocs(collection(db, "tournaments", tournamentId, "rounds")); // cheap-ish; already in cache
+        let r1CourseId = null;
+        let r1CourseName = null;
+        round1Snap.forEach((d) => {
+          if (d.id === "r1") {
+            const dd = d.data() || {};
+            r1CourseId = dd?.courseId ?? null;
+            r1CourseName = dd?.courseName ?? null;
+          }
+        });
+
+        if (!cancelled && String(r1CourseId || "").trim()) {
+          try {
+            await updateDoc(doc(db, "tournaments", tournamentId), {
+              courseId: r1CourseId,
+              courseName: r1CourseName || null,
+              updatedAt: serverTimestamp(),
+            });
+          } catch (e) {
+            // non-blocking
+          }
+        }
       } catch (e) {
         if (!cancelled) Alert.alert("Setup failed", e?.message || "Could not prepare round records.");
       }
     }
 
-    ensureRoundsExist();
+    migrateAndSeedCanonicalRounds();
 
     return () => {
       cancelled = true;
     };
   }, [tournamentId, roundsReady, roundsTotal]);
 
+  // Subscribe to canonical rounds only (r1..rN) so screens stay consistent
+  useEffect(() => {
+    if (!tournamentId) return;
+    if (!roundsReady) return;
+
+    const rref = collection(db, "tournaments", tournamentId, "rounds");
+    const rq = query(rref, orderBy("roundNumber", "asc"));
+
+    const unsub = onSnapshotQuery(
+      rq,
+      (snap) => {
+        const rows = [];
+        snap.forEach((d) => {
+          // only keep canonical ids r*
+          if (String(d.id || "").startsWith("r")) rows.push({ id: d.id, ...d.data() });
+        });
+        setRoundDocs(rows);
+      },
+      (err) => Alert.alert("Rounds error", err?.message || "Could not load rounds.")
+    );
+
+    return () => unsub();
+  }, [tournamentId, roundsReady]);
+
   const roundInfo = useMemo(() => {
     const m = new Map();
     (roundDocs || []).forEach((r) => {
-      const ri = Number(r?.roundIndex || r?.id);
-      if (!Number.isFinite(ri)) return;
-      m.set(ri, {
+      const rn =
+        Number(r?.roundNumber) ||
+        Number(r?.roundIndex) ||
+        (typeof r?.id === "string" && r.id.startsWith("r") ? Number(r.id.slice(1)) : NaN);
+
+      if (!Number.isFinite(rn)) return;
+
+      m.set(rn, {
         courseId: r?.courseId ? String(r.courseId) : "",
         courseName: r?.courseName ? String(r.courseName) : "",
       });
@@ -428,9 +546,10 @@ export default function TournamentCourseScreen({ navigation, route }) {
     setSaving(true);
     try {
       await setDoc(
-        doc(db, "tournaments", tournamentId, "rounds", String(roundIndex)),
+        doc(db, "tournaments", tournamentId, "rounds", roundIdFor(roundIndex)),
         {
-          roundIndex,
+          roundNumber: roundIndex,
+          roundIndex: roundIndex, // keep for legacy ordering
           courseId: cid,
           courseName: cname,
           updatedAt: serverTimestamp(),
@@ -438,7 +557,7 @@ export default function TournamentCourseScreen({ navigation, route }) {
         { merge: true }
       );
 
-      // Backwards compatibility: keep tournament-level fields as "Round 1 default"
+      // keep tournament-level fields as "Round 1 default"
       if (roundIndex === 1) {
         await updateDoc(doc(db, "tournaments", tournamentId), {
           courseId: cid,
@@ -470,14 +589,14 @@ export default function TournamentCourseScreen({ navigation, route }) {
             const rref = collection(db, "tournaments", tournamentId, "rounds");
             const snap = await getDocs(rref);
 
-            const updates = [];
+            const batch = writeBatch(db);
+
             snap.forEach((d) => {
-              updates.push(
-                setDoc(d.ref, { courseId: null, courseName: null, updatedAt: serverTimestamp() }, { merge: true })
-              );
+              // clear canonical rounds; also clears any leftovers if they exist
+              batch.set(d.ref, { courseId: null, courseName: null, updatedAt: serverTimestamp() }, { merge: true });
             });
 
-            await Promise.all(updates);
+            await batch.commit();
 
             await updateDoc(doc(db, "tournaments", tournamentId), {
               courseId: null,

@@ -939,6 +939,49 @@ export default function TournamentPlayersScreen({ navigation, route }) {
     ]);
   }
 
+  const rosterCount = members.length || (Array.isArray(t?.memberUids) ? t.memberUids.length : 0);
+const playerCount = members.length;
+
+const missingHcpCount = useMemo(() => {
+  let n = 0;
+  (members || []).forEach((p) => {
+    const h = p?.handicap;
+    const num =
+      typeof h === "number"
+        ? h
+        : h === null || h === undefined || h === ""
+        ? NaN
+        : Number(String(h).trim());
+    if (!Number.isFinite(num)) n += 1;
+  });
+  return n;
+}, [members]);
+
+const canContinue = playerCount >= 2 && missingHcpCount === 0;
+
+  async function handleContinue() {
+    if (saving) return;
+
+    if (playerCount < 2) {
+      Alert.alert("Add players", "Add at least 2 players to continue.");
+      return;
+    }
+    if (missingHcpCount > 0) {
+      Alert.alert("Handicaps missing", "Every player needs a handicap before you continue.");
+      return;
+    }
+
+    try {
+      await updateDoc(doc(db, "tournaments", tournamentId), {
+        playersReady: true,
+        setupStep: "formats",
+        updatedAt: serverTimestamp(),
+      });
+    } catch (e) {}
+
+    navigation.navigate(ROUTES.TOURNAMENT_FORMATS, { tournamentId });
+  }
+
   async function toggleRosterLock() {
     if (!isHost || !tournamentId) return;
 
@@ -971,6 +1014,7 @@ export default function TournamentPlayersScreen({ navigation, route }) {
       ]
     );
   }
+
 
   function playerNumberFor(uid) {
     const order = members.map((m) => String(m.uid || m.id || ""));
@@ -1101,8 +1145,6 @@ export default function TournamentPlayersScreen({ navigation, route }) {
     );
   }
 
-  const count = members.length || (Array.isArray(t?.memberUids) ? t.memberUids.length : 0);
-
   return (
     <View style={styles.screen}>
       <ScreenHeader
@@ -1190,14 +1232,14 @@ export default function TournamentPlayersScreen({ navigation, route }) {
                     style={({ pressed }) => [styles.addBtn, pressed && styles.pressed, rosterLocked && { opacity: 0.6 }]}
                     disabled={rosterLocked}
                   >
-                    <Text style={styles.addBtnText}>{rosterLocked ? "Unlock roster to add" : "Open Options"}</Text>
+                    <Text style={styles.addBtnText}>{rosterLocked ? "Unlock roster to add" : "Add Players"}</Text>
                   </Pressable>
                 ) : null}
               </View>
             );
           }
 
-          if (item._type === "section") return <Text style={styles.sectionTitle}>{`Players • ${count}`}</Text>;
+          if (item._type === "section") return <Text style={styles.sectionTitle}>{`Players • ${rosterCount}`}</Text>;
 
           if (item._type === "end") {
             if (loadingM) return null;
@@ -1230,13 +1272,19 @@ export default function TournamentPlayersScreen({ navigation, route }) {
             <View style={{ flex: 1 }} />
           )}
 
-          <Pressable
-            onPress={() => navigation.goBack()}
-            style={({ pressed }) => [styles.footerBtn, styles.primaryBtn, pressed && styles.pressed, saving && { opacity: 0.7 }]}
-            disabled={saving}
+                    <Pressable
+            onPress={handleContinue}
+            style={({ pressed }) => [
+              styles.footerBtn,
+              styles.primaryBtn,
+              pressed && canContinue && styles.pressed,
+              (!canContinue || saving) && { opacity: 0.6 },
+            ]}
+            disabled={!canContinue || saving}
           >
-            <Text style={styles.primaryText}>Back</Text>
+            <Text style={styles.primaryText}>Continue</Text>
           </Pressable>
+
         </View>
       </View>
 
@@ -1270,8 +1318,25 @@ export default function TournamentPlayersScreen({ navigation, route }) {
                     </View>
                   </Pressable>
 
+                  <Pressable onPress={() => goSetup(ROUTES.TOURNAMENT_TEES)} style={({ pressed }) => [styles.optionItem, pressed && styles.pressed]}>
+                    <Text style={styles.optionTitle}>Edit Tees</Text>
+                    <View style={styles.optionRight}>
+                      <Text style={styles.optionRightText}>Open</Text>
+                    </View>
+                  </Pressable>
+
                   <Pressable onPress={() => goSetup(ROUTES.TOURNAMENT_FORMATS)} style={({ pressed }) => [styles.optionItem, pressed && styles.pressed]}>
                     <Text style={styles.optionTitle}>Edit Formats</Text>
+                    <View style={styles.optionRight}>
+                      <Text style={styles.optionRightText}>Open</Text>
+                    </View>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => goSetup(ROUTES.TOURNAMENT_PLAYERS_SETUP)}
+                    style={({ pressed }) => [styles.optionItem, pressed && styles.pressed]}
+                  >
+                    <Text style={styles.optionTitle}>Edit Players</Text>
                     <View style={styles.optionRight}>
                       <Text style={styles.optionRightText}>Open</Text>
                     </View>

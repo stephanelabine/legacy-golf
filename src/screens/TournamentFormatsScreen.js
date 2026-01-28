@@ -5,143 +5,114 @@ import {
   Text,
   StyleSheet,
   Pressable,
-  FlatList,
   Alert,
   Platform,
+  ScrollView,
   Modal,
+  KeyboardAvoidingView,
   TextInput,
   Keyboard,
-  KeyboardAvoidingView,
-  ScrollView,
-  Switch,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
+  collection,
   doc,
   onSnapshot,
-  collection,
-  addDoc,
+  setDoc,
   updateDoc,
-  deleteDoc,
   serverTimestamp,
+  getDoc,
 } from "firebase/firestore";
 
+import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import { useTheme } from "../theme/ThemeProvider";
-import { auth, db } from "../firebase/firebase";
+import { db } from "../firebase/firebase";
 
-const SIDE_GAME_TYPES = [
-  { id: "kp", label: "KP (Closest to Pin)" },
-  { id: "kp_second_shot", label: "2nd Shot KP" },
-  { id: "long_drive", label: "Long Drive" },
-  { id: "deuce_pot", label: "Deuce Pot" },
-  { id: "putting_contest", label: "Putting Contest (Total Putts)" },
-  { id: "skins", label: "Skins (Tournament)" },
+const FORMAT_LIBRARY = [
+  {
+    type: "kp",
+    title: "KP",
+    subtitle: "Closest to the pin",
+    needsHoles: true,
+    info:
+      "KP (Closest to the Pin): pick one or more holes for this round (usually all par 3s). Winner is confirmed by the group/organizer.",
+  },
+  {
+    type: "second_shot_kp",
+    title: "Second Shot KP",
+    subtitle: "Closest after second shot",
+    needsHoles: true,
+    info:
+      "Second Shot KP: pick one or more holes for this round. Closest-to-the-pin from second shots (often par 5 approaches). Winner is confirmed by the group/organizer.",
+  },
+  {
+    type: "long_drive",
+    title: "Long Drive",
+    subtitle: "Longest drive on a hole",
+    needsHoles: true,
+    info:
+      "Long Drive: pick one or more holes for this round. Later we’ll support pin-drop + peer validation. For now, organizer/group confirms the winner.",
+  },
+  {
+    type: "deuce_pot",
+    title: "Deuce Pot",
+    subtitle: "Split pot among all deuces",
+    needsHoles: false,
+    info:
+      "Deuce Pot: every deuce made in the round counts. The pot is split evenly among deuce makers. Example: $10 x 10 players = $100. If 5 deuces are made, each deuce pays $20.",
+  },
+  {
+    type: "putting_contest",
+    title: "Putting Contest",
+    subtitle: "Lowest total putts wins",
+    needsHoles: false,
+    info:
+      "Putting Contest: tracks total putts across the tournament (and by round). Lowest total putts wins. Ties are handled by the organizer (putt-off / split / etc.).",
+  },
+  {
+    type: "skins",
+    title: "Skins",
+    subtitle: "Net skins carry over",
+    needsHoles: false,
+    info:
+      "Skins: in net play, skins are won outright after handicap adjustments. If not won outright, the skin carries over. Exact carryover/wash rules can be organizer-defined later.",
+  },
 ];
 
-const GAME_META = {
-  kp: {
-    title: "KP",
-    subtitle: "Pick label + holes + cost to enter.",
-    labelOptions: ["Men's KP", "Women's KP", "Mixed KP", "Custom..."],
-    holesMode: "multi",
-    scopeChoices: ["All 18", "Front 9", "Back 9", "Select holes..."],
-  },
-  kp_second_shot: {
-    title: "2nd Shot KP",
-    subtitle: "Pick label + holes + cost to enter.",
-    labelOptions: [
-      "Men's 2nd Shot KP",
-      "Women's 2nd Shot KP",
-      "Mixed 2nd Shot KP",
-      "Custom...",
-    ],
-    holesMode: "multi",
-    scopeChoices: ["All 18", "Front 9", "Back 9", "Select holes..."],
-  },
-  long_drive: {
-    title: "Long Drive",
-    subtitle: "Pick label + holes + cost to enter.",
-    labelOptions: [
-      "Men's Long Drive",
-      "Women's Long Drive",
-      "Mixed Long Drive",
-      "Custom...",
-    ],
-    // CHANGE: long drive is now multi-select holes
-    holesMode: "multi",
-    scopeChoices: ["Select holes..."],
-  },
-  deuce_pot: {
-    title: "Deuce Pot",
-    subtitle: "Pick label + scope + cost to enter.",
-    labelOptions: ["Men's Deuce Pot", "Women's Deuce Pot", "Mixed Deuce Pot", "Custom..."],
-    holesMode: "scope",
-    scopeChoices: ["All 18", "Front 9", "Back 9"],
-  },
-  skins: {
-    title: "Skins",
-    subtitle: "Pick label + scope (or select holes) + cost to enter.",
-    labelOptions: ["Men's Skins", "Women's Skins", "All Skins", "Custom..."],
-    holesMode: "scope_or_custom",
-    scopeChoices: ["All 18", "Front 9", "Back 9", "Select holes..."],
-  },
-  putting_contest: {
-    title: "Total Putts",
-    subtitle: "We’ll implement later.",
-    labelOptions: ["Total Putts", "Custom..."],
-    holesMode: "none",
-    scopeChoices: ["All 18"],
-  },
-};
-
-function holesLabelFromMode(holesMode, holes) {
-  const mode = String(holesMode || "all");
-  const arr = Array.isArray(holes) ? holes : [];
-  if (mode === "front9") return "Front 9";
-  if (mode === "back9") return "Back 9";
-  if (mode === "single" && arr[0]) return `Hole ${arr[0]}`;
-  if (mode === "custom" && arr.length) return `Holes ${arr.join(", ")}`;
-  return "All 18";
+function roundIdFromIndex(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v < 1) return "1";
+  return String(Math.floor(v));
 }
 
-function normalizeHoleArray(arr) {
-  const uniq = Array.from(
-    new Set(
-      (Array.isArray(arr) ? arr : [])
-        .map((n) => Number(n))
-        .filter((n) => Number.isFinite(n) && n >= 1 && n <= 36)
-    )
-  );
-  uniq.sort((a, b) => a - b);
-  return uniq;
+function normalizeHoles(value) {
+  if (Array.isArray(value)) {
+    const clean = value
+      .map((x) => Number(x))
+      .filter((n) => Number.isFinite(n) && n >= 1)
+      .map((n) => Math.floor(n));
+    return Array.from(new Set(clean)).sort((a, b) => a - b);
+  }
+
+  const n = Number(value);
+  if (Number.isFinite(n) && n >= 1) return [Math.floor(n)];
+  return [];
 }
 
-function ModalShell({ visible, onClose, children }) {
-  return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      presentationStyle="overFullScreen"
-      onRequestClose={onClose}
-    >
-      <View style={{ flex: 1 }} pointerEvents="box-none">
-        <Pressable
-          style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.55)" }]}
-          onPress={onClose}
-        />
-        <View
-          style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 }}
-          pointerEvents="box-none"
-        >
-          <View style={{ width: "100%" }} pointerEvents="auto">
-            {children}
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
+function formatMoney(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v <= 0) return "";
+  const fixed = Math.round(v * 100) / 100;
+  return fixed % 1 === 0 ? `$${fixed.toFixed(0)}` : `$${fixed.toFixed(2)}`;
+}
+
+function getEntryFeeValue(f) {
+  const a = Number(f?.entryFee);
+  if (Number.isFinite(a)) return a;
+  const b = Number(f?.buyIn);
+  if (Number.isFinite(b)) return b;
+  return null;
 }
 
 export default function TournamentFormatsScreen({ navigation, route }) {
@@ -152,31 +123,26 @@ export default function TournamentFormatsScreen({ navigation, route }) {
   const tournamentId = route?.params?.tournamentId;
 
   const [t, setT] = useState(null);
-  const [loadingT, setLoadingT] = useState(true);
 
+  const [roundIndex, setRoundIndex] = useState(1);
   const [formats, setFormats] = useState([]);
-  const [loadingF, setLoadingF] = useState(true);
 
-  const [chooseOpen, setChooseOpen] = useState(false);
-  const [editorOpen, setEditorOpen] = useState(false);
+  const [holesCount, setHolesCount] = useState(18);
 
-  const [saving, setSaving] = useState(false);
-  const [editorTypeId, setEditorTypeId] = useState(null);
+  // add modal
+  const [addOpen, setAddOpen] = useState(false);
 
-  // editor fields
-  const [label, setLabel] = useState("");
-  const [customLabelText, setCustomLabelText] = useState("");
+  // holes modal
+  const [holesOpen, setHolesOpen] = useState(false);
+  const [holesForType, setHolesForType] = useState("");
+  const [holesDraft, setHolesDraft] = useState([]);
 
-  const [holesMode, setHolesMode] = useState("all"); // all/front9/back9/single/custom
-  const [selectedHoles, setSelectedHoles] = useState([]);
-  const [selectedHole, setSelectedHole] = useState(null); // kept for legacy/single modes
-  const [buyIn, setBuyIn] = useState("");
-
-  // in-editor overlay sheet (no nested Modals)
-  const [sheet, setSheet] = useState(null); // null | "label" | "customLabel" | "scope" | "holes"
+  // entry fee modal
+  const [feeOpen, setFeeOpen] = useState(false);
+  const [feeForType, setFeeForType] = useState("");
+  const [feeValue, setFeeValue] = useState("");
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
-  const u = auth.currentUser;
 
   useEffect(() => {
     if (!tournamentId) {
@@ -185,126 +151,167 @@ export default function TournamentFormatsScreen({ navigation, route }) {
       return;
     }
 
-    const tref = doc(db, "tournaments", tournamentId);
-    const unsubT = onSnapshot(
-      tref,
+    const ref = doc(db, "tournaments", tournamentId);
+    const unsub = onSnapshot(
+      ref,
       (snap) => {
-        setT(snap.exists() ? { id: snap.id, ...snap.data() } : null);
-        setLoadingT(false);
+        const data = snap.exists() ? { id: snap.id, ...snap.data() } : null;
+        setT(data);
+
+        const rt = Math.max(1, Number(data?.roundsTotal || 1));
+        setRoundIndex((prev) => {
+          const p = Number(prev);
+          if (!Number.isFinite(p)) return 1;
+          if (p < 1) return 1;
+          if (p > rt) return rt;
+          return p;
+        });
       },
-      (err) => {
-        setLoadingT(false);
-        Alert.alert("Tournament error", err?.message || "Could not load tournament.");
-      }
+      (err) => Alert.alert("Tournament error", err?.message || "Could not load tournament.")
     );
 
-    const fref = collection(db, "tournaments", tournamentId, "formats");
-    const unsubF = onSnapshot(
+    return () => unsub();
+  }, [tournamentId]);
+
+  // formats per round
+  useEffect(() => {
+    if (!tournamentId) return;
+
+    const rid = roundIdFromIndex(roundIndex);
+    const fref = collection(db, "tournaments", tournamentId, "rounds", rid, "formats");
+
+    const unsub = onSnapshot(
       fref,
       (snap) => {
         const rows = [];
         snap.forEach((d) => rows.push({ id: d.id, ...d.data() }));
-        rows.sort((a, b) => {
-          const as = Number(a?.createdAt?.seconds || 0);
-          const bs = Number(b?.createdAt?.seconds || 0);
-          if (as !== bs) return as - bs;
-          return String(a?.id || "").localeCompare(String(b?.id || ""));
-        });
+        rows.sort((a, b) => String(a?.type || a?.id || "").localeCompare(String(b?.type || b?.id || "")));
         setFormats(rows);
-        setLoadingF(false);
       },
-      (err) => {
-        setLoadingF(false);
-        Alert.alert("Formats error", err?.message || "Could not load formats.");
-      }
+      (err) => Alert.alert("Formats error", err?.message || "Could not load formats.")
     );
 
+    return () => unsub();
+  }, [tournamentId, roundIndex]);
+
+  // load course holes count (best-effort)
+  useEffect(() => {
+    let alive = true;
+
+    async function loadRoundMeta() {
+      if (!tournamentId) return;
+
+      try {
+        const rid = roundIdFromIndex(roundIndex);
+        const rdocRef = doc(db, "tournaments", tournamentId, "rounds", rid);
+        const rSnap = await getDoc(rdocRef);
+
+        const courseId = rSnap.exists() ? String(rSnap.data()?.courseId || "").trim() : "";
+        if (!courseId) {
+          if (alive) setHolesCount(18);
+          return;
+        }
+
+        const cRef = doc(db, "courses", courseId);
+        const cSnap = await getDoc(cRef);
+
+        let hc = 18;
+        if (cSnap.exists()) {
+          const c = cSnap.data() || {};
+          if (Number.isFinite(Number(c?.holeCount))) hc = Math.max(1, Math.min(36, Number(c.holeCount)));
+          else if (Array.isArray(c?.holes)) hc = Math.max(1, Math.min(36, c.holes.length));
+          else if (Array.isArray(c?.holeMeta)) hc = Math.max(1, Math.min(36, c.holeMeta.length));
+        }
+
+        if (alive) setHolesCount(hc || 18);
+      } catch (e) {
+        if (alive) setHolesCount(18);
+      }
+    }
+
+    loadRoundMeta();
     return () => {
-      unsubT();
-      unsubF();
+      alive = false;
     };
-  }, [tournamentId, navigation]);
+  }, [tournamentId, roundIndex]);
 
-  const isHost = useMemo(() => {
-    if (!u || !t) return false;
-    return String(t.ownerUid || "") === String(u.uid || "");
-  }, [t, u]);
-
-  const editorMeta = useMemo(() => {
-    if (!editorTypeId) return null;
-    return GAME_META[editorTypeId] || null;
-  }, [editorTypeId]);
-
-  const count = formats.length;
+  const roundsTotal = Math.max(1, Number(t?.roundsTotal || 1));
+  const tournamentName = String(t?.name || t?.tournamentName || "Tournament").trim();
 
   const styles = useMemo(() => {
-    const blue = isDark ? "rgba(46,125,255,0.92)" : "rgba(29,53,87,0.92)";
-    const blueBg = isDark ? "rgba(46,125,255,0.12)" : "rgba(29,53,87,0.12)";
-
     const softBorder = isDark ? "rgba(255,255,255,0.14)" : "rgba(10,15,26,0.12)";
     const softBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(10,15,26,0.06)";
 
-    const goldBorder = isDark ? "rgba(255, 210, 92, 0.55)" : "rgba(255, 210, 92, 0.58)";
-    const goldBg = isDark ? "rgba(255, 210, 92, 0.10)" : "rgba(255, 210, 92, 0.14)";
+    const goldBorder = isDark ? "rgba(255, 210, 92, 0.60)" : "rgba(255, 210, 92, 0.62)";
+    const goldBg = isDark ? "rgba(255, 210, 92, 0.08)" : "rgba(255, 210, 92, 0.12)";
 
-    const dangerBg = "rgba(231,76,60,0.14)";
-    const dangerBorder = "rgba(231,76,60,0.28)";
+    const green = "rgba(15,122,74,0.92)";
+    const greenRing = isDark ? "rgba(15,122,74,0.60)" : "rgba(15,122,74,0.70)";
+    const greenBg = isDark ? "rgba(15,122,74,0.18)" : "rgba(15,122,74,0.16)";
+
+    const inkBtn = isDark ? "rgba(46,125,255,0.92)" : "rgba(10,15,26,0.92)";
 
     return StyleSheet.create({
       screen: { flex: 1, backgroundColor: theme.bg },
-      listContent: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 150 },
+      content: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 190 },
 
+      // slimmer gold header
       hero: {
-        borderRadius: 22,
-        padding: 16,
+        borderRadius: 20,
+        paddingVertical: 12,
+        paddingHorizontal: 14,
         borderWidth: 1,
         borderColor: goldBorder,
         backgroundColor: goldBg,
         marginBottom: 12,
       },
-      heroTitle: { color: theme.text, fontSize: 18, fontWeight: "900" },
-      heroSub: { marginTop: 6, color: theme.text, opacity: 0.72, fontSize: 13, fontWeight: "700", lineHeight: 18 },
+      heroTitle: { color: theme.text, fontSize: 17, fontWeight: "900", textAlign: "center" },
+      heroSub: { marginTop: 4, color: theme.text, opacity: 0.74, fontSize: 12, fontWeight: "900", textAlign: "center" },
 
-      card: {
+      roundBar: {
         borderRadius: 18,
-        padding: 16,
+        padding: 12,
         borderWidth: 1,
-        borderColor: theme.border,
+        borderColor: softBorder,
         backgroundColor: theme.card2,
         marginBottom: 12,
-        overflow: "hidden",
+      },
+      roundLabel: {
+        color: theme.text,
+        fontSize: 12,
+        fontWeight: "900",
+        letterSpacing: 1.4,
+        opacity: 0.75,
+        textTransform: "uppercase",
+        textAlign: "center",
       },
 
-      rowTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
-      rowTitle: { color: theme.text, fontSize: 16, fontWeight: "900" },
-      rowSub: { marginTop: 8, color: theme.text, opacity: 0.72, fontSize: 13, fontWeight: "700", lineHeight: 18 },
-
-      pill: {
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 999,
-        backgroundColor: softBg,
-        borderWidth: 1,
-        borderColor: softBorder,
+      // round bubbles (non-scroll, even layout)
+      roundGrid: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        marginTop: 10,
       },
-      pillText: { color: theme.text, fontSize: 12, fontWeight: "900" },
-
-      actions: { marginTop: 12, flexDirection: "row", gap: 10, alignItems: "center" },
-      actionBtn: {
-        flex: 1,
-        height: 46,
-        borderRadius: 16,
+      roundCell: {
+        paddingVertical: 8,
         alignItems: "center",
         justifyContent: "center",
-        backgroundColor: softBg,
+      },
+      roundBubble: {
+        aspectRatio: 1,
+        width: 56,
+        borderRadius: 999,
         borderWidth: 1,
         borderColor: softBorder,
+        backgroundColor: softBg,
+        alignItems: "center",
+        justifyContent: "center",
       },
-      actionText: { color: theme.text, fontSize: 13, fontWeight: "900" },
-      actionBtnDanger: { backgroundColor: dangerBg, borderColor: dangerBorder },
+      roundBubbleActive: { borderColor: greenRing, backgroundColor: greenBg },
+      roundBubbleText: { color: theme.text, fontSize: 13, fontWeight: "900" },
 
       sectionTitle: {
-        marginTop: 12,
+        marginTop: 4,
         marginBottom: 10,
         color: theme.text,
         fontSize: 13,
@@ -312,6 +319,106 @@ export default function TournamentFormatsScreen({ navigation, route }) {
         letterSpacing: 1.4,
         opacity: 0.75,
         textTransform: "uppercase",
+      },
+
+      formatCard: {
+        borderRadius: 18,
+        padding: 14,
+        borderWidth: 1,
+        borderColor: softBorder,
+        backgroundColor: theme.card2,
+        marginBottom: 10,
+      },
+      formatTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+      formatTitle: { flex: 1, color: theme.text, fontSize: 15, fontWeight: "900" },
+
+      toggle: {
+        paddingHorizontal: 10,
+        paddingVertical: 7,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: softBorder,
+        backgroundColor: softBg,
+      },
+      toggleOn: { borderColor: greenRing, backgroundColor: greenBg },
+      toggleText: { color: theme.text, fontSize: 12, fontWeight: "900", opacity: 0.95 },
+
+      formatSub: { marginTop: 8, color: theme.text, opacity: 0.72, fontSize: 12, fontWeight: "800", lineHeight: 18 },
+
+      metaLine: { marginTop: 8, color: theme.text, opacity: 0.82, fontSize: 12, fontWeight: "900" },
+
+      // chips row
+      chipsRow: { marginTop: 10 },
+      chipsLabel: { color: theme.text, opacity: 0.72, fontSize: 12, fontWeight: "900", marginBottom: 8 },
+      chipsWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+
+      chip: {
+        width: 34,
+        height: 34,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: softBorder,
+        backgroundColor: softBg,
+        alignItems: "center",
+        justifyContent: "center",
+      },
+      chipActive: { borderColor: greenRing, backgroundColor: greenBg },
+      chipText: { color: theme.text, fontSize: 12, fontWeight: "900" },
+
+      actionsRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 12 },
+      pillBtn: {
+        paddingHorizontal: 12,
+        paddingVertical: 9,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: softBorder,
+        backgroundColor: softBg,
+      },
+      pillBtnActive: { borderColor: greenRing, backgroundColor: greenBg },
+      pillBtnText: { color: theme.text, fontSize: 12, fontWeight: "900" },
+
+      infoBtn: {
+        width: 34,
+        height: 34,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: softBorder,
+        backgroundColor: softBg,
+        alignItems: "center",
+        justifyContent: "center",
+        marginLeft: "auto",
+      },
+      infoText: { color: theme.text, fontSize: 14, fontWeight: "900" },
+
+      addBtn: {
+        height: 56,
+        borderRadius: 18,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: green,
+        borderWidth: 1,
+        borderColor: greenRing,
+        marginTop: 10,
+        marginBottom: 14,
+      },
+      addText: { color: "#fff", fontSize: 16, fontWeight: "900", letterSpacing: 0.3 },
+
+      empty: {
+        borderRadius: 18,
+        padding: 14,
+        borderWidth: 1,
+        borderColor: softBorder,
+        backgroundColor: softBg,
+      },
+      emptyTitle: { color: theme.text, fontSize: 14, fontWeight: "900", textAlign: "center" },
+      emptySub: {
+        marginTop: 8,
+        color: theme.text,
+        opacity: 0.72,
+        fontSize: 12,
+        fontWeight: "800",
+        textAlign: "center",
+        lineHeight: 18,
       },
 
       footer: {
@@ -326,74 +433,71 @@ export default function TournamentFormatsScreen({ navigation, route }) {
         borderTopWidth: 1,
         borderTopColor: theme.divider,
       },
-
       primaryBtn: {
         height: 56,
         borderRadius: 18,
         alignItems: "center",
         justifyContent: "center",
-        backgroundColor: isDark ? "rgba(46,125,255,0.92)" : "rgba(10,15,26,0.92)",
+        backgroundColor: inkBtn,
       },
+      primaryBtnDisabled: { opacity: 0.45 },
       primaryText: { color: "#fff", fontSize: 16, fontWeight: "900", letterSpacing: 0.4 },
 
-      secondaryBtn: {
+      helper: {
         marginTop: 10,
-        height: 52,
+        borderRadius: 16,
+        padding: 12,
+        borderWidth: 1,
+        borderColor: softBorder,
+        backgroundColor: softBg,
+      },
+      helperText: { color: theme.text, opacity: 0.78, fontSize: 12, fontWeight: "800", lineHeight: 17, textAlign: "center" },
+
+      pressed: { opacity: Platform.OS === "ios" ? 0.88 : 0.9, transform: [{ scale: 0.99 }] },
+
+      modalOverlay: {
+        flex: 1,
+        backgroundColor: "rgba(0,0,0,0.55)",
+        alignItems: "center",
+        justifyContent: "center",
+        paddingHorizontal: 16,
+      },
+      modalCard: {
+        width: "100%",
+        borderRadius: 22,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: theme.border,
+        backgroundColor: theme.bg,
+      },
+      modalTitle: { color: theme.text, fontSize: 18, fontWeight: "900", textAlign: "center" },
+      modalSub: { marginTop: 8, color: theme.text, opacity: 0.72, fontSize: 13, fontWeight: "700", lineHeight: 18, textAlign: "center" },
+
+      choiceBtn: {
+        height: 54,
         borderRadius: 18,
         alignItems: "center",
         justifyContent: "center",
         backgroundColor: softBg,
         borderWidth: 1,
         borderColor: softBorder,
-      },
-      secondaryText: { color: theme.text, fontSize: 15, fontWeight: "900", letterSpacing: 0.3 },
-
-      pressed: { opacity: Platform.OS === "ios" ? 0.88 : 0.9, transform: [{ scale: 0.99 }] },
-
-      modalCard: {
-        width: "100%",
-        borderRadius: 22,
-        borderWidth: 1,
-        borderColor: theme.border,
-        backgroundColor: theme.bg,
-        overflow: "hidden",
-      },
-
-      modalHeader: { padding: 16, paddingBottom: 10 },
-      modalTitle: { color: theme.text, fontSize: 18, fontWeight: "900" },
-      modalSub: { marginTop: 6, color: theme.text, opacity: 0.7, fontSize: 13, fontWeight: "700", lineHeight: 18 },
-
-      modalBody: { paddingHorizontal: 16, paddingBottom: 10 },
-
-      chooserItem: {
         marginTop: 10,
-        borderRadius: 16,
-        paddingVertical: 14,
-        paddingHorizontal: 14,
-        borderWidth: 1,
-        borderColor: softBorder,
-        backgroundColor: softBg,
       },
-      chooserLabel: { color: theme.text, fontSize: 14, fontWeight: "900" },
-      chooserHint: { marginTop: 4, color: theme.text, opacity: 0.65, fontSize: 12, fontWeight: "700" },
+      choiceText: { color: theme.text, fontSize: 15, fontWeight: "900" },
 
-      fieldRow: {
-        marginTop: 12,
+      holeGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "center", marginTop: 10 },
+      holeBtn: {
+        width: 62,
+        height: 50,
         borderRadius: 16,
-        paddingVertical: 14,
-        paddingHorizontal: 14,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: softBg,
         borderWidth: 1,
         borderColor: softBorder,
-        backgroundColor: softBg,
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 10,
       },
-      fieldLeft: { flex: 1 },
-      fieldLabel: { color: theme.text, fontSize: 12, fontWeight: "900", opacity: 0.75, letterSpacing: 1.0, textTransform: "uppercase" },
-      fieldValue: { marginTop: 6, color: theme.text, fontSize: 15, fontWeight: "900" },
-      chevron: { color: theme.text, opacity: 0.55, fontSize: 18, fontWeight: "900" },
+      holeBtnActive: { backgroundColor: greenBg, borderColor: greenRing },
+      holeText: { color: theme.text, fontSize: 14, fontWeight: "900" },
 
       input: {
         marginTop: 12,
@@ -406,545 +510,299 @@ export default function TournamentFormatsScreen({ navigation, route }) {
         color: theme.text,
         fontSize: 16,
         fontWeight: "900",
+        textAlign: "center",
       },
-      helper: { marginTop: 8, color: theme.text, opacity: 0.6, fontSize: 12, fontWeight: "700" },
 
-      modalFooter: {
-        paddingHorizontal: 16,
-        paddingTop: 12,
-        paddingBottom: Math.max(16, (insets?.bottom || 0) + 10),
-        borderTopWidth: 1,
-        borderTopColor: theme.divider,
-        backgroundColor: theme.bg,
-      },
-      btnRow: { flexDirection: "row", gap: 10 },
-      btn: { flex: 1, height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center", borderWidth: 1 },
-      btnCancel: { backgroundColor: softBg, borderColor: softBorder },
-      btnSave: { backgroundColor: blue, borderColor: blue },
-      btnText: { color: theme.text, fontSize: 15, fontWeight: "900" },
-      btnTextSave: { color: "#fff" },
-
-      holesGrid: { paddingHorizontal: 16, paddingBottom: 8 },
-      holeChip: {
-        height: 44,
-        borderRadius: 14,
+      modalRow: { flexDirection: "row", gap: 10, marginTop: 12 },
+      modalBtn: {
+        flex: 1,
+        height: 52,
+        borderRadius: 18,
         alignItems: "center",
         justifyContent: "center",
+        backgroundColor: softBg,
         borderWidth: 1,
         borderColor: softBorder,
-        backgroundColor: softBg,
       },
-      holeChipActive: { borderColor: blue, backgroundColor: blueBg },
-      holeChipText: { color: theme.text, fontSize: 14, fontWeight: "900" },
-
-      sheetOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.45)" },
-      sheetCard: {
-        marginTop: 16,
-        borderRadius: 22,
-        borderWidth: 1,
-        borderColor: theme.border,
-        backgroundColor: theme.bg,
-        overflow: "hidden",
-      },
+      modalBtnPrimary: { backgroundColor: green, borderColor: greenRing },
+      modalBtnText: { color: theme.text, fontSize: 14, fontWeight: "900" },
+      modalBtnTextPrimary: { color: "#fff" },
     });
-  }, [theme, isDark, footerPad, insets]);
+  }, [theme, isDark, footerPad]);
 
-  async function recalcReady(nextCount) {
+  const enabledCount = useMemo(() => (formats || []).filter((f) => !!f?.enabled).length, [formats]);
+  const canContinue = enabledCount >= 1;
+
+  async function addFormat(type) {
     if (!tournamentId) return;
-    const c = Number.isFinite(nextCount) ? nextCount : formats.length;
+
+    const lib = FORMAT_LIBRARY.find((x) => x.type === type);
+    if (!lib) return;
+
+    const rid = roundIdFromIndex(roundIndex);
+    const fdoc = doc(db, "tournaments", tournamentId, "rounds", rid, "formats", type);
+
+    const now = serverTimestamp();
+    const base = {
+      type,
+      title: lib.title,
+      subtitle: lib.subtitle,
+      enabled: true,
+      holes: [],
+      entryFee: null, // number dollars (optional)
+      buyIn: null, // legacy (read-only going forward)
+      createdAt: now,
+      updatedAt: now,
+    };
+
     try {
-      await updateDoc(doc(db, "tournaments", tournamentId), {
-        formatsReady: c > 0,
-        formatsCount: c,
-        updatedAt: serverTimestamp(),
-      });
-    } catch {}
-  }
+      await setDoc(fdoc, base, { merge: true });
+      setAddOpen(false);
 
-  function openChoose() {
-    if (!isHost) {
-      Alert.alert("Host only", "Only the host can add or edit formats.");
-      return;
-    }
-    setChooseOpen(true);
-  }
-
-  function resetEditor(typeId) {
-    setEditorTypeId(typeId);
-    setLabel("");
-    setCustomLabelText("");
-    setBuyIn("");
-    setSheet(null);
-
-    // CHANGE: Long Drive defaults to custom multi-hole selection
-    if (typeId === "long_drive") {
-      setHolesMode("custom");
-      setSelectedHoles([]);
-      setSelectedHole(null);
-      return;
-    }
-
-    const meta = GAME_META[typeId] || GAME_META.kp;
-    if (meta.holesMode === "single") {
-      setHolesMode("single");
-      setSelectedHole(null);
-      setSelectedHoles([]);
-    } else {
-      setHolesMode("all");
-      setSelectedHole(null);
-      setSelectedHoles([]);
-    }
-  }
-
-  function openEditor(typeId) {
-    if (typeId === "putting_contest") {
-      Alert.alert("Coming soon", "We’ll implement Total Putts later.");
-      return;
-    }
-    resetEditor(typeId);
-    setChooseOpen(false);
-    setEditorOpen(true);
-  }
-
-  function currentLabelText() {
-    if (!label) return "Select (optional)";
-    return label;
-  }
-
-  function currentHolesText() {
-    const meta = editorMeta;
-    if (!meta) return "Select";
-
-    if (meta.holesMode === "single") {
-      return selectedHole ? `Hole ${selectedHole}` : "Select hole";
-    }
-
-    if (holesMode === "custom") {
-      const arr = normalizeHoleArray(selectedHoles);
-      return arr.length ? `Holes ${arr.join(", ")}` : "Select holes";
-    }
-
-    return holesLabelFromMode(holesMode, []);
-  }
-
-  function openLabelPicker() {
-    setSheet("label");
-  }
-
-  function openHolesOrScopePicker() {
-    if (!editorMeta) return;
-    const type = editorTypeId;
-
-    // CHANGE: long drive now uses the holes picker (multi)
-    if (type === "long_drive") {
-      setHolesMode("custom");
-      setSheet("holes");
-      return;
-    }
-
-    if (type === "long_drive") setSheet("holes");
-    else setSheet("scope");
-  }
-
-  function pickLabel(option) {
-    if (option === "Custom...") {
-      setCustomLabelText(label || "");
-      setSheet("customLabel");
-      return;
-    }
-    setLabel(option);
-    setSheet(null);
-  }
-
-  function saveCustomLabel() {
-    const cleaned = String(customLabelText || "").trim();
-    setLabel(cleaned);
-    setSheet(null);
-  }
-
-  function applyScopeChoice(choice) {
-    if (choice === "All 18") {
-      setHolesMode("all");
-      setSelectedHoles([]);
-      setSelectedHole(null);
-      setSheet(null);
-      return;
-    }
-    if (choice === "Front 9") {
-      setHolesMode("front9");
-      setSelectedHoles([]);
-      setSelectedHole(null);
-      setSheet(null);
-      return;
-    }
-    if (choice === "Back 9") {
-      setHolesMode("back9");
-      setSelectedHoles([]);
-      setSelectedHole(null);
-      setSheet(null);
-      return;
-    }
-    if (choice === "Select holes...") {
-      setHolesMode("custom");
-      setSheet("holes");
-      return;
-    }
-    setSheet(null);
-  }
-
-  function toggleMultiHole(h) {
-    const n = Number(h);
-    if (!Number.isFinite(n) || n < 1 || n > 36) return;
-    const cur = normalizeHoleArray(selectedHoles);
-    const exists = cur.includes(n);
-    const next = exists ? cur.filter((x) => x !== n) : [...cur, n].sort((a, b) => a - b);
-    setSelectedHoles(next);
-  }
-
-  function pickSingleHole(h) {
-    const n = Number(h);
-    if (!Number.isFinite(n) || n < 1 || n > 36) return;
-    setSelectedHole(n);
-  }
-
-  function validateEditor() {
-    if (!editorTypeId) return { ok: false, msg: "Missing format type." };
-
-    // CHANGE: Long Drive now requires at least 1 selected hole (multi)
-    if (editorTypeId === "long_drive") {
-      const arr = normalizeHoleArray(selectedHoles);
-      if (!arr.length) return { ok: false, msg: "Please select at least one Long Drive hole." };
-      return { ok: true };
-    }
-
-    if (editorTypeId === "deuce_pot") {
-      if (!["all", "front9", "back9"].includes(holesMode)) {
-        return { ok: false, msg: "Please select All 18, Front 9, or Back 9." };
+      if (lib.needsHoles) {
+        setHolesForType(type);
+        setHolesDraft([]);
+        setHolesOpen(true);
       }
-      return { ok: true };
-    }
-
-    if (editorTypeId === "skins") {
-      if (holesMode === "custom") {
-        const arr = normalizeHoleArray(selectedHoles);
-        if (!arr.length) return { ok: false, msg: "Please select at least one hole for Skins." };
-        return { ok: true };
-      }
-      if (!["all", "front9", "back9"].includes(holesMode)) {
-        return { ok: false, msg: "Please select All 18, Front 9, Back 9, or Select holes." };
-      }
-      return { ok: true };
-    }
-
-    // KP types
-    if (holesMode === "custom") {
-      const arr = normalizeHoleArray(selectedHoles);
-      if (!arr.length) return { ok: false, msg: "Please select at least one hole." };
-      return { ok: true };
-    }
-
-    if (!["all", "front9", "back9"].includes(holesMode)) {
-      return { ok: false, msg: "Please select All 18, Front 9, Back 9, or Select holes." };
-    }
-
-    return { ok: true };
-  }
-
-  async function createFormat() {
-    if (!tournamentId || !isHost) return;
-    if (!editorTypeId) return;
-
-    const v = validateEditor();
-    if (!v.ok) {
-      Alert.alert("Missing info", v.msg || "Please complete the format.");
-      return;
-    }
-
-    const type = String(editorTypeId || "").trim();
-    const typeMeta = SIDE_GAME_TYPES.find((x) => x.id === type);
-    const cleanedLabel = String(label || "").trim() || String(typeMeta?.label || "Side Game");
-
-    const buy = String(buyIn || "").trim();
-    const buyNum = buy ? Number(buy) : null;
-    if (buy && !Number.isFinite(buyNum)) {
-      Alert.alert("Cost invalid", "Enter a number (e.g. 20) or leave blank.");
-      return;
-    }
-
-    let outMode = "all";
-    let outHoles = [];
-
-    // CHANGE: long_drive now saves as custom holes list
-    if (type === "long_drive") {
-      outMode = "custom";
-      outHoles = normalizeHoleArray(selectedHoles);
-    } else if (type === "deuce_pot") {
-      outMode = holesMode;
-      outHoles = [];
-    } else if (type === "skins") {
-      if (holesMode === "custom") {
-        outMode = "custom";
-        outHoles = normalizeHoleArray(selectedHoles);
-      } else {
-        outMode = holesMode;
-        outHoles = [];
-      }
-    } else {
-      // KP
-      if (holesMode === "custom") {
-        outMode = "custom";
-        outHoles = normalizeHoleArray(selectedHoles);
-      } else {
-        outMode = holesMode;
-        outHoles = [];
-      }
-    }
-
-    setSaving(true);
-    try {
-      await addDoc(collection(db, "tournaments", tournamentId, "formats"), {
-        type,
-        label: cleanedLabel,
-        enabled: true,
-        holesMode: outMode,
-        holes: outHoles,
-        buyIn: buyNum,
-        payoutMode: "winner_takes",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-
-      setEditorOpen(false);
-      setEditorTypeId(null);
-      setSheet(null);
-      Keyboard.dismiss();
-
-      setTimeout(() => recalcReady(formats.length + 1), 250);
     } catch (e) {
-      Alert.alert("Create failed", e?.message || "Could not add format.");
-    } finally {
-      setSaving(false);
+      Alert.alert("Add format failed", e?.message || "Could not add format.");
     }
   }
 
-  async function toggleEnabled(item) {
-    if (!isHost || !tournamentId) return;
-    const id = String(item?.id || "");
-    if (!id) return;
+  async function toggleEnabled(f) {
+    if (!tournamentId) return;
+    const type = String(f?.type || f?.id || "").trim();
+    if (!type) return;
 
-    const next = !item?.enabled;
+    const rid = roundIdFromIndex(roundIndex);
+    const fdoc = doc(db, "tournaments", tournamentId, "rounds", rid, "formats", type);
+
     try {
-      await updateDoc(doc(db, "tournaments", tournamentId, "formats", id), {
-        enabled: next,
-        updatedAt: serverTimestamp(),
-      });
+      await updateDoc(fdoc, { enabled: !f?.enabled, updatedAt: serverTimestamp() });
     } catch (e) {
       Alert.alert("Update failed", e?.message || "Could not update format.");
     }
   }
 
-  async function deleteFormat(item) {
-    if (!isHost || !tournamentId) return;
-    const id = String(item?.id || "");
-    if (!id) return;
-
-    Alert.alert("Delete format?", "This removes it from the tournament.", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await deleteDoc(doc(db, "tournaments", tournamentId, "formats", id));
-            setTimeout(() => recalcReady(Math.max(0, formats.length - 1)), 250);
-          } catch (e) {
-            Alert.alert("Delete failed", e?.message || "Could not delete format.");
-          }
-        },
-      },
-    ]);
+  function showInfo(type) {
+    const lib = FORMAT_LIBRARY.find((x) => x.type === type);
+    if (!lib) return;
+    Alert.alert(lib.title, lib.info);
   }
 
-  function renderHoleChip({ item }) {
-    const n = Number(item);
-    const meta = editorMeta;
+  function openHolesPicker(type) {
+    const f = (formats || []).find((x) => String(x?.type || x?.id || "") === String(type));
+    const existing = normalizeHoles(f?.holes ?? f?.hole);
+    setHolesForType(type);
+    setHolesDraft(existing);
+    setHolesOpen(true);
+  }
 
-    let active = false;
-    if (meta?.holesMode === "single") active = Number(selectedHole) === n;
-    else active = normalizeHoleArray(selectedHoles).includes(n);
+  function toggleHole(n) {
+    const holeNum = Number(n);
+    if (!Number.isFinite(holeNum) || holeNum < 1) return;
+
+    setHolesDraft((prev) => {
+      const cur = normalizeHoles(prev);
+      if (cur.includes(holeNum)) return cur.filter((x) => x !== holeNum);
+      return normalizeHoles([...cur, holeNum]);
+    });
+  }
+
+  async function saveHoles() {
+    if (!tournamentId) return;
+
+    const type = String(holesForType || "").trim();
+    if (!type) return;
+
+    const selected = normalizeHoles(holesDraft);
+
+    if (!selected.length) {
+      Alert.alert("Pick holes", "Select at least one hole for this format.");
+      return;
+    }
+
+    const rid = roundIdFromIndex(roundIndex);
+    const fdoc = doc(db, "tournaments", tournamentId, "rounds", rid, "formats", type);
+
+    try {
+      await updateDoc(fdoc, { holes: selected, hole: null, updatedAt: serverTimestamp() });
+      setHolesOpen(false);
+      setHolesForType("");
+      setHolesDraft([]);
+    } catch (e) {
+      Alert.alert("Save holes failed", e?.message || "Could not save holes.");
+    }
+  }
+
+  function openFeePicker(type) {
+    const f = (formats || []).find((x) => String(x?.type || x?.id || "") === String(type));
+    const existing = getEntryFeeValue(f);
+    setFeeForType(type);
+    setFeeValue(Number.isFinite(Number(existing)) && Number(existing) > 0 ? String(existing) : "");
+    setFeeOpen(true);
+  }
+
+  async function saveFee() {
+    if (!tournamentId) return;
+
+    const type = String(feeForType || "").trim();
+    if (!type) return;
+
+    const raw = String(feeValue || "").trim();
+    const rid = roundIdFromIndex(roundIndex);
+    const fdoc = doc(db, "tournaments", tournamentId, "rounds", rid, "formats", type);
+
+    let entryFee = null;
+    if (raw) {
+      const v = Number(raw);
+      if (!Number.isFinite(v) || v < 0) {
+        Alert.alert("Entry fee", "Entry fee must be a number (example: 10 or 10.00).");
+        return;
+      }
+      entryFee = Math.round(v * 100) / 100;
+    }
+
+    try {
+      await updateDoc(fdoc, { entryFee, buyIn: null, updatedAt: serverTimestamp() });
+      Keyboard.dismiss();
+      setFeeOpen(false);
+      setFeeForType("");
+      setFeeValue("");
+    } catch (e) {
+      Alert.alert("Save fee failed", e?.message || "Could not save entry fee.");
+    }
+  }
+
+  async function handleContinue() {
+    if (!tournamentId) return;
+
+    if (!canContinue) {
+      Alert.alert("Add formats", "Enable at least one format for this round to finish.");
+      return;
+    }
+
+    try {
+      await updateDoc(doc(db, "tournaments", tournamentId), {
+        formatsReady: true,
+        setupStep: "review",
+        updatedAt: serverTimestamp(),
+      });
+    } catch (e) {}
+
+    navigation.navigate(ROUTES.TOURNAMENT_SETUP, { tournamentId });
+  }
+
+  function RoundChooser() {
+    const cols = roundsTotal <= 4 ? roundsTotal : 4;
+    const cellWidth = `${100 / cols}%`;
+
+    const bubbles = [];
+    for (let i = 1; i <= roundsTotal; i++) {
+      const active = i === roundIndex;
+
+      bubbles.push(
+        <View key={`r-${i}`} style={[styles.roundCell, { width: cellWidth }]}>
+          <Pressable
+            onPress={() => setRoundIndex(i)}
+            style={({ pressed }) => [styles.roundBubble, active && styles.roundBubbleActive, pressed && styles.pressed]}
+          >
+            <Text style={styles.roundBubbleText}>{i}</Text>
+          </Pressable>
+        </View>
+      );
+    }
 
     return (
-      <Pressable
-        onPress={() => {
-          if (meta?.holesMode === "single") pickSingleHole(n);
-          else toggleMultiHole(n);
-        }}
-        style={({ pressed }) => [
-          styles.holeChip,
-          active && styles.holeChipActive,
-          pressed && styles.pressed,
-          { marginBottom: 10, flex: 1 },
-        ]}
-      >
-        <Text style={styles.holeChipText}>{n}</Text>
-      </Pressable>
+      <View style={styles.roundBar}>
+        <Text style={styles.roundLabel}>Choose round</Text>
+        <View style={styles.roundGrid}>{bubbles}</View>
+      </View>
     );
   }
 
-  function renderEditorSheet() {
-    if (!sheet) return null;
+  function FormatCard({ f }) {
+    const type = String(f?.type || f?.id || "").trim();
+    const lib = FORMAT_LIBRARY.find((x) => x.type === type);
 
-    const meta = editorMeta;
-    const labelOptions = meta?.labelOptions || ["Custom..."];
-    const scopeChoices = meta?.scopeChoices || ["All 18", "Front 9", "Back 9", "Select holes..."];
-    const isSingle = meta?.holesMode === "single";
+    const title = String(lib?.title || f?.title || type || "Format");
+    const sub = String(lib?.subtitle || f?.subtitle || "").trim();
+    const needsHoles = !!lib?.needsHoles;
+
+    const selectedHoles = normalizeHoles(f?.holes ?? f?.hole);
+    const hasHoles = selectedHoles.length > 0;
+
+    const entryFeeValue = getEntryFeeValue(f);
+    const entryFeeLabel = formatMoney(entryFeeValue);
+    const feeText = entryFeeLabel ? `Entry ${entryFeeLabel}` : "Set entry";
+
+    const enabled = !!f?.enabled;
 
     return (
-      <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-        <Pressable style={styles.sheetOverlay} onPress={() => setSheet(null)} />
-        <View style={{ flex: 1, justifyContent: "center", paddingHorizontal: 16 }} pointerEvents="box-none">
-          <View style={styles.sheetCard} pointerEvents="auto">
-            {sheet === "label" ? (
-              <>
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>Choose label</Text>
-                  <Text style={styles.modalSub}>Optional (helps for Men/Women/Mixed).</Text>
-                </View>
-                <ScrollView
-                  showsVerticalScrollIndicator={false}
-                  keyboardShouldPersistTaps="handled"
-                  contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 }}
-                >
-                  {labelOptions.map((opt) => (
-                    <Pressable
-                      key={opt}
-                      onPress={() => pickLabel(opt)}
-                      style={({ pressed }) => [styles.chooserItem, pressed && styles.pressed]}
-                    >
-                      <Text style={styles.chooserLabel}>{opt}</Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-                <View style={styles.modalFooter}>
-                  <View style={styles.btnRow}>
-                    <Pressable
-                      onPress={() => setSheet(null)}
-                      style={({ pressed }) => [styles.btn, styles.btnCancel, pressed && styles.pressed]}
-                    >
-                      <Text style={styles.btnText}>Done</Text>
-                    </Pressable>
+      <View style={[styles.formatCard, !enabled && { opacity: 0.72 }]}>
+        <View style={styles.formatTop}>
+          <Text style={styles.formatTitle}>{title}</Text>
+
+          <Pressable
+            onPress={() => toggleEnabled(f)}
+            style={({ pressed }) => [styles.toggle, enabled && styles.toggleOn, pressed && styles.pressed]}
+          >
+            <Text style={styles.toggleText}>{enabled ? "Enabled" : "Disabled"}</Text>
+          </Pressable>
+        </View>
+
+        <Text style={styles.formatSub}>
+          {sub || "Format"} {needsHoles ? "• Pick holes for this round." : "• Applies across the round."}
+        </Text>
+
+        {entryFeeLabel ? <Text style={styles.metaLine}>{`${entryFeeLabel} entry`}</Text> : null}
+
+        {needsHoles ? (
+          <View style={styles.chipsRow}>
+            <Text style={styles.chipsLabel}>Holes</Text>
+
+            {hasHoles ? (
+              <View style={styles.chipsWrap}>
+                {selectedHoles.map((n) => (
+                  <View key={`chip-${type}-${n}`} style={[styles.chip, styles.chipActive]}>
+                    <Text style={styles.chipText}>{n}</Text>
                   </View>
+                ))}
+              </View>
+            ) : (
+              <View style={styles.chipsWrap}>
+                <View style={styles.chip}>
+                  <Text style={styles.chipText}>—</Text>
                 </View>
-              </>
-            ) : null}
-
-            {sheet === "customLabel" ? (
-              <>
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>Custom label</Text>
-                  <Text style={styles.modalSub}>Type your own label (optional).</Text>
-                </View>
-                <View style={styles.modalBody}>
-                  <TextInput
-                    value={customLabelText}
-                    onChangeText={setCustomLabelText}
-                    placeholder="Type label..."
-                    placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
-                    style={styles.input}
-                    autoCapitalize="words"
-                    returnKeyType="done"
-                    onSubmitEditing={() => Keyboard.dismiss()}
-                  />
-                </View>
-                <View style={styles.modalFooter}>
-                  <View style={styles.btnRow}>
-                    <Pressable
-                      onPress={() => setSheet(null)}
-                      style={({ pressed }) => [styles.btn, styles.btnCancel, pressed && styles.pressed]}
-                    >
-                      <Text style={styles.btnText}>Cancel</Text>
-                    </Pressable>
-                    <Pressable
-                      onPress={saveCustomLabel}
-                      style={({ pressed }) => [styles.btn, styles.btnSave, pressed && styles.pressed]}
-                    >
-                      <Text style={[styles.btnText, styles.btnTextSave]}>Finish</Text>
-                    </Pressable>
-                  </View>
-                </View>
-              </>
-            ) : null}
-
-            {sheet === "scope" ? (
-              <>
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>Choose holes</Text>
-                  <Text style={styles.modalSub}>Select All/Front/Back, or choose specific holes.</Text>
-                </View>
-                <ScrollView
-                  showsVerticalScrollIndicator={false}
-                  keyboardShouldPersistTaps="handled"
-                  contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 }}
-                >
-                  {scopeChoices.map((c) => (
-                    <Pressable
-                      key={c}
-                      onPress={() => applyScopeChoice(c)}
-                      style={({ pressed }) => [styles.chooserItem, pressed && styles.pressed]}
-                    >
-                      <Text style={styles.chooserLabel}>{c}</Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-                <View style={styles.modalFooter}>
-                  <View style={styles.btnRow}>
-                    <Pressable
-                      onPress={() => setSheet(null)}
-                      style={({ pressed }) => [styles.btn, styles.btnCancel, pressed && styles.pressed]}
-                    >
-                      <Text style={styles.btnText}>Done</Text>
-                    </Pressable>
-                  </View>
-                </View>
-              </>
-            ) : null}
-
-            {sheet === "holes" ? (
-              <>
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>{isSingle ? "Pick a hole" : "Select holes"}</Text>
-                  <Text style={styles.modalSub}>
-                    {isSingle
-                      ? "Tap one hole. It will stay highlighted."
-                      : "Tap holes to toggle. Selected holes stay highlighted."}
-                  </Text>
-                </View>
-
-                <View style={styles.holesGrid}>
-                  <FlatList
-                    data={Array.from({ length: 18 }, (_, i) => i + 1)}
-                    keyExtractor={(x) => String(x)}
-                    numColumns={6}
-                    columnWrapperStyle={{ gap: 10 }}
-                    contentContainerStyle={{ gap: 10 }}
-                    renderItem={renderHoleChip}
-                    scrollEnabled={false}
-                  />
-                </View>
-
-                <View style={styles.modalFooter}>
-                  <View style={styles.btnRow}>
-                    <Pressable
-                      onPress={() => setSheet(null)}
-                      style={({ pressed }) => [styles.btn, styles.btnSave, pressed && styles.pressed]}
-                    >
-                      <Text style={[styles.btnText, styles.btnTextSave]}>Done</Text>
-                    </Pressable>
-                  </View>
-                </View>
-              </>
-            ) : null}
+              </View>
+            )}
           </View>
+        ) : null}
+
+        <View style={styles.actionsRow}>
+          {needsHoles ? (
+            <Pressable
+              onPress={() => openHolesPicker(type)}
+              style={({ pressed }) => [styles.pillBtn, hasHoles && styles.pillBtnActive, pressed && styles.pressed]}
+            >
+              <Text style={styles.pillBtnText}>{hasHoles ? "Edit holes" : "Pick holes"}</Text>
+            </Pressable>
+          ) : (
+            <View style={styles.pillBtn}>
+              <Text style={styles.pillBtnText}>No holes</Text>
+            </View>
+          )}
+
+          <Pressable
+            onPress={() => openFeePicker(type)}
+            style={({ pressed }) => [styles.pillBtn, entryFeeLabel && styles.pillBtnActive, pressed && styles.pressed]}
+          >
+            <Text style={styles.pillBtnText}>{feeText}</Text>
+          </Pressable>
+
+          <Pressable onPress={() => showInfo(type)} style={({ pressed }) => [styles.infoBtn, pressed && styles.pressed]}>
+            <Text style={styles.infoText}>i</Text>
+          </Pressable>
         </View>
       </View>
     );
@@ -952,218 +810,174 @@ export default function TournamentFormatsScreen({ navigation, route }) {
 
   return (
     <View style={styles.screen}>
-      <ScreenHeader
-        navigation={navigation}
-        title="Games/Formats"
-        subtitle="Add tournament side games with a premium picker-based setup."
-      />
+      <ScreenHeader navigation={navigation} title="Tournament" subtitle="Formats" />
 
-      <FlatList
-        data={[
-          { _type: "hero", key: "hero" },
-          { _type: "section", key: "section" },
-          ...formats.map((f) => ({ _type: "format", key: `f:${f.id}`, ...f })),
-          { _type: "end", key: "end" },
-        ]}
-        keyExtractor={(x) => x.key}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-        renderItem={({ item }) => {
-          if (item._type === "hero") {
-            return (
-              <View style={styles.hero}>
-                <Text style={styles.heroTitle}>{loadingT ? "Loading..." : `Formats · ${count}`}</Text>
-                <Text style={styles.heroSub}>
-                  Host-defined tournament games. Player opt-in + who-owes-what summary comes next.
-                </Text>
-              </View>
-            );
-          }
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.hero}>
+          <Text style={styles.heroTitle}>{tournamentName}</Text>
+          <Text style={styles.heroSub}>Formats</Text>
+        </View>
 
-          if (item._type === "section") return <Text style={styles.sectionTitle}>Tournament Side Games</Text>;
+        <RoundChooser />
 
-          if (item._type === "end") {
-            if (loadingF) return null;
-            if (!formats.length) {
-              return (
-                <View style={styles.card}>
-                  <Text style={styles.rowTitle}>No formats yet</Text>
-                  <Text style={styles.rowSub}>Tap Add Format to include KP’s, long drive, deuce pot, skins, etc.</Text>
-                </View>
-              );
-            }
-            return null;
-          }
+        <Pressable onPress={() => setAddOpen(true)} style={({ pressed }) => [styles.addBtn, pressed && styles.pressed]}>
+          <Text style={styles.addText}>Add Formats</Text>
+        </Pressable>
 
-          if (item._type !== "format") return null;
+        <Text style={styles.sectionTitle}>Round {roundIndex}</Text>
 
-          const typeMeta = SIDE_GAME_TYPES.find((x) => x.id === item.type);
-          const title = String(item.label || typeMeta?.label || "Side Game");
-          const enabled = !!item.enabled;
-
-          return (
-            <View style={styles.card}>
-              <View style={styles.rowTop}>
-                <Text style={styles.rowTitle}>{title}</Text>
-                <View style={styles.pill}>
-                  <Text style={styles.pillText}>{enabled ? "ON" : "OFF"}</Text>
-                </View>
-              </View>
-
-              <Text style={styles.rowSub}>
-                {typeMeta?.label ? `${typeMeta.label} · ` : ""}
-                {`Holes: ${holesLabelFromMode(item.holesMode, item.holes)}`}
-                {Number.isFinite(item.buyIn) ? ` · Cost: $${item.buyIn}` : ""}
-              </Text>
-
-              {isHost ? (
-                <View style={styles.actions}>
-                  <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 10 }}>
-                    <Text style={[styles.actionText, { opacity: 0.9 }]}>Enabled</Text>
-                    <Switch value={enabled} onValueChange={() => toggleEnabled(item)} />
-                  </View>
-
-                  <Pressable
-                    onPress={() => deleteFormat(item)}
-                    style={({ pressed }) => [styles.actionBtn, styles.actionBtnDanger, pressed && styles.pressed]}
-                  >
-                    <Text style={styles.actionText}>Delete</Text>
-                  </Pressable>
-                </View>
-              ) : null}
-            </View>
-          );
-        }}
-      />
+        {formats.length ? (
+          formats.map((f) => <FormatCard key={String(f?.type || f?.id || "")} f={f} />)
+        ) : (
+          <View style={styles.empty}>
+            <Text style={styles.emptyTitle}>No formats yet</Text>
+            <Text style={styles.emptySub}>Tap “Add Formats” to add KP, Long Drive, Skins and more for this round.</Text>
+          </View>
+        )}
+      </ScrollView>
 
       <View style={styles.footer}>
         <Pressable
-          onPress={openChoose}
-          disabled={!isHost}
-          style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed, !isHost && { opacity: 0.6 }]}
+          onPress={handleContinue}
+          disabled={!canContinue}
+          style={({ pressed }) => [styles.primaryBtn, !canContinue && styles.primaryBtnDisabled, pressed && canContinue && styles.pressed]}
         >
-          <Text style={styles.primaryText}>{!isHost ? "Host Only" : "Add Format"}</Text>
+          <Text style={styles.primaryText}>Done</Text>
         </Pressable>
 
-        <Pressable onPress={() => navigation.goBack()} style={({ pressed }) => [styles.secondaryBtn, pressed && styles.pressed]}>
-          <Text style={styles.secondaryText}>Back</Text>
-        </Pressable>
+        {!canContinue ? (
+          <View style={styles.helper}>
+            <Text style={styles.helperText}>Enable at least one format for this round to finish.</Text>
+          </View>
+        ) : null}
       </View>
 
-      {/* Choose Format Modal */}
-      <ModalShell visible={chooseOpen} onClose={() => setChooseOpen(false)}>
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Choose a format</Text>
-              <Text style={styles.modalSub}>Tap a game to configure it.</Text>
-            </View>
+      {/* Add Formats Modal */}
+      <Modal visible={addOpen} transparent animationType="fade" onRequestClose={() => setAddOpen(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setAddOpen(false)}>
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
+            <Pressable style={styles.modalCard} onPress={() => {}}>
+              <Text style={styles.modalTitle}>Add formats</Text>
+              <Text style={styles.modalSub}>These formats will apply to Round {roundIndex}.</Text>
 
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 }}>
-              {SIDE_GAME_TYPES.map((x) => (
-                <Pressable
-                  key={x.id}
-                  onPress={() => openEditor(x.id)}
-                  style={({ pressed }) => [styles.chooserItem, pressed && styles.pressed]}
-                >
-                  <Text style={styles.chooserLabel}>{x.label}</Text>
-                  <Text style={styles.chooserHint}>{GAME_META[x.id]?.subtitle || "Configure this game"}</Text>
+              {FORMAT_LIBRARY.map((x) => (
+                <Pressable key={x.type} onPress={() => addFormat(x.type)} style={({ pressed }) => [styles.choiceBtn, pressed && styles.pressed]}>
+                  <Text style={styles.choiceText}>{x.title}</Text>
                 </Pressable>
               ))}
-            </ScrollView>
 
-            <View style={styles.modalFooter}>
-              <View style={styles.btnRow}>
+              <View style={styles.modalRow}>
+                <Pressable onPress={() => setAddOpen(false)} style={({ pressed }) => [styles.modalBtn, pressed && styles.pressed]}>
+                  <Text style={styles.modalBtnText}>Close</Text>
+                </Pressable>
+              </View>
+            </Pressable>
+          </KeyboardAvoidingView>
+        </Pressable>
+      </Modal>
+
+      {/* Multi-hole Picker Modal */}
+      <Modal visible={holesOpen} transparent animationType="fade" onRequestClose={() => setHolesOpen(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setHolesOpen(false)}>
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
+            <Pressable style={styles.modalCard} onPress={() => {}}>
+              <Text style={styles.modalTitle}>Pick holes</Text>
+              <Text style={styles.modalSub}>Select one or more holes for Round {roundIndex}. (1–{holesCount || 18})</Text>
+
+              <View style={styles.holeGrid}>
+                {Array.from({ length: Math.max(1, holesCount || 18) }).map((_, i) => {
+                  const n = i + 1;
+                  const active = normalizeHoles(holesDraft).includes(n);
+                  return (
+                    <Pressable
+                      key={`h-${n}`}
+                      onPress={() => toggleHole(n)}
+                      style={({ pressed }) => [styles.holeBtn, active && styles.holeBtnActive, pressed && styles.pressed]}
+                    >
+                      <Text style={styles.holeText}>{n}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <View style={styles.modalRow}>
                 <Pressable
-                  onPress={() => setChooseOpen(false)}
-                  style={({ pressed }) => [styles.btn, styles.btnCancel, pressed && styles.pressed]}
+                  onPress={() => {
+                    setHolesOpen(false);
+                    setHolesForType("");
+                    setHolesDraft([]);
+                  }}
+                  style={({ pressed }) => [styles.modalBtn, pressed && styles.pressed]}
                 >
-                  <Text style={styles.btnText}>Done</Text>
+                  <Text style={styles.modalBtnText}>Cancel</Text>
+                </Pressable>
+
+                <Pressable onPress={saveHoles} style={({ pressed }) => [styles.modalBtn, styles.modalBtnPrimary, pressed && styles.pressed]}>
+                  <Text style={[styles.modalBtnText, styles.modalBtnTextPrimary]}>Save</Text>
                 </Pressable>
               </View>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </ModalShell>
+            </Pressable>
+          </KeyboardAvoidingView>
+        </Pressable>
+      </Modal>
 
-      {/* Editor Modal */}
-      <ModalShell
-        visible={editorOpen}
-        onClose={() => {
-          Keyboard.dismiss();
-          setSheet(null);
-          setEditorOpen(false);
-        }}
-      >
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{editorMeta ? `Add ${editorMeta.title}` : "Add Format"}</Text>
-              <Text style={styles.modalSub}>{editorMeta?.subtitle || "Configure this format."}</Text>
-            </View>
+      {/* Entry Fee Modal */}
+      <Modal visible={feeOpen} transparent animationType="fade" onRequestClose={() => setFeeOpen(false)}>
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => {
+            Keyboard.dismiss();
+            setFeeOpen(false);
+          }}
+        >
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
+            <Pressable style={styles.modalCard} onPress={() => {}}>
+              <Text style={styles.modalTitle}>Entry fee</Text>
+              <Text style={styles.modalSub}>Optional. Example: 10 or 10.00</Text>
 
-            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 14 }}>
-              <View style={styles.modalBody}>
-                <Pressable onPress={openLabelPicker} style={({ pressed }) => [styles.fieldRow, pressed && styles.pressed]}>
-                  <View style={styles.fieldLeft}>
-                    <Text style={styles.fieldLabel}>Label (optional)</Text>
-                    <Text style={styles.fieldValue}>{currentLabelText()}</Text>
-                  </View>
-                  <Text style={styles.chevron}>›</Text>
-                </Pressable>
+              <TextInput
+                value={feeValue}
+                onChangeText={(s) => setFeeValue(String(s || "").replace(/[^0-9.]/g, ""))}
+                placeholder="0"
+                placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+                style={styles.input}
+                keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
+                returnKeyType="done"
+                onSubmitEditing={saveFee}
+              />
 
-                <Pressable onPress={openHolesOrScopePicker} style={({ pressed }) => [styles.fieldRow, pressed && styles.pressed]}>
-                  <View style={styles.fieldLeft}>
-                    <Text style={styles.fieldLabel}>
-                      {editorTypeId === "deuce_pot" ? "Scope" : "Holes"}
-                    </Text>
-                    <Text style={styles.fieldValue}>{currentHolesText()}</Text>
-                  </View>
-                  <Text style={styles.chevron}>›</Text>
-                </Pressable>
-
-                <TextInput
-                  value={buyIn}
-                  onChangeText={setBuyIn}
-                  placeholder="Cost to enter (optional)"
-                  placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
-                  style={styles.input}
-                  keyboardType="numeric"
-                  returnKeyType="done"
-                  onSubmitEditing={() => Keyboard.dismiss()}
-                />
-                <Text style={styles.helper}>Players opt-in/out + who-owes-what summary will come next.</Text>
-              </View>
-            </ScrollView>
-
-            <View style={styles.modalFooter}>
-              <View style={styles.btnRow}>
+              <View style={styles.modalRow}>
                 <Pressable
                   onPress={() => {
                     Keyboard.dismiss();
-                    setSheet(null);
-                    setEditorOpen(false);
+                    setFeeOpen(false);
+                    setFeeForType("");
+                    setFeeValue("");
                   }}
-                  style={({ pressed }) => [styles.btn, styles.btnCancel, pressed && styles.pressed]}
-                  disabled={saving}
+                  style={({ pressed }) => [styles.modalBtn, pressed && styles.pressed]}
                 >
-                  <Text style={styles.btnText}>Cancel</Text>
+                  <Text style={styles.modalBtnText}>Cancel</Text>
                 </Pressable>
 
-                <Pressable
-                  onPress={createFormat}
-                  style={({ pressed }) => [styles.btn, styles.btnSave, pressed && styles.pressed]}
-                  disabled={saving}
-                >
-                  <Text style={[styles.btnText, styles.btnTextSave]}>{saving ? "Saving..." : "Finish"}</Text>
+                <Pressable onPress={saveFee} style={({ pressed }) => [styles.modalBtn, styles.modalBtnPrimary, pressed && styles.pressed]}>
+                  <Text style={[styles.modalBtnText, styles.modalBtnTextPrimary]}>Save</Text>
                 </Pressable>
               </View>
-            </View>
 
-            {renderEditorSheet()}
-          </View>
-        </KeyboardAvoidingView>
-      </ModalShell>
+              <View style={styles.modalRow}>
+                <Pressable
+                  onPress={() => {
+                    setFeeValue("");
+                  }}
+                  style={({ pressed }) => [styles.modalBtn, pressed && styles.pressed]}
+                >
+                  <Text style={styles.modalBtnText}>Clear fee</Text>
+                </Pressable>
+              </View>
+            </Pressable>
+          </KeyboardAvoidingView>
+        </Pressable>
+      </Modal>
     </View>
   );
 }

@@ -1,0 +1,738 @@
+src\components\BottomSheet.js:48:  const backdropColor = isDark ? "rgba(0,0,0,0.55)" : "rgba(10,15,26,0.38)";
+src\components\BottomSheet.js:55:        <Pressable style={[styles.backdrop, { backgroundColor: backdropColor }]} onPress={close} />
+src\components\BottomSheet.js:60:              backgroundColor: sheetBg,
+src\components\BottomSheet.js:66:          <View style={[styles.grabber, { backgroundColor: grabberColor }]} />
+src\components\BottomSheet.js:76:  backdrop: { ...StyleSheet.absoluteFillObject },
+src\components\ScreenHeader.js:15:  // Existing API (kept for backward compatibility)
+src\components\ScreenHeader.js:26:  const canGoBack = !!navigation?.canGoBack?.();
+src\components\ScreenHeader.js:33:            if (navigation?.goBack && canGoBack) navigation.goBack();
+src\components\ScreenHeader.js:39:          <Text style={styles.pillText}>Back</Text>
+src\components\ScreenHeader.js:73:    backgroundColor: BG,
+src\components\ScreenHeader.js:87:    backgroundColor: "rgba(255,255,255,0.06)",
+src\components\SplashOverlay.js:19:    backgroundColor: "#000",
+src\data\courseMock.js:31:        back: { lat: greenC.lat + 0.00015, lon: greenC.lon + 0.00008 },
+src\screens\BootScreen.js:3:import { View, StyleSheet, Image, ImageBackground, Animated, Platform } from "react-native";
+src\screens\BootScreen.js:80:      <ImageBackground source={require("../../assets/splash-bg.png")} style={styles.bg} resizeMode="cover">
+src\screens\BootScreen.js:92:      </ImageBackground>
+src\screens\BootScreen.js:98:  root: { flex: 1, backgroundColor: "#000" },
+src\screens\BootScreen.js:100:  endFade: { ...StyleSheet.absoluteFillObject, backgroundColor: "#070A10" },
+src\screens\BuddyListScreen.js:423:          <Pressable style={styles.modalBackdrop} onPress={closeEdit} />
+src\screens\BuddyListScreen.js:520:  screen: { flex: 1, backgroundColor: theme?.colors?.bg || "#0B1220" },
+src\screens\BuddyListScreen.js:539:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\BuddyListScreen.js:550:    backgroundColor: "rgba(47,191,113,0.10)",
+src\screens\BuddyListScreen.js:561:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\BuddyListScreen.js:581:    backgroundColor: "rgba(0,0,0,0.14)",
+src\screens\BuddyListScreen.js:593:    backgroundColor: "rgba(0,0,0,0.14)",
+src\screens\BuddyListScreen.js:605:    backgroundColor: "rgba(0,0,0,0.14)",
+src\screens\BuddyListScreen.js:618:    backgroundColor: theme?.colors?.primary || "#2E7DFF",
+src\screens\BuddyListScreen.js:632:    backgroundColor: "rgba(255,255,255,0.03)",
+src\screens\BuddyListScreen.js:642:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\BuddyListScreen.js:648:    backgroundColor: "rgba(47,191,113,0.08)",
+src\screens\BuddyListScreen.js:663:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\BuddyListScreen.js:669:    backgroundColor: "rgba(47,191,113,0.95)",
+src\screens\BuddyListScreen.js:684:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\BuddyListScreen.js:692:    backgroundColor: "rgba(0,0,0,0.55)",
+src\screens\BuddyListScreen.js:696:  modalBackdrop: {
+src\screens\BuddyListScreen.js:707:    backgroundColor: "#0B1220",
+src\screens\BuddyListScreen.js:721:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\BuddyListScreen.js:741:    backgroundColor: "#0B1220",
+src\screens\BuddyListScreen.js:749:    backgroundColor: theme?.colors?.primary || "#2E7DFF",
+src\screens\BuddyListScreen.js:752:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\courseData.js:54:// MAIN LOAD: remote first, fallback to local
+src\screens\courseData.js:65:    // ignore remote errors; fall back to local
+src\screens\CourseDataScreen.js:13:  TouchableWithoutFeedback,
+src\screens\CourseDataScreen.js:118:    navigation.goBack();
+src\screens\CourseDataScreen.js:227:    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+src\screens\CourseDataScreen.js:306:            <Pressable style={styles.orangeBtn} onPress={() => navigation.goBack()}>
+src\screens\CourseDataScreen.js:403:    </TouchableWithoutFeedback>
+src\screens\CourseDataScreen.js:408:  safe: { flex: 1, backgroundColor: BG },
+src\screens\CourseDataScreen.js:419:    backgroundColor: "rgba(46,125,255,0.18)",
+src\screens\CourseDataScreen.js:431:    backgroundColor: "#243E63",
+src\screens\CourseDataScreen.js:443:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\CourseDataScreen.js:455:    backgroundColor: RED,
+src\screens\CourseDataScreen.js:464:    backgroundColor: CARD,
+src\screens\CourseDataScreen.js:477:    backgroundColor: INNER,
+src\screens\CourseDataScreen.js:483:  footer: { padding: 16, flexDirection: "row", gap: 12, backgroundColor: BG },
+src\screens\CourseDataScreen.js:488:    backgroundColor: ORANGE,
+src\screens\CourseDataScreen.js:498:    backgroundColor: GREEN,
+src\screens\CourseDataScreen.js:508:    backgroundColor: "rgba(0,0,0,0.70)",
+src\screens\CourseDataScreen.js:518:    backgroundColor: "rgba(18,22,30,0.96)",
+src\screens\CourseDataScreen.js:534:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\CourseDataScreen.js:555:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\CourseDataScreen.js:560:    backgroundColor: "rgba(46,125,255,0.18)",
+src\screens\CourseDataScreen.js:573:    backgroundColor: "rgba(46,125,255,0.18)",
+src\screens\CourseDataScreen.js:585:    backgroundColor: "rgba(46, 204, 113, 0.18)",
+src\screens\EquipmentScreen.js:1:import React, { useCallback, useEffect, useMemo, useState } from "react";
+src\screens\EquipmentScreen.js:72:  const loadProfile = useCallback(async () => {
+src\screens\EquipmentScreen.js:146:    navigation.goBack();
+src\screens\EquipmentScreen.js:161:      style={{ flex: 1, backgroundColor: COLORS.bg }}
+src\screens\EquipmentScreen.js:175:            <Text style={styles.headerPillText}>Back</Text>
+src\screens\EquipmentScreen.js:332:    backgroundColor: "rgba(46,125,255,0.22)",
+src\screens\EquipmentScreen.js:342:    backgroundColor: "rgba(255,255,255,0.10)",
+src\screens\EquipmentScreen.js:352:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\EquipmentScreen.js:368:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\EquipmentScreen.js:380:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\EquipmentScreen.js:384:    backgroundColor: "rgba(46,125,255,0.14)",
+src\screens\EquipmentScreen.js:394:    backgroundColor: "rgba(0,0,0,0.22)",
+src\screens\EquipmentScreen.js:408:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\EquipmentScreen.js:420:    backgroundColor: "rgba(255,90,90,0.12)",
+src\screens\EquipmentScreen.js:430:    backgroundColor: COLORS.green,
+src\screens\EquipmentScreen.js:449:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\EquipmentScreen.js:463:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\EquipmentScreen.js:473:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\EquipmentScreen.js:486:    backgroundColor: "rgba(11,18,32,0.92)",
+src\screens\EquipmentScreen.js:495:    backgroundColor: COLORS.green,
+src\screens\FinalResultsScreen.js:2:import React, { useCallback, useMemo, useState } from "react";
+src\screens\FinalResultsScreen.js:77:    useCallback(() => {
+src\screens\FinalResultsScreen.js:352:                      F ${Math.round(Number(wagers.nassau.front || 0))} • B ${Math.round(Number(wagers.nassau.back || 0))} • T $
+src\screens\FinalResultsScreen.js:386:  safe: { flex: 1, backgroundColor: BG },
+src\screens\FinalResultsScreen.js:393:    backgroundColor: "transparent",
+src\screens\FinalResultsScreen.js:402:    backgroundColor: CARD,
+src\screens\FinalResultsScreen.js:412:    backgroundColor: "rgba(255,255,255,0.03)",
+src\screens\FinalResultsScreen.js:426:    backgroundColor: "rgba(0,0,0,0.18)",
+src\screens\FinalResultsScreen.js:444:  expandDivider: { height: 1, backgroundColor: "rgba(255,255,255,0.08)", marginBottom: 10 },
+src\screens\FinalResultsScreen.js:452:    backgroundColor: INNER,
+src\screens\FinalResultsScreen.js:464:    backgroundColor: "rgba(255,255,255,0.03)",
+src\screens\FinalResultsScreen.js:475:    backgroundColor: INNER,
+src\screens\FinalResultsScreen.js:488:    backgroundColor: "rgba(255,255,255,0.03)",
+src\screens\FinalResultsScreen.js:506:    backgroundColor: BLUE,
+src\screens\FinalResultsScreen.js:515:    backgroundColor: "rgba(46,125,255,0.16)",
+src\screens\GameSettingsScreen.js:54:        <Pressable style={styles.ghost} onPress={() => navigation.goBack()}>
+src\screens\GameSettingsScreen.js:55:          <Text style={styles.ghostT}>Back</Text>
+src\screens\GameSettingsScreen.js:63:  safe: { flex: 1, backgroundColor: theme?.colors?.bg || "#0B1220" },
+src\screens\GameSettingsScreen.js:75:    backgroundColor: theme?.colors?.card || "rgba(255,255,255,0.04)",
+src\screens\GameSettingsScreen.js:77:  optActive: { borderColor: "rgba(46,125,255,0.9)", backgroundColor: "rgba(46,125,255,0.10)" },
+src\screens\GameSettingsScreen.js:81:  primary: { marginTop: 18, height: 56, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: theme?.colors?.primary || "#2E7DFF" },
+src\screens\GameSettingsScreen.js:83:  ghost: { marginTop: 12, height: 52, borderRadius: 18, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.16)", backgroundColor: "rgba(255,255,255,0.04)" },
+src\screens\GameSetupScreen.js:60:    const b = formatMoney(w?.nassau?.back);
+src\screens\GameSetupScreen.js:127:        nassau: { enabled: false, front: 0, back: 0, total: 0 },
+src\screens\GameSetupScreen.js:169:    <SafeAreaView style={[styles.safe, { backgroundColor: BG }]}>
+src\screens\GameSetupScreen.js:178:              onPress={() => navigation.goBack()}
+src\screens\GameSetupScreen.js:181:                styles.backBtn,
+src\screens\GameSetupScreen.js:182:                isLegacy && styles.backBtnLegacy,
+src\screens\GameSetupScreen.js:186:              <Text style={styles.backText}>Back</Text>
+src\screens\GameSetupScreen.js:223:          <View style={[styles.glowA, { backgroundColor: scoringAccent }]} pointerEvents="none" />
+src\screens\GameSetupScreen.js:224:          <View style={[styles.glowB, { backgroundColor: scoringAccent }]} pointerEvents="none" />
+src\screens\GameSetupScreen.js:316:                                  backgroundColor: "rgba(15, 122, 74, 0.10)",
+src\screens\GameSetupScreen.js:379:      <View style={[styles.footer, { paddingBottom: footerPad, backgroundColor: BG }]}>
+src\screens\GameSetupScreen.js:401:    backgroundColor: "rgba(46,125,255,0.20)",
+src\screens\GameSetupScreen.js:411:    backgroundColor: "rgba(255,255,255,0.10)",
+src\screens\GameSetupScreen.js:420:  backBtn: {
+src\screens\GameSetupScreen.js:426:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\GameSetupScreen.js:428:  backBtnLegacy: {
+src\screens\GameSetupScreen.js:430:    backgroundColor: "rgba(255, 210, 92, 0.06)",
+src\screens\GameSetupScreen.js:432:  backText: { color: "#fff", fontSize: 12, fontWeight: "900", letterSpacing: 0.3 },
+src\screens\GameSetupScreen.js:440:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\GameSetupScreen.js:442:  badgeLegacy: { borderColor: "rgba(255, 210, 92, 0.22)", backgroundColor: "rgba(255, 210, 92, 0.10)" },
+src\screens\GameSetupScreen.js:456:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\GameSetupScreen.js:459:  formatIconLegacy: { borderColor: "rgba(255, 210, 92, 0.28)", backgroundColor: "rgba(255, 210, 92, 0.10)" },
+src\screens\GameSetupScreen.js:464:  accentLine: { marginTop: 14, height: 1, backgroundColor: "rgba(255,255,255,0.10)" },
+src\screens\GameSetupScreen.js:465:  accentLineLegacy: { height: 2, backgroundColor: GOLD_SOFT },
+src\screens\GameSetupScreen.js:471:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\GameSetupScreen.js:509:    backgroundColor: "rgba(0,0,0,0.12)",
+src\screens\GameSetupScreen.js:525:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\GameSetupScreen.js:527:  segBtnActiveBlue: { borderColor: "rgba(46,125,255,0.65)", backgroundColor: "rgba(46,125,255,0.14)" },
+src\screens\GameSetupScreen.js:533:  divider: { height: 1, backgroundColor: "rgba(255,255,255,0.08)" },
+src\screens\GameSetupScreen.js:540:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\GameSetupScreen.js:554:    backgroundColor: "rgba(0,0,0,0.12)",
+src\screens\GameSetupScreen.js:565:    backgroundColor: "rgba(0,0,0,0.14)",
+src\screens\GameSetupScreen.js:575:    backgroundColor: "rgba(0,0,0,0.14)",
+src\screens\GameSetupScreen.js:577:  statusPillOnGreen: { borderColor: "rgba(15, 122, 74, 0.45)", backgroundColor: "rgba(15, 122, 74, 0.16)" },
+src\screens\GameSetupScreen.js:590:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\GameSetupScreen.js:601:    backgroundColor: "rgba(255,90,90,0.10)",
+src\screens\GameSetupScreen.js:612:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\GameSetupScreen.js:615:  switchOuterOnGreen: { borderColor: "rgba(15, 122, 74, 0.55)", backgroundColor: "rgba(15, 122, 74, 0.16)" },
+src\screens\GameSetupScreen.js:620:    backgroundColor: "rgba(255,255,255,0.70)",
+src\screens\GameSetupScreen.js:623:  switchKnobOn: { backgroundColor: "rgba(255,255,255,0.92)", transform: [{ translateX: 20 }] },
+src\screens\GameSetupScreen.js:635:  primaryBtn: { height: 56, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: PRIMARY },
+src\screens\GamesScreen.js:21:const FALLBACK_INFO = {
+src\screens\GamesScreen.js:56:  { id: "nassau", title: "Nassau", subtitle: "Front 9, Back 9, and Total match.", supported: true },
+src\screens\GamesScreen.js:119:    return gameFormats?.[infoId] || FALLBACK_INFO?.[infoId] || null;
+src\screens\GamesScreen.js:123:    const exists = !!(gameFormats?.[id] || FALLBACK_INFO?.[id]);
+src\screens\GamesScreen.js:158:      screen: { flex: 1, backgroundColor: theme.bg },
+src\screens\GamesScreen.js:178:        backgroundColor: theme.card2,
+src\screens\GamesScreen.js:183:      cardActive: { borderColor: blue, backgroundColor: blueBg },
+src\screens\GamesScreen.js:186:      cardPremium: { borderColor: goldBorder, backgroundColor: goldBg },
+src\screens\GamesScreen.js:187:      cardPremiumActive: { borderColor: goldBorderActive, backgroundColor: goldBgActive },
+src\screens\GamesScreen.js:192:        backgroundColor: goldBgActive,
+src\screens\GamesScreen.js:202:        backgroundColor: goldBgActive,
+src\screens\GamesScreen.js:245:        backgroundColor: overlayDim,
+src\screens\GamesScreen.js:260:        backgroundColor: overlayBg,
+src\screens\GamesScreen.js:282:        backgroundColor: premiumPillBg,
+src\screens\GamesScreen.js:297:        backgroundColor: infoBg,
+src\screens\GamesScreen.js:311:        backgroundColor: theme.bg,
+src\screens\GamesScreen.js:321:        backgroundColor: isDark ? "rgba(46,125,255,0.92)" : "rgba(10,15,26,0.92)",
+src\screens\GamesScreen.js:351:        backgroundColor: isDark ? "rgba(255,255,255,0.10)" : "rgba(10,15,26,0.06)",
+src\screens\GamesScreen.js:375:    const infoable = !!(gameFormats?.[item.id] || FALLBACK_INFO?.[item.id]);
+src\screens\GpsScreen.js:16:const FALLBACK_CENTER = { lat: 49.1044, lng: -122.6609 };
+src\screens\GpsScreen.js:63:  const back = toPoint(green.back);
+src\screens\GpsScreen.js:65:  if (front && middle && back) return { front, middle, back };
+src\screens\GpsScreen.js:68:  if (middle && !front && !back) return { front: middle, middle, back: middle };
+src\screens\GpsScreen.js:73:// Fallback support (older shapes)
+src\screens\GpsScreen.js:92:    if (g.front && g.middle && g.back) return g;
+src\screens\GpsScreen.js:93:    if (g.f && g.m && g.b) return { front: g.f, middle: g.m, back: g.b };
+src\screens\GpsScreen.js:94:    if (g.center) return { front: g.center, middle: g.center, back: g.center };
+src\screens\GpsScreen.js:110:    const b = toPoint(hm?.back || hm?.greenBack || hm?.green_back);
+src\screens\GpsScreen.js:112:    if (f && m && b) return { front: f, middle: m, back: b };
+src\screens\GpsScreen.js:113:    if (m && !f && !b) return { front: m, middle: m, back: m };
+src\screens\GpsScreen.js:206:  const greenLoaded = !!(green?.front && green?.middle && green?.back);
+src\screens\GpsScreen.js:213:      const backY = kmToYards(haversineKm(userPos, green.back));
+src\screens\GpsScreen.js:217:        back: backY ?? "—",
+src\screens\GpsScreen.js:226:      const b = looksLikeRealYardage(y.back) ? Math.round(Number(y.back)) : null;
+src\screens\GpsScreen.js:232:          back: b ?? "—",
+src\screens\GpsScreen.js:237:    return { front: "—", middle: "—", back: "—" };
+src\screens\GpsScreen.js:244:        : activeRound?.course?.lng ?? FALLBACK_CENTER.lng;
+src\screens\GpsScreen.js:249:        : activeRound?.course?.lat ?? FALLBACK_CENTER.lat;
+src\screens\GpsScreen.js:311:                ["BACK", yardages.back],
+src\screens\GpsScreen.js:350:  root: { flex: 1, backgroundColor: "#000" },
+src\screens\GpsScreen.js:361:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\GpsScreen.js:375:    backgroundColor: "rgba(0,0,0,0.15)",
+src\screens\GpsScreen.js:377:  yardTint: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(15, 18, 22, 0.38)" },
+src\screens\GpsScreen.js:386:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\GpsScreen.js:406:    backgroundColor: "rgba(0,0,0,0.15)",
+src\screens\GpsScreen.js:408:  dockTint: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(15, 18, 22, 0.38)" },
+src\screens\GpsScreen.js:415:    backgroundColor: "rgba(255,255,255,0.10)",
+src\screens\GpsScreen.js:427:    backgroundColor: theme?.colors?.primary || "#2E7DFF",
+src\screens\GreenViewScreen.js:15:      "Front pin • Slight back-to-front slope • Safer miss: short-left"
+src\screens\GreenViewScreen.js:71:  screen: { flex: 1, backgroundColor: theme?.colors?.bg || "#0B1220" },
+src\screens\GreenViewScreen.js:79:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\GreenViewScreen.js:89:    backgroundColor: "rgba(0,0,0,0.18)",
+src\screens\GreenViewScreen.js:96:    backgroundColor: "rgba(46, 204, 113, 0.22)",
+src\screens\GreenViewScreen.js:108:    backgroundColor: "#fff",
+src\screens\GreenViewScreen.js:120:    backgroundColor: "rgba(255,255,255,0.70)",
+src\screens\GreenViewScreen.js:134:  legendDot: { width: 8, height: 8, borderRadius: 999, backgroundColor: "#fff" },
+src\screens\GreenViewScreen.js:135:  legendLine: { width: 18, height: 3, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.70)" },
+src\screens\GreenViewScreen.js:143:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\HazardsScreen.js:55:          <Pressable onPress={() => navigation.goBack()} style={({ pressed }) => [styles.cta, pressed && styles.pressed]}>
+src\screens\HazardsScreen.js:56:            <Text style={styles.ctaText}>Back</Text>
+src\screens\HazardsScreen.js:65:  safe: { flex: 1, backgroundColor: BG },
+src\screens\HazardsScreen.js:72:    backgroundColor: CARD,
+src\screens\HazardsScreen.js:79:  divider: { height: 1, backgroundColor: "rgba(255,255,255,0.08)", marginTop: 14, marginBottom: 14 },
+src\screens\HazardsScreen.js:89:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\HazardsScreen.js:101:    backgroundColor: "rgba(46,125,255,0.16)",
+src\screens\HistoryScreen.js:2:import React, { useCallback, useMemo, useState } from "react";
+src\screens\HistoryScreen.js:128:function pickHoleNumberAny(r, fallback = null) {
+src\screens\HistoryScreen.js:145:  if (!Number.isFinite(holeNumber)) return fallback;
+src\screens\HistoryScreen.js:146:  if (holeNumber < 1 || holeNumber > 18) return fallback;
+src\screens\HistoryScreen.js:171:  // 3) fallback
+src\screens\HistoryScreen.js:294:  const load = useCallback(async () => {
+src\screens\HistoryScreen.js:301:    useCallback(() => {
+src\screens\HistoryScreen.js:521:              navigation.canGoBack?.() ? navigation.goBack() : navigation.navigate(ROUTES.HOME)
+src\screens\HistoryScreen.js:526:            <Text style={styles.headerPillText}>Back</Text>
+src\screens\HistoryScreen.js:682:  screen: { flex: 1, backgroundColor: BG },
+src\screens\HistoryScreen.js:698:    backgroundColor: "rgba(46,125,255,0.22)",
+src\screens\HistoryScreen.js:708:    backgroundColor: "rgba(255,255,255,0.10)",
+src\screens\HistoryScreen.js:726:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\HistoryScreen.js:733:    backgroundColor: "rgba(214,40,40,0.16)",
+src\screens\HistoryScreen.js:746:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\HistoryScreen.js:760:    backgroundColor: "rgba(214,40,40,0.10)",
+src\screens\HistoryScreen.js:774:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\HistoryScreen.js:779:    backgroundColor: "rgba(46,125,255,0.10)",
+src\screens\HistoryScreen.js:784:    backgroundColor: "rgba(214,40,40,0.12)",
+src\screens\HistoryScreen.js:807:  statusChipProg: { borderColor: "rgba(46,125,255,0.55)", backgroundColor: "rgba(46,125,255,0.16)" },
+src\screens\HistoryScreen.js:810:  statusChipDone: { borderColor: "rgba(46,204,113,0.60)", backgroundColor: "rgba(46,204,113,0.16)" },
+src\screens\HistoryScreen.js:821:    backgroundColor: "rgba(0,0,0,0.18)",
+src\screens\HistoryScreen.js:842:    backgroundColor: "rgba(214,40,40,0.92)",
+src\screens\HistoryScreen.js:861:    backgroundColor: "rgba(18,22,30,0.84)",
+src\screens\HistoryScreen.js:875:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\HistoryScreen.js:886:    backgroundColor: "rgba(214,40,40,0.92)",
+src\screens\HoleMapScreen.js:48:    html,body,#map{margin:0;padding:0;height:100%;background:#000}
+src\screens\HoleMapScreen.js:49:    .dot{width:12px;height:12px;border-radius:999px;background:#2E86FF;border:2px solid #fff;box-shadow:0 8px 20px rgba(0,0,0,.35)}
+src\screens\HoleMapScreen.js:50:    .pin{width:10px;height:10px;border-radius:999px;background:#fff;border:2px solid #000;box-shadow:0 8px 20px rgba(0,0,0,.35)}
+src\screens\HoleMapScreen.js:74:        p(d.green?.back),
+src\screens\HoleMapScreen.js:103:        const pts=[["f",d.green.front],["m",d.green.middle],["b",d.green.back]];
+src\screens\HoleMapScreen.js:124:        fit([d.user, d.center, d.tee, d.green?.front, d.green?.middle, d.green?.back]);
+src\screens\HoleMapScreen.js:147:  return !!(g?.front && g?.middle && g?.back);
+src\screens\HoleMapScreen.js:268:    if (green.back) out.b = haversineMeters(user, green.back);
+src\screens\HoleMapScreen.js:275:    back: green?.back ? yds(dist.b) : "—",
+src\screens\HoleMapScreen.js:289:            back: green.back || null,
+src\screens\HoleMapScreen.js:408:        "To lock green points, you must have Front/Mid/Back saved for all 18 holes."
+src\screens\HoleMapScreen.js:441:        <Pressable onPress={() => navigation.goBack()} style={styles.topBtn}>
+src\screens\HoleMapScreen.js:442:          <Text style={styles.topBtnT}>Back</Text>
+src\screens\HoleMapScreen.js:478:            <Text style={styles.yLabel}>BACK</Text>
+src\screens\HoleMapScreen.js:479:            <Text style={styles.yVal}>{distVals.back}</Text>
+src\screens\HoleMapScreen.js:484:          {!green?.front && !green?.middle && !green?.back ? (
+src\screens\HoleMapScreen.js:526:              {admin ? "Select a hole, stand at the green front/mid/back, then tap Set." : "Read-only for guests."}
+src\screens\HoleMapScreen.js:569:                          : "Lock becomes available after all 18 holes have Front/Mid/Back saved."}
+src\screens\HoleMapScreen.js:627:                      onPress={() => setPoint("back")}
+src\screens\HoleMapScreen.js:634:                      <Text style={styles.setBtnT}>Set Back</Text>
+src\screens\HoleMapScreen.js:636:                        {!admin ? "Read-only" : gpsLocked ? "Locked" : green?.back ? "Saved" : "Not set"}
+src\screens\HoleMapScreen.js:660:  safe: { flex: 1, backgroundColor: "#000" },
+src\screens\HoleMapScreen.js:674:    backgroundColor: "rgba(0,0,0,0.45)",
+src\screens\HoleMapScreen.js:686:    backgroundColor: "rgba(46,125,255,0.18)",
+src\screens\HoleMapScreen.js:698:    backgroundColor: "rgba(0,0,0,0.55)",
+src\screens\HoleMapScreen.js:704:    backgroundColor: "rgba(255,255,255,0.10)",
+src\screens\HoleMapScreen.js:745:    backgroundColor: "rgba(46,125,255,0.18)",
+src\screens\HoleMapScreen.js:753:    backgroundColor: "#2E7DFF",
+src\screens\HoleMapScreen.js:766:    backgroundColor: "rgba(18,22,30,0.72)",
+src\screens\HoleMapScreen.js:776:    backgroundColor: "rgba(255,255,255,0.10)",
+src\screens\HoleMapScreen.js:785:    backgroundColor: GREEN,
+src\screens\HoleMapScreen.js:795:    backgroundColor: "rgba(0,0,0,0.70)",
+src\screens\HoleMapScreen.js:805:    backgroundColor: "rgba(18,22,30,0.96)",
+src\screens\HoleMapScreen.js:821:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\HoleMapScreen.js:839:    backgroundColor: "rgba(255,255,255,0.08)",
+src\screens\HoleMapScreen.js:846:  holePillActive: { backgroundColor: "rgba(46,125,255,0.35)", borderColor: "rgba(46,125,255,0.55)" },
+src\screens\HoleMapScreen.js:861:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\HoleMapScreen.js:875:    backgroundColor: "rgba(231, 76, 60, 0.22)",
+src\screens\HoleMapScreen.js:887:    backgroundColor: "rgba(46, 204, 113, 0.18)",
+src\screens\HoleMapScreen.js:901:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\HoleStrategyScreen.js:104:  screen: { flex: 1, backgroundColor: theme?.colors?.bg || "#0B1220" },
+src\screens\HoleStrategyScreen.js:112:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\HoleStrategyScreen.js:126:    backgroundColor: "rgba(0,0,0,0.16)",
+src\screens\HoleStrategyScreen.js:139:    backgroundColor: "rgba(46,125,255,0.14)",
+src\screens\HoleViewScreen.js:2:import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
+src\screens\HoleViewScreen.js:213:    useCallback(() => {
+src\screens\HoleViewScreen.js:272:  const hasGreenPoints = !!(green?.front || green?.middle || green?.back);
+src\screens\HoleViewScreen.js:276:    if (!user || !green) return { front: "—", middle: "—", back: "—" };
+src\screens\HoleViewScreen.js:278:    const out = { front: "—", middle: "—", back: "—" };
+src\screens\HoleViewScreen.js:285:    if (green.back && Number.isFinite(green.back.lat) && Number.isFinite(green.back.lon)) {
+src\screens\HoleViewScreen.js:286:      out.back = yds(haversineMeters(user, green.back));
+src\screens\HoleViewScreen.js:581:  const getItemLayout = useCallback((data, index) => {
+src\screens\HoleViewScreen.js:585:  const scrollHoleToCenter = useCallback((h, animated = true) => {
+src\screens\HoleViewScreen.js:605:    useCallback(() => {
+src\screens\HoleViewScreen.js:696:            ["back", "BACK"],
+src\screens\HoleViewScreen.js:717:              <Text style={styles.hintSub}>Set front / mid / back once, and yardages will be perfect every round.</Text>
+src\screens\HoleViewScreen.js:856:  safe: { flex: 1, backgroundColor: BG },
+src\screens\HoleViewScreen.js:868:    backgroundColor: INNER,
+src\screens\HoleViewScreen.js:874:  holePillActive: { backgroundColor: GREEN, borderRadius: HOLE_PILL_SIZE / 2 },
+src\screens\HoleViewScreen.js:883:    backgroundColor: INNER2,
+src\screens\HoleViewScreen.js:888:    backgroundColor: "rgba(46,125,255,0.22)",
+src\screens\HoleViewScreen.js:902:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\HoleViewScreen.js:913:    backgroundColor: CARD,
+src\screens\HoleViewScreen.js:921:  yardCard: { flex: 1, backgroundColor: CARD, borderRadius: 20, alignItems: "center", paddingVertical: 10 },
+src\screens\HoleViewScreen.js:931:    backgroundColor: "rgba(46,125,255,0.95)",
+src\screens\HoleViewScreen.js:942:    backgroundColor: "rgba(46,125,255,0.10)",
+src\screens\HoleViewScreen.js:956:    backgroundColor: "rgba(255,255,255,0.08)",
+src\screens\HoleViewScreen.js:970:    backgroundColor: BG,
+src\screens\HoleViewScreen.js:978:    backgroundColor: GREEN,
+src\screens\HoleViewScreen.js:995:  saveMiniBtn: { backgroundColor: "rgba(46,125,255,0.18)", borderColor: "rgba(46,125,255,0.45)" },
+src\screens\HoleViewScreen.js:996:  deleteMiniBtn: { backgroundColor: "rgba(214,40,40,0.12)", borderColor: "rgba(214,40,40,0.35)" },
+src\screens\HoleViewScreen.js:1000:  modalBg: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.60)" },
+src\screens\HoleViewScreen.js:1005:    backgroundColor: "rgba(18,22,30,0.96)",
+src\screens\HoleViewScreen.js:1019:    backgroundColor: "rgba(255,255,255,0.08)",
+src\screens\HoleViewScreen.js:1030:    backgroundColor: "rgba(0,0,0,0.20)",
+src\screens\HoleViewScreen.js:1045:    backgroundColor: GREEN,
+src\screens\HoleViewScreen.js:1049:  confirmBg: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.62)" },
+src\screens\HoleViewScreen.js:1054:    backgroundColor: "rgba(18,22,30,0.96)",
+src\screens\HoleViewScreen.js:1067:    backgroundColor: "rgba(255,255,255,0.08)",
+src\screens\HoleViewScreen.js:1078:    backgroundColor: DANGER,
+src\screens\HomeScreen.js:8:  ImageBackground,
+src\screens\HomeScreen.js:25:  const fallback = isDark ? "rgba(0,0,0,0.45)" : "rgba(0,0,0,0.25)";
+src\screens\HomeScreen.js:27:  if (!raw) return fallback;
+src\screens\HomeScreen.js:30:  if (raw === "#000" || raw === "#000000" || raw.toLowerCase() === "black") return fallback;
+src\screens\HomeScreen.js:94:          backgroundColor: theme.heroPillBg,
+src\screens\HomeScreen.js:133:            backgroundColor: theme.heroPillOn,
+src\screens\HomeScreen.js:152:    <SafeAreaView style={[styles.safe, { backgroundColor: theme.bg }]}>
+src\screens\HomeScreen.js:153:      <ImageBackground
+src\screens\HomeScreen.js:155:        defaultSource={HERO_BG} // iOS fallback so the hero never appears “missing”
+src\screens\HomeScreen.js:159:        <View style={[styles.overlay, { backgroundColor: overlayColor }]} />
+src\screens\HomeScreen.js:191:                  backgroundColor: isDark ? "rgba(255,255,255,0.92)" : "rgba(10,15,26,0.92)",
+src\screens\HomeScreen.js:202:            <View style={[styles.quickCard, { borderColor: theme.border, backgroundColor: theme.card2 }]}>
+src\screens\HomeScreen.js:227:              <View style={[styles.divider, { backgroundColor: theme.divider }]} />
+src\screens\HomeScreen.js:253:              <View style={[styles.divider, { backgroundColor: theme.divider }]} />
+src\screens\HomeScreen.js:281:      </ImageBackground>
+src\screens\HomeScreen.js:417:    backgroundColor: "rgba(255,255,255,0.08)",
+src\screens\JoinTournamentScreen.js:59:      screen: { flex: 1, backgroundColor: theme.bg },
+src\screens\JoinTournamentScreen.js:68:        backgroundColor: softBg,
+src\screens\JoinTournamentScreen.js:81:        backgroundColor: theme.card2,
+src\screens\JoinTournamentScreen.js:98:        backgroundColor: theme.bg,
+src\screens\JoinTournamentScreen.js:108:        backgroundColor: blue,
+src\screens\JoinTournamentScreen.js:118:        backgroundColor: softBg,
+src\screens\JoinTournamentScreen.js:239:          <Pressable onPress={() => navigation.goBack()} style={({ pressed }) => [styles.secondaryBtn, pressed && styles.pressed]}>
+src\screens\LoginScreen.js:14:  ImageBackground,
+src\screens\LoginScreen.js:89:      <ImageBackground
+src\screens\LoginScreen.js:183:      </ImageBackground>
+src\screens\LoginScreen.js:191:  safe: { flex: 1, backgroundColor: "#000" },
+src\screens\LoginScreen.js:193:  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: C.overlay },
+src\screens\LoginScreen.js:225:    backgroundColor: C.inputBg,
+src\screens\LoginScreen.js:243:    backgroundColor: C.gold,
+src\screens\NewRoundScreen.js:25:const FALLBACK_CENTER = { lat: 49.0504, lng: -122.3045 };
+src\screens\NewRoundScreen.js:44:  const [center, setCenter] = useState(FALLBACK_CENTER);
+src\screens\NewRoundScreen.js:293:  safe: { flex: 1, backgroundColor: theme?.colors?.bg || "#0B1220" },
+src\screens\NewRoundScreen.js:301:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\NewRoundScreen.js:316:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\NewRoundScreen.js:329:    backgroundColor: "rgba(255,255,255,0.05)",
+src\screens\NewRoundScreen.js:334:    backgroundColor: GREEN_BG,
+src\screens\NewRoundScreen.js:359:    backgroundColor: GREEN_BG,
+src\screens\NewRoundScreen.js:371:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\NewRoundScreen.js:373:  kmPillActive: { borderColor: "rgba(15,122,74,0.35)", backgroundColor: GREEN_BG_SOFT },
+src\screens\NewRoundScreen.js:387:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\NewRoundScreen.js:391:    backgroundColor: "rgba(15,122,74,0.08)",
+src\screens\NewRoundScreen.js:417:    backgroundColor: theme?.colors?.bg || "#0B1220",
+src\screens\NewRoundScreen.js:429:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\NewRoundScreen.js:440:    backgroundColor: "rgba(46,125,255,0.92)",
+src\screens\PayoutsScreen.js:2:import React, { useCallback, useMemo, useState } from "react";
+src\screens\PayoutsScreen.js:136:function calcNassauH2H(round, players, frontAmt, backAmt, totalAmt) {
+src\screens\PayoutsScreen.js:200:    ...runSegment("Back 9", 10, 18, backAmt),
+src\screens\PayoutsScreen.js:238:    useCallback(() => {
+src\screens\PayoutsScreen.js:280:      const nas = calcNassauH2H(round, players, wagers.nassau.front, wagers.nassau.back, wagers.nassau.total);
+src\screens\PayoutsScreen.js:438:                  const backWins = wins.filter((r) => r.segment === "Back 9");
+src\screens\PayoutsScreen.js:442:                  const backShow = backWins.slice(0, 6);
+src\screens\PayoutsScreen.js:478:                            <Text style={styles.segmentHeader}>Back 9</Text>
+src\screens\PayoutsScreen.js:479:                            {backShow.length ? (
+src\screens\PayoutsScreen.js:481:                                {backShow.map((r, idx) => (
+src\screens\PayoutsScreen.js:482:                                  <View key={`nas-back-${idx}`} style={styles.smallRow}>
+src\screens\PayoutsScreen.js:489:                                {backWins.length > backShow.length ? <Text style={styles.gameNote}>More Back 9 matchups exist.</Text> : null}
+src\screens\PayoutsScreen.js:492:                              <Text style={styles.gameNote}>No Back 9 wins.</Text>
+src\screens\PayoutsScreen.js:541:        <Pressable onPress={() => navigation.goBack()} style={({ pressed }) => [styles.cta, pressed && styles.pressed]}>
+src\screens\PayoutsScreen.js:542:          <Text style={styles.ctaText}>Back</Text>
+src\screens\PayoutsScreen.js:550:  safe: { flex: 1, backgroundColor: BG },
+src\screens\PayoutsScreen.js:557:    backgroundColor: "transparent",
+src\screens\PayoutsScreen.js:566:    backgroundColor: "transparent",
+src\screens\PayoutsScreen.js:574:    backgroundColor: CARD,
+src\screens\PayoutsScreen.js:584:    backgroundColor: "rgba(255,255,255,0.03)",
+src\screens\PayoutsScreen.js:598:    backgroundColor: "rgba(255,255,255,0.03)",
+src\screens\PayoutsScreen.js:612:    backgroundColor: "rgba(255,255,255,0.03)",
+src\screens\PayoutsScreen.js:637:    backgroundColor: "rgba(46,125,255,0.16)",
+src\screens\PlayerEntryScreen.js:998:  safe: { flex: 1, backgroundColor: theme?.bg || theme?.colors?.bg || "#0B1220" },
+src\screens\PlayerEntryScreen.js:1008:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\PlayerEntryScreen.js:1019:    backgroundColor: "rgba(255,255,255,0.08)",
+src\screens\PlayerEntryScreen.js:1025:    backgroundColor: theme?.primary || theme?.colors?.primary || "#2E7DFF",
+src\screens\PlayerEntryScreen.js:1034:    backgroundColor: GREEN_BG,
+src\screens\PlayerEntryScreen.js:1048:    backgroundColor: theme?.primary || theme?.colors?.primary || "#2E7DFF",
+src\screens\PlayerEntryScreen.js:1062:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\PlayerEntryScreen.js:1066:  divider: { marginTop: 12, height: 1, backgroundColor: "rgba(255,255,255,0.08)" },
+src\screens\PlayerEntryScreen.js:1073:    backgroundColor: "rgba(0,0,0,0.18)",
+src\screens\PlayerEntryScreen.js:1082:    backgroundColor: "rgba(255,255,255,0.05)",
+src\screens\PlayerEntryScreen.js:1108:    backgroundColor: GREEN_ACCENT_SOFT,
+src\screens\PlayerEntryScreen.js:1120:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\PlayerEntryScreen.js:1136:    backgroundColor: theme?.bg || theme?.colors?.bg || "#0B1220",
+src\screens\PlayerEntryScreen.js:1145:    backgroundColor: theme?.primary || theme?.colors?.primary || "#2E7DFF",
+src\screens\PlayerEntryScreen.js:1156:    backgroundColor: "rgba(0,0,0,0.6)",
+src\screens\PlayerEntryScreen.js:1167:    backgroundColor: theme?.bg || theme?.colors?.bg || "#0B1220",
+src\screens\PlayerEntryScreen.js:1176:    backgroundColor: theme?.bg || theme?.colors?.bg || "#0B1220",
+src\screens\PlayerEntryScreen.js:1185:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\PlayerEntryScreen.js:1197:    backgroundColor: "rgba(255,255,255,0.03)",
+src\screens\PlayerEntryScreen.js:1213:    backgroundColor: theme?.primary || theme?.colors?.primary || "#2E7DFF",
+src\screens\PlayerEntryScreen.js:1226:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\PlayerEntryScreen.js:1231:    backgroundColor: theme?.primary || theme?.colors?.primary || "#2E7DFF",
+src\screens\PlayerEntryScreen.js:1244:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\PlayerEntryScreen.js:1254:    backgroundColor: theme?.primary || theme?.colors?.primary || "#2E7DFF",
+src\screens\PlayerEntryScreen.js:1262:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\PlayerEntryScreen.js:1269:  modalSectionDivider: { marginTop: 14, marginBottom: 10, height: 1, backgroundColor: "rgba(255,255,255,0.08)" },
+src\screens\PlayerEntryScreen.js:1276:    backgroundColor: "rgba(255,255,255,0.03)",
+src\screens\PlayerEntryScreen.js:1292:    backgroundColor: "rgba(46,125,255,0.18)",
+src\screens\PlayerEntryScreen.js:1303:    backgroundColor: theme?.primary || theme?.colors?.primary || "#2E7DFF",
+src\screens\PlayerSetupScreen.js:176:              canDone && { backgroundColor: primary, borderColor: "rgba(255,255,255,0.22)" },
+src\screens\PlayerSetupScreen.js:215:  safe: { flex: 1, backgroundColor: theme?.bg || theme?.colors?.bg || "#0B1220" },
+src\screens\PlayerSetupScreen.js:223:    backgroundColor: GREEN_BG,
+src\screens\PlayerSetupScreen.js:237:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\PlayerSetupScreen.js:247:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\PlayerSetupScreen.js:269:    backgroundColor: "rgba(255,255,255,0.10)",
+src\screens\PlayerSetupScreen.js:286:    backgroundColor: theme?.bg || theme?.colors?.bg || "#0B1220",
+src\screens\PlayerSetupScreen.js:295:    backgroundColor: theme?.primary || theme?.colors?.primary || "#2E7DFF",
+src\screens\ProfileScreen.js:2:import React, { useCallback, useEffect, useMemo, useState } from "react";
+src\screens\ProfileScreen.js:85:  const loadProfile = useCallback(async () => {
+src\screens\ProfileScreen.js:189:  const loadRoundsPlayed = useCallback(async () => {
+src\screens\ProfileScreen.js:219:    const fallback = Number(profile.rounds);
+src\screens\ProfileScreen.js:220:    setRoundsPlayed(Number.isFinite(fallback) ? fallback : 0);
+src\screens\ProfileScreen.js:224:    useCallback(() => {
+src\screens\ProfileScreen.js:236:      style={{ flex: 1, backgroundColor: COLORS.bg }}
+src\screens\ProfileScreen.js:246:            onPress={() => navigation.goBack?.() || navigation.navigate(ROUTES.HOME)}
+src\screens\ProfileScreen.js:250:            <Text style={styles.headerPillText}>Back</Text>
+src\screens\ProfileScreen.js:543:    backgroundColor: "rgba(46,125,255,0.22)",
+src\screens\ProfileScreen.js:553:    backgroundColor: "rgba(255,255,255,0.10)",
+src\screens\ProfileScreen.js:565:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\ProfileScreen.js:581:    backgroundColor: "rgba(255,255,255,0.05)",
+src\screens\ProfileScreen.js:593:    backgroundColor: "rgba(255,255,255,0.08)",
+src\screens\ProfileScreen.js:610:    backgroundColor: "rgba(0,0,0,0.30)",
+src\screens\ProfileScreen.js:621:    backgroundColor: "rgba(15,122,74,0.28)",
+src\screens\ProfileScreen.js:652:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\ProfileScreen.js:662:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\ProfileScreen.js:673:    backgroundColor: "rgba(0,0,0,0.18)",
+src\screens\ProfileScreen.js:676:  fieldShellEditing: { borderColor: "rgba(255,255,255,0.16)", backgroundColor: "rgba(0,0,0,0.22)" },
+src\screens\ProfileScreen.js:684:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\ProfileScreen.js:699:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\ProfileScreen.js:714:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\ProfileScreen.js:726:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\ProfileScreen.js:735:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\ProfileScreen.js:748:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\ProfileScreen.js:764:    backgroundColor: "rgba(11,18,32,0.92)",
+src\screens\ProfileScreen.js:773:    backgroundColor: COLORS.green,
+src\screens\RoundDetailsScreen.js:1:import React, { useCallback, useEffect, useMemo, useState } from "react";
+src\screens\RoundDetailsScreen.js:58:  const load = useCallback(async () => {
+src\screens\RoundDetailsScreen.js:94:        fallbackRoute={ROUTES.HISTORY}
+src\screens\RoundDetailsScreen.js:116:              <Text style={styles.primaryBtnText}>Back to History</Text>
+src\screens\RoundDetailsScreen.js:200:  screen: { flex: 1, backgroundColor: theme?.colors?.bg || "#0B1220" },
+src\screens\RoundDetailsScreen.js:207:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\RoundDetailsScreen.js:215:  divider: { height: 1, backgroundColor: "rgba(255,255,255,0.08)", marginTop: 14, marginBottom: 14 },
+src\screens\RoundDetailsScreen.js:219:  statusChipDone: { borderColor: "rgba(15,122,74,0.45)", backgroundColor: "rgba(15,122,74,0.16)" },
+src\screens\RoundDetailsScreen.js:220:  statusChipProg: { borderColor: "rgba(46,125,255,0.45)", backgroundColor: "rgba(46,125,255,0.14)" },
+src\screens\RoundDetailsScreen.js:234:    backgroundColor: "rgba(0,0,0,0.18)",
+src\screens\RoundDetailsScreen.js:249:    backgroundColor: "rgba(46,125,255,0.18)",
+src\screens\ScorecardScreen.js:2:import React, { useMemo, useState, useCallback } from "react";
+src\screens\ScorecardScreen.js:109:    useCallback(() => {
+src\screens\ScorecardScreen.js:127:  // Hole meta passed from HoleViewScreen (or fallback to stored)
+src\screens\ScorecardScreen.js:281:          <Pressable onPress={() => navigation.goBack()} style={({ pressed }) => [styles.cta, pressed && styles.pressed]}>
+src\screens\ScorecardScreen.js:282:            <Text style={styles.ctaText}>Back</Text>
+src\screens\ScorecardScreen.js:291:  safe: { flex: 1, backgroundColor: BG },
+src\screens\ScorecardScreen.js:298:    backgroundColor: CARD,
+src\screens\ScorecardScreen.js:304:    backgroundColor: "rgba(46,204,113,0.06)",
+src\screens\ScorecardScreen.js:322:    backgroundColor: LIVE_GREEN_SOFT,
+src\screens\ScorecardScreen.js:332:    backgroundColor: LIVE_GREEN,
+src\screens\ScorecardScreen.js:342:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\ScorecardScreen.js:348:  divider: { height: 1, backgroundColor: "rgba(255,255,255,0.08)", marginTop: 14, marginBottom: 14 },
+src\screens\ScorecardScreen.js:365:    backgroundColor: INNER,
+src\screens\ScorecardScreen.js:370:    backgroundColor: "rgba(46,204,113,0.08)",
+src\screens\ScorecardScreen.js:432:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\ScorecardScreen.js:457:    backgroundColor: "rgba(46,125,255,0.16)",
+src\screens\ScoreEntryScreen.js:2:import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+src\screens\ScoreEntryScreen.js:265:  const persistHole = useCallback(
+src\screens\ScoreEntryScreen.js:388:  async function backToHole() {
+src\screens\ScoreEntryScreen.js:630:            <Pressable style={styles.secondaryBtn} onPress={backToHole}>
+src\screens\ScoreEntryScreen.js:631:              <Text style={styles.secondaryText}>Back</Text>
+src\screens\ScoreEntryScreen.js:652:  safe: { flex: 1, backgroundColor: BG },
+src\screens\ScoreEntryScreen.js:661:    backgroundColor: "transparent",
+src\screens\ScoreEntryScreen.js:669:    backgroundColor: CARD,
+src\screens\ScoreEntryScreen.js:680:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\ScoreEntryScreen.js:698:    backgroundColor: "rgba(46,204,113,0.16)",
+src\screens\ScoreEntryScreen.js:702:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\ScoreEntryScreen.js:720:    backgroundColor: "transparent",
+src\screens\ScoreEntryScreen.js:725:    backgroundColor: PUTTS_TINT,
+src\screens\ScoreEntryScreen.js:730:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\ScoreEntryScreen.js:752:    backgroundColor: "rgba(46,204,113,0.18)",
+src\screens\ScoreEntryScreen.js:756:    backgroundColor: "rgba(46,125,255,0.18)",
+src\screens\ScoreEntryScreen.js:760:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\ScoreEntryScreen.js:770:    backgroundColor: "rgba(0,0,0,0.18)",
+src\screens\ScoreEntryScreen.js:787:  divider: { marginTop: 14, height: 1, backgroundColor: "rgba(255,255,255,0.08)" },
+src\screens\ScoreEntryScreen.js:794:    backgroundColor: INNER,
+src\screens\ScoreEntryScreen.js:810:    backgroundColor: INNER2,
+src\screens\ScoreEntryScreen.js:816:    backgroundColor: "rgba(46,125,255,0.22)",
+src\screens\ScoreEntryScreen.js:827:    backgroundColor: BG,
+src\screens\ScoreEntryScreen.js:837:    backgroundColor: INNER2,
+src\screens\ScoreEntryScreen.js:849:    backgroundColor: INNER2,
+src\screens\ScoreEntryScreen.js:861:    backgroundColor: BLUE,
+src\screens\ScoreHoleScreen.js:27:        Alert.alert("Round not found", "Go back and start a new round.");
+src\screens\ScoreHoleScreen.js:158:  safe: { flex: 1, backgroundColor: theme?.colors?.bg || "#0B1220" },
+src\screens\ScoreHoleScreen.js:162:  homeBtn: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)" },
+src\screens\ScoreHoleScreen.js:164:  saveBtn: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, backgroundColor: "rgba(46,125,255,0.18)", borderWidth: 1, borderColor: "rgba(46,125,255,0.35)" },
+src\screens\ScoreHoleScreen.js:169:  card: { marginHorizontal: 16, marginTop: 6, borderRadius: 22, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", backgroundColor: "rgba(255,255,255,0.03)", padding: 16 },
+src\screens\ScoreHoleScreen.js:187:    backgroundColor: "rgba(0,0,0,0.25)",
+src\screens\ScoreHoleScreen.js:191:  actionBtn: { flex: 1, height: 52, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: theme?.colors?.primary || "#2E7DFF" },
+src\screens\ScoreHoleScreen.js:192:  actionBtnGhost: { flex: 1, height: 52, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)" },
+src\screens\ScoreHoleScreen.js:196:  navBtn: { flex: 1, height: 54, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)" },
+src\screens\SignupScreen.js:133:                <Text style={styles.linkText}>Back to sign in</Text>
+src\screens\SignupScreen.js:144:  safe: { flex: 1, backgroundColor: C.bg },
+src\screens\SignupScreen.js:149:  card: { backgroundColor: C.card, borderRadius: 18, padding: 16 },
+src\screens\SignupScreen.js:152:    backgroundColor: C.inputBg,
+src\screens\SignupScreen.js:162:    backgroundColor: C.primary,
+src\screens\TeeSelectionScreen.js:105:          fallbackRoute={ROUTES.NEW_ROUND}
+src\screens\TeeSelectionScreen.js:219:  safe: { flex: 1, backgroundColor: theme?.colors?.bg || "#0B1220" },
+src\screens\TeeSelectionScreen.js:229:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\TeeSelectionScreen.js:243:    backgroundColor: "rgba(255,255,255,0.05)",
+src\screens\TeeSelectionScreen.js:258:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\TeeSelectionScreen.js:271:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\TeeSelectionScreen.js:280:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\TeeSelectionScreen.js:295:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\TeeSelectionScreen.js:305:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\TeeSelectionScreen.js:316:    backgroundColor: "rgba(255,255,255,0.05)",
+src\screens\TeeSelectionScreen.js:320:    backgroundColor: "rgba(15,122,74,0.16)",
+src\screens\TeeSelectionScreen.js:343:    backgroundColor: "rgba(15,122,74,0.22)",
+src\screens\TeeSelectionScreen.js:355:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\TeeSelectionScreen.js:368:    backgroundColor: theme?.colors?.bg || "#0B1220",
+src\screens\TeeSelectionScreen.js:377:    backgroundColor: theme?.colors?.primary || "#2E7DFF",
+src\screens\TournamentCourseScreen.js:61:      navigation.goBack();
+src\screens\TournamentCourseScreen.js:166:              // keep roundIndex for backward compatibility if any old code still queries it
+src\screens\TournamentCourseScreen.js:321:      screen: { flex: 1, backgroundColor: theme.bg },
+src\screens\TournamentCourseScreen.js:329:        backgroundColor: goldBg,
+src\screens\TournamentCourseScreen.js:355:        backgroundColor: softBg,
+src\screens\TournamentCourseScreen.js:384:        backgroundColor: theme.card2,
+src\screens\TournamentCourseScreen.js:405:        backgroundColor: greenBg,
+src\screens\TournamentCourseScreen.js:429:        backgroundColor: green,
+src\screens\TournamentCourseScreen.js:443:        backgroundColor: theme.bg,
+src\screens\TournamentCourseScreen.js:452:        backgroundColor: isDark ? "rgba(46,125,255,0.92)" : "rgba(10,15,26,0.92)",
+src\screens\TournamentCourseScreen.js:462:        backgroundColor: softBg,
+src\screens\TournamentCourseScreen.js:472:        backgroundColor: "rgba(0,0,0,0.55)",
+src\screens\TournamentCourseScreen.js:484:        backgroundColor: theme.bg,
+src\screens\TournamentCourseScreen.js:504:        backgroundColor: theme.card2,
+src\screens\TournamentCourseScreen.js:516:        backgroundColor: theme.card2,
+src\screens\TournamentCourseScreen.js:519:      courseRowActive: { borderColor: blue, backgroundColor: blueBg },
+src\screens\TournamentCourseScreen.js:667:              : "Go to Tournament Dashboard → Rounds, set the number of rounds, then come back here."}
+src\screens\TournamentDashboardScreen.js:30:      navigation.goBack();
+src\screens\TournamentDashboardScreen.js:90:      screen: { flex: 1, backgroundColor: theme.bg },
+src\screens\TournamentDashboardScreen.js:109:        backgroundColor: greenBg,
+src\screens\TournamentDashboardScreen.js:131:        backgroundColor: softBg,
+src\screens\TournamentDashboardScreen.js:143:        backgroundColor: isDark ? "rgba(46,125,255,0.92)" : "rgba(10,15,26,0.92)",
+src\screens\TournamentDashboardScreen.js:153:        backgroundColor: blueBg,
+src\screens\TournamentDashboardScreen.js:182:        backgroundColor: softBg,
+src\screens\TournamentDashboardScreen.js:204:        backgroundColor: theme.card2,
+src\screens\TournamentDashboardScreen.js:217:        backgroundColor: softBg,
+src\screens\TournamentDashboardScreen.js:222:      adminBtnDanger: { backgroundColor: dangerBg, borderColor: dangerBorder },
+src\screens\TournamentDashboardScreen.js:232:        backgroundColor: theme.bg,
+src\screens\TournamentDashboardScreen.js:239:      primaryBtn: { backgroundColor: isDark ? "rgba(46,125,255,0.92)" : "rgba(10,15,26,0.92)" },
+src\screens\TournamentDashboardScreen.js:242:      secondaryBtn: { backgroundColor: softBg, borderWidth: 1, borderColor: softBorder },
+src\screens\TournamentDashboardScreen.js:379:            navigation.goBack();
+src\screens\TournamentDashboardScreen.js:425:                  navigation.goBack();
+src\screens\TournamentDashboardScreen.js:576:              onPress={() => navigation.goBack()}
+src\screens\TournamentDashboardScreen.js:579:              <Text style={styles.primaryText}>Back</Text>
+src\screens\TournamentFormatsScreen.js:150:      navigation.goBack();
+src\screens\TournamentFormatsScreen.js:255:      screen: { flex: 1, backgroundColor: theme.bg },
+src\screens\TournamentFormatsScreen.js:265:        backgroundColor: goldBg,
+src\screens\TournamentFormatsScreen.js:276:        backgroundColor: theme.card2,
+src\screens\TournamentFormatsScreen.js:306:        backgroundColor: softBg,
+src\screens\TournamentFormatsScreen.js:310:      roundBubbleActive: { borderColor: greenRing, backgroundColor: greenBg },
+src\screens\TournamentFormatsScreen.js:329:        backgroundColor: theme.card2,
+src\screens\TournamentFormatsScreen.js:341:        backgroundColor: softBg,
+src\screens\TournamentFormatsScreen.js:343:      toggleOn: { borderColor: greenRing, backgroundColor: greenBg },
+src\screens\TournamentFormatsScreen.js:361:        backgroundColor: softBg,
+src\screens\TournamentFormatsScreen.js:365:      chipActive: { borderColor: greenRing, backgroundColor: greenBg },
+src\screens\TournamentFormatsScreen.js:375:        backgroundColor: softBg,
+src\screens\TournamentFormatsScreen.js:377:      pillBtnActive: { borderColor: greenRing, backgroundColor: greenBg },
+src\screens\TournamentFormatsScreen.js:386:        backgroundColor: softBg,
+src\screens\TournamentFormatsScreen.js:398:        backgroundColor: green,
+src\screens\TournamentFormatsScreen.js:411:        backgroundColor: softBg,
+src\screens\TournamentFormatsScreen.js:432:        backgroundColor: theme.bg,
+src\screens\TournamentFormatsScreen.js:441:        backgroundColor: inkBtn,
+src\screens\TournamentFormatsScreen.js:452:        backgroundColor: softBg,
+src\screens\TournamentFormatsScreen.js:460:        backgroundColor: "rgba(0,0,0,0.55)",
+src\screens\TournamentFormatsScreen.js:471:        backgroundColor: theme.bg,
+src\screens\TournamentFormatsScreen.js:481:        backgroundColor: softBg,
+src\screens\TournamentFormatsScreen.js:495:        backgroundColor: softBg,
+src\screens\TournamentFormatsScreen.js:499:      holeBtnActive: { backgroundColor: greenBg, borderColor: greenRing },
+src\screens\TournamentFormatsScreen.js:509:        backgroundColor: theme.card2,
+src\screens\TournamentFormatsScreen.js:523:        backgroundColor: softBg,
+src\screens\TournamentFormatsScreen.js:527:      modalBtnPrimary: { backgroundColor: green, borderColor: greenRing },
+src\screens\TournamentOverviewScreen.js:31:      navigation.goBack();
+src\screens\TournamentOverviewScreen.js:118:      screen: { flex: 1, backgroundColor: theme.bg },
+src\screens\TournamentOverviewScreen.js:126:        backgroundColor: isLive ? greenBg : blueBg,
+src\screens\TournamentOverviewScreen.js:148:        backgroundColor: softBg,
+src\screens\TournamentOverviewScreen.js:151:      itemReady: { borderColor: readyBorder, backgroundColor: readyBg },
+src\screens\TournamentOverviewScreen.js:164:        backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\TournamentPlayersScreen.js:37:function initialsFromName(name, fallback) {
+src\screens\TournamentPlayersScreen.js:39:  if (!s) return String(fallback || "?").slice(0, 2).toUpperCase();
+src\screens\TournamentPlayersScreen.js:104:      navigation.goBack();
+src\screens\TournamentPlayersScreen.js:301:      screen: { flex: 1, backgroundColor: theme.bg },
+src\screens\TournamentPlayersScreen.js:310:        backgroundColor: blueBg,
+src\screens\TournamentPlayersScreen.js:331:        backgroundColor: softBg,
+src\screens\TournamentPlayersScreen.js:342:        backgroundColor: goldBg,
+src\screens\TournamentPlayersScreen.js:355:        backgroundColor: softBg,
+src\screens\TournamentPlayersScreen.js:366:        backgroundColor: greenBg,
+src\screens\TournamentPlayersScreen.js:377:        backgroundColor: softBg,
+src\screens\TournamentPlayersScreen.js:399:        backgroundColor: theme.card2,
+src\screens\TournamentPlayersScreen.js:411:        backgroundColor: softBg,
+src\screens\TournamentPlayersScreen.js:424:        backgroundColor: softBg,
+src\screens\TournamentPlayersScreen.js:437:        backgroundColor: softBg,
+src\screens\TournamentPlayersScreen.js:442:      actionBtnDanger: { backgroundColor: "rgba(231,76,60,0.14)", borderColor: "rgba(231,76,60,0.28)" },
+src\screens\TournamentPlayersScreen.js:449:        backgroundColor: softBg,
+src\screens\TournamentPlayersScreen.js:463:        backgroundColor: theme.bg,
+src\screens\TournamentPlayersScreen.js:470:      primaryBtn: { backgroundColor: isDark ? "rgba(46,125,255,0.92)" : "rgba(10,15,26,0.92)" },
+src\screens\TournamentPlayersScreen.js:473:      secondaryBtn: { backgroundColor: softBg, borderWidth: 1, borderColor: softBorder },
+src\screens\TournamentPlayersScreen.js:480:        backgroundColor: "rgba(0,0,0,0.55)",
+src\screens\TournamentPlayersScreen.js:493:        backgroundColor: theme.bg,
+src\screens\TournamentPlayersScreen.js:506:        backgroundColor: theme.card2,
+src\screens\TournamentPlayersScreen.js:521:      modalBtnCancel: { backgroundColor: softBg, borderColor: softBorder },
+src\screens\TournamentPlayersScreen.js:522:      modalBtnSave: { backgroundColor: blue, borderColor: blue },
+src\screens\TournamentPlayersScreen.js:532:        backgroundColor: softBg,
+src\screens\TournamentPlayersScreen.js:546:        backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\TournamentPlayersScreen.js:556:        backgroundColor: softBg,
+src\screens\TournamentPlayersScreen.js:564:        backgroundColor: selectedBg,
+src\screens\TournamentPlayersScreen.js:577:        backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\TournamentPlayersScreen.js:581:        backgroundColor: blueBg,
+src\screens\TournamentPlayersScreen.js:1304:                <Text style={styles.modalSub}>Jump back to any setup step.</Text>
+src\screens\TournamentPlayersScreen.js:1482:                    <Text style={styles.emptySub}>Add buddies in your Buddy List first, then come back here.</Text>
+src\screens\TournamentPlayersSetupScreen.js:68:      navigation.goBack();
+src\screens\TournamentPlayersSetupScreen.js:168:      screen: { flex: 1, backgroundColor: theme.bg },
+src\screens\TournamentPlayersSetupScreen.js:176:        backgroundColor: goldBg,
+src\screens\TournamentPlayersSetupScreen.js:195:        backgroundColor: theme.card2,
+src\screens\TournamentPlayersSetupScreen.js:232:        backgroundColor: softBg,
+src\screens\TournamentPlayersSetupScreen.js:243:        backgroundColor: green,
+src\screens\TournamentPlayersSetupScreen.js:267:        backgroundColor: theme.card2,
+src\screens\TournamentPlayersSetupScreen.js:278:        backgroundColor: greenBg,
+src\screens\TournamentPlayersSetupScreen.js:288:        backgroundColor: softBg,
+src\screens\TournamentPlayersSetupScreen.js:309:        backgroundColor: theme.bg,
+src\screens\TournamentPlayersSetupScreen.js:321:        backgroundColor: softBg,
+src\screens\TournamentPlayersSetupScreen.js:333:        backgroundColor: inkBtn,
+src\screens\TournamentPlayersSetupScreen.js:344:        backgroundColor: softBg,
+src\screens\TournamentPlayersSetupScreen.js:353:        backgroundColor: "rgba(0,0,0,0.55)",
+src\screens\TournamentPlayersSetupScreen.js:367:        backgroundColor: theme.bg,
+src\screens\TournamentPlayersSetupScreen.js:379:        backgroundColor: theme.bg,
+src\screens\TournamentPlayersSetupScreen.js:398:        backgroundColor: softBg,
+src\screens\TournamentPlayersSetupScreen.js:403:      choiceBtnPrimary: { backgroundColor: green, borderColor: greenRing },
+src\screens\TournamentPlayersSetupScreen.js:414:        backgroundColor: theme.card2,
+src\screens\TournamentPlayersSetupScreen.js:427:        backgroundColor: softBg,
+src\screens\TournamentPlayersSetupScreen.js:431:      modalBtnPrimary: { backgroundColor: green, borderColor: greenRing },
+src\screens\TournamentPlayersSetupScreen.js:786:            <Text style={styles.modalBtnText}>Back</Text>
+src\screens\TournamentPlayersSetupScreen.js:827:      {/* Removed top-right "Setup" button. One clear path back via footer. */}
+src\screens\TournamentRoundsScreen.js:38:      navigation.goBack();
+src\screens\TournamentRoundsScreen.js:78:      screen: { flex: 1, backgroundColor: theme.bg },
+src\screens\TournamentRoundsScreen.js:86:        backgroundColor: goldBg,
+src\screens\TournamentRoundsScreen.js:121:        backgroundColor: softBg,
+src\screens\TournamentRoundsScreen.js:123:      pillActive: { borderColor: blue, backgroundColor: blueBg },
+src\screens\TournamentRoundsScreen.js:134:        backgroundColor: theme.bg,
+src\screens\TournamentRoundsScreen.js:143:        backgroundColor: isDark ? "rgba(46,125,255,0.92)" : "rgba(10,15,26,0.92)",
+src\screens\TournamentSetupScreen.js:28:      navigation.goBack();
+src\screens\TournamentSetupScreen.js:161:      screen: { flex: 1, backgroundColor: theme.bg },
+src\screens\TournamentSetupScreen.js:169:        backgroundColor: goldBg,
+src\screens\TournamentSetupScreen.js:188:        backgroundColor: theme.card2,
+src\screens\TournamentSetupScreen.js:217:        backgroundColor: softBg,
+src\screens\TournamentSetupScreen.js:239:        backgroundColor: theme.card2,
+src\screens\TournamentSetupScreen.js:242:      stepCardActive: { borderColor: blue, backgroundColor: blueBg },
+src\screens\TournamentSetupScreen.js:253:        backgroundColor: greenBg,
+src\screens\TournamentSetupScreen.js:255:      pillBad: { borderColor: softBorder, backgroundColor: softBg },
+src\screens\TournamentSetupScreen.js:266:        backgroundColor: theme.bg,
+src\screens\TournamentSetupScreen.js:275:        backgroundColor: inkBtn,
+src\screens\TournamentsScreen.js:131:      screen: { flex: 1, backgroundColor: theme.bg },
+src\screens\TournamentsScreen.js:139:        backgroundColor: goldBg,
+src\screens\TournamentsScreen.js:171:        backgroundColor: theme.card2,
+src\screens\TournamentsScreen.js:174:      row: { padding: 16, backgroundColor: theme.card2 },
+src\screens\TournamentsScreen.js:181:        backgroundColor: softBg,
+src\screens\TournamentsScreen.js:196:      actionPaneEdit: { backgroundColor: editGreen },
+src\screens\TournamentsScreen.js:197:      actionPaneDelete: { backgroundColor: deleteRed },
+src\screens\TournamentsScreen.js:205:        backgroundColor: softBg,
+src\screens\TournamentsScreen.js:219:        backgroundColor: theme.bg,
+src\screens\TournamentsScreen.js:229:        backgroundColor: isDark ? "rgba(46,125,255,0.92)" : "rgba(10,15,26,0.92)",
+src\screens\TournamentsScreen.js:239:        backgroundColor: softBg,
+src\screens\TournamentsScreen.js:249:        backgroundColor: "rgba(0,0,0,0.55)",
+src\screens\TournamentsScreen.js:260:        backgroundColor: theme.bg,
+src\screens\TournamentsScreen.js:272:        backgroundColor: theme.card2,
+src\screens\TournamentsScreen.js:287:      modalBtnCancel: { backgroundColor: softBg, borderColor: softBorder },
+src\screens\TournamentsScreen.js:288:      modalBtnPrimary: { backgroundColor: blue, borderColor: blue },
+src\screens\TournamentTeesScreen.js:51:      navigation.goBack();
+src\screens\TournamentTeesScreen.js:142:      screen: { flex: 1, backgroundColor: theme.bg },
+src\screens\TournamentTeesScreen.js:150:        backgroundColor: goldBg,
+src\screens\TournamentTeesScreen.js:169:        backgroundColor: softBg,
+src\screens\TournamentTeesScreen.js:191:        backgroundColor: theme.card2,
+src\screens\TournamentTeesScreen.js:206:        backgroundColor: greenBg,
+src\screens\TournamentTeesScreen.js:217:        backgroundColor: green,
+src\screens\TournamentTeesScreen.js:231:        backgroundColor: theme.bg,
+src\screens\TournamentTeesScreen.js:240:        backgroundColor: isDark ? "rgba(46,125,255,0.92)" : "rgba(10,15,26,0.92)",
+src\screens\TournamentTeesScreen.js:250:        backgroundColor: softBg,
+src\screens\TournamentTeesScreen.js:260:        backgroundColor: "rgba(0,0,0,0.55)",
+src\screens\TournamentTeesScreen.js:272:        backgroundColor: theme.bg,
+src\screens\TournamentTeesScreen.js:284:        backgroundColor: theme.card2,
+src\screens\TournamentTeesScreen.js:296:        backgroundColor: theme.card2,
+src\screens\TournamentTeesScreen.js:299:      teeRowActive: { borderColor: blue, backgroundColor: blueBg },
+src\screens\TournamentTeesScreen.js:483:            {roundsReady ? "Choose tees for each round. This stays separate from normal round setup." : "Go back and set rounds first."}
+src\screens\WagersScreen.js:58:  const [nassauBack, setNassauBack] = useState(seed?.nassau?.back ? String(seed.nassau.back) : "");
+src\screens\WagersScreen.js:70:      ? toMoneyNumber(nassauFront) + toMoneyNumber(nassauBack) + toMoneyNumber(nassauTotal)
+src\screens\WagersScreen.js:73:  }, [skinsOn, skinsAmt, kpsOn, kpsAmt, nassauOn, nassauFront, nassauBack, nassauTotal]);
+src\screens\WagersScreen.js:85:        back: toMoneyNumber(nassauBack),
+src\screens\WagersScreen.js:97:    if (navigation.canGoBack?.()) navigation.goBack();
+src\screens\WagersScreen.js:111:  function onBack() {
+src\screens\WagersScreen.js:112:    navigation.goBack();
+src\screens\WagersScreen.js:122:          <Pressable onPress={onBack} hitSlop={12} style={({ pressed }) => [styles.headerPill, pressed && styles.pressed]}>
+src\screens\WagersScreen.js:123:            <Text style={styles.headerPillText}>Back</Text>
+src\screens\WagersScreen.js:220:                <Text style={styles.toggleSub}>Front 9, Back 9, Total</Text>
+src\screens\WagersScreen.js:244:                    <Text style={styles.smallLabel}>Back</Text>
+src\screens\WagersScreen.js:246:                      value={nassauBack}
+src\screens\WagersScreen.js:247:                      onChangeText={(t) => setNassauBack(cleanMoneyInput(t))}
+src\screens\WagersScreen.js:322:  screen: { flex: 1, backgroundColor: theme?.colors?.bg || "#0B1220" },
+src\screens\WagersScreen.js:338:    backgroundColor: "rgba(46,125,255,0.22)",
+src\screens\WagersScreen.js:348:    backgroundColor: "rgba(255,255,255,0.10)",
+src\screens\WagersScreen.js:360:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\WagersScreen.js:376:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\WagersScreen.js:390:    backgroundColor: "rgba(255,255,255,0.04)",
+src\screens\WagersScreen.js:403:    backgroundColor: "rgba(255,255,255,0.03)",
+src\screens\WagersScreen.js:415:    backgroundColor: "rgba(255,255,255,0.06)",
+src\screens\WagersScreen.js:418:  switchOuterOn: { borderColor: "rgba(46,125,255,0.55)", backgroundColor: "rgba(46,125,255,0.18)" },
+src\screens\WagersScreen.js:419:  switchKnob: { width: 28, height: 28, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.70)", transform: [{ translateX: 0 }] },
+src\screens\WagersScreen.js:420:  switchKnobOn: { backgroundColor: "rgba(255,255,255,0.92)", transform: [{ translateX: 20 }] },
+src\screens\WagersScreen.js:430:    backgroundColor: "rgba(0,0,0,0.14)",
+src\screens\WagersScreen.js:446:    backgroundColor: "rgba(0,0,0,0.14)",
+src\screens\WagersScreen.js:461:    backgroundColor: "rgba(11,18,32,0.92)",
+src\screens\WagersScreen.js:470:    backgroundColor: theme?.colors?.primary || "#2E7DFF",
+src\storage\buddies.js:106:      // fallback to local if snapshot fails
+src\storage\courseData.js:60:// MAIN LOAD: remote first, fallback to local
+src\storage\courseData.js:71:    // ignore remote errors; fall back to local
+src\storage\roundState.js:62:    // fallback (older RN / edge cases)
+src\theme.js:11:      // IMPORTANT: keep the original premium navy backdrop (was #0B1220)
