@@ -1,6 +1,6 @@
 // src/screens/TournamentRoundsScreen.js
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, Pressable, Alert, Platform, ScrollView } from "react-native";
+import { View, Text, StyleSheet, Pressable, Alert, Platform, ScrollView, TextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   doc,
@@ -28,7 +28,8 @@ export default function TournamentRoundsScreen({ navigation, route }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const [selected, setSelected] = useState(null);
+  // Text input state (premium: simple + explicit)
+  const [roundsText, setRoundsText] = useState("");
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
@@ -45,8 +46,11 @@ export default function TournamentRoundsScreen({ navigation, route }) {
       (snap) => {
         const data = snap.exists() ? { id: snap.id, ...snap.data() } : null;
         setT(data);
+
         const existing = Number(data?.roundsTotal || 0);
-        setSelected(existing > 0 ? existing : null);
+        if (existing > 0) setRoundsText(String(existing));
+        else setRoundsText("");
+
         setLoading(false);
       },
       (err) => {
@@ -63,6 +67,14 @@ export default function TournamentRoundsScreen({ navigation, route }) {
     if (!u || !t) return false;
     return String(t.ownerUid || "") === String(u.uid || "");
   }, [t, u]);
+
+  const parsedRounds = useMemo(() => {
+    const cleaned = String(roundsText || "").replace(/[^\d]/g, "");
+    const n = Number(cleaned || 0);
+    return Number.isFinite(n) ? n : 0;
+  }, [roundsText]);
+
+  const isValid = parsedRounds >= 1 && parsedRounds <= 100;
 
   const styles = useMemo(() => {
     const goldBorder = isDark ? "rgba(255, 210, 92, 0.60)" : "rgba(255, 210, 92, 0.62)";
@@ -108,20 +120,32 @@ export default function TournamentRoundsScreen({ navigation, route }) {
         textTransform: "uppercase",
       },
 
-      grid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+      inputCard: {
+        borderRadius: 20,
+        padding: 16,
+        borderWidth: 2,
+        borderColor: softBorder,
+        backgroundColor: theme.card2,
+      },
+      inputLabel: { color: theme.text, fontSize: 12, fontWeight: "900", letterSpacing: 1.2, opacity: 0.75, textTransform: "uppercase" },
 
-      pill: {
-        width: "31%",
-        height: 54,
+      inputRow: { marginTop: 10, flexDirection: "row", alignItems: "center", gap: 10 },
+      input: {
+        flex: 1,
+        height: 56,
         borderRadius: 18,
-        alignItems: "center",
-        justifyContent: "center",
-        borderWidth: 1,
+        paddingHorizontal: 16,
+        borderWidth: 2,
         borderColor: softBorder,
         backgroundColor: softBg,
+        color: theme.text,
+        fontSize: 18,
+        fontWeight: "900",
+        letterSpacing: 0.4,
       },
-      pillActive: { borderColor: blue, backgroundColor: blueBg },
-      pillText: { color: theme.text, fontSize: 16, fontWeight: "900" },
+      inputActive: { borderColor: blue, backgroundColor: blueBg },
+
+      hint: { marginTop: 10, color: theme.text, opacity: 0.72, fontSize: 12, fontWeight: "800", lineHeight: 18 },
 
       footer: {
         position: "absolute",
@@ -147,8 +171,6 @@ export default function TournamentRoundsScreen({ navigation, route }) {
       pressed: { opacity: Platform.OS === "ios" ? 0.88 : 0.9, transform: [{ scale: 0.99 }] },
     });
   }, [theme, isDark, footerPad]);
-
-  const options = [1, 2, 3, 4, 5, 6];
 
   async function seedRoundsDocs(roundsTotal) {
     // Create rounds docs r1..rN if missing, and delete extras if rounds reduced.
@@ -187,7 +209,7 @@ export default function TournamentRoundsScreen({ navigation, route }) {
     await batch.commit();
   }
 
-  async function onNext() {
+  async function onConfirmContinue() {
     if (!tournamentId) return;
 
     if (!isHost) {
@@ -195,18 +217,17 @@ export default function TournamentRoundsScreen({ navigation, route }) {
       return;
     }
 
-    const n = Number(selected || 0);
-    if (!n || n < 1) {
-      Alert.alert("Select rounds", "Choose how many rounds this tournament has.");
+    if (!isValid) {
+      Alert.alert("Rounds", "Enter a number of rounds between 1 and 100.");
       return;
     }
 
     setSaving(true);
     try {
-      await seedRoundsDocs(n);
+      await seedRoundsDocs(parsedRounds);
 
       await updateDoc(doc(db, "tournaments", tournamentId), {
-        roundsTotal: n,
+        roundsTotal: parsedRounds,
         roundsReady: true,
         setupStep: "courses",
         updatedAt: serverTimestamp(),
@@ -222,52 +243,58 @@ export default function TournamentRoundsScreen({ navigation, route }) {
 
   return (
     <View style={styles.screen}>
-      <ScreenHeader navigation={navigation} title="Rounds" subtitle="Select how many rounds" />
+      <ScreenHeader navigation={navigation} title="Rounds" subtitle="Confirm today’s structure" />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.hero}>
           <Text style={styles.heroKicker}>Step 1</Text>
           <Text style={styles.heroTitle}>{loading ? "Loading..." : "How many rounds?"}</Text>
           <Text style={styles.heroSub}>
-            Pick the number of rounds. Next you’ll assign a course for each round.
+            Type the number of rounds. Next, you’ll confirm the course for each round.
           </Text>
         </View>
 
-        <Text style={styles.sectionTitle}>Select rounds</Text>
+        <Text style={styles.sectionTitle}>Number of rounds</Text>
 
-        <View style={styles.grid}>
-          {options.map((n) => {
-            const active = Number(selected) === n;
-            return (
-              <Pressable
-                key={String(n)}
-                onPress={() => (isHost && !saving ? setSelected(n) : null)}
-                disabled={!isHost || saving}
-                style={({ pressed }) => [
-                  styles.pill,
-                  active && styles.pillActive,
-                  pressed && isHost && !saving && styles.pressed,
-                  (!isHost || saving) && { opacity: 0.7 },
-                ]}
-              >
-                <Text style={styles.pillText}>{n}</Text>
-              </Pressable>
-            );
-          })}
+        <View style={styles.inputCard}>
+          <Text style={styles.inputLabel}>Type a number (1–100)</Text>
+
+          <View style={styles.inputRow}>
+            <TextInput
+              value={roundsText}
+              onChangeText={(txt) => {
+                if (!isHost || saving) return;
+                // digits only
+                const cleaned = String(txt || "").replace(/[^\d]/g, "");
+                setRoundsText(cleaned);
+              }}
+              editable={isHost && !saving}
+              keyboardType="number-pad"
+              returnKeyType="done"
+              placeholder="e.g. 4"
+              placeholderTextColor={isDark ? "rgba(255,255,255,0.45)" : "rgba(10,15,26,0.45)"}
+              style={[styles.input, (isHost && !saving) && styles.inputActive, (!isHost || saving) && { opacity: 0.75 }]}
+              maxLength={3}
+            />
+          </View>
+
+          <Text style={styles.hint}>
+            You can always return and reconfirm this later. Reducing rounds will remove extra rounds.
+          </Text>
         </View>
       </ScrollView>
 
       <View style={styles.footer}>
         <Pressable
-          onPress={onNext}
-          disabled={!isHost || saving || !selected}
+          onPress={onConfirmContinue}
+          disabled={!isHost || saving || !isValid}
           style={({ pressed }) => [
             styles.primaryBtn,
             pressed && !saving && styles.pressed,
-            (!isHost || saving || !selected) && { opacity: 0.7 },
+            (!isHost || saving || !isValid) && { opacity: 0.7 },
           ]}
         >
-          <Text style={styles.primaryText}>{saving ? "Saving..." : "Next"}</Text>
+          <Text style={styles.primaryText}>{saving ? "Saving..." : "Confirm & Continue"}</Text>
         </Pressable>
       </View>
     </View>
