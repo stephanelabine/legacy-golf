@@ -6,10 +6,14 @@ import { onAuthStateChanged } from "firebase/auth";
 import ROUTES from "./routes";
 import { auth } from "../firebase/firebase";
 
+/* ---------------- boot/auth ---------------- */
+
 import BootScreen from "../screens/BootScreen";
 
 import LoginScreen from "../screens/LoginScreen";
 import SignupScreen from "../screens/SignupScreen";
+
+/* ---------------- core app ---------------- */
 
 import HomeScreen from "../screens/HomeScreen";
 import GamesScreen from "../screens/GamesScreen";
@@ -33,6 +37,7 @@ import CourseDataScreen from "../screens/CourseDataScreen";
 
 import HistoryScreen from "../screens/HistoryScreen";
 import RoundDetailsScreen from "../screens/RoundDetailsScreen";
+
 import ProfileScreen from "../screens/ProfileScreen";
 import BuddyListScreen from "../screens/BuddyListScreen";
 import EquipmentScreen from "../screens/EquipmentScreen";
@@ -40,17 +45,22 @@ import EquipmentScreen from "../screens/EquipmentScreen";
 import WagersScreen from "../screens/WagersScreen";
 import HazardsScreen from "../screens/HazardsScreen";
 
+/* ---------------- tournaments ---------------- */
+
 import TournamentsScreen from "../screens/TournamentsScreen";
 import TournamentDashboardScreen from "../screens/TournamentDashboardScreen";
 import JoinTournamentScreen from "../screens/JoinTournamentScreen";
+
 import TournamentSetupScreen from "../screens/TournamentSetupScreen";
-import TournamentOverviewScreen from "../screens/TournamentOverviewScreen";
+import TournamentRoundsScreen from "../screens/TournamentRoundsScreen";
 import TournamentCourseScreen from "../screens/TournamentCourseScreen";
 import TournamentTeesScreen from "../screens/TournamentTeesScreen";
-import TournamentPlayersScreen from "../screens/TournamentPlayersScreen";
-import TournamentPlayersSetupScreen from "../screens/TournamentPlayersSetupScreen";
 import TournamentFormatsScreen from "../screens/TournamentFormatsScreen";
-import TournamentRoundsScreen from "../screens/TournamentRoundsScreen";
+import TournamentPlayersSetupScreen from "../screens/TournamentPlayersSetupScreen";
+import TournamentPlayersScreen from "../screens/TournamentPlayersScreen";
+import TournamentOverviewScreen from "../screens/TournamentOverviewScreen";
+
+/* ---------------- results/payouts ---------------- */
 
 import FinalResultsScreen from "../screens/FinalResultsScreen";
 import PayoutsScreen from "../screens/PayoutsScreen";
@@ -90,6 +100,7 @@ export default function RootNavigator() {
         </>
       ) : (
         <>
+          {/* Core */}
           <Stack.Screen name={ROUTES.HOME} component={HomeScreen} />
           <Stack.Screen name={ROUTES.GAMES} component={GamesScreen} />
           <Stack.Screen name={ROUTES.GAME_SETUP} component={GameSetupScreen} />
@@ -118,19 +129,21 @@ export default function RootNavigator() {
           <Stack.Screen name={ROUTES.EQUIPMENT} component={EquipmentScreen} />
           <Stack.Screen name={ROUTES.WAGERS} component={WagersScreen} />
 
+          {/* Tournaments (current wiring; canonical aliases now exist in routes.js) */}
           <Stack.Screen name={ROUTES.TOURNAMENTS} component={TournamentsScreen} />
           <Stack.Screen name={ROUTES.JOIN_TOURNAMENT} component={JoinTournamentScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_DASHBOARD} component={TournamentDashboardScreen} />
 
           <Stack.Screen name={ROUTES.TOURNAMENT_SETUP} component={TournamentSetupScreen} />
-          <Stack.Screen name={ROUTES.TOURNAMENT_OVERVIEW} component={TournamentOverviewScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_ROUNDS} component={TournamentRoundsScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_COURSE} component={TournamentCourseScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_TEES} component={TournamentTeesScreen} />
+          <Stack.Screen name={ROUTES.TOURNAMENT_FORMATS} component={TournamentFormatsScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_PLAYERS_SETUP} component={TournamentPlayersSetupScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_PLAYERS} component={TournamentPlayersScreen} />
-          <Stack.Screen name={ROUTES.TOURNAMENT_FORMATS} component={TournamentFormatsScreen} />
+          <Stack.Screen name={ROUTES.TOURNAMENT_OVERVIEW} component={TournamentOverviewScreen} />
 
+          {/* Modals */}
           <Stack.Group
             screenOptions={{
               presentation: "modal",

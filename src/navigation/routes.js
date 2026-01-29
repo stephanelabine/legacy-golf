@@ -36,6 +36,8 @@ const ROUTES = {
 
   WAGERS: "Wagers",
 
+  /* ---------------- Tournaments (existing routes) ---------------- */
+
   TOURNAMENTS: "Tournaments",
   TOURNAMENT_DASHBOARD: "TournamentDashboard",
   JOIN_TOURNAMENT: "JoinTournament",
@@ -49,6 +51,25 @@ const ROUTES = {
   TOURNAMENT_PLAYERS_SETUP: "TournamentPlayersSetup",
   TOURNAMENT_FORMATS: "TournamentFormats",
   TOURNAMENT_ROUNDS: "TournamentRounds",
+
+  /* ---------------- Tournaments (canonical aliases) ----------------
+     These are the new “clear names” we’ll use going forward.
+     They map to the exact same route strings as the existing ones.
+     No behavior changes.
+  */
+
+  TOURNAMENT_SPLASH: "Tournaments", // existing: TOURNAMENTS
+  TOURNAMENT_HUB: "TournamentDashboard", // existing: TOURNAMENT_DASHBOARD
+  TOURNAMENT_SETUP_HOME: "TournamentSetup", // existing: TOURNAMENT_SETUP
+
+  TOURNAMENT_ROUNDS_STEP: "TournamentRounds", // existing: TOURNAMENT_ROUNDS
+  TOURNAMENT_COURSES_STEP: "TournamentCourse", // existing: TOURNAMENT_COURSE
+  TOURNAMENT_TEES_STEP: "TournamentTees", // existing: TOURNAMENT_TEES
+  TOURNAMENT_FORMATS_STEP: "TournamentFormats", // existing: TOURNAMENT_FORMATS
+  TOURNAMENT_PLAYERS_STEP: "TournamentPlayers", // existing: TOURNAMENT_PLAYERS
+
+  TOURNAMENT_OVERVIEW_ANCHOR: "TournamentOverview", // existing: TOURNAMENT_OVERVIEW
+  TOURNAMENT_JOIN: "JoinTournament", // existing: JOIN_TOURNAMENT
 
   FINAL_RESULTS: "FinalResults",
   PAYOUTS: "Payouts",
