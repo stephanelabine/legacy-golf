@@ -25,7 +25,6 @@ import {
   orderBy,
   getDocs,
   setDoc,
-  deleteDoc,
   onSnapshot as onSnapshotQuery,
   writeBatch,
 } from "firebase/firestore";
@@ -33,7 +32,7 @@ import {
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import { useTheme } from "../theme/ThemeProvider";
-import { db } from "../firebase/firebase";
+import { auth, db } from "../firebase/firebase";
 import { COURSES_LOCAL } from "../data/coursesLocal";
 
 export default function TournamentCourseScreen({ navigation, route }) {
@@ -74,6 +73,12 @@ export default function TournamentCourseScreen({ navigation, route }) {
 
   const roundsReady = !!t?.roundsReady;
   const roundsTotal = Math.max(1, Number(t?.roundsTotal || 1));
+
+  const u = auth.currentUser;
+  const isHost = useMemo(() => {
+    if (!u || !t) return false;
+    return String(t.ownerUid || "") === String(u.uid || "");
+  }, [t, u]);
 
   // --- helpers -------------------------------------------------------------
 
@@ -130,7 +135,6 @@ export default function TournamentCourseScreen({ navigation, route }) {
 
           const targetRef = doc(db, "tournaments", tournamentId, "rounds", roundIdFor(i));
 
-          // Prefer canonical values, but if missing, pull from numeric.
           const sourceData = canonical?.data || {};
           const migrateFromNumeric = numeric?.data || {};
 
@@ -163,8 +167,7 @@ export default function TournamentCourseScreen({ navigation, route }) {
             targetRef,
             {
               roundNumber: i,
-              // keep roundIndex for backward compatibility if any old code still queries it
-              roundIndex: i,
+              roundIndex: i, // keep for legacy ordering
               courseId: courseId ?? null,
               courseName: courseName ?? null,
               teeCode: teeCode ?? null,
@@ -182,13 +185,11 @@ export default function TournamentCourseScreen({ navigation, route }) {
           const rn = parseRoundNumberFromDoc(d.id, data);
           if (!rn) return;
 
-          // remove numeric ids always
           if (isNumericId(d.id)) {
             batch.delete(d.ref);
             return;
           }
 
-          // remove canonical rounds that are beyond roundsTotal
           if (String(d.id || "").startsWith("r") && rn > roundsTotal) {
             batch.delete(d.ref);
           }
@@ -196,13 +197,11 @@ export default function TournamentCourseScreen({ navigation, route }) {
 
         await batch.commit();
 
-        // Also keep tournament-level courseId/courseName synced to Round 1 (optional compatibility)
-        // Only if Round 1 has a course selected.
-        const round1Ref = doc(db, "tournaments", tournamentId, "rounds", roundIdFor(1));
-        const round1Snap = await getDocs(collection(db, "tournaments", tournamentId, "rounds")); // cheap-ish; already in cache
+        // Sync tournament-level courseId/courseName to Round 1 (optional compatibility)
+        const allRoundsSnap = await getDocs(collection(db, "tournaments", tournamentId, "rounds"));
         let r1CourseId = null;
         let r1CourseName = null;
-        round1Snap.forEach((d) => {
+        allRoundsSnap.forEach((d) => {
           if (d.id === "r1") {
             const dd = d.data() || {};
             r1CourseId = dd?.courseId ?? null;
@@ -217,9 +216,7 @@ export default function TournamentCourseScreen({ navigation, route }) {
               courseName: r1CourseName || null,
               updatedAt: serverTimestamp(),
             });
-          } catch (e) {
-            // non-blocking
-          }
+          } catch (e) {}
         }
       } catch (e) {
         if (!cancelled) Alert.alert("Setup failed", e?.message || "Could not prepare round records.");
@@ -246,7 +243,6 @@ export default function TournamentCourseScreen({ navigation, route }) {
       (snap) => {
         const rows = [];
         snap.forEach((d) => {
-          // only keep canonical ids r*
           if (String(d.id || "").startsWith("r")) rows.push({ id: d.id, ...d.data() });
         });
         setRoundDocs(rows);
@@ -392,13 +388,14 @@ export default function TournamentCourseScreen({ navigation, route }) {
         textAlign: "center",
       },
 
+      // Make the info box feel “more important” than the button (premium hierarchy)
       coursePill: {
         marginTop: 12,
         alignSelf: "center",
-        width: "82%",
-        minHeight: 78,
-        borderRadius: 20,
-        paddingVertical: 18,
+        width: "84%",
+        minHeight: 96,
+        borderRadius: 22,
+        paddingVertical: 20,
         paddingHorizontal: 16,
         borderWidth: 2,
         borderColor: greenRing,
@@ -420,17 +417,18 @@ export default function TournamentCourseScreen({ navigation, route }) {
         textAlign: "center",
       },
 
+      // Slightly smaller than before so it doesn’t overpower the info box
       selectBtn: {
-        marginTop: 14,
-        height: 54,
-        borderRadius: 18,
+        marginTop: 12,
+        height: 48,
+        borderRadius: 16,
         alignItems: "center",
         justifyContent: "center",
         backgroundColor: green,
         borderWidth: 1,
         borderColor: greenRing,
       },
-      selectBtnText: { color: "#fff", fontSize: 15, fontWeight: "900", letterSpacing: 0.3 },
+      selectBtnText: { color: "#fff", fontSize: 14, fontWeight: "900", letterSpacing: 0.3 },
 
       footer: {
         position: "absolute",
@@ -524,7 +522,11 @@ export default function TournamentCourseScreen({ navigation, route }) {
 
   function openPicker(roundIndex) {
     if (!roundsReady) {
-      Alert.alert("Rounds first", "Set the number of rounds before assigning courses.");
+      Alert.alert("Rounds first", "Confirm the number of rounds before selecting courses.");
+      return;
+    }
+    if (!isHost) {
+      Alert.alert("Host only", "Only the host can edit tournament setup.");
       return;
     }
     setPickerRound(roundIndex);
@@ -534,6 +536,10 @@ export default function TournamentCourseScreen({ navigation, route }) {
 
   async function setCourseForRound(roundIndex, course) {
     if (!tournamentId) return;
+    if (!isHost) {
+      Alert.alert("Host only", "Only the host can edit tournament setup.");
+      return;
+    }
 
     const cid = String(course?.id ?? course?.courseId ?? "");
     const cname = String(course?.name ?? "Course");
@@ -549,7 +555,7 @@ export default function TournamentCourseScreen({ navigation, route }) {
         doc(db, "tournaments", tournamentId, "rounds", roundIdFor(roundIndex)),
         {
           roundNumber: roundIndex,
-          roundIndex: roundIndex, // keep for legacy ordering
+          roundIndex: roundIndex,
           courseId: cid,
           courseName: cname,
           updatedAt: serverTimestamp(),
@@ -557,7 +563,6 @@ export default function TournamentCourseScreen({ navigation, route }) {
         { merge: true }
       );
 
-      // keep tournament-level fields as "Round 1 default"
       if (roundIndex === 1) {
         await updateDoc(doc(db, "tournaments", tournamentId), {
           courseId: cid,
@@ -577,6 +582,10 @@ export default function TournamentCourseScreen({ navigation, route }) {
 
   async function clearCoursesForAllRounds() {
     if (!tournamentId) return;
+    if (!isHost) {
+      Alert.alert("Host only", "Only the host can edit tournament setup.");
+      return;
+    }
 
     Alert.alert("Clear all round courses?", "This will remove course selections for every round.", [
       { text: "Cancel", style: "cancel" },
@@ -590,9 +599,7 @@ export default function TournamentCourseScreen({ navigation, route }) {
             const snap = await getDocs(rref);
 
             const batch = writeBatch(db);
-
             snap.forEach((d) => {
-              // clear canonical rounds; also clears any leftovers if they exist
               batch.set(d.ref, { courseId: null, courseName: null, updatedAt: serverTimestamp() }, { merge: true });
             });
 
@@ -613,16 +620,16 @@ export default function TournamentCourseScreen({ navigation, route }) {
     ]);
   }
 
-  function handleContinue() {
+  function handleConfirmContinue() {
     if (saving) return;
 
     if (!roundsReady) {
-      Alert.alert("Rounds not set", "Set the number of rounds first, then assign a course per round.");
+      Alert.alert("Rounds first", "Confirm the number of rounds before selecting courses.");
       return;
     }
 
     if (!allRoundsHaveCourses) {
-      Alert.alert("Courses missing", `Select a course for round(s): ${missingRounds.join(", ")}`);
+      Alert.alert("Courses needed", `Select a course for round(s): ${missingRounds.join(", ")}`);
       return;
     }
 
@@ -639,12 +646,12 @@ export default function TournamentCourseScreen({ navigation, route }) {
     return (
       <Pressable
         onPress={() => setCourseForRound(pickerRound, item)}
-        disabled={saving}
+        disabled={saving || !isHost}
         style={({ pressed }) => [
           styles.courseRow,
           active && styles.courseRowActive,
-          pressed && !saving && styles.pressed,
-          saving && { opacity: 0.6 },
+          pressed && !saving && isHost && styles.pressed,
+          (saving || !isHost) && { opacity: 0.6 },
         ]}
       >
         <Text style={styles.courseRowTitle}>{cname}</Text>
@@ -655,27 +662,34 @@ export default function TournamentCourseScreen({ navigation, route }) {
 
   return (
     <View style={styles.screen}>
-      <ScreenHeader navigation={navigation} title="Select Courses" subtitle="Assign a course per round." />
+      <ScreenHeader navigation={navigation} title="Courses" subtitle="Confirm a course for each round" />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.hero}>
-          <Text style={styles.heroKicker}>Course</Text>
+          <Text style={styles.heroKicker}>Step 2</Text>
           <Text style={styles.heroTitle}>{roundsReady ? "Round Courses" : "Rounds required"}</Text>
           <Text style={styles.heroSub}>
             {roundsReady
-              ? "Search and set each round’s course below."
-              : "Go to Tournament Dashboard → Rounds, set the number of rounds, then come back here."}
+              ? "Select a course for each round. When finished, confirm and continue to tees."
+              : "Go back and confirm rounds first."}
           </Text>
         </View>
 
         {!roundsReady ? (
           <View style={styles.warn}>
             <Text style={styles.warnTitle}>Rounds not set</Text>
-            <Text style={styles.warnSub}>Set the number of rounds first. Then you can assign a course per round.</Text>
+            <Text style={styles.warnSub}>Confirm the number of rounds first, then return here to choose courses.</Text>
+
+            <Pressable
+              onPress={() => navigation.navigate(ROUTES.TOURNAMENT_ROUNDS, { tournamentId })}
+              style={({ pressed }) => [styles.secondaryBtn, pressed && styles.pressed]}
+            >
+              <Text style={styles.secondaryText}>Go to Rounds</Text>
+            </Pressable>
           </View>
         ) : (
           <>
-            <Text style={styles.sectionTitle}>Select Round</Text>
+            <Text style={styles.sectionTitle}>Rounds</Text>
 
             {Array.from({ length: roundsTotal }).map((_, idx) => {
               const r = idx + 1;
@@ -691,14 +705,18 @@ export default function TournamentCourseScreen({ navigation, route }) {
                       {cname ? cname : "No course selected"}
                     </Text>
                     <Text style={styles.coursePillSub}>
-                      {cname ? "Course selected · Ready" : "Course selected · Missing"}
+                      {cname ? "Course selected · Ready" : "Select a course to continue"}
                     </Text>
                   </View>
 
                   <Pressable
                     onPress={() => openPicker(r)}
-                    disabled={saving}
-                    style={({ pressed }) => [styles.selectBtn, pressed && styles.pressed, saving && { opacity: 0.7 }]}
+                    disabled={saving || !isHost}
+                    style={({ pressed }) => [
+                      styles.selectBtn,
+                      pressed && isHost && !saving && styles.pressed,
+                      (saving || !isHost) && { opacity: 0.7 },
+                    ]}
                   >
                     <Text style={styles.selectBtnText}>Select Round {r} Course</Text>
                   </Pressable>
@@ -711,24 +729,24 @@ export default function TournamentCourseScreen({ navigation, route }) {
 
       <View style={styles.footer}>
         <Pressable
-          onPress={handleContinue}
-          disabled={saving || !roundsReady}
+          onPress={handleConfirmContinue}
+          disabled={saving || !roundsReady || !isHost}
           style={({ pressed }) => [
             styles.primaryBtn,
-            pressed && !saving && styles.pressed,
-            (saving || !roundsReady) && { opacity: 0.6 },
+            pressed && !saving && isHost && styles.pressed,
+            (saving || !roundsReady || !isHost) && { opacity: 0.6 },
           ]}
         >
-          <Text style={styles.primaryText}>{saving ? "Saving..." : "Save & Continue"}</Text>
+          <Text style={styles.primaryText}>{saving ? "Saving..." : "Confirm & Continue"}</Text>
         </Pressable>
 
         <Pressable
           onPress={clearCoursesForAllRounds}
-          disabled={saving || !roundsReady}
+          disabled={saving || !roundsReady || !isHost}
           style={({ pressed }) => [
             styles.secondaryBtn,
-            pressed && !saving && styles.pressed,
-            (saving || !roundsReady) && { opacity: 0.6 },
+            pressed && !saving && isHost && styles.pressed,
+            (saving || !roundsReady || !isHost) && { opacity: 0.6 },
           ]}
         >
           <Text style={styles.secondaryText}>Clear All Round Courses</Text>
