@@ -1,5 +1,5 @@
 // src/screens/TournamentPlayersScreen.js
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -16,6 +16,8 @@ import {
   ScrollView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+// Part A
+import PremiumSwipeRow from "../components/PremiumSwipeRow";
 import {
   doc,
   onSnapshot,
@@ -97,6 +99,14 @@ export default function TournamentPlayersScreen({ navigation, route }) {
   const [editIsGuest, setEditIsGuest] = useState(false);
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
+  // keep only one swipe row open at a time
+  const openSwipeRef = useRef(null);
+  function closeAnyOpenSwipe() {
+    try {
+      if (openSwipeRef.current && openSwipeRef.current.close) openSwipeRef.current.close();
+    } catch (e) {}
+    openSwipeRef.current = null;
+  }
 
   useEffect(() => {
     if (!tournamentId) {
@@ -390,6 +400,11 @@ export default function TournamentPlayersScreen({ navigation, route }) {
         opacity: 0.75,
         textTransform: "uppercase",
       },
+      swipeWrap: {
+        marginBottom: 12,
+        borderRadius: 18,
+        overflow: "hidden",
+},
 
       row: {
         borderRadius: 18,
@@ -397,10 +412,36 @@ export default function TournamentPlayersScreen({ navigation, route }) {
         borderWidth: 1,
         borderColor: theme.border,
         backgroundColor: theme.card2,
-        marginBottom: 12,
       },
+
+// Subtle zebra stripe — just enough to break up the list.
+rowAlt: {
+  backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "rgba(10,15,26,0.04)",
+},
+
+        
+
+
+      // Player row visual separation + "ready" highlight
+      playerRow: {
+        borderWidth: 1,
+        borderColor: softBorder,
+      },
+      playerRowReady: {
+        borderColor: isDark ? "rgba(46, 204, 113, 0.78)" : "rgba(46, 204, 113, 0.72)",
+      },
+
+        playerRowReadyA: {
+        backgroundColor: isDark ? "rgba(46, 204, 113, 0.14)" : "rgba(46, 204, 113, 0.12)",
+      },
+
+      playerRowReadyB: {
+        backgroundColor: isDark ? "rgba(46, 204, 113, 0.18)" : "rgba(46, 204, 113, 0.15)",
+      },
+
       rowTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
       rowLeft: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1 },
+
 
       avatar: {
         width: 44,
@@ -440,6 +481,25 @@ export default function TournamentPlayersScreen({ navigation, route }) {
       },
       actionText: { color: theme.text, fontSize: 13, fontWeight: "900" },
       actionBtnDanger: { backgroundColor: "rgba(231,76,60,0.14)", borderColor: "rgba(231,76,60,0.28)" },
+
+      // Swipe actions
+      swipeAction: {
+        width: 96,
+        alignItems: "center",
+        justifyContent: "center",
+      },
+      swipeEdit: {
+        backgroundColor: isDark ? "rgba(46,125,255,0.92)" : "rgba(29,53,87,0.92)",
+      },
+      swipeDelete: {
+        backgroundColor: "rgba(231,76,60,0.92)",
+      },
+      swipeText: {
+        color: "#fff",
+        fontSize: 13,
+        fontWeight: "900",
+        letterSpacing: 0.2,
+      },
 
       empty: {
         borderRadius: 18,
@@ -939,7 +999,7 @@ export default function TournamentPlayersScreen({ navigation, route }) {
     ]);
   }
 
-  const rosterCount = members.length || (Array.isArray(t?.memberUids) ? t.memberUids.length : 0);
+const rosterCount = members.length || (Array.isArray(t?.memberUids) ? t.memberUids.length : 0);
 const playerCount = members.length;
 
 const missingHcpCount = useMemo(() => {
@@ -1014,6 +1074,9 @@ const canContinue = playerCount >= 2 && missingHcpCount === 0;
       ]
     );
   }
+// Part B
+const canSwipe = isHost && !rosterLocked && !saving;
+
 
 
   function playerNumberFor(uid) {
@@ -1023,70 +1086,91 @@ const canContinue = playerCount >= 2 && missingHcpCount === 0;
   }
 
   function renderRow({ item }) {
-    const uid = String(item?.uid || item?.id || "");
-    const isOwner = uid && ownerUid && uid === ownerUid;
-    const isGuest = !!item?.isGuest;
+  const uid = String(item?.uid || item?.id || "");
+  const isOwner = uid && ownerUid && uid === ownerUid;
+  const isGuest = !!item?.isGuest;
 
-    const displayName = String(item?.displayName || "").trim();
-    const hcp = String(item?.handicap ?? "").trim();
-    const pnum = playerNumberFor(uid);
+  const displayName = String(item?.displayName || "").trim();
+  const hcpRaw = item?.handicap;
+  const hcp = String(hcpRaw ?? "").trim();
+  const pnum = playerNumberFor(uid);
 
-    const sub = isOwner ? "Tournament Organizer" : isGuest ? "Guest" : "Player";
-    const badge = isOwner ? "P1" : pnum ? `P${pnum}` : "P";
+  const sub = isOwner ? "Tournament Organizer" : isGuest ? "Guest" : "Player";
+  const badge = isOwner ? "P1" : pnum ? `P${pnum}` : "P";
 
-    return (
-      <View style={styles.row}>
-        <View style={styles.rowTop}>
-          <View style={styles.rowLeft}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{initialsFromName(displayName, isOwner ? "P1" : "P")}</Text>
-            </View>
+  const hNum =
+    typeof hcpRaw === "number"
+      ? hcpRaw
+      : hcpRaw === null || hcpRaw === undefined || hcpRaw === ""
+      ? NaN
+      : Number(String(hcpRaw).trim());
+  const hasHcp = Number.isFinite(hNum);
 
-            <View style={{ flex: 1 }}>
-              <Text style={styles.rowTitle} numberOfLines={1}>
-                {displayName || (isOwner ? "Organizer (name not set)" : isGuest ? "Guest (name not set)" : "Player (name not set)")}
-              </Text>
-              <Text style={styles.rowSub} numberOfLines={1}>
-                {sub}
-                {hcp ? ` • HCP ${hcp}` : ""}
-              </Text>
-            </View>
-          </View>
+  const isAlt = pnum ? pnum % 2 === 0 : false;
 
-          <View style={styles.pill}>
-            <Text style={styles.pillText}>{badge}</Text>
-          </View>
+const rowInner = (
+  <View
+    style={[
+      styles.row,
+      !hasHcp && isAlt && styles.rowAlt,
+      styles.playerRow,
+      hasHcp && styles.playerRowReady,
+      hasHcp && (isAlt ? styles.playerRowReadyB : styles.playerRowReadyA),
+    ]}
+  >
+    <View style={styles.rowTop}>
+      <View style={styles.rowLeft}>
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>{initialsFromName(displayName, isOwner ? "P1" : "P")}</Text>
         </View>
 
-        {isHost ? (
-          <View style={styles.rowActions}>
-            <Pressable
-              onPress={() => openEditPlayer(item)}
-              style={({ pressed }) => [styles.actionBtn, pressed && styles.pressed, saving && { opacity: 0.6 }]}
-              disabled={saving}
-            >
-              <Text style={styles.actionText}>{isOwner ? "Edit Organizer" : "Edit Player"}</Text>
-            </Pressable>
-
-            {!isOwner ? (
-              <Pressable
-                onPress={() => removePlayer(item)}
-                style={({ pressed }) => [
-                  styles.actionBtn,
-                  styles.actionBtnDanger,
-                  pressed && styles.pressed,
-                  (rosterLocked || saving) && { opacity: 0.55 },
-                ]}
-                disabled={rosterLocked || saving}
-              >
-                <Text style={styles.actionText}>{rosterLocked ? "Locked" : "Remove"}</Text>
-              </Pressable>
-            ) : null}
-          </View>
-        ) : null}
+        <View style={{ flex: 1 }}>
+          <Text style={styles.rowTitle} numberOfLines={1}>
+            {displayName ||
+              (isOwner ? "Organizer (name not set)" : isGuest ? "Guest (name not set)" : "Player (name not set)")}
+          </Text>
+          <Text style={styles.rowSub} numberOfLines={1}>
+            {sub}
+            {hcp ? ` • HCP ${hcp}` : ""}
+          </Text>
+        </View>
       </View>
-    );
-  }
+
+      <View style={styles.pill}>
+        <Text style={styles.pillText}>{badge}</Text>
+      </View>
+    </View>
+  </View>
+);
+
+
+    // Swipe is only active when host + roster unlocked + not saving
+  if (!canSwipe) return <View style={styles.swipeWrap}>{rowInner}</View>;
+
+  return (
+    <View style={styles.swipeWrap}>
+      <PremiumSwipeRow
+        openSwipeRef={openSwipeRef}
+        closeAnyOpenSwipe={closeAnyOpenSwipe}
+        enabled={canSwipe}
+        actionWidth={120}
+        friction={2}
+        threshold={48}
+        radius={18}
+        borderColor={theme.border}
+        backgroundColor={theme.card2}
+        editColor={"rgba(15,122,74,0.92)"}
+        deleteColor={isDark ? "rgba(220, 52, 52, 0.92)" : "rgba(190, 40, 40, 0.92)"}
+        onEdit={() => openEditPlayer(item)}
+        onDelete={isOwner ? null : () => removePlayer(item)}
+      >
+        {rowInner}
+      </PremiumSwipeRow>
+    </View>
+  );
+}
+
+
 
   function renderBuddyRow({ item }) {
     const uid = String(item?.buddyUid || item?.uid || item?.id || "");
@@ -1148,22 +1232,23 @@ const canContinue = playerCount >= 2 && missingHcpCount === 0;
   return (
     <View style={styles.screen}>
       <ScreenHeader
-        navigation={navigation}
-        title="Players"
-        subtitle="Organizer + players for the tournament."
-        rightLabel={isHost ? "Setup" : null}
-        onRightPress={isHost ? openSetup : undefined}
-      />
+  navigation={navigation}
+  title="Players"
+  subtitle="Add Players."
+/>
+
 
       <FlatList
         data={[
-          { _type: "code", key: "code" },
-          { _type: "organizer", key: "organizer" },
-          { _type: "add", key: "add" },
-          { _type: "section", key: "section" },
-          ...members.map((m) => ({ _type: "member", key: `m:${m.uid || m.id}`, ...m })),
-          { _type: "end", key: "end" },
-        ]}
+  { _type: "code", key: "code" },
+  { _type: "organizer", key: "organizer" },
+  { _type: "add", key: "add" },
+  { _type: "section", key: "section" },
+  ...(canSwipe ? [{ _type: "swipeHint", key: "swipeHint" }] : []),
+  ...members.map((m) => ({ _type: "member", key: `m:${m.uid || m.id}`, ...m })),
+  { _type: "end", key: "end" },
+]}
+
         keyExtractor={(x) => x.key}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
@@ -1239,22 +1324,31 @@ const canContinue = playerCount >= 2 && missingHcpCount === 0;
             );
           }
 
-          if (item._type === "section") return <Text style={styles.sectionTitle}>{`Players • ${rosterCount}`}</Text>;
+if (item._type === "section") return <Text style={styles.sectionTitle}>{`Players • ${rosterCount}`}</Text>;
 
-          if (item._type === "end") {
-            if (loadingM) return null;
-            if (!members.length) {
-              return (
-                <View style={styles.empty}>
-                  <Text style={styles.emptyTitle}>No players yet</Text>
-                  <Text style={styles.emptySub}>Share the join code or add guests/buddies as host.</Text>
-                </View>
-              );
-            }
-            return null;
-          }
+if (item._type === "swipeHint") {
+  return (
+    <Text style={[styles.rowSub, { marginTop: -6, marginBottom: 10, opacity: 0.55 }]}>
+      Swipe right to edit • Swipe left to delete
+    </Text>
+  );
+}
 
-          return renderRow({ item });
+if (item._type === "end") {
+  if (loadingM) return null;
+  if (!members.length) {
+    return (
+      <View style={styles.empty}>
+        <Text style={styles.emptyTitle}>No players yet</Text>
+        <Text style={styles.emptySub}>Share the join code or add guests/buddies as host.</Text>
+      </View>
+    );
+  }
+  return null;
+}
+
+return renderRow({ item });
+
         }}
       />
 

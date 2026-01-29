@@ -13,7 +13,6 @@ import {
   Platform,
   KeyboardAvoidingView,
   ScrollView,
-  Animated,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -30,8 +29,8 @@ import {
   doc,
   updateDoc,
 } from "firebase/firestore";
-import { Swipeable } from "react-native-gesture-handler";
 
+import PremiumSwipeRow from "../components/PremiumSwipeRow";
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import { useTheme } from "../theme/ThemeProvider";
@@ -122,11 +121,6 @@ export default function TournamentsScreen({ navigation }) {
     const softBorder = isDark ? "rgba(255,255,255,0.14)" : "rgba(10,15,26,0.12)";
     const softBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(10,15,26,0.06)";
 
-    const editGreen = "rgba(15,122,74,0.92)";
-    const deleteRed = isDark ? "rgba(220, 52, 52, 0.92)" : "rgba(190, 40, 40, 0.92)";
-
-    const radius = 18;
-
     return StyleSheet.create({
       screen: { flex: 1, backgroundColor: theme.bg },
       listContent: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 140 },
@@ -139,16 +133,26 @@ export default function TournamentsScreen({ navigation }) {
         backgroundColor: goldBg,
         marginBottom: 14,
       },
-      heroKicker: {
+      heroTitle: {
+        marginTop: 0,
         color: theme.text,
-        fontSize: 12,
+        fontSize: 22,
         fontWeight: "900",
-        letterSpacing: 1.4,
-        opacity: 0.78,
-        textTransform: "uppercase",
+        textAlign: "center",
+        alignSelf: "center",
+        width: "100%",
       },
-      heroTitle: { marginTop: 10, color: theme.text, fontSize: 22, fontWeight: "900" },
-      heroSub: { marginTop: 8, color: theme.text, opacity: 0.74, fontSize: 13, fontWeight: "700", lineHeight: 19 },
+      heroSub: {
+        marginTop: 8,
+        color: theme.text,
+        opacity: 0.74,
+        fontSize: 13,
+        fontWeight: "700",
+        lineHeight: 19,
+        textAlign: "center",
+        alignSelf: "center",
+        width: "100%",
+      },
 
       sectionTitle: {
         marginTop: 12,
@@ -159,16 +163,6 @@ export default function TournamentsScreen({ navigation }) {
         letterSpacing: 1.4,
         opacity: 0.75,
         textTransform: "uppercase",
-      },
-
-      // Rounded + clipped container so the row + actions feel like one attached component.
-      swipeShell: {
-        marginBottom: 12,
-        borderRadius: radius,
-        overflow: "hidden",
-        borderWidth: 1,
-        borderColor: theme.border,
-        backgroundColor: theme.card2,
       },
 
       row: { padding: 16, backgroundColor: theme.card2 },
@@ -184,18 +178,6 @@ export default function TournamentsScreen({ navigation }) {
       },
       pillText: { color: theme.text, fontSize: 12, fontWeight: "900", letterSpacing: 0.2 },
       rowSub: { marginTop: 8, color: theme.text, opacity: 0.72, fontSize: 13, fontWeight: "700", lineHeight: 18 },
-
-      // Action slots occupy full height; the colored pane fills it.
-      actionSlot: { width: ACTION_W, height: "100%" },
-      actionPane: {
-        width: ACTION_W,
-        height: "100%",
-        justifyContent: "center",
-        alignItems: "center",
-      },
-      actionPaneEdit: { backgroundColor: editGreen },
-      actionPaneDelete: { backgroundColor: deleteRed },
-      actionText: { color: "#fff", fontSize: 14, fontWeight: "900", letterSpacing: 0.2 },
 
       empty: {
         borderRadius: 18,
@@ -289,7 +271,7 @@ export default function TournamentsScreen({ navigation }) {
       modalBtnText: { color: theme.text, fontSize: 15, fontWeight: "900" },
       modalBtnTextPrimary: { color: "#fff" },
     });
-  }, [theme, isDark, footerPad, ACTION_W]);
+  }, [theme, isDark, footerPad]);
 
   async function createTournament() {
     const u = auth.currentUser;
@@ -421,94 +403,48 @@ export default function TournamentsScreen({ navigation }) {
   }
 
   function TournamentRow({ item }) {
-    const swipeRef = useRef(null);
-
-    function onWillOpen() {
-      if (openSwipeRef.current && openSwipeRef.current !== swipeRef.current) closeAnyOpenSwipe();
-    }
-    function onOpen() {
-      openSwipeRef.current = swipeRef.current;
-    }
-    function onClose() {
-      if (openSwipeRef.current === swipeRef.current) openSwipeRef.current = null;
-    }
-
     const status = (item.status || "draft").toUpperCase();
     const code = item.joinCode ? String(item.joinCode).toUpperCase() : "";
 
-    // Key fix: action segment slides in from “outside” and stays pinned to the edge.
-    function renderLeftActions(progress, dragX) {
-      // dragX: 0 -> +ACTION_W as you swipe right
-      const tx = dragX.interpolate({
-        inputRange: [0, ACTION_W],
-        outputRange: [-ACTION_W, 0], // hidden off-left, then flush-attached
-        extrapolate: "clamp",
-      });
-
-      return (
-        <View style={styles.actionSlot}>
-          <Animated.View style={{ width: ACTION_W, height: "100%", transform: [{ translateX: tx }] }}>
-            <Pressable onPress={() => openEdit(item)} style={[styles.actionPane, styles.actionPaneEdit]}>
-              <Text style={styles.actionText}>Edit</Text>
-            </Pressable>
-          </Animated.View>
-        </View>
-      );
-    }
-
-    function renderRightActions(progress, dragX) {
-      // dragX: 0 -> -ACTION_W as you swipe left
-      const tx = dragX.interpolate({
-        inputRange: [-ACTION_W, 0],
-        outputRange: [0, ACTION_W], // flush-attached, then hidden off-right
-        extrapolate: "clamp",
-      });
-
-      return (
-        <View style={styles.actionSlot}>
-          <Animated.View style={{ width: ACTION_W, height: "100%", transform: [{ translateX: tx }] }}>
-            <Pressable onPress={() => confirmArchive(item)} style={[styles.actionPane, styles.actionPaneDelete]}>
-              <Text style={styles.actionText}>Delete</Text>
-            </Pressable>
-          </Animated.View>
-        </View>
-      );
-    }
+    const deleteRed = isDark ? "rgba(220, 52, 52, 0.92)" : "rgba(190, 40, 40, 0.92)";
 
     return (
-      <View style={styles.swipeShell}>
-        <Swipeable
-          ref={swipeRef}
-          overshootLeft={false}
-          overshootRight={false}
-          friction={2}
-          leftThreshold={40}
-          rightThreshold={40}
-          onSwipeableWillOpen={onWillOpen}
-          onSwipeableOpen={onOpen}
-          onSwipeableClose={onClose}
-          renderLeftActions={renderLeftActions}
-          renderRightActions={renderRightActions}
-        >
-          <Pressable onPress={() => openTournament(item)} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
-            <View style={styles.rowTop}>
-              <Text style={styles.rowTitle}>{item.name || "Untitled Tournament"}</Text>
-              <View style={styles.pill}>
-                <Text style={styles.pillText}>{status}</Text>
-              </View>
+      <PremiumSwipeRow
+        openSwipeRef={openSwipeRef}
+        closeAnyOpenSwipe={closeAnyOpenSwipe}
+        actionWidth={ACTION_W}
+        friction={2}
+        threshold={40}
+        radius={18}
+        borderColor={theme.border}
+        backgroundColor={theme.card2}
+        editColor={"rgba(15,122,74,0.92)"}
+        deleteColor={deleteRed}
+        onEdit={() => openEdit(item)}
+        onDelete={() => confirmArchive(item)}
+      >
+        <Pressable onPress={() => openTournament(item)} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
+          <View style={styles.rowTop}>
+            <Text style={styles.rowTitle}>{item.name || "Untitled Tournament"}</Text>
+            <View style={styles.pill}>
+              <Text style={styles.pillText}>{status}</Text>
             </View>
-            <Text style={styles.rowSub}>
-              Join code: {code || "—"} · Players: {Array.isArray(item.memberUids) ? item.memberUids.length : 1}
-            </Text>
-          </Pressable>
-        </Swipeable>
-      </View>
+          </View>
+          <Text style={styles.rowSub}>
+            Join code: {code || "—"} · Players: {Array.isArray(item.memberUids) ? item.memberUids.length : 1}
+          </Text>
+        </Pressable>
+      </PremiumSwipeRow>
     );
   }
 
   return (
     <View style={styles.screen}>
-      <ScreenHeader navigation={navigation} title="Tournaments" subtitle="Create tournaments, invite players, and manage the full event." />
+      <ScreenHeader
+        navigation={navigation}
+        title="Tournaments"
+        subtitle="Create tournaments, invite players, and manage the full event."
+      />
 
       <FlatList
         data={[
@@ -524,16 +460,17 @@ export default function TournamentsScreen({ navigation }) {
           if (item._type === "hero") {
             return (
               <View style={styles.hero}>
-                <Text style={styles.heroKicker}>Tournament Module</Text>
-                <Text style={styles.heroTitle}>Tournament Hub</Text>
+                <Text style={styles.heroTitle}>Welcome to the Tournament Hub</Text>
                 <Text style={styles.heroSub}>
-                  Create a tournament, then invite your players using a join code. Everything syncs through Firebase so it works across devices.
+                  Here you can create your tournament, invite players, select your courses, and set your games and
+                  formats. Begin by tapping on an already existing tournament you've created, or select "create
+                  tournament" tab
                 </Text>
               </View>
             );
           }
 
-          if (item._type === "section") return <Text style={styles.sectionTitle}>My Tournaments</Text>;
+          if (item._type === "section") return <Text style={styles.sectionTitle}>My Tournaments - Select Existing</Text>;
 
           if (item._type === "end") {
             if (loading) return null;
@@ -588,7 +525,11 @@ export default function TournamentsScreen({ navigation }) {
         >
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
             <Pressable style={styles.modalCard} onPress={() => {}}>
-              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 8 }}
+              >
                 <Text style={styles.modalTitle}>Create Tournament</Text>
                 <Text style={styles.modalSub}>Name it now. You can add course, players, and formats from the dashboard.</Text>
 
@@ -640,7 +581,11 @@ export default function TournamentsScreen({ navigation }) {
         >
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
             <Pressable style={styles.modalCard} onPress={() => {}}>
-              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 8 }}
+              >
                 <Text style={styles.modalTitle}>Edit Tournament</Text>
                 <Text style={styles.modalSub}>Rename the tournament. This updates for everyone in the roster.</Text>
 

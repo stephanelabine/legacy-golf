@@ -15,13 +15,34 @@ import {
   FlatList,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { doc, onSnapshot, updateDoc, serverTimestamp, collection, query, orderBy, getDocs, setDoc } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, serverTimestamp, collection, getDocs, setDoc } from "firebase/firestore";
 
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import { useTheme } from "../theme/ThemeProvider";
 import { db } from "../firebase/firebase";
 import { getTeesForCourse } from "../services/tees";
+
+/**
+ * IMPORTANT:
+ * Rounds in this app are canonical docs: tournaments/{id}/rounds/r1..rN
+ * If we write to doc "1" but read from "r1" (or vice versa), tees will “not stick”.
+ */
+function roundDocId(n) {
+  const v = Number(n);
+  const idx = Number.isFinite(v) && v >= 1 ? Math.floor(v) : 1;
+  return `r${idx}`;
+}
+function parseRoundIndexFromId(id) {
+  const s = String(id || "").trim().toLowerCase();
+  if (s.startsWith("r")) {
+    const n = Number(s.slice(1));
+    if (Number.isFinite(n)) return Math.floor(n);
+  }
+  const n2 = Number(s);
+  if (Number.isFinite(n2)) return Math.floor(n2);
+  return null;
+}
 
 export default function TournamentTeesScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
@@ -62,17 +83,27 @@ export default function TournamentTeesScreen({ navigation, route }) {
     return () => unsub();
   }, [tournamentId]);
 
+  // IMPORTANT: do NOT rely on orderBy("roundIndex") existing.
+  // We sort locally and support canonical ids r1..rN.
   useEffect(() => {
     if (!tournamentId) return;
 
     const rref = collection(db, "tournaments", tournamentId, "rounds");
-    const rq = query(rref, orderBy("roundIndex", "asc"));
 
     const unsub = onSnapshot(
-      rq,
+      rref,
       (snap) => {
         const rows = [];
         snap.forEach((d) => rows.push({ id: d.id, ...d.data() }));
+
+        rows.sort((a, b) => {
+          const ai = Number(a?.roundIndex);
+          const bi = Number(b?.roundIndex);
+          const aIdx = Number.isFinite(ai) ? Math.floor(ai) : parseRoundIndexFromId(a?.id);
+          const bIdx = Number.isFinite(bi) ? Math.floor(bi) : parseRoundIndexFromId(b?.id);
+          return Number(aIdx || 0) - Number(bIdx || 0);
+        });
+
         setRoundDocs(rows);
       },
       (err) => Alert.alert("Rounds error", err?.message || "Could not load rounds.")
@@ -86,9 +117,11 @@ export default function TournamentTeesScreen({ navigation, route }) {
 
   const roundInfo = useMemo(() => {
     const m = new Map();
+
     (roundDocs || []).forEach((r) => {
-      const ri = Number(r?.roundIndex || r?.id);
-      if (!Number.isFinite(ri)) return;
+      const riRaw = Number(r?.roundIndex);
+      const ri = Number.isFinite(riRaw) ? Math.floor(riRaw) : parseRoundIndexFromId(r?.id);
+      if (!Number.isFinite(ri) || ri < 1) return;
 
       m.set(ri, {
         courseId: r?.courseId ? String(r.courseId) : "",
@@ -98,6 +131,7 @@ export default function TournamentTeesScreen({ navigation, route }) {
         teeYardage: typeof r?.teeYardage === "number" ? r.teeYardage : r?.teeYardage ? Number(r.teeYardage) : null,
       });
     });
+
     return m;
   }, [roundDocs]);
 
@@ -253,7 +287,7 @@ export default function TournamentTeesScreen({ navigation, route }) {
       },
       secondaryText: { color: theme.text, fontSize: 15, fontWeight: "900", letterSpacing: 0.3 },
 
-      pressed: { opacity: Platform.OS === "ios" ? 0.88 : 0.9, transform: [{ scale: 0.99 }] },
+      pressed: { opacity: Platform.OS === "ios" ? 0.88 : "0.9", transform: [{ scale: 0.99 }] },
 
       modalOverlay: {
         flex: 1,
@@ -365,10 +399,11 @@ export default function TournamentTeesScreen({ navigation, route }) {
 
     setSaving(true);
     try {
+      // IMPORTANT: write to canonical round doc id: r1..rN
       await setDoc(
-        doc(db, "tournaments", tournamentId, "rounds", String(roundIndex)),
+        doc(db, "tournaments", tournamentId, "rounds", roundDocId(roundIndex)),
         {
-          roundIndex,
+          roundIndex: Math.floor(Number(roundIndex) || 1),
           teeCode: code,
           teeName: name || code,
           teeYardage: Number.isFinite(yardage) ? yardage : null,
@@ -441,7 +476,6 @@ export default function TournamentTeesScreen({ navigation, route }) {
       // non-blocking
     }
 
-    // IMPORTANT: Go to the real roster screen (members), not the legacy setup players collection.
     navigation.navigate(ROUTES.TOURNAMENT_PLAYERS, { tournamentId });
   }
 
@@ -504,8 +538,8 @@ export default function TournamentTeesScreen({ navigation, route }) {
               const displaySub = !String(info.courseId || "").trim()
                 ? "Course required first"
                 : teeCode
-                ? "Tees selected · Ready"
-                : "Tees selected · Missing";
+                ? "Tee selected · Ready"
+                : "Tee missing";
 
               return (
                 <View key={`tee-round-${r}`} style={styles.roundBlock}>

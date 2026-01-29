@@ -233,14 +233,34 @@ export default function TournamentDashboardScreen({ navigation, route }) {
         borderTopWidth: 1,
         borderTopColor: theme.divider,
       },
-      footerRow: { flexDirection: "row", gap: 10 },
-      footerBtn: { flex: 1, height: 54, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+
+      // FULL-WIDTH STACKED BUTTONS
+      footerRow: { flexDirection: "column", gap: 10 },
+
+      footerBtn: {
+        width: "100%",
+        height: 54,
+        borderRadius: 18,
+        alignItems: "center",
+        justifyContent: "center",
+        paddingHorizontal: 12,
+      },
 
       primaryBtn: { backgroundColor: isDark ? "rgba(46,125,255,0.92)" : "rgba(10,15,26,0.92)" },
       primaryText: { color: "#fff", fontSize: 16, fontWeight: "900", letterSpacing: 0.4 },
 
-      secondaryBtn: { backgroundColor: softBg, borderWidth: 1, borderColor: softBorder },
-      secondaryText: { color: theme.text, fontSize: 15, fontWeight: "900", letterSpacing: 0.3 },
+      // Match the soft "status pill" look
+      secondaryBtn: { backgroundColor: blueBg, borderWidth: 1, borderColor: blue },
+
+      secondaryText: {
+        color: theme.text,
+        fontSize: 15,
+        fontWeight: "900",
+        letterSpacing: 0.2,
+        textAlign: "center",
+        includeFontPadding: false,
+        textAlignVertical: "center",
+      },
 
       pressed: { opacity: Platform.OS === "ios" ? 0.88 : 0.9, transform: [{ scale: 0.99 }] },
     });
@@ -356,6 +376,18 @@ export default function TournamentDashboardScreen({ navigation, route }) {
       Alert.alert("Host only", "The host is setting this tournament up.");
       return;
     }
+    navigation.navigate(routeForStep(setupStep), { tournamentId });
+  }
+
+  function footerContinue() {
+    if (!t || loading) return;
+    if (!isHost) return;
+
+    if (setupReady || isLive) {
+      navigation.navigate(ROUTES.TOURNAMENT_OVERVIEW, { tournamentId });
+      return;
+    }
+
     navigation.navigate(routeForStep(setupStep), { tournamentId });
   }
 
@@ -477,26 +509,6 @@ export default function TournamentDashboardScreen({ navigation, route }) {
         <View style={styles.hero}>
           <Text style={styles.heroTitle}>{loading ? "Loading..." : name}</Text>
           <Text style={styles.heroSub}>{heroSubtitle}</Text>
-
-          {setupInProgress ? (
-            <View style={styles.progressPill}>
-              <Text style={styles.progressPillText}>SETUP IN PROGRESS</Text>
-            </View>
-          ) : setupReady && !isLive ? (
-            <View style={styles.progressPill}>
-              <Text style={styles.progressPillText}>SETUP COMPLETE</Text>
-            </View>
-          ) : null}
-
-          {isHost ? (
-            <Pressable
-              onPress={primaryAction}
-              disabled={primaryDisabled}
-              style={({ pressed }) => [styles.heroBtn, pressed && styles.pressed, primaryDisabled && { opacity: 0.7 }]}
-            >
-              <Text style={styles.heroBtnText}>{primaryLabel}</Text>
-            </Pressable>
-          ) : null}
         </View>
 
         <View style={styles.codeCard}>
@@ -569,14 +581,14 @@ export default function TournamentDashboardScreen({ navigation, route }) {
               onPress={() => navigation.navigate(ROUTES.TOURNAMENT_OVERVIEW, { tournamentId })}
               style={({ pressed }) => [styles.footerBtn, styles.secondaryBtn, pressed && styles.pressed]}
             >
-              <Text style={styles.secondaryText}>Overview</Text>
+              <Text style={styles.secondaryText}>Tournament Overview</Text>
             </Pressable>
 
             <Pressable
-              onPress={() => navigation.goBack()}
+              onPress={footerContinue}
               style={({ pressed }) => [styles.footerBtn, styles.primaryBtn, pressed && styles.pressed]}
             >
-              <Text style={styles.primaryText}>Back</Text>
+              <Text style={styles.primaryText}>Continue</Text>
             </Pressable>
           </View>
         </View>

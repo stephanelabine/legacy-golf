@@ -783,7 +783,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
             disabled={saving}
             style={({ pressed }) => [styles.modalBtn, pressed && !saving && styles.pressed, saving && { opacity: 0.6 }]}
           >
-            <Text style={styles.modalBtnText}>Back</Text>
+            <Text style={styles.modalBtnText}>Continue</Text>
           </Pressable>
 
           <Pressable

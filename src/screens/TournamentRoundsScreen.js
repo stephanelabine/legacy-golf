@@ -222,7 +222,7 @@ export default function TournamentRoundsScreen({ navigation, route }) {
 
   return (
     <View style={styles.screen}>
-      <ScreenHeader navigation={navigation} title="Rounds" subtitle="Select how many rounds this tournament has." />
+      <ScreenHeader navigation={navigation} title="Rounds" subtitle="Select how many rounds" />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.hero}>

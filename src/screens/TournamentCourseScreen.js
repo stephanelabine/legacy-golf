@@ -655,7 +655,7 @@ export default function TournamentCourseScreen({ navigation, route }) {
 
   return (
     <View style={styles.screen}>
-      <ScreenHeader navigation={navigation} title="Tournament Course" subtitle="Assign a course per round." />
+      <ScreenHeader navigation={navigation} title="Select Courses" subtitle="Assign a course per round." />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.hero}>
@@ -663,7 +663,7 @@ export default function TournamentCourseScreen({ navigation, route }) {
           <Text style={styles.heroTitle}>{roundsReady ? "Round Courses" : "Rounds required"}</Text>
           <Text style={styles.heroSub}>
             {roundsReady
-              ? "Set each round’s course below. It’s designed to be fast, clean, and obvious."
+              ? "Search and set each round’s course below."
               : "Go to Tournament Dashboard → Rounds, set the number of rounds, then come back here."}
           </Text>
         </View>
@@ -719,7 +719,7 @@ export default function TournamentCourseScreen({ navigation, route }) {
             (saving || !roundsReady) && { opacity: 0.6 },
           ]}
         >
-          <Text style={styles.primaryText}>{saving ? "Saving..." : "Continue"}</Text>
+          <Text style={styles.primaryText}>{saving ? "Saving..." : "Save & Continue"}</Text>
         </Pressable>
 
         <Pressable
