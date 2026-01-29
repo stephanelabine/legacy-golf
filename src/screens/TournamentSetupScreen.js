@@ -18,7 +18,7 @@ export default function TournamentSetupScreen({ navigation, route }) {
 
   const [t, setT] = useState(null);
   const [roundDocs, setRoundDocs] = useState([]);
-  const [members, setMembers] = useState([]); // <-- use MEMBERS (single source of truth)
+  const [members, setMembers] = useState([]); // tournaments/{tournamentId}/members
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
@@ -58,13 +58,10 @@ export default function TournamentSetupScreen({ navigation, route }) {
     return () => unsub();
   }, [tournamentId]);
 
-  // IMPORTANT: setup hub must reflect the real roster:
-  // tournaments/{tournamentId}/members
   useEffect(() => {
     if (!tournamentId) return;
 
     const mref = collection(db, "tournaments", tournamentId, "members");
-
     const unsub = onSnapshot(
       mref,
       (snap) => {
@@ -83,6 +80,7 @@ export default function TournamentSetupScreen({ navigation, route }) {
 
   const roundsTotal = Math.max(1, Number(t?.roundsTotal || 1));
   const roundsReady = !!t?.roundsReady;
+  const formatsReady = !!t?.formatsReady;
 
   const courseMissing = useMemo(() => {
     if (!roundsReady) return true;
@@ -129,18 +127,19 @@ export default function TournamentSetupScreen({ navigation, route }) {
 
   const playersReady = members.length >= 2 && missingHcpCount === 0;
 
-  const formatsReady = !!t?.formatsReady;
+  // “Started” signals (we show only sections that have data, per your rule)
+  const coursesStarted = useMemo(() => {
+    return (roundDocs || []).some((r) => String(r?.courseId || "").trim().length > 0);
+  }, [roundDocs]);
 
-  const allRequiredReady = roundsReady && !courseMissing && !teesMissing && playersReady && formatsReady;
+  const teesStarted = useMemo(() => {
+    return (roundDocs || []).some((r) => String(r?.teeCode || "").trim().length > 0);
+  }, [roundDocs]);
 
-  const nextStep = useMemo(() => {
-    if (!roundsReady) return ROUTES.TOURNAMENT_ROUNDS;
-    if (courseMissing) return ROUTES.TOURNAMENT_COURSE;
-    if (teesMissing) return ROUTES.TOURNAMENT_TEES;
-    if (!playersReady) return ROUTES.TOURNAMENT_PLAYERS_SETUP;
-    if (!formatsReady) return ROUTES.TOURNAMENT_FORMATS;
-    return null;
-  }, [roundsReady, courseMissing, teesMissing, playersReady, formatsReady]);
+  const playersStarted = members.length > 0;
+
+  // If your formats are stored differently later, we can improve this “started” detector.
+  const formatsStarted = !!t?.formatsReady;
 
   const styles = useMemo(() => {
     const softBorder = isDark ? "rgba(255,255,255,0.14)" : "rgba(10,15,26,0.12)";
@@ -205,7 +204,15 @@ export default function TournamentSetupScreen({ navigation, route }) {
         letterSpacing: 2.2,
         textAlign: "center",
       },
-      joinHint: { marginTop: 10, color: theme.text, opacity: 0.7, fontSize: 12, fontWeight: "800", textAlign: "center", lineHeight: 18 },
+      joinHint: {
+        marginTop: 10,
+        color: theme.text,
+        opacity: 0.7,
+        fontSize: 12,
+        fontWeight: "800",
+        textAlign: "center",
+        lineHeight: 18,
+      },
 
       joinRow: { flexDirection: "row", gap: 10, marginTop: 12 },
       miniBtn: {
@@ -221,7 +228,7 @@ export default function TournamentSetupScreen({ navigation, route }) {
       miniText: { color: theme.text, fontSize: 14, fontWeight: "900", letterSpacing: 0.2 },
 
       sectionTitle: {
-        marginTop: 8,
+        marginTop: 12,
         marginBottom: 10,
         color: theme.text,
         fontSize: 13,
@@ -231,7 +238,7 @@ export default function TournamentSetupScreen({ navigation, route }) {
         textTransform: "uppercase",
       },
 
-      stepCard: {
+      card: {
         borderRadius: 20,
         padding: 16,
         borderWidth: 2,
@@ -239,10 +246,10 @@ export default function TournamentSetupScreen({ navigation, route }) {
         backgroundColor: theme.card2,
         marginBottom: 12,
       },
-      stepCardActive: { borderColor: blue, backgroundColor: blueBg },
-      stepTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-      stepTitle: { flex: 1, color: theme.text, fontSize: 15, fontWeight: "900" },
-      stepSub: { marginTop: 8, color: theme.text, opacity: 0.72, fontSize: 12, fontWeight: "800", lineHeight: 18 },
+      cardActive: { borderColor: blue, backgroundColor: blueBg },
+      rowTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+      rowTitle: { flex: 1, color: theme.text, fontSize: 15, fontWeight: "900" },
+      rowSub: { marginTop: 8, color: theme.text, opacity: 0.72, fontSize: 12, fontWeight: "800", lineHeight: 18 },
 
       pill: {
         paddingHorizontal: 10,
@@ -252,7 +259,6 @@ export default function TournamentSetupScreen({ navigation, route }) {
         borderColor: greenRing,
         backgroundColor: greenBg,
       },
-      pillBad: { borderColor: softBorder, backgroundColor: softBg },
       pillText: { color: theme.text, fontSize: 12, fontWeight: "900", opacity: 0.95 },
 
       footer: {
@@ -312,42 +318,108 @@ export default function TournamentSetupScreen({ navigation, route }) {
     navigation.navigate(stepRoute, { tournamentId });
   }
 
-  function goNext() {
-    if (!nextStep) {
-      Alert.alert("Setup complete", "All steps are complete. Review/Start is next.");
-      return;
-    }
-    go(nextStep);
+  // Phase 4.2 rule:
+  // “Continue Setup” ALWAYS starts at Rounds, so the organizer re-confirms the full flow every time.
+  function continueSetupFromStart() {
+    go(ROUTES.TOURNAMENT_ROUNDS);
   }
 
-  function StepRow({ title, sub, ok, onPress, isNext }) {
+  function ProgressRow({ title, sub, complete, onPress }) {
     return (
-      <Pressable
-        onPress={onPress}
-        style={({ pressed }) => [styles.stepCard, isNext && !ok && styles.stepCardActive, pressed && styles.pressed]}
-      >
-        <View style={styles.stepTop}>
-          <Text style={styles.stepTitle}>{title}</Text>
-          <View style={[styles.pill, !ok && styles.pillBad]}>
-            <Text style={styles.pillText}>{ok ? "Complete" : "Missing"}</Text>
+      <Pressable onPress={onPress} style={({ pressed }) => [styles.card, pressed && styles.pressed]}>
+        <View style={styles.rowTop}>
+          <Text style={styles.rowTitle}>{title}</Text>
+          <View style={styles.pill}>
+            <Text style={styles.pillText}>{complete ? "Complete" : "Saved"}</Text>
           </View>
         </View>
-        <Text style={styles.stepSub}>{sub}</Text>
+        <Text style={styles.rowSub}>{sub}</Text>
       </Pressable>
     );
   }
 
-  const nextKey = nextStep;
+  const progressItems = useMemo(() => {
+    const items = [];
+
+    if (roundsReady) {
+      items.push({
+        key: "rounds",
+        title: "Rounds",
+        complete: true,
+        sub: `Rounds set: ${roundsTotal}`,
+        onPress: () => go(ROUTES.TOURNAMENT_ROUNDS),
+      });
+    }
+
+    if (coursesStarted) {
+      items.push({
+        key: "courses",
+        title: "Courses",
+        complete: roundsReady && !courseMissing,
+        sub: roundsReady && !courseMissing ? "Courses assigned per round." : "Courses have been started. Confirm each round.",
+        onPress: () => go(ROUTES.TOURNAMENT_COURSE),
+      });
+    }
+
+    if (teesStarted) {
+      items.push({
+        key: "tees",
+        title: "Tees",
+        complete: roundsReady && !teesMissing,
+        sub: roundsReady && !teesMissing ? "Tees selected per round." : "Tees have been started. Confirm each round.",
+        onPress: () => go(ROUTES.TOURNAMENT_TEES),
+      });
+    }
+
+    if (formatsStarted) {
+      items.push({
+        key: "formats",
+        title: "Formats",
+        complete: formatsReady,
+        sub: formatsReady ? "Formats selected." : "Formats have been started. Confirm selections.",
+        onPress: () => go(ROUTES.TOURNAMENT_FORMATS),
+      });
+    }
+
+    if (playersStarted) {
+      items.push({
+        key: "players",
+        title: "Players",
+        complete: playersReady,
+        sub: playersReady
+          ? `Players ready: ${members.length}`
+          : `Players added: ${members.length}. Confirm handicaps for everyone.`,
+        onPress: () => go(ROUTES.TOURNAMENT_PLAYERS_SETUP),
+      });
+    }
+
+    return items;
+  }, [
+    roundsReady,
+    roundsTotal,
+    coursesStarted,
+    teesStarted,
+    formatsStarted,
+    playersStarted,
+    formatsReady,
+    playersReady,
+    members.length,
+    courseMissing,
+    teesMissing,
+    tournamentId,
+  ]);
 
   return (
     <View style={styles.screen}>
-      <ScreenHeader navigation={navigation} title="Tournament Setup" subtitle="Edit any step anytime." />
+      <ScreenHeader navigation={navigation} title="Tournament Setup" subtitle="Confirm the flow from the start anytime." />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.hero}>
-          <Text style={styles.heroKicker}>Setup</Text>
+          <Text style={styles.heroKicker}>Setup Home</Text>
           <Text style={styles.heroTitle}>{tournamentName}</Text>
-          <Text style={styles.heroSub}>This is your setup hub. Tap any step to edit, or continue where you left off.</Text>
+          <Text style={styles.heroSub}>
+            When you continue, you’ll confirm the setup from Round 1 so nothing gets missed.
+          </Text>
         </View>
 
         <View style={styles.joinCard}>
@@ -355,7 +427,7 @@ export default function TournamentSetupScreen({ navigation, route }) {
           <Text style={styles.joinCode} selectable>
             {joinCode || "—"}
           </Text>
-          <Text style={styles.joinHint}>Copy or share the code to invite players.</Text>
+          <Text style={styles.joinHint}>Invite players when you’re ready.</Text>
 
           <View style={styles.joinRow}>
             <Pressable
@@ -376,60 +448,27 @@ export default function TournamentSetupScreen({ navigation, route }) {
           </View>
         </View>
 
-        <Text style={styles.sectionTitle}>Setup steps</Text>
-
-        <StepRow
-          title="Rounds"
-          ok={roundsReady}
-          isNext={nextKey === ROUTES.TOURNAMENT_ROUNDS}
-          sub={roundsReady ? `Rounds set: ${roundsTotal}` : "Choose how many rounds this tournament has."}
-          onPress={() => go(ROUTES.TOURNAMENT_ROUNDS)}
-        />
-
-        <StepRow
-          title="Courses"
-          ok={roundsReady && !courseMissing}
-          isNext={nextKey === ROUTES.TOURNAMENT_COURSE}
-          sub={roundsReady && !courseMissing ? "Courses assigned per round." : "Assign a course for each round."}
-          onPress={() => go(ROUTES.TOURNAMENT_COURSE)}
-        />
-
-        <StepRow
-          title="Tees"
-          ok={roundsReady && !teesMissing}
-          isNext={nextKey === ROUTES.TOURNAMENT_TEES}
-          sub={roundsReady && !teesMissing ? "Tees selected per round." : "Select tees for each round."}
-          onPress={() => go(ROUTES.TOURNAMENT_TEES)}
-        />
-
-        <StepRow
-          title="Players"
-          ok={playersReady}
-          isNext={nextKey === ROUTES.TOURNAMENT_PLAYERS_SETUP}
-          sub={playersReady ? `Players ready: ${members.length}` : "Add 2+ players and set handicaps for everyone."}
-          onPress={() => go(ROUTES.TOURNAMENT_PLAYERS_SETUP)}
-        />
-
-        <StepRow
-          title="Formats"
-          ok={formatsReady}
-          isNext={nextKey === ROUTES.TOURNAMENT_FORMATS}
-          sub={formatsReady ? "Games/formats selected." : "Choose games and formats for the tournament."}
-          onPress={() => go(ROUTES.TOURNAMENT_FORMATS)}
-        />
-
-        <StepRow
-          title="Review & Start"
-          ok={allRequiredReady}
-          isNext={false}
-          sub={allRequiredReady ? "Everything is ready. Review and start is next." : "Finish required steps first, then review and start."}
-          onPress={() => Alert.alert("Coming next", "Review & Start will be the next premium step.")}
-        />
+        {progressItems.length > 0 ? (
+          <>
+            <Text style={styles.sectionTitle}>Saved setup</Text>
+            {progressItems.map((it) => (
+              <ProgressRow key={it.key} title={it.title} sub={it.sub} complete={it.complete} onPress={it.onPress} />
+            ))}
+          </>
+        ) : (
+          <>
+            <Text style={styles.sectionTitle}>Setup</Text>
+            <View style={[styles.card, styles.cardActive]}>
+              <Text style={styles.rowTitle}>Ready to begin</Text>
+              <Text style={styles.rowSub}>Start at rounds and confirm each step in order.</Text>
+            </View>
+          </>
+        )}
       </ScrollView>
 
       <View style={styles.footer}>
-        <Pressable onPress={goNext} style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}>
-          <Text style={styles.primaryText}>{nextStep ? "Continue Setup" : "Review & Start"}</Text>
+        <Pressable onPress={continueSetupFromStart} style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}>
+          <Text style={styles.primaryText}>Continue Setup</Text>
         </Pressable>
       </View>
     </View>
