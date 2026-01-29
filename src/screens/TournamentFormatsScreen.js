@@ -22,12 +22,15 @@ import {
   updateDoc,
   serverTimestamp,
   getDoc,
+  getDocs,
 } from "firebase/firestore";
 
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import { useTheme } from "../theme/ThemeProvider";
 import { db } from "../firebase/firebase";
+
+const TEAM_VS_TEAM_TYPE = "hackers_slackers";
 
 const FORMAT_LIBRARY = [
   {
@@ -63,6 +66,14 @@ const FORMAT_LIBRARY = [
       "Deuce Pot: every deuce made in the round counts. The pot is split evenly among deuce makers. Example: $10 x 10 players = $100. If 5 deuces are made, each deuce pays $20.",
   },
   {
+    type: "hackers_slackers",
+    title: "Team vs Team",
+    subtitle: "Team vs Team • Net points",
+    needsHoles: false,
+    info:
+      "Hackers vs Slackers (Team vs Team): players are split into two teams. Each day a Hacker plays a Slacker. Win = 1 point, tie = 0.5 each. Handicap is required (net). You can choose Match Play (net) or Stroke Play (net) for how each pairing is decided. Team totals are tracked across the tournament.",
+  },
+  {
     type: "putting_contest",
     title: "Putting Contest",
     subtitle: "Lowest total putts wins",
@@ -82,8 +93,8 @@ const FORMAT_LIBRARY = [
 
 function roundIdFromIndex(n) {
   const v = Number(n);
-  if (!Number.isFinite(v) || v < 1) return "1";
-  return String(Math.floor(v));
+  const i = !Number.isFinite(v) || v < 1 ? 1 : Math.floor(v);
+  return `r${i}`;
 }
 
 function normalizeHoles(value) {
@@ -115,6 +126,17 @@ function getEntryFeeValue(f) {
   return null;
 }
 
+function roundsLabel(selected) {
+  const xs = (Array.isArray(selected) ? selected : [])
+    .map((n) => Number(n))
+    .filter((n) => Number.isFinite(n) && n >= 1)
+    .sort((a, b) => a - b);
+
+  if (!xs.length) return "Round";
+  if (xs.length === 1) return `Round ${xs[0]}`;
+  return `Rounds ${xs.join(" & ")}`;
+}
+
 export default function TournamentFormatsScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const { scheme, theme } = useTheme();
@@ -124,7 +146,10 @@ export default function TournamentFormatsScreen({ navigation, route }) {
 
   const [t, setT] = useState(null);
 
-  const [roundIndex, setRoundIndex] = useState(1);
+  // Multi-select rounds (primary round is the first one)
+  const [selectedRounds, setSelectedRounds] = useState([1]);
+  const primaryRound = Number(selectedRounds?.[0] || 1);
+
   const [formats, setFormats] = useState([]);
 
   const [holesCount, setHolesCount] = useState(18);
@@ -144,6 +169,24 @@ export default function TournamentFormatsScreen({ navigation, route }) {
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
+  const roundsTotal = Math.max(1, Number(t?.roundsTotal || 1));
+  const tournamentName = String(t?.name || t?.tournamentName || "Tournament").trim();
+
+  // Keep selected rounds valid when roundsTotal changes
+  useEffect(() => {
+    setSelectedRounds((prev) => {
+      const cur = Array.isArray(prev) ? prev : [1];
+      const cleaned = cur
+        .map((n) => Number(n))
+        .filter((n) => Number.isFinite(n) && n >= 1 && n <= roundsTotal);
+
+      if (!cleaned.length) return [1];
+      // Dedup + sort
+      const uniq = Array.from(new Set(cleaned)).sort((a, b) => a - b);
+      return uniq;
+    });
+  }, [roundsTotal]);
+
   useEffect(() => {
     if (!tournamentId) {
       Alert.alert("Missing tournament", "No tournamentId provided.");
@@ -159,25 +202,27 @@ export default function TournamentFormatsScreen({ navigation, route }) {
         setT(data);
 
         const rt = Math.max(1, Number(data?.roundsTotal || 1));
-        setRoundIndex((prev) => {
-          const p = Number(prev);
-          if (!Number.isFinite(p)) return 1;
-          if (p < 1) return 1;
-          if (p > rt) return rt;
-          return p;
+        setSelectedRounds((prev) => {
+          const cur = Array.isArray(prev) ? prev : [1];
+          const cleaned = cur
+            .map((n) => Number(n))
+            .filter((n) => Number.isFinite(n) && n >= 1 && n <= rt);
+          if (!cleaned.length) return [1];
+          const uniq = Array.from(new Set(cleaned)).sort((a, b) => a - b);
+          return uniq;
         });
       },
       (err) => Alert.alert("Tournament error", err?.message || "Could not load tournament.")
     );
 
     return () => unsub();
-  }, [tournamentId]);
+  }, [tournamentId, navigation]);
 
-  // formats per round
+  // formats per PRIMARY round
   useEffect(() => {
     if (!tournamentId) return;
 
-    const rid = roundIdFromIndex(roundIndex);
+    const rid = roundIdFromIndex(primaryRound);
     const fref = collection(db, "tournaments", tournamentId, "rounds", rid, "formats");
 
     const unsub = onSnapshot(
@@ -192,9 +237,9 @@ export default function TournamentFormatsScreen({ navigation, route }) {
     );
 
     return () => unsub();
-  }, [tournamentId, roundIndex]);
+  }, [tournamentId, primaryRound]);
 
-  // load course holes count (best-effort)
+  // load course holes count (best-effort) for PRIMARY round
   useEffect(() => {
     let alive = true;
 
@@ -202,7 +247,7 @@ export default function TournamentFormatsScreen({ navigation, route }) {
       if (!tournamentId) return;
 
       try {
-        const rid = roundIdFromIndex(roundIndex);
+        const rid = roundIdFromIndex(primaryRound);
         const rdocRef = doc(db, "tournaments", tournamentId, "rounds", rid);
         const rSnap = await getDoc(rdocRef);
 
@@ -233,10 +278,7 @@ export default function TournamentFormatsScreen({ navigation, route }) {
     return () => {
       alive = false;
     };
-  }, [tournamentId, roundIndex]);
-
-  const roundsTotal = Math.max(1, Number(t?.roundsTotal || 1));
-  const tournamentName = String(t?.name || t?.tournamentName || "Tournament").trim();
+  }, [tournamentId, primaryRound]);
 
   const styles = useMemo(() => {
     const softBorder = isDark ? "rgba(255,255,255,0.14)" : "rgba(10,15,26,0.12)";
@@ -255,7 +297,6 @@ export default function TournamentFormatsScreen({ navigation, route }) {
       screen: { flex: 1, backgroundColor: theme.bg },
       content: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 190 },
 
-      // slimmer gold header
       hero: {
         borderRadius: 20,
         paddingVertical: 12,
@@ -286,7 +327,6 @@ export default function TournamentFormatsScreen({ navigation, route }) {
         textAlign: "center",
       },
 
-      // round bubbles (non-scroll, even layout)
       roundGrid: {
         flexDirection: "row",
         flexWrap: "wrap",
@@ -347,7 +387,6 @@ export default function TournamentFormatsScreen({ navigation, route }) {
 
       metaLine: { marginTop: 8, color: theme.text, opacity: 0.82, fontSize: 12, fontWeight: "900" },
 
-      // chips row
       chipsRow: { marginTop: 10 },
       chipsLabel: { color: theme.text, opacity: 0.72, fontSize: 12, fontWeight: "900", marginBottom: 8 },
       chipsWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
@@ -533,30 +572,73 @@ export default function TournamentFormatsScreen({ navigation, route }) {
   const enabledCount = useMemo(() => (formats || []).filter((f) => !!f?.enabled).length, [formats]);
   const canContinue = enabledCount >= 1;
 
+  function toggleRoundSelection(i) {
+    const n = Number(i);
+    if (!Number.isFinite(n) || n < 1 || n > roundsTotal) return;
+
+    setSelectedRounds((prev) => {
+      const cur = Array.isArray(prev) ? [...prev] : [1];
+      const has = cur.includes(n);
+
+      // If only one selected and user taps it again, keep it selected.
+      if (has && cur.length === 1) return cur;
+
+      let next;
+      if (has) next = cur.filter((x) => x !== n);
+      else next = [...cur, n];
+
+      next = Array.from(new Set(next)).sort((a, b) => a - b);
+
+      // Ensure primary round is first item
+      return next.length ? next : [1];
+    });
+  }
+
+  async function applyToSelectedRounds(asyncPerRoundRid) {
+    const rounds = Array.isArray(selectedRounds) && selectedRounds.length ? selectedRounds : [1];
+    for (const r of rounds) {
+      const rid = roundIdFromIndex(r);
+      // eslint-disable-next-line no-await-in-loop
+      await asyncPerRoundRid(rid, r);
+    }
+  }
+
   async function addFormat(type) {
     if (!tournamentId) return;
 
     const lib = FORMAT_LIBRARY.find((x) => x.type === type);
     if (!lib) return;
 
-    const rid = roundIdFromIndex(roundIndex);
-    const fdoc = doc(db, "tournaments", tournamentId, "rounds", rid, "formats", type);
-
     const now = serverTimestamp();
+
     const base = {
       type,
       title: lib.title,
       subtitle: lib.subtitle,
       enabled: true,
       holes: [],
-      entryFee: null, // number dollars (optional)
-      buyIn: null, // legacy (read-only going forward)
+      entryFee: null,
+      buyIn: null,
       createdAt: now,
       updatedAt: now,
+
+      // Special defaults for Hackers vs Slackers
+      ...(type === TEAM_VS_TEAM_TYPE
+        ? {
+            scoringMode: "match", // "match" or "stroke"
+            tiePoints: 0.5,
+            requiresHandicap: true,
+            teams: ["Hackers", "Slackers"],
+          }
+        : {}),
     };
 
     try {
-      await setDoc(fdoc, base, { merge: true });
+      await applyToSelectedRounds(async (rid) => {
+        const fdoc = doc(db, "tournaments", tournamentId, "rounds", rid, "formats", type);
+        await setDoc(fdoc, base, { merge: true });
+      });
+
       setAddOpen(false);
 
       if (lib.needsHoles) {
@@ -574,13 +656,31 @@ export default function TournamentFormatsScreen({ navigation, route }) {
     const type = String(f?.type || f?.id || "").trim();
     if (!type) return;
 
-    const rid = roundIdFromIndex(roundIndex);
-    const fdoc = doc(db, "tournaments", tournamentId, "rounds", rid, "formats", type);
-
     try {
-      await updateDoc(fdoc, { enabled: !f?.enabled, updatedAt: serverTimestamp() });
+      await applyToSelectedRounds(async (rid) => {
+        const fdoc = doc(db, "tournaments", tournamentId, "rounds", rid, "formats", type);
+        await updateDoc(fdoc, { enabled: !f?.enabled, updatedAt: serverTimestamp() });
+      });
     } catch (e) {
       Alert.alert("Update failed", e?.message || "Could not update format.");
+    }
+  }
+
+  async function toggleTeamScoringMode(f) {
+    if (!tournamentId) return;
+    const type = String(f?.type || f?.id || "").trim();
+    if (type !== TEAM_VS_TEAM_TYPE) return;
+
+    const cur = String(f?.scoringMode || "match");
+    const next = cur === "stroke" ? "match" : "stroke";
+
+    try {
+      await applyToSelectedRounds(async (rid) => {
+        const fdoc = doc(db, "tournaments", tournamentId, "rounds", rid, "formats", type);
+        await updateDoc(fdoc, { scoringMode: next, updatedAt: serverTimestamp() });
+      });
+    } catch (e) {
+      Alert.alert("Update failed", e?.message || "Could not update scoring mode.");
     }
   }
 
@@ -622,11 +722,12 @@ export default function TournamentFormatsScreen({ navigation, route }) {
       return;
     }
 
-    const rid = roundIdFromIndex(roundIndex);
-    const fdoc = doc(db, "tournaments", tournamentId, "rounds", rid, "formats", type);
-
     try {
-      await updateDoc(fdoc, { holes: selected, hole: null, updatedAt: serverTimestamp() });
+      await applyToSelectedRounds(async (rid) => {
+        const fdoc = doc(db, "tournaments", tournamentId, "rounds", rid, "formats", type);
+        await updateDoc(fdoc, { holes: selected, hole: null, updatedAt: serverTimestamp() });
+      });
+
       setHolesOpen(false);
       setHolesForType("");
       setHolesDraft([]);
@@ -650,8 +751,6 @@ export default function TournamentFormatsScreen({ navigation, route }) {
     if (!type) return;
 
     const raw = String(feeValue || "").trim();
-    const rid = roundIdFromIndex(roundIndex);
-    const fdoc = doc(db, "tournaments", tournamentId, "rounds", rid, "formats", type);
 
     let entryFee = null;
     if (raw) {
@@ -664,7 +763,11 @@ export default function TournamentFormatsScreen({ navigation, route }) {
     }
 
     try {
-      await updateDoc(fdoc, { entryFee, buyIn: null, updatedAt: serverTimestamp() });
+      await applyToSelectedRounds(async (rid) => {
+        const fdoc = doc(db, "tournaments", tournamentId, "rounds", rid, "formats", type);
+        await updateDoc(fdoc, { entryFee, buyIn: null, updatedAt: serverTimestamp() });
+      });
+
       Keyboard.dismiss();
       setFeeOpen(false);
       setFeeForType("");
@@ -674,14 +777,57 @@ export default function TournamentFormatsScreen({ navigation, route }) {
     }
   }
 
+  async function roundHasEnabledFormats(roundNum) {
+    const rid = roundIdFromIndex(roundNum);
+    const fref = collection(db, "tournaments", tournamentId, "rounds", rid, "formats");
+    const snap = await getDocs(fref);
+
+    let enabled = 0;
+    snap.forEach((d) => {
+      const data = d.data() || {};
+      if (data.enabled) enabled += 1;
+    });
+
+    return enabled >= 1;
+  }
+
   async function handleContinue() {
     if (!tournamentId) return;
 
+    // Only validate current primary round has at least one enabled
     if (!canContinue) {
-      Alert.alert("Add formats", "Enable at least one format for this round to finish.");
+      Alert.alert("Add formats", "Enable at least one format for this round to continue.");
       return;
     }
 
+    // Validate ALL rounds before leaving this screen
+    try {
+      const missing = [];
+      for (let i = 1; i <= roundsTotal; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        const ok = await roundHasEnabledFormats(i);
+        if (!ok) missing.push(i);
+      }
+
+      if (missing.length) {
+        const first = missing[0];
+        Alert.alert(
+          "Formats missing",
+          `You still need formats for:\n\n• Round(s): ${missing.join(", ")}\n\nWe’ll jump you to the next one now.`,
+          [{ text: "OK" }]
+        );
+
+        // Jump to first missing round (single-select it)
+        setSelectedRounds([first]);
+        return;
+      }
+    } catch (e) {
+      // If validation fails for any reason, do not navigate away silently.
+      Alert.alert("Check failed", e?.message || "Could not verify formats across rounds. Try again.");
+      return;
+    }
+
+    // All rounds have formats: mark complete + go back to setup hub/review
     try {
       await updateDoc(doc(db, "tournaments", tournamentId), {
         formatsReady: true,
@@ -699,12 +845,12 @@ export default function TournamentFormatsScreen({ navigation, route }) {
 
     const bubbles = [];
     for (let i = 1; i <= roundsTotal; i++) {
-      const active = i === roundIndex;
+      const active = selectedRounds.includes(i);
 
       bubbles.push(
         <View key={`r-${i}`} style={[styles.roundCell, { width: cellWidth }]}>
           <Pressable
-            onPress={() => setRoundIndex(i)}
+            onPress={() => toggleRoundSelection(i)}
             style={({ pressed }) => [styles.roundBubble, active && styles.roundBubbleActive, pressed && styles.pressed]}
           >
             <Text style={styles.roundBubbleText}>{i}</Text>
@@ -715,7 +861,7 @@ export default function TournamentFormatsScreen({ navigation, route }) {
 
     return (
       <View style={styles.roundBar}>
-        <Text style={styles.roundLabel}>Choose round</Text>
+        <Text style={styles.roundLabel}>Choose rounds (tap to toggle)</Text>
         <View style={styles.roundGrid}>{bubbles}</View>
       </View>
     );
@@ -734,9 +880,13 @@ export default function TournamentFormatsScreen({ navigation, route }) {
 
     const entryFeeValue = getEntryFeeValue(f);
     const entryFeeLabel = formatMoney(entryFeeValue);
-    const feeText = entryFeeLabel ? `Entry ${entryFeeLabel}` : "Set entry";
+    const feeText = entryFeeLabel ? `Entry ${entryFeeLabel}` : "Set entry fee";
 
     const enabled = !!f?.enabled;
+
+    const isTeam = type === TEAM_VS_TEAM_TYPE;
+    const mode = String(f?.scoringMode || "match"); // match | stroke
+    const modeLabel = mode === "stroke" ? "Stroke Play (Net)" : "Match Play (Net)";
 
     return (
       <View style={[styles.formatCard, !enabled && { opacity: 0.72 }]}>
@@ -754,6 +904,9 @@ export default function TournamentFormatsScreen({ navigation, route }) {
         <Text style={styles.formatSub}>
           {sub || "Format"} {needsHoles ? "• Pick holes for this round." : "• Applies across the round."}
         </Text>
+
+        {isTeam ? <Text style={styles.metaLine}>{`Scoring: ${modeLabel}`}</Text> : null}
+        {isTeam ? <Text style={styles.metaLine}>Handicap required (net)</Text> : null}
 
         {entryFeeLabel ? <Text style={styles.metaLine}>{`${entryFeeLabel} entry`}</Text> : null}
 
@@ -780,25 +933,31 @@ export default function TournamentFormatsScreen({ navigation, route }) {
         ) : null}
 
         <View style={styles.actionsRow}>
-          {needsHoles ? (
-            <Pressable
-              onPress={() => openHolesPicker(type)}
-              style={({ pressed }) => [styles.pillBtn, hasHoles && styles.pillBtnActive, pressed && styles.pressed]}
-            >
-              <Text style={styles.pillBtnText}>{hasHoles ? "Edit holes" : "Pick holes"}</Text>
-            </Pressable>
-          ) : (
-            <View style={styles.pillBtn}>
-              <Text style={styles.pillBtnText}>No holes</Text>
-            </View>
-          )}
+  {needsHoles ? (
+    <Pressable
+      onPress={() => openHolesPicker(type)}
+      style={({ pressed }) => [styles.pillBtn, hasHoles && styles.pillBtnActive, pressed && styles.pressed]}
+    >
+      <Text style={styles.pillBtnText}>{hasHoles ? "Edit holes" : "Pick holes"}</Text>
+    </Pressable>
+  ) : null}
 
-          <Pressable
-            onPress={() => openFeePicker(type)}
-            style={({ pressed }) => [styles.pillBtn, entryFeeLabel && styles.pillBtnActive, pressed && styles.pressed]}
-          >
-            <Text style={styles.pillBtnText}>{feeText}</Text>
-          </Pressable>
+  <Pressable
+    onPress={() => openFeePicker(type)}
+    style={({ pressed }) => [styles.pillBtn, entryFeeLabel && styles.pillBtnActive, pressed && styles.pressed]}
+  >
+    <Text style={styles.pillBtnText}>{feeText}</Text>
+  </Pressable>
+
+  {isTeam ? (
+    <Pressable
+      onPress={() => toggleTeamScoringMode(f)}
+      style={({ pressed }) => [styles.pillBtn, styles.pillBtnActive, pressed && styles.pressed]}
+    >
+      <Text style={styles.pillBtnText}>{mode === "stroke" ? "Use match" : "Use stroke"}</Text>
+    </Pressable>
+  ) : null}
+
 
           <Pressable onPress={() => showInfo(type)} style={({ pressed }) => [styles.infoBtn, pressed && styles.pressed]}>
             <Text style={styles.infoText}>i</Text>
@@ -824,14 +983,16 @@ export default function TournamentFormatsScreen({ navigation, route }) {
           <Text style={styles.addText}>Add Formats</Text>
         </Pressable>
 
-        <Text style={styles.sectionTitle}>Round {roundIndex}</Text>
+        <Text style={styles.sectionTitle}>
+          {roundsLabel(selectedRounds)} (editing Round {primaryRound})
+        </Text>
 
         {formats.length ? (
           formats.map((f) => <FormatCard key={String(f?.type || f?.id || "")} f={f} />)
         ) : (
           <View style={styles.empty}>
             <Text style={styles.emptyTitle}>No formats yet</Text>
-            <Text style={styles.emptySub}>Tap “Add Formats” to add KP, Long Drive, Skins and more for this round.</Text>
+            <Text style={styles.emptySub}>Tap “Add Formats” to add KP, Long Drive, Skins and more.</Text>
           </View>
         )}
       </ScrollView>
@@ -840,14 +1001,18 @@ export default function TournamentFormatsScreen({ navigation, route }) {
         <Pressable
           onPress={handleContinue}
           disabled={!canContinue}
-          style={({ pressed }) => [styles.primaryBtn, !canContinue && styles.primaryBtnDisabled, pressed && canContinue && styles.pressed]}
+          style={({ pressed }) => [
+            styles.primaryBtn,
+            !canContinue && styles.primaryBtnDisabled,
+            pressed && canContinue && styles.pressed,
+          ]}
         >
-          <Text style={styles.primaryText}>Done</Text>
+          <Text style={styles.primaryText}>Continue</Text>
         </Pressable>
 
         {!canContinue ? (
           <View style={styles.helper}>
-            <Text style={styles.helperText}>Enable at least one format for this round to finish.</Text>
+            <Text style={styles.helperText}>Enable at least one format for this round to continue.</Text>
           </View>
         ) : null}
       </View>
@@ -858,10 +1023,14 @@ export default function TournamentFormatsScreen({ navigation, route }) {
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
             <Pressable style={styles.modalCard} onPress={() => {}}>
               <Text style={styles.modalTitle}>Add formats</Text>
-              <Text style={styles.modalSub}>These formats will apply to Round {roundIndex}.</Text>
+              <Text style={styles.modalSub}>These formats will apply to {roundsLabel(selectedRounds)}.</Text>
 
               {FORMAT_LIBRARY.map((x) => (
-                <Pressable key={x.type} onPress={() => addFormat(x.type)} style={({ pressed }) => [styles.choiceBtn, pressed && styles.pressed]}>
+                <Pressable
+                  key={x.type}
+                  onPress={() => addFormat(x.type)}
+                  style={({ pressed }) => [styles.choiceBtn, pressed && styles.pressed]}
+                >
                   <Text style={styles.choiceText}>{x.title}</Text>
                 </Pressable>
               ))}
@@ -882,7 +1051,9 @@ export default function TournamentFormatsScreen({ navigation, route }) {
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
             <Pressable style={styles.modalCard} onPress={() => {}}>
               <Text style={styles.modalTitle}>Pick holes</Text>
-              <Text style={styles.modalSub}>Select one or more holes for Round {roundIndex}. (1–{holesCount || 18})</Text>
+              <Text style={styles.modalSub}>
+                Select one or more holes for {roundsLabel(selectedRounds)}. (1–{holesCount || 18})
+              </Text>
 
               <View style={styles.holeGrid}>
                 {Array.from({ length: Math.max(1, holesCount || 18) }).map((_, i) => {
@@ -965,12 +1136,7 @@ export default function TournamentFormatsScreen({ navigation, route }) {
               </View>
 
               <View style={styles.modalRow}>
-                <Pressable
-                  onPress={() => {
-                    setFeeValue("");
-                  }}
-                  style={({ pressed }) => [styles.modalBtn, pressed && styles.pressed]}
-                >
+                <Pressable onPress={() => setFeeValue("")} style={({ pressed }) => [styles.modalBtn, pressed && styles.pressed]}>
                   <Text style={styles.modalBtnText}>Clear fee</Text>
                 </Pressable>
               </View>
