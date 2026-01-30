@@ -39,6 +39,7 @@ const ROUTES = {
   /* ---------------- Tournaments ---------------- */
 
   TOURNAMENTS: "Tournaments",
+  TOURNAMENT_HUB_SPLASH: "TournamentHubSplash",
   TOURNAMENT_DASHBOARD: "TournamentDashboard",
   JOIN_TOURNAMENT: "JoinTournament",
 
@@ -51,7 +52,6 @@ const ROUTES = {
   TOURNAMENT_PLAYERS_SETUP: "TournamentPlayersSetup",
   TOURNAMENT_FORMATS: "TournamentFormats",
 
-  // NEW step inserted between Formats and Pools:
   TOURNAMENT_FORMAT_DETAILS: "TournamentFormatDetails",
 
   TOURNAMENT_FORMAT_POOLS: "TournamentFormatPools",

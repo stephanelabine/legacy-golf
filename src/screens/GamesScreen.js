@@ -104,7 +104,7 @@ export default function GamesScreen({ navigation }) {
     if (!selectedSupported) return;
 
     if (selectedId === "tournaments") {
-      navigation.navigate(ROUTES.TOURNAMENTS);
+      navigation.navigate(ROUTES.TOURNAMENT_HUB_SPLASH);
       return;
     }
 
@@ -145,7 +145,6 @@ export default function GamesScreen({ navigation }) {
 
     const tournamentsGlow = isDark ? "rgba(255,210,92,0.55)" : "rgba(255,210,92,0.60)";
 
-    // Selected overlay styling
     const overlayDim = isDark ? "rgba(0,0,0,0.22)" : "rgba(10,15,26,0.10)";
     const overlayBorder = isDark ? "rgba(255,255,255,0.22)" : "rgba(10,15,26,0.18)";
     const overlayBg = isDark ? "rgba(20,24,34,1)" : "rgba(255,255,255,1)";
@@ -239,7 +238,6 @@ export default function GamesScreen({ navigation }) {
 
       cardBottom: { marginTop: 12, flexDirection: "row", alignItems: "center" },
 
-      // Center overlay
       selectedDim: {
         ...StyleSheet.absoluteFillObject,
         backgroundColor: overlayDim,

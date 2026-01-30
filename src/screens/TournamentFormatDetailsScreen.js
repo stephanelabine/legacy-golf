@@ -2,7 +2,17 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Alert, Platform, ScrollView, TextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { doc, collection, onSnapshot, onSnapshot as onSnapshotQuery, query, orderBy, setDoc, serverTimestamp, updateDoc } from "firebase/firestore";
+import {
+  doc,
+  collection,
+  onSnapshot,
+  onSnapshot as onSnapshotQuery,
+  query,
+  orderBy,
+  setDoc,
+  serverTimestamp,
+  updateDoc,
+} from "firebase/firestore";
 
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
@@ -11,6 +21,10 @@ import { auth, db } from "../firebase/firebase";
 
 const HOLE_FORMAT_KEYS = new Set(["kp", "second_shot_kp", "long_drive"]);
 const TEAM_KEY = "team_vs_team";
+
+const FORMAT_ORDER = ["kp", "long_drive", "second_shot_kp", "deuce_pot", "putting_contest", "team_vs_team"];
+
+const HOLE_COLS = 6;
 
 function clampInt(n, min, max) {
   const v = Number(n);
@@ -28,6 +42,24 @@ function uniqInts(arr) {
   return Array.from(s).sort((a, b) => a - b);
 }
 
+function getKey(f) {
+  return String(f?.key || f?.id || "").trim();
+}
+
+function sortByCatalog(docs) {
+  const idx = (k) => {
+    const i = FORMAT_ORDER.indexOf(k);
+    return i >= 0 ? i : 999;
+  };
+  return [...(docs || [])].sort((a, b) => idx(getKey(a)) - idx(getKey(b)));
+}
+
+function chunk(arr, size) {
+  const out = [];
+  for (let i = 0; i < (arr || []).length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
 export default function TournamentFormatDetailsScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const { scheme, theme } = useTheme();
@@ -41,7 +73,6 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
 
   const [activeRound, setActiveRound] = useState("r1");
 
-  // local config state per format key
   const [configByKey, setConfigByKey] = useState({});
   const [teamAName, setTeamAName] = useState("Hackers");
   const [teamBName, setTeamBName] = useState("Slackers");
@@ -102,14 +133,13 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
     return Number.isFinite(n) && n >= 9 && n <= 27 ? Math.round(n) : 18;
   }, [t]);
 
-  // hydrate local config from firestore once formats load
   useEffect(() => {
     const next = {};
     let aName = "Hackers";
     let bName = "Slackers";
 
     (formatDocs || []).forEach((f) => {
-      const key = String(f?.key || f?.id || "").trim();
+      const key = getKey(f);
       if (!key) return;
 
       const cfg = f?.config && typeof f.config === "object" ? f.config : {};
@@ -133,14 +163,23 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
     const softBorder = isDark ? "rgba(255,255,255,0.14)" : "rgba(10,15,26,0.12)";
     const softBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(10,15,26,0.06)";
 
-    const goldBorder = isDark ? "rgba(255, 210, 92, 0.60)" : "rgba(255, 210, 92, 0.62)";
-    const goldBg = isDark ? "rgba(255, 210, 92, 0.12)" : "rgba(255, 210, 92, 0.16)";
+    // premium bronze-gold (less yellow)
+    const premiumGold = isDark ? "rgba(196, 160, 98, 0.88)" : "rgba(176, 136, 78, 0.90)";
+    const premiumGoldGlow = isDark ? "rgba(196, 160, 98, 0.10)" : "rgba(176, 136, 78, 0.10)";
 
-    const greenRing = isDark ? "rgba(15,122,74,0.60)" : "rgba(15,122,74,0.70)";
-    const greenBg = isDark ? "rgba(15,122,74,0.18)" : "rgba(15,122,74,0.14)";
+    const goldBorder = isDark ? "rgba(255, 210, 92, 0.58)" : "rgba(255, 210, 92, 0.60)";
+    const goldBg = isDark ? "rgba(255, 210, 92, 0.11)" : "rgba(255, 210, 92, 0.14)";
 
     const blue = isDark ? "rgba(46,125,255,0.92)" : "rgba(29,53,87,0.92)";
-    const blueBg = isDark ? "rgba(46,125,255,0.10)" : "rgba(29,53,87,0.10)";
+    const blueBgStrong = isDark ? "rgba(46,125,255,0.22)" : "rgba(29,53,87,0.16)";
+
+    // clear green section borders
+    const greenSectionBorder = isDark ? "rgba(90, 235, 165, 0.55)" : "rgba(42, 200, 125, 0.55)";
+    const greenSectionBg = isDark ? "rgba(15, 122, 74, 0.10)" : "rgba(15, 122, 74, 0.08)";
+
+    // stronger selected holes
+    const greenOnBorder = isDark ? "rgba(90, 235, 165, 0.92)" : "rgba(42, 200, 125, 0.92)";
+    const greenOnBg = isDark ? "rgba(90, 235, 165, 0.24)" : "rgba(42, 200, 125, 0.18)";
 
     return StyleSheet.create({
       screen: { flex: 1, backgroundColor: theme.bg },
@@ -180,25 +219,67 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
         textTransform: "uppercase",
       },
 
+      // thick gold border around the entire format card
       card: {
-        borderRadius: 18,
+        borderRadius: 20,
         padding: 14,
-        borderWidth: 1,
-        borderColor: softBorder,
+        borderWidth: 3,
+        borderColor: premiumGold,
         backgroundColor: theme.card2,
-        marginBottom: 12,
+        marginBottom: 14,
+        shadowColor: premiumGold,
+        shadowOpacity: isDark ? 0.22 : 0.14,
+        shadowRadius: 12,
+        shadowOffset: { width: 0, height: 8 },
+        elevation: 4,
       },
+      cardInnerGlow: {
+        borderRadius: 16,
+        padding: 10,
+        backgroundColor: premiumGoldGlow,
+      },
+
       cardTitleRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 },
       cardTitle: { flex: 1, color: theme.text, fontSize: 15, fontWeight: "900" },
-      cardHint: { color: theme.text, opacity: 0.72, fontSize: 12, fontWeight: "800" },
       cardSub: { marginTop: 8, color: theme.text, opacity: 0.72, fontSize: 12, fontWeight: "800", lineHeight: 16 },
 
-      roundRow: { marginTop: 12, flexDirection: "row", flexWrap: "wrap", gap: 8 },
-      roundChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: softBorder, backgroundColor: softBg },
-      roundChipOn: { borderColor: blue, backgroundColor: blueBg },
+      // green bordered inner sections
+      groupBox: {
+        marginTop: 12,
+        borderRadius: 16,
+        padding: 10,
+        borderWidth: 2,
+        borderColor: greenSectionBorder,
+        backgroundColor: greenSectionBg,
+      },
+
+      // rounds (4-column aligned)
+      roundRow: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        marginHorizontal: -4,
+      },
+      roundCell: {
+        width: "25%",
+        paddingHorizontal: 4,
+        paddingVertical: 4,
+      },
+      roundChip: {
+        width: "100%",
+        paddingVertical: 10,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: softBorder,
+        backgroundColor: "transparent",
+        alignItems: "center",
+        justifyContent: "center",
+      },
+      roundChipOn: { borderColor: blue, backgroundColor: blueBgStrong },
       roundChipText: { color: theme.text, fontSize: 12, fontWeight: "900", opacity: 0.9 },
 
-      holeGrid: { marginTop: 12, flexDirection: "row", flexWrap: "wrap", gap: 8 },
+      // holes: fixed size + forced rows of 6
+      holesWrap: { marginTop: 10 },
+      holeRow: { flexDirection: "row", gap: 8, marginBottom: 8 },
       holeChip: {
         width: 44,
         height: 44,
@@ -207,10 +288,11 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
         justifyContent: "center",
         borderWidth: 1,
         borderColor: softBorder,
-        backgroundColor: softBg,
+        backgroundColor: "transparent",
       },
-      holeChipOn: { borderColor: greenRing, backgroundColor: greenBg },
+      holeChipOn: { borderColor: greenOnBorder, backgroundColor: greenOnBg },
       holeText: { color: theme.text, fontSize: 13, fontWeight: "900" },
+      holeSpacer: { width: 44, height: 44 },
 
       inlineRow: { marginTop: 12, flexDirection: "row", gap: 10 },
       input: {
@@ -226,13 +308,14 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
         fontWeight: "900",
       },
 
+      // notes also get the same green border system
       note: {
-        borderRadius: 18,
-        padding: 14,
-        borderWidth: 1,
-        borderColor: softBorder,
-        backgroundColor: softBg,
-        marginTop: 10,
+        marginTop: 12,
+        borderRadius: 16,
+        padding: 12,
+        borderWidth: 2,
+        borderColor: greenSectionBorder,
+        backgroundColor: greenSectionBg,
       },
       noteText: { color: theme.text, opacity: 0.78, fontSize: 12, fontWeight: "800", lineHeight: 18 },
 
@@ -270,6 +353,8 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
     });
   }, [theme, isDark, footerPad]);
 
+  const orderedDocs = useMemo(() => sortByCatalog(formatDocs), [formatDocs]);
+
   function getHolesByRound(key) {
     const cfg = configByKey?.[key] && typeof configByKey[key] === "object" ? configByKey[key] : {};
     const hbr = cfg?.holesByRound && typeof cfg.holesByRound === "object" ? cfg.holesByRound : {};
@@ -303,154 +388,176 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
   }
 
   function renderHolePickerCard(f) {
-    const key = String(f?.key || f?.id || "").trim();
+    const key = getKey(f);
     if (!key) return null;
 
     const selectedRound = activeRound;
     const hbr = getHolesByRound(key);
     const selected = uniqInts(hbr?.[selectedRound] || []);
 
-    return (
-      <View key={key} style={styles.card}>
-        <View style={styles.cardTitleRow}>
-          <Text style={styles.cardTitle}>{String(f?.name || key)}</Text>
-          <Text style={styles.cardHint}>holes per round</Text>
-        </View>
-
-        <Text style={styles.cardSub}>
-          Choose the official holes for this format. Later, the organizer will enter the official winner (and optional yardage for Long Drive).
-        </Text>
-
-        <Text style={[styles.cardSub, { marginTop: 10 }]}>
-          Selected for {selectedRound.toUpperCase()}: {selected.length ? selected.join(", ") : "none"}
-        </Text>
-
-        <View style={styles.roundRow}>
-          {roundKeys.map((rk) => {
-            const on = rk === activeRound;
-            return (
-              <Pressable
-                key={rk}
-                onPress={() => setActiveRound(rk)}
-                disabled={saving || !isHost}
-                style={({ pressed }) => [
-                  styles.roundChip,
-                  on && styles.roundChipOn,
-                  pressed && !saving && isHost && styles.pressed,
-                  (!isHost || saving) && { opacity: 0.7 },
-                ]}
-              >
-                <Text style={styles.roundChipText}>{rk.toUpperCase()}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        <View style={styles.holeGrid}>
-          {Array.from({ length: holeCount }, (_, i) => i + 1).map((hn) => {
-            const on = selected.includes(hn);
-            return (
-              <Pressable
-                key={`${key}_${selectedRound}_${hn}`}
-                onPress={() => toggleHole(key, selectedRound, hn)}
-                disabled={saving || !isHost}
-                style={({ pressed }) => [
-                  styles.holeChip,
-                  on && styles.holeChipOn,
-                  pressed && !saving && isHost && styles.pressed,
-                  (!isHost || saving) && { opacity: 0.7 },
-                ]}
-              >
-                <Text style={styles.holeText}>{hn}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        <View style={styles.note}>
-          <Text style={styles.noteText}>
-            Note: These hole-based formats are calculated later from official organizer entries (winner + optional yardage), not GPS measuring.
-          </Text>
-        </View>
-      </View>
-    );
-  }
-
-  function renderTeamCard(f) {
-    const key = String(f?.key || f?.id || "").trim();
-    if (key !== TEAM_KEY) return null;
+    const holes = Array.from({ length: holeCount }, (_, i) => i + 1);
+    const rows = chunk(holes, HOLE_COLS);
 
     return (
       <View key={key} style={styles.card}>
-        <View style={styles.cardTitleRow}>
-          <Text style={styles.cardTitle}>{String(f?.name || "Team vs Team")}</Text>
-          <Text style={styles.cardHint}>event-wide</Text>
-        </View>
+        <View style={styles.cardInnerGlow}>
+          <View style={styles.cardTitleRow}>
+            <Text style={styles.cardTitle}>{String(f?.name || key)}</Text>
+          </View>
 
-        <Text style={styles.cardSub}>
-          Set team names now. Later we’ll add team member assignment + auto-balancing by handicap (ex: 4+8 vs 5+7).
-        </Text>
-
-        <View style={styles.inlineRow}>
-          <TextInput
-            value={teamAName}
-            onChangeText={(s) => setTeamAName(String(s || "").slice(0, 24))}
-            editable={!saving && isHost}
-            placeholder="Team A"
-            placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
-            style={[styles.input, (!isHost || saving) && { opacity: 0.7 }]}
-            returnKeyType="done"
-          />
-          <TextInput
-            value={teamBName}
-            onChangeText={(s) => setTeamBName(String(s || "").slice(0, 24))}
-            editable={!saving && isHost}
-            placeholder="Team B"
-            placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
-            style={[styles.input, (!isHost || saving) && { opacity: 0.7 }]}
-            returnKeyType="done"
-          />
-        </View>
-
-        <View style={styles.note}>
-          <Text style={styles.noteText}>
-            Scoring foundation: win = 1, tie = 0.5, loss = 0. Team assignments and matchups will come later (after roster/handicaps).
+          <Text style={styles.cardSub}>
+            Choose the official holes for this format. Later, the organizer will enter the official winner (and optional yardage for Long Drive).
           </Text>
+
+          <Text style={[styles.cardSub, { marginTop: 10 }]}>
+            Selected for {selectedRound.toUpperCase()}: {selected.length ? selected.join(", ") : "none"}
+          </Text>
+
+          <View style={styles.groupBox}>
+            <View style={styles.roundRow}>
+              {roundKeys.map((rk) => {
+                const on = rk === activeRound;
+                return (
+                  <View key={rk} style={styles.roundCell}>
+                    <Pressable
+                      onPress={() => setActiveRound(rk)}
+                      disabled={saving || !isHost}
+                      style={({ pressed }) => [
+                        styles.roundChip,
+                        on && styles.roundChipOn,
+                        pressed && !saving && isHost && styles.pressed,
+                        (!isHost || saving) && { opacity: 0.7 },
+                      ]}
+                    >
+                      <Text style={styles.roundChipText}>{rk.toUpperCase()}</Text>
+                    </Pressable>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+
+          <View style={styles.groupBox}>
+            <View style={styles.holesWrap}>
+              {rows.map((row, idx) => (
+                <View key={`${key}_${selectedRound}_row_${idx}`} style={styles.holeRow}>
+                  {row.map((hn) => {
+                    const on = selected.includes(hn);
+                    return (
+                      <Pressable
+                        key={`${key}_${selectedRound}_${hn}`}
+                        onPress={() => toggleHole(key, selectedRound, hn)}
+                        disabled={saving || !isHost}
+                        style={({ pressed }) => [
+                          styles.holeChip,
+                          on && styles.holeChipOn,
+                          pressed && !saving && isHost && styles.pressed,
+                          (!isHost || saving) && { opacity: 0.7 },
+                        ]}
+                      >
+                        <Text style={styles.holeText}>{hn}</Text>
+                      </Pressable>
+                    );
+                  })}
+                  {row.length < HOLE_COLS
+                    ? Array.from({ length: HOLE_COLS - row.length }, (_, i) => (
+                        <View key={`${key}_${selectedRound}_sp_${idx}_${i}`} style={styles.holeSpacer} />
+                      ))
+                    : null}
+                </View>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.note}>
+            <Text style={styles.noteText}>
+              Note: These hole-based formats are calculated later from official organizer entries (winner + optional yardage), not GPS measuring.
+            </Text>
+          </View>
         </View>
       </View>
     );
   }
 
   function renderInfoCard(f) {
-    const key = String(f?.key || f?.id || "").trim();
+    const key = getKey(f);
     if (!key) return null;
 
     if (HOLE_FORMAT_KEYS.has(key) || key === TEAM_KEY) return null;
 
-    const hint = f?.needsHoles ? "holes per round" : "event-wide";
     const sub = String(f?.blurb || "").trim();
 
     return (
       <View key={key} style={styles.card}>
-        <View style={styles.cardTitleRow}>
-          <Text style={styles.cardTitle}>{String(f?.name || key)}</Text>
-          <Text style={styles.cardHint}>{hint}</Text>
-        </View>
-        {sub ? <Text style={styles.cardSub}>{sub}</Text> : null}
+        <View style={styles.cardInnerGlow}>
+          <View style={styles.cardTitleRow}>
+            <Text style={styles.cardTitle}>{String(f?.name || key)}</Text>
+          </View>
 
-        <View style={styles.note}>
-          <Text style={styles.noteText}>
-            No extra setup needed here. This format will be calculated automatically later from tournament scoring data and rules.
+          {sub ? <Text style={styles.cardSub}>{sub}</Text> : null}
+
+          <View style={styles.note}>
+            <Text style={styles.noteText}>
+              No extra setup needed here. This format will be calculated automatically later from tournament scoring data and rules.
+            </Text>
+          </View>
+        </View>
+      </View>
+    );
+  }
+
+  function renderTeamCard(f) {
+    const key = getKey(f);
+    if (key !== TEAM_KEY) return null;
+
+    return (
+      <View key={key} style={styles.card}>
+        <View style={styles.cardInnerGlow}>
+          <View style={styles.cardTitleRow}>
+            <Text style={styles.cardTitle}>{String(f?.name || "Team vs Team")}</Text>
+          </View>
+
+          <Text style={styles.cardSub}>
+            Set team names now. Later we’ll add team member assignment + auto-balancing by handicap (ex: 4+8 vs 5+7).
           </Text>
+
+          <View style={styles.groupBox}>
+            <View style={styles.inlineRow}>
+              <TextInput
+                value={teamAName}
+                onChangeText={(s) => setTeamAName(String(s || "").slice(0, 24))}
+                editable={!saving && isHost}
+                placeholder="Team A"
+                placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+                style={[styles.input, (!isHost || saving) && { opacity: 0.7 }]}
+                returnKeyType="done"
+              />
+              <TextInput
+                value={teamBName}
+                onChangeText={(s) => setTeamBName(String(s || "").slice(0, 24))}
+                editable={!saving && isHost}
+                placeholder="Team B"
+                placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+                style={[styles.input, (!isHost || saving) && { opacity: 0.7 }]}
+                returnKeyType="done"
+              />
+            </View>
+          </View>
+
+          <View style={styles.note}>
+            <Text style={styles.noteText}>
+              Scoring foundation: win = 1, tie = 0.5, loss = 0. Team assignments and matchups will come later (after roster/handicaps).
+            </Text>
+          </View>
         </View>
       </View>
     );
   }
 
   function validateHolesConfig() {
-    const needs = (formatDocs || []).filter((f) => HOLE_FORMAT_KEYS.has(String(f?.key || f?.id || "").trim()));
+    const needs = (orderedDocs || []).filter((f) => HOLE_FORMAT_KEYS.has(getKey(f)));
     for (const f of needs) {
-      const key = String(f?.key || f?.id || "").trim();
+      const key = getKey(f);
       const hbr = getHolesByRound(key);
       for (const rk of roundKeys) {
         const list = uniqInts(hbr?.[rk] || []);
@@ -470,7 +577,7 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
       return;
     }
 
-    if (!formatDocs.length) {
+    if (!orderedDocs.length) {
       Alert.alert("No formats", "Go back and select formats first.");
       return;
     }
@@ -479,8 +586,8 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
 
     setSaving(true);
     try {
-      for (const f of formatDocs || []) {
-        const key = String(f?.key || f?.id || "").trim();
+      for (const f of orderedDocs || []) {
+        const key = getKey(f);
         if (!key) continue;
 
         const isHoleFormat = HOLE_FORMAT_KEYS.has(key);
@@ -518,14 +625,9 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
         }
 
         // eslint-disable-next-line no-await-in-loop
-        await setDoc(
-          doc(db, "tournaments", tournamentId, "formats", key),
-          { config, updatedAt: serverTimestamp() },
-          { merge: true }
-        );
+        await setDoc(doc(db, "tournaments", tournamentId, "formats", key), { config, updatedAt: serverTimestamp() }, { merge: true });
       }
 
-      // NEXT STEP IS POOLS
       await updateDoc(doc(db, "tournaments", tournamentId), {
         setupStep: "pools",
         formatDetailsReady: true,
@@ -539,6 +641,17 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
       setSaving(false);
     }
   }
+
+  const holeBased = useMemo(() => orderedDocs.filter((f) => HOLE_FORMAT_KEYS.has(getKey(f))), [orderedDocs]);
+  const otherFormats = useMemo(
+    () =>
+      orderedDocs.filter((f) => {
+        const k = getKey(f);
+        return k && !HOLE_FORMAT_KEYS.has(k) && k !== TEAM_KEY;
+      }),
+    [orderedDocs]
+  );
+  const teamFormats = useMemo(() => orderedDocs.filter((f) => getKey(f) === TEAM_KEY), [orderedDocs]);
 
   return (
     <View style={styles.screen}>
@@ -554,7 +667,7 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
 
           <View style={styles.pillRow}>
             <View style={styles.pill}>
-              <Text style={styles.pillText}>formats: {formatDocs.length}</Text>
+              <Text style={styles.pillText}>formats: {orderedDocs.length}</Text>
             </View>
             <View style={styles.pill}>
               <Text style={styles.pillText}>rounds: {roundsTotal}</Text>
@@ -565,7 +678,7 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
           </View>
         </View>
 
-        {!formatDocs.length ? (
+        {!orderedDocs.length ? (
           <View style={styles.empty}>
             <Text style={styles.emptyTitle}>No formats selected</Text>
             <Text style={styles.emptySub}>Go back and select at least one tournament side game.</Text>
@@ -573,17 +686,13 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
         ) : (
           <>
             <Text style={styles.sectionTitle}>Hole-based formats</Text>
-            {(formatDocs || [])
-              .filter((f) => HOLE_FORMAT_KEYS.has(String(f?.key || f?.id || "").trim()))
-              .map(renderHolePickerCard)}
-
-            <Text style={styles.sectionTitle}>Team setup</Text>
-            {(formatDocs || [])
-              .filter((f) => String(f?.key || f?.id || "").trim() === TEAM_KEY)
-              .map(renderTeamCard)}
+            {holeBased.map(renderHolePickerCard)}
 
             <Text style={styles.sectionTitle}>Other formats</Text>
-            {(formatDocs || []).map(renderInfoCard)}
+            {otherFormats.map(renderInfoCard)}
+
+            <Text style={styles.sectionTitle}>Team setup</Text>
+            {teamFormats.map(renderTeamCard)}
           </>
         )}
       </ScrollView>

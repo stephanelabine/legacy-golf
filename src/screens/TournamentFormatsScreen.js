@@ -37,6 +37,13 @@ const FORMAT_CATALOG = [
     blurb: "Select the official KP holes per round on the next step.",
   },
   {
+    key: "long_drive",
+    name: "Long Drive",
+    subtitle: "Longest drive on a hole",
+    needsHoles: true,
+    blurb: "Select the official holes per round on the next step.",
+  },
+  {
     key: "second_shot_kp",
     name: "Second Shot KP",
     subtitle: "Closest after second shot",
@@ -44,11 +51,11 @@ const FORMAT_CATALOG = [
     blurb: "Select the official holes per round on the next step.",
   },
   {
-    key: "long_drive",
-    name: "Long Drive",
-    subtitle: "Longest drive on a hole",
-    needsHoles: true,
-    blurb: "Select the official holes per round on the next step.",
+    key: "deuce_pot",
+    name: "Deuce Pot",
+    subtitle: "Split pot among all deuces",
+    needsHoles: false,
+    blurb: "Calculated later: every score of 2 counts, across all rounds.",
   },
   {
     key: "putting_contest",
@@ -64,13 +71,6 @@ const FORMAT_CATALOG = [
     needsHoles: false,
     blurb: "Set team names next. Team assignment and matchups come later (with handicap balancing).",
   },
-  {
-    key: "deuce_pot",
-    name: "Deuce Pot",
-    subtitle: "Split pot among all deuces",
-    needsHoles: false,
-    blurb: "Calculated later: every score of 2 counts, across all rounds.",
-  },
 ];
 
 export default function TournamentFormatsScreen({ navigation, route }) {
@@ -82,7 +82,7 @@ export default function TournamentFormatsScreen({ navigation, route }) {
 
   const [t, setT] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [formatDocs, setFormatDocs] = useState([]); // tournaments/{id}/formats
+  const [formatDocs, setFormatDocs] = useState([]);
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
@@ -148,8 +148,8 @@ export default function TournamentFormatsScreen({ navigation, route }) {
     const greenRing = isDark ? "rgba(15,122,74,0.60)" : "rgba(15,122,74,0.70)";
     const greenBg = isDark ? "rgba(15,122,74,0.18)" : "rgba(15,122,74,0.14)";
 
-    const blue = isDark ? "rgba(46,125,255,0.92)" : "rgba(29,53,87,0.92)";
-    const blueBg = isDark ? "rgba(46,125,255,0.10)" : "rgba(29,53,87,0.10)";
+    const badgeBg = isDark ? "rgba(10,15,26,0.72)" : "rgba(255,255,255,0.72)";
+    const badgeBorder = isDark ? "rgba(255,255,255,0.16)" : "rgba(10,15,26,0.12)";
 
     return StyleSheet.create({
       screen: { flex: 1, backgroundColor: theme.bg },
@@ -197,6 +197,7 @@ export default function TournamentFormatsScreen({ navigation, route }) {
       },
 
       formatRow: {
+        position: "relative",
         borderRadius: 18,
         padding: 14,
         borderWidth: 2,
@@ -208,9 +209,29 @@ export default function TournamentFormatsScreen({ navigation, route }) {
       formatRowTitle: { color: theme.text, fontSize: 15, fontWeight: "900" },
       formatRowSub: { marginTop: 6, color: theme.text, opacity: 0.72, fontSize: 12, fontWeight: "800", lineHeight: 16 },
 
-      tagRow: { marginTop: 10, flexDirection: "row", gap: 8, flexWrap: "wrap" },
-      tag: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: blueBg, borderWidth: 1, borderColor: blue },
-      tagText: { color: theme.text, fontSize: 11, fontWeight: "900", opacity: 0.92 },
+      selectedBadge: {
+        position: "absolute",
+        top: 10,
+        right: 10,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 999,
+        backgroundColor: badgeBg,
+        borderWidth: 1,
+        borderColor: badgeBorder,
+      },
+      selectedBadgeOn: {
+        borderColor: greenRing,
+        backgroundColor: isDark ? "rgba(15,122,74,0.20)" : "rgba(15,122,74,0.16)",
+      },
+      selectedBadgeText: {
+        color: theme.text,
+        fontSize: 11,
+        fontWeight: "900",
+        letterSpacing: 0.8,
+        textTransform: "uppercase",
+        opacity: 0.92,
+      },
 
       footer: {
         position: "absolute",
@@ -348,7 +369,6 @@ export default function TournamentFormatsScreen({ navigation, route }) {
 
   function renderRow(item) {
     const on = selectedKeys.has(String(item.key));
-    const tag = item.needsHoles ? `holes per round (${roundsTotal})` : "event-wide";
     const sub = item.blurb || "";
 
     return (
@@ -363,17 +383,14 @@ export default function TournamentFormatsScreen({ navigation, route }) {
           (!isHost || saving) && { opacity: 0.7 },
         ]}
       >
+        {on ? (
+          <View style={[styles.selectedBadge, styles.selectedBadgeOn]}>
+            <Text style={styles.selectedBadgeText}>Selected</Text>
+          </View>
+        ) : null}
+
         <Text style={styles.formatRowTitle}>{item.name}</Text>
         <Text style={styles.formatRowSub}>{sub}</Text>
-
-        <View style={styles.tagRow}>
-          <View style={styles.tag}>
-            <Text style={styles.tagText}>{tag}</Text>
-          </View>
-          <View style={styles.tag}>
-            <Text style={styles.tagText}>{on ? "selected" : "tap to add"}</Text>
-          </View>
-        </View>
       </Pressable>
     );
   }
