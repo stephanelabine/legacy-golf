@@ -1,5 +1,5 @@
 // src/screens/TournamentFormatPoolsScreen.js
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -45,6 +45,84 @@ function parseFeeString(s) {
   return Math.round(v * 100) / 100;
 }
 
+function normKey(x) {
+  return String(x || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+// required order:
+// KP → Long Drive → Second Shot KP → Deuce Pot → Putting Contest → Team vs Team
+const FORMAT_ORDER = ["kp", "longdrive", "secondshotkp", "deucepot", "puttingcontest", "teamvsteam"];
+
+const FORMAT_META = {
+  kp: {
+    title: "KP",
+    blurb: "Closest to the pin on selected par-3s. Results are calculated from player input.",
+    hint: "per player",
+  },
+  longdrive: {
+    title: "Long Drive",
+    blurb: "Longest drive competition. Results are calculated from player input.",
+    hint: "per player",
+  },
+  secondshotkp: {
+    title: "Second Shot KP",
+    blurb: "Closest to the pin on selected approach shots. Results are calculated from player input.",
+    hint: "per player",
+  },
+  deucepot: {
+    title: "Deuce Pot",
+    blurb: "Pot for 2s across the round. Results are calculated from player input.",
+    hint: "per player",
+  },
+  puttingcontest: {
+    title: "Putting Contest",
+    blurb: "Putting challenge for the event. Results are calculated from player input.",
+    hint: "per player",
+  },
+  teamvsteam: {
+    title: "Team vs Team",
+    blurb: "Team game pool for the event. Results are calculated from player input.",
+    hint: "per player",
+  },
+};
+
+// IMPORTANT: detect “second shot kp” before “kp” so it doesn’t get misclassified.
+function detectFormatType(f) {
+  const k = normKey(f?.key || f?.id);
+  const n = normKey(f?.name);
+
+  const s = `${k} ${n}`.trim();
+
+  // second shot KP (check first)
+  const isSecondShot =
+    s.includes("secondshotkp") ||
+    s.includes("secondshot") ||
+    (s.includes("second") && s.includes("shot") && s.includes("kp")) ||
+    s.includes("2ndshotkp") ||
+    (s.includes("2nd") && s.includes("shot") && s.includes("kp"));
+
+  if (isSecondShot) return "secondshotkp";
+
+  // long drive
+  if (s.includes("longdrive") || (s.includes("long") && s.includes("drive"))) return "longdrive";
+
+  // deuce pot
+  if (s.includes("deucepot") || (s.includes("deuce") && s.includes("pot"))) return "deucepot";
+
+  // putting contest
+  if (s.includes("puttingcontest") || (s.includes("putting") && s.includes("contest"))) return "puttingcontest";
+
+  // team vs team
+  if (s.includes("teamvsteam") || (s.includes("team") && s.includes("vs") && s.includes("team"))) return "teamvsteam";
+
+  // KP (last)
+  if (s.includes("kp")) return "kp";
+
+  return "unknown";
+}
+
 export default function TournamentFormatPoolsScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const { scheme, theme } = useTheme();
@@ -58,6 +136,7 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
 
   const [applyAll, setApplyAll] = useState("");
   const [feeByKey, setFeeByKey] = useState({});
+  const dirtyRef = useRef(false);
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
@@ -97,8 +176,10 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
     return () => unsub();
   }, [tournamentId]);
 
-  // initialize local fee strings from firestore docs
+  // initialize local fee strings from firestore docs (but don’t stomp while typing)
   useEffect(() => {
+    if (dirtyRef.current) return;
+
     const next = {};
     (formatDocs || []).forEach((f) => {
       const key = String(f?.key || f?.id || "").trim();
@@ -129,14 +210,26 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
     return s.size;
   }, [t]);
 
+  // enforce the same order as Formats + Details, using detectFormatType (prevents Second Shot KP -> KP)
+  const orderedFormats = useMemo(() => {
+    const getRank = (f) => {
+      const type = detectFormatType(f);
+      const idx = FORMAT_ORDER.indexOf(type);
+      return idx === -1 ? 999 : idx;
+    };
+
+    return [...(formatDocs || [])].sort((a, b) => getRank(a) - getRank(b));
+  }, [formatDocs]);
+
   const styles = useMemo(() => {
     const softBorder = isDark ? "rgba(255,255,255,0.14)" : "rgba(10,15,26,0.12)";
     const softBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(10,15,26,0.06)";
 
-    const goldBorder = isDark ? "rgba(255, 210, 92, 0.60)" : "rgba(255, 210, 92, 0.62)";
-    const goldBg = isDark ? "rgba(255, 210, 92, 0.12)" : "rgba(255, 210, 92, 0.16)";
+    // bronzy gold (less yellow)
+    const goldBorder = isDark ? "rgba(214, 171, 84, 0.78)" : "rgba(214, 171, 84, 0.82)";
+    const goldBg = isDark ? "rgba(214, 171, 84, 0.10)" : "rgba(214, 171, 84, 0.13)";
 
-    const greenRing = isDark ? "rgba(15,122,74,0.60)" : "rgba(15,122,74,0.70)";
+    const greenRing = isDark ? "rgba(15,122,74,0.62)" : "rgba(15,122,74,0.72)";
     const greenBg = isDark ? "rgba(15,122,74,0.18)" : "rgba(15,122,74,0.14)";
 
     return StyleSheet.create({
@@ -160,7 +253,14 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
         textTransform: "uppercase",
       },
       heroTitle: { marginTop: 10, color: theme.text, fontSize: 18, fontWeight: "900" },
-      heroSub: { marginTop: 8, color: theme.text, opacity: 0.74, fontSize: 13, fontWeight: "700", lineHeight: 19 },
+      heroSub: {
+        marginTop: 8,
+        color: theme.text,
+        opacity: 0.74,
+        fontSize: 13,
+        fontWeight: "700",
+        lineHeight: 19,
+      },
 
       sectionTitle: {
         marginTop: 14,
@@ -173,19 +273,33 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
         textTransform: "uppercase",
       },
 
-      card: {
+      // premium outer card (thick bronzy border)
+      premiumCard: {
         borderRadius: 18,
         padding: 14,
-        borderWidth: 1,
-        borderColor: softBorder,
+        borderWidth: 2.5,
+        borderColor: goldBorder,
         backgroundColor: theme.card2,
         marginBottom: 12,
       },
+
       rowTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
       name: { flex: 1, color: theme.text, fontSize: 15, fontWeight: "900" },
+      hint: { color: theme.text, opacity: 0.72, fontSize: 12, fontWeight: "800" },
+
       sub: { marginTop: 6, color: theme.text, opacity: 0.72, fontSize: 12, fontWeight: "800", lineHeight: 16 },
 
-      feeRow: { marginTop: 12, flexDirection: "row", alignItems: "center", gap: 10 },
+      // inner green section like prior screen
+      innerSection: {
+        marginTop: 12,
+        borderRadius: 16,
+        padding: 12,
+        borderWidth: 1,
+        borderColor: greenRing,
+        backgroundColor: greenBg,
+      },
+
+      feeRow: { flexDirection: "row", alignItems: "center", gap: 10 },
       feeInput: {
         flex: 1,
         height: 52,
@@ -198,16 +312,9 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
         fontSize: 16,
         fontWeight: "900",
       },
-      feeHint: { color: theme.text, opacity: 0.72, fontSize: 12, fontWeight: "800" },
 
-      applyBox: {
-        borderRadius: 18,
-        padding: 14,
-        borderWidth: 1,
-        borderColor: softBorder,
-        backgroundColor: softBg,
-        marginBottom: 12,
-      },
+      previewRow: { marginTop: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+      previewText: { color: theme.text, opacity: 0.78, fontSize: 12, fontWeight: "800" },
 
       applyBtn: {
         height: 52,
@@ -217,7 +324,7 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
         backgroundColor: greenBg,
         borderWidth: 1,
         borderColor: greenRing,
-        marginTop: 10,
+        marginTop: 12,
       },
       applyBtnText: { color: theme.text, fontSize: 15, fontWeight: "900" },
 
@@ -252,7 +359,15 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
         backgroundColor: softBg,
       },
       emptyTitle: { color: theme.text, fontSize: 14, fontWeight: "900", textAlign: "center" },
-      emptySub: { marginTop: 8, color: theme.text, opacity: 0.72, fontSize: 12, fontWeight: "800", textAlign: "center", lineHeight: 18 },
+      emptySub: {
+        marginTop: 8,
+        color: theme.text,
+        opacity: 0.72,
+        fontSize: 12,
+        fontWeight: "800",
+        textAlign: "center",
+        lineHeight: 18,
+      },
     });
   }, [theme, isDark, footerPad]);
 
@@ -263,8 +378,10 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
       return;
     }
     const s = v === null ? "" : String(v);
-    const next = { ...feeByKey };
-    (formatDocs || []).forEach((f) => {
+
+    dirtyRef.current = true;
+    const next = { ...(feeByKey || {}) };
+    (orderedFormats || []).forEach((f) => {
       const key = String(f?.key || f?.id || "").trim();
       if (!key) return;
       next[key] = s;
@@ -275,6 +392,7 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
 
   async function saveAllFees() {
     if (!tournamentId) return;
+
     if (!isHost) {
       Alert.alert("Host only", "Only the host can set money pools.");
       return;
@@ -282,7 +400,7 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
 
     setSaving(true);
     try {
-      for (const f of formatDocs || []) {
+      for (const f of orderedFormats || []) {
         const key = String(f?.key || f?.id || "").trim();
         if (!key) continue;
 
@@ -304,13 +422,15 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
       }
 
       await updateDoc(doc(db, "tournaments", tournamentId), {
-        setupStep: "format_details",
+        setupStep: "players",
         poolsReady: true,
         updatedAt: serverTimestamp(),
       });
 
+      dirtyRef.current = false;
       Keyboard.dismiss();
-      navigation.navigate(ROUTES.TOURNAMENT_FORMAT_DETAILS, { tournamentId });
+
+      navigation.navigate(ROUTES.TOURNAMENT_PLAYERS_SETUP, { tournamentId });
     } catch (e) {
       Alert.alert("Save failed", e?.message || "Could not save money pools.");
     } finally {
@@ -318,43 +438,57 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
     }
   }
 
+  function getMetaForFormat(f) {
+    const type = detectFormatType(f);
+    return FORMAT_META[type] || null;
+  }
+
   function renderFormatCard(f) {
     const key = String(f?.key || f?.id || "").trim();
-    const name = String(f?.name || key);
-    const sub = String(f?.blurb || "").trim();
-    const needsHoles = !!f?.needsHoles;
+    const meta = getMetaForFormat(f);
+
+    const name = String(meta?.title || f?.name || key);
+    const sub = String(meta?.blurb || "").trim();
+    const hint = String(meta?.hint || "per player");
 
     const feeStr = String(feeByKey?.[key] ?? "");
     const feeNum = Number(feeStr);
     const estPool = rosterCount > 0 && Number.isFinite(feeNum) && feeNum > 0 ? feeNum * rosterCount : null;
 
     return (
-      <View key={key} style={styles.card}>
+      <View key={key} style={styles.premiumCard}>
         <View style={styles.rowTop}>
           <Text style={styles.name}>{name}</Text>
-          <Text style={styles.feeHint}>{needsHoles ? "holes per round" : "event-wide"}</Text>
+          <Text style={styles.hint}>{hint}</Text>
         </View>
 
         {sub ? <Text style={styles.sub}>{sub}</Text> : null}
 
-        <View style={styles.feeRow}>
-          <TextInput
-            value={feeStr}
-            onChangeText={(s) => {
-              const cleaned = String(s || "").replace(/[^0-9.]/g, "");
-              setFeeByKey((prev) => ({ ...(prev || {}), [key]: cleaned }));
-            }}
-            editable={!saving && isHost}
-            placeholder="0"
-            placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
-            style={[styles.feeInput, (!isHost || saving) && { opacity: 0.7 }]}
-            keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
-            returnKeyType="done"
-            onSubmitEditing={() => Keyboard.dismiss()}
-          />
-          <Text style={styles.feeHint}>
-            {estPool ? `pool ~ ${money(estPool)}` : rosterCount ? `pool = fee x ${rosterCount}` : "pool later"}
-          </Text>
+        <View style={styles.innerSection}>
+          <View style={styles.feeRow}>
+            <TextInput
+              value={feeStr}
+              onChangeText={(s) => {
+                const cleaned = String(s || "").replace(/[^0-9.]/g, "");
+                dirtyRef.current = true;
+                setFeeByKey((prev) => ({ ...(prev || {}), [key]: cleaned }));
+              }}
+              editable={!saving && isHost}
+              placeholder="0"
+              placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+              style={[styles.feeInput, (!isHost || saving) && { opacity: 0.7 }]}
+              keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
+              returnKeyType="done"
+              onSubmitEditing={() => Keyboard.dismiss()}
+            />
+          </View>
+
+          <View style={styles.previewRow}>
+            <Text style={styles.previewText}>{rosterCount ? `Roster: ${rosterCount}` : "Roster: 0"}</Text>
+            <Text style={styles.previewText}>
+              {estPool ? `Pool ~ ${money(estPool)}` : rosterCount ? "Pool = fee x roster" : "Pool later"}
+            </Text>
+          </View>
         </View>
       </View>
     );
@@ -362,7 +496,7 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
 
   return (
     <View style={styles.screen}>
-      <ScreenHeader navigation={navigation} title="Money Pools" subtitle="Set an entry fee for each selected side game." />
+      <ScreenHeader navigation={navigation} title="Money Pools" subtitle="Set the entry fee per selected side game." />
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -370,11 +504,11 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
             <Text style={styles.heroKicker}>Step 5</Text>
             <Text style={styles.heroTitle}>Tournament Pools</Text>
             <Text style={styles.heroSub}>
-              Set the entry fee per side game. The pool is fee x players. Current roster estimate: {rosterCount || 0}.
+              Set the buy-in per side game. Pool estimate uses fee x roster. Current roster estimate: {rosterCount || 0}.
             </Text>
           </View>
 
-          {!formatDocs.length ? (
+          {!orderedFormats.length ? (
             <View style={styles.empty}>
               <Text style={styles.emptyTitle}>No formats selected</Text>
               <Text style={styles.emptySub}>Go back and select at least one tournament side game, or continue later.</Text>
@@ -382,34 +516,46 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
           ) : (
             <>
               <Text style={styles.sectionTitle}>Quick apply</Text>
-              <View style={styles.applyBox}>
-                <Text style={styles.feeHint}>Optional: apply one entry fee to all selected formats</Text>
-                <View style={styles.feeRow}>
-                  <TextInput
-                    value={applyAll}
-                    onChangeText={(s) => setApplyAll(String(s || "").replace(/[^0-9.]/g, ""))}
-                    editable={!saving && isHost}
-                    placeholder="10"
-                    placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
-                    style={[styles.feeInput, (!isHost || saving) && { opacity: 0.7 }]}
-                    keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
-                    returnKeyType="done"
-                    onSubmitEditing={applyFeeToAll}
-                  />
-                  <Text style={styles.feeHint}>per player</Text>
+
+              <View style={styles.premiumCard}>
+                <View style={styles.rowTop}>
+                  <Text style={styles.name}>Apply one fee to all</Text>
+                  <Text style={styles.hint}>optional</Text>
                 </View>
 
-                <Pressable
-                  onPress={applyFeeToAll}
-                  disabled={!isHost || saving}
-                  style={({ pressed }) => [styles.applyBtn, pressed && !saving && styles.pressed, (!isHost || saving) && { opacity: 0.7 }]}
-                >
-                  <Text style={styles.applyBtnText}>Apply to all</Text>
-                </Pressable>
+                <Text style={styles.sub}>Set a single entry fee and apply it to every selected format.</Text>
+
+                <View style={styles.innerSection}>
+                  <View style={styles.feeRow}>
+                    <TextInput
+                      value={applyAll}
+                      onChangeText={(s) => setApplyAll(String(s || "").replace(/[^0-9.]/g, ""))}
+                      editable={!saving && isHost}
+                      placeholder="10"
+                      placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+                      style={[styles.feeInput, (!isHost || saving) && { opacity: 0.7 }]}
+                      keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
+                      returnKeyType="done"
+                      onSubmitEditing={applyFeeToAll}
+                    />
+                  </View>
+
+                  <Pressable
+                    onPress={applyFeeToAll}
+                    disabled={!isHost || saving}
+                    style={({ pressed }) => [
+                      styles.applyBtn,
+                      pressed && !saving && styles.pressed,
+                      (!isHost || saving) && { opacity: 0.7 },
+                    ]}
+                  >
+                    <Text style={styles.applyBtnText}>Apply to all formats</Text>
+                  </Pressable>
+                </View>
               </View>
 
               <Text style={styles.sectionTitle}>Per format</Text>
-              {(formatDocs || []).map(renderFormatCard)}
+              {orderedFormats.map(renderFormatCard)}
             </>
           )}
         </ScrollView>
@@ -418,9 +564,13 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
           <Pressable
             onPress={saveAllFees}
             disabled={saving || !isHost}
-            style={({ pressed }) => [styles.primaryBtn, pressed && !saving && styles.pressed, (saving || !isHost) && { opacity: 0.7 }]}
+            style={({ pressed }) => [
+              styles.primaryBtn,
+              pressed && !saving && styles.pressed,
+              (saving || !isHost) && { opacity: 0.7 },
+            ]}
           >
-            <Text style={styles.primaryText}>{saving ? "Saving..." : "Save & Continue to Format Details"}</Text>
+            <Text style={styles.primaryText}>{saving ? "Saving..." : "Save & Continue to Players"}</Text>
           </Pressable>
         </View>
       </KeyboardAvoidingView>
