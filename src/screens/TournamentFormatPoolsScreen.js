@@ -125,7 +125,6 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
     guestIds.forEach((x) => s.add(String(x)));
     if (owner) s.add(owner);
 
-    // avoid counting empty
     s.delete("");
     return s.size;
   }, [t]);
@@ -305,13 +304,13 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
       }
 
       await updateDoc(doc(db, "tournaments", tournamentId), {
-        setupStep: "players",
+        setupStep: "format_details",
         poolsReady: true,
         updatedAt: serverTimestamp(),
       });
 
       Keyboard.dismiss();
-      navigation.navigate(ROUTES.TOURNAMENT_PLAYERS_SETUP, { tournamentId });
+      navigation.navigate(ROUTES.TOURNAMENT_FORMAT_DETAILS, { tournamentId });
     } catch (e) {
       Alert.alert("Save failed", e?.message || "Could not save money pools.");
     } finally {
@@ -327,8 +326,7 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
 
     const feeStr = String(feeByKey?.[key] ?? "");
     const feeNum = Number(feeStr);
-    const estPool =
-      rosterCount > 0 && Number.isFinite(feeNum) && feeNum > 0 ? feeNum * rosterCount : null;
+    const estPool = rosterCount > 0 && Number.isFinite(feeNum) && feeNum > 0 ? feeNum * rosterCount : null;
 
     return (
       <View key={key} style={styles.card}>
@@ -422,7 +420,7 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
             disabled={saving || !isHost}
             style={({ pressed }) => [styles.primaryBtn, pressed && !saving && styles.pressed, (saving || !isHost) && { opacity: 0.7 }]}
           >
-            <Text style={styles.primaryText}>{saving ? "Saving..." : "Save & Continue to Players"}</Text>
+            <Text style={styles.primaryText}>{saving ? "Saving..." : "Save & Continue to Format Details"}</Text>
           </Pressable>
         </View>
       </KeyboardAvoidingView>
