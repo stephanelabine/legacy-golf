@@ -239,22 +239,27 @@ export default function TournamentDashboardScreen({ navigation, route }) {
 
       footerBtn: {
         width: "100%",
-        height: 54,
         borderRadius: 18,
         alignItems: "center",
         justifyContent: "center",
         paddingHorizontal: 12,
       },
 
+      // Primary (dominant)
+      footerBtnPrimary: { height: 56, borderRadius: 18 },
+
+      // Secondary (thin pill)
+      footerBtnSecondary: { height: 44, borderRadius: 999 },
+
       primaryBtn: { backgroundColor: isDark ? "rgba(46,125,255,0.92)" : "rgba(10,15,26,0.92)" },
       primaryText: { color: "#fff", fontSize: 16, fontWeight: "900", letterSpacing: 0.4 },
 
-      // Match the soft "status pill" look
+      // Soft "status pill" look
       secondaryBtn: { backgroundColor: blueBg, borderWidth: 1, borderColor: blue },
 
       secondaryText: {
         color: theme.text,
-        fontSize: 15,
+        fontSize: 14,
         fontWeight: "900",
         letterSpacing: 0.2,
         textAlign: "center",
@@ -488,26 +493,6 @@ export default function TournamentDashboardScreen({ navigation, route }) {
     return "Invite players with the code below.";
   }, [isHost, inWelcome, setupInProgress, setupReady, isLive]);
 
-  const primaryLabel = (() => {
-    if (!t) return "Loading...";
-    if (!isHost) return "Host Only";
-    if (beginBusy) return "Working...";
-    if (inWelcome) return "Continue Setup";
-    if (setupInProgress) return "Continue Setup";
-    if (setupReady && !isLive) return starting ? "Starting..." : "Start Tournament";
-    if (isLive) return "Tournament Live";
-    return "Continue Setup";
-  })();
-
-  const primaryAction = (() => {
-    if (!t) return null;
-    if (!isHost) return null;
-    if (inWelcome) return beginSetup;
-    if (setupInProgress) return continueSetup;
-    if (setupReady && !isLive) return startTournament;
-    return continueSetup;
-  })();
-
   const primaryDisabled = beginBusy || starting || adminBusy || loading || !t || !isHost || (isHost && isLive);
 
   return (
@@ -588,18 +573,32 @@ export default function TournamentDashboardScreen({ navigation, route }) {
       {isHost ? (
         <View style={styles.footer}>
           <View style={styles.footerRow}>
-            <Pressable
-              onPress={() => navigation.navigate(ROUTES.TOURNAMENT_OVERVIEW, { tournamentId })}
-              style={({ pressed }) => [styles.footerBtn, styles.secondaryBtn, pressed && styles.pressed]}
-            >
-              <Text style={styles.secondaryText}>Tournament Overview</Text>
-            </Pressable>
-
+            {/* CONTINUE (TOP / PRIMARY / BIGGER) */}
             <Pressable
               onPress={footerContinue}
-              style={({ pressed }) => [styles.footerBtn, styles.primaryBtn, pressed && styles.pressed]}
+              disabled={primaryDisabled}
+              style={({ pressed }) => [
+                styles.footerBtn,
+                styles.footerBtnPrimary,
+                styles.primaryBtn,
+                pressed && !primaryDisabled && styles.pressed,
+                primaryDisabled && { opacity: 0.7 },
+              ]}
             >
               <Text style={styles.primaryText}>Continue</Text>
+            </Pressable>
+
+            {/* TOURNAMENT OVERVIEW (BOTTOM / THIN PILL) */}
+            <Pressable
+              onPress={() => navigation.navigate(ROUTES.TOURNAMENT_OVERVIEW, { tournamentId })}
+              style={({ pressed }) => [
+                styles.footerBtn,
+                styles.footerBtnSecondary,
+                styles.secondaryBtn,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.secondaryText}>Tournament Overview</Text>
             </Pressable>
           </View>
         </View>
