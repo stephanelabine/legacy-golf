@@ -22,8 +22,7 @@ import { auth, db } from "../firebase/firebase";
 
 /**
  * Tournament Formats (Premium)
- * We ONLY include tournament-style side games here.
- * No Nassau/Wolf/Vegas/etc. (those belong in normal Games).
+ * Tournament-only side games (not Nassau/Wolf/Vegas/etc).
  *
  * Data:
  * tournaments/{id}/formats/{key}
@@ -35,42 +34,42 @@ const FORMAT_CATALOG = [
     name: "KP",
     subtitle: "Closest to the pin",
     needsHoles: true,
-    blurb: "Pick holes later (usually par 3s). Winner confirmed by the group.",
+    blurb: "Select the official KP holes per round on the next step.",
   },
   {
     key: "second_shot_kp",
     name: "Second Shot KP",
     subtitle: "Closest after second shot",
     needsHoles: true,
-    blurb: "Pick holes later (often par 5 approaches). Winner confirmed by the group.",
+    blurb: "Select the official holes per round on the next step.",
   },
   {
     key: "long_drive",
     name: "Long Drive",
     subtitle: "Longest drive on a hole",
     needsHoles: true,
-    blurb: "Pick holes later. Organizer/group confirms the winner.",
+    blurb: "Select the official holes per round on the next step.",
   },
   {
     key: "putting_contest",
     name: "Putting Contest",
     subtitle: "Lowest total putts wins",
     needsHoles: false,
-    blurb: "Tracks total putts (by round + total). Lowest total wins.",
+    blurb: "Calculated later from the round scoring data (fewest total putts).",
   },
   {
     key: "team_vs_team",
     name: "Team vs Team",
-    subtitle: "Hackers vs Slackers (net points)",
+    subtitle: "Team points battle",
     needsHoles: false,
-    blurb: "Two teams. Daily pairings. Win=1, tie=0.5. Net scoring (handicap required).",
+    blurb: "Set team names next. Team assignment and matchups come later (with handicap balancing).",
   },
   {
     key: "deuce_pot",
     name: "Deuce Pot",
     subtitle: "Split pot among all deuces",
     needsHoles: false,
-    blurb: "Every deuce counts. Pot splits evenly among deuce makers.",
+    blurb: "Calculated later: every score of 2 counts, across all rounds.",
   },
 ];
 
@@ -132,6 +131,7 @@ export default function TournamentFormatsScreen({ navigation, route }) {
   const selectedKeys = useMemo(() => {
     const s = new Set();
     (formatDocs || []).forEach((d) => s.add(String(d?.key || d?.id || "")));
+    s.delete("");
     return s;
   }, [formatDocs]);
 
@@ -304,6 +304,7 @@ export default function TournamentFormatsScreen({ navigation, route }) {
           setSaving(true);
           try {
             for (const k of Array.from(selectedKeys)) {
+              // eslint-disable-next-line no-await-in-loop
               await deleteDoc(doc(db, "tournaments", tournamentId, "formats", k));
             }
           } catch (e) {
@@ -324,11 +325,16 @@ export default function TournamentFormatsScreen({ navigation, route }) {
       return;
     }
 
+    if (selectedCount === 0) {
+      Alert.alert("Select formats", "Choose at least one tournament side game to continue.");
+      return;
+    }
+
     setSaving(true);
     try {
       await updateDoc(doc(db, "tournaments", tournamentId), {
-        setupStep: "pools",
-        formatsSelected: selectedCount > 0,
+        setupStep: "format_details",
+        formatsSelected: true,
         updatedAt: serverTimestamp(),
       });
     } catch (e) {
@@ -337,7 +343,7 @@ export default function TournamentFormatsScreen({ navigation, route }) {
       setSaving(false);
     }
 
-    navigation.navigate(ROUTES.TOURNAMENT_FORMAT_POOLS, { tournamentId });
+    navigation.navigate(ROUTES.TOURNAMENT_FORMAT_DETAILS, { tournamentId });
   }
 
   function renderRow(item) {
@@ -381,7 +387,7 @@ export default function TournamentFormatsScreen({ navigation, route }) {
           <Text style={styles.heroKicker}>Step 4</Text>
           <Text style={styles.heroTitle}>Tournament Side Games</Text>
           <Text style={styles.heroSub}>
-            Select what your tournament will include. Entry fees and money pools are set on the next screen.
+            Select what your tournament will include. Next you’ll configure holes and team names before money pools.
           </Text>
 
           <View style={styles.pillRow}>
@@ -411,7 +417,7 @@ export default function TournamentFormatsScreen({ navigation, route }) {
             (saving || !isHost) && { opacity: 0.7 },
           ]}
         >
-          <Text style={styles.primaryText}>{saving ? "Saving..." : "Continue to Money Pools"}</Text>
+          <Text style={styles.primaryText}>{saving ? "Saving..." : "Continue to Format Details"}</Text>
         </Pressable>
 
         <Pressable

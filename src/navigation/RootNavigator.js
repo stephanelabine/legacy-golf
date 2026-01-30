@@ -55,9 +55,11 @@ import TournamentSetupScreen from "../screens/TournamentSetupScreen";
 import TournamentRoundsScreen from "../screens/TournamentRoundsScreen";
 import TournamentCourseScreen from "../screens/TournamentCourseScreen";
 import TournamentTeesScreen from "../screens/TournamentTeesScreen";
+
 import TournamentFormatsScreen from "../screens/TournamentFormatsScreen";
-import TournamentFormatPoolsScreen from "../screens/TournamentFormatPoolsScreen";
 import TournamentFormatDetailsScreen from "../screens/TournamentFormatDetailsScreen";
+import TournamentFormatPoolsScreen from "../screens/TournamentFormatPoolsScreen";
+
 import TournamentPlayersSetupScreen from "../screens/TournamentPlayersSetupScreen";
 import TournamentPlayersScreen from "../screens/TournamentPlayersScreen";
 import TournamentOverviewScreen from "../screens/TournamentOverviewScreen";
@@ -120,7 +122,6 @@ export default function RootNavigator() {
           <Stack.Screen name={ROUTES.HOLE_STRATEGY} component={HoleStrategyScreen} />
 
           <Stack.Screen name={ROUTES.SCORE_ENTRY} component={ScoreEntryScreen} />
-
           <Stack.Screen name={ROUTES.COURSE_DATA} component={CourseDataScreen} />
 
           <Stack.Screen name={ROUTES.HISTORY} component={HistoryScreen} />
@@ -140,9 +141,11 @@ export default function RootNavigator() {
           <Stack.Screen name={ROUTES.TOURNAMENT_ROUNDS} component={TournamentRoundsScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_COURSE} component={TournamentCourseScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_TEES} component={TournamentTeesScreen} />
+
           <Stack.Screen name={ROUTES.TOURNAMENT_FORMATS} component={TournamentFormatsScreen} />
-          <Stack.Screen name={ROUTES.TOURNAMENT_FORMAT_POOLS} component={TournamentFormatPoolsScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_FORMAT_DETAILS} component={TournamentFormatDetailsScreen} />
+          <Stack.Screen name={ROUTES.TOURNAMENT_FORMAT_POOLS} component={TournamentFormatPoolsScreen} />
+
           <Stack.Screen name={ROUTES.TOURNAMENT_PLAYERS_SETUP} component={TournamentPlayersSetupScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_PLAYERS} component={TournamentPlayersScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_OVERVIEW} component={TournamentOverviewScreen} />
