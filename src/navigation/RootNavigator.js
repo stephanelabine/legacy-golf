@@ -56,6 +56,7 @@ import TournamentRoundsScreen from "../screens/TournamentRoundsScreen";
 import TournamentCourseScreen from "../screens/TournamentCourseScreen";
 import TournamentTeesScreen from "../screens/TournamentTeesScreen";
 import TournamentFormatsScreen from "../screens/TournamentFormatsScreen";
+import TournamentFormatPoolsScreen from "../screens/TournamentFormatPoolsScreen";
 import TournamentPlayersSetupScreen from "../screens/TournamentPlayersSetupScreen";
 import TournamentPlayersScreen from "../screens/TournamentPlayersScreen";
 import TournamentOverviewScreen from "../screens/TournamentOverviewScreen";
@@ -129,7 +130,7 @@ export default function RootNavigator() {
           <Stack.Screen name={ROUTES.EQUIPMENT} component={EquipmentScreen} />
           <Stack.Screen name={ROUTES.WAGERS} component={WagersScreen} />
 
-          {/* Tournaments (current wiring; canonical aliases now exist in routes.js) */}
+          {/* Tournaments */}
           <Stack.Screen name={ROUTES.TOURNAMENTS} component={TournamentsScreen} />
           <Stack.Screen name={ROUTES.JOIN_TOURNAMENT} component={JoinTournamentScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_DASHBOARD} component={TournamentDashboardScreen} />
@@ -138,7 +139,10 @@ export default function RootNavigator() {
           <Stack.Screen name={ROUTES.TOURNAMENT_ROUNDS} component={TournamentRoundsScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_COURSE} component={TournamentCourseScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_TEES} component={TournamentTeesScreen} />
+
           <Stack.Screen name={ROUTES.TOURNAMENT_FORMATS} component={TournamentFormatsScreen} />
+          <Stack.Screen name={ROUTES.TOURNAMENT_FORMAT_POOLS} component={TournamentFormatPoolsScreen} />
+
           <Stack.Screen name={ROUTES.TOURNAMENT_PLAYERS_SETUP} component={TournamentPlayersSetupScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_PLAYERS} component={TournamentPlayersScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_OVERVIEW} component={TournamentOverviewScreen} />

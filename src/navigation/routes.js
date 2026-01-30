@@ -52,24 +52,24 @@ const ROUTES = {
   TOURNAMENT_FORMATS: "TournamentFormats",
   TOURNAMENT_ROUNDS: "TournamentRounds",
 
-  /* ---------------- Tournaments (canonical aliases) ----------------
-     These are the new “clear names” we’ll use going forward.
-     They map to the exact same route strings as the existing ones.
-     No behavior changes.
-  */
+  // NEW: pools step after formats
+  TOURNAMENT_FORMAT_POOLS: "TournamentFormatPools",
 
-  TOURNAMENT_SPLASH: "Tournaments", // existing: TOURNAMENTS
-  TOURNAMENT_HUB: "TournamentDashboard", // existing: TOURNAMENT_DASHBOARD
-  TOURNAMENT_SETUP_HOME: "TournamentSetup", // existing: TOURNAMENT_SETUP
+  /* ---------------- Tournaments (canonical aliases) ---------------- */
 
-  TOURNAMENT_ROUNDS_STEP: "TournamentRounds", // existing: TOURNAMENT_ROUNDS
-  TOURNAMENT_COURSES_STEP: "TournamentCourse", // existing: TOURNAMENT_COURSE
-  TOURNAMENT_TEES_STEP: "TournamentTees", // existing: TOURNAMENT_TEES
-  TOURNAMENT_FORMATS_STEP: "TournamentFormats", // existing: TOURNAMENT_FORMATS
-  TOURNAMENT_PLAYERS_STEP: "TournamentPlayers", // existing: TOURNAMENT_PLAYERS
+  TOURNAMENT_SPLASH: "Tournaments",
+  TOURNAMENT_HUB: "TournamentDashboard",
+  TOURNAMENT_SETUP_HOME: "TournamentSetup",
 
-  TOURNAMENT_OVERVIEW_ANCHOR: "TournamentOverview", // existing: TOURNAMENT_OVERVIEW
-  TOURNAMENT_JOIN: "JoinTournament", // existing: JOIN_TOURNAMENT
+  TOURNAMENT_ROUNDS_STEP: "TournamentRounds",
+  TOURNAMENT_COURSES_STEP: "TournamentCourse",
+  TOURNAMENT_TEES_STEP: "TournamentTees",
+  TOURNAMENT_FORMATS_STEP: "TournamentFormats",
+  TOURNAMENT_POOLS_STEP: "TournamentFormatPools",
+  TOURNAMENT_PLAYERS_STEP: "TournamentPlayers",
+
+  TOURNAMENT_OVERVIEW_ANCHOR: "TournamentOverview",
+  TOURNAMENT_JOIN: "JoinTournament",
 
   FINAL_RESULTS: "FinalResults",
   PAYOUTS: "Payouts",

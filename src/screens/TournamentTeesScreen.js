@@ -20,7 +20,7 @@ import { doc, onSnapshot, updateDoc, serverTimestamp, collection, getDocs, setDo
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import { useTheme } from "../theme/ThemeProvider";
-import { db } from "../firebase/firebase";
+import { auth, db } from "../firebase/firebase";
 import { getTeesForCourse } from "../services/tees";
 
 /**
@@ -80,7 +80,13 @@ export default function TournamentTeesScreen({ navigation, route }) {
     );
 
     return () => unsub();
-  }, [tournamentId]);
+  }, [tournamentId, navigation]);
+
+  const u = auth.currentUser;
+  const isHost = useMemo(() => {
+    if (!u || !t) return false;
+    return String(t.ownerUid || "") === String(u.uid || "");
+  }, [t, u]);
 
   // Canonical rounds only (r1..rN). Sort by roundNumber when available.
   useEffect(() => {
@@ -343,6 +349,10 @@ export default function TournamentTeesScreen({ navigation, route }) {
       Alert.alert("Rounds first", "Set the number of rounds before selecting tees.");
       return;
     }
+    if (!isHost) {
+      Alert.alert("Host only", "Only the host can edit tournament setup.");
+      return;
+    }
 
     const info = roundInfo.get(roundIndex) || {};
     const cid = String(info.courseId || "").trim();
@@ -389,6 +399,10 @@ export default function TournamentTeesScreen({ navigation, route }) {
 
   async function setTeeForRound(roundIndex, tee) {
     if (!tournamentId) return;
+    if (!isHost) {
+      Alert.alert("Host only", "Only the host can edit tournament setup.");
+      return;
+    }
 
     const code = String(tee?.code ?? "").trim();
     const name = String(tee?.name ?? "").trim();
@@ -405,7 +419,7 @@ export default function TournamentTeesScreen({ navigation, route }) {
         doc(db, "tournaments", tournamentId, "rounds", roundDocId(roundIndex)),
         {
           roundNumber: Math.floor(Number(roundIndex) || 1),
-          roundIndex: Math.floor(Number(roundIndex) || 1), // keep compatibility
+          roundIndex: Math.floor(Number(roundIndex) || 1),
           teeCode: code,
           teeName: name || code,
           teeYardage: Number.isFinite(yardage) ? yardage : null,
@@ -425,6 +439,10 @@ export default function TournamentTeesScreen({ navigation, route }) {
 
   async function clearTeesForAllRounds() {
     if (!tournamentId) return;
+    if (!isHost) {
+      Alert.alert("Host only", "Only the host can edit tournament setup.");
+      return;
+    }
 
     Alert.alert("Clear all round tees?", "This will remove tee selections for every round.", [
       { text: "Cancel", style: "cancel" },
@@ -439,7 +457,7 @@ export default function TournamentTeesScreen({ navigation, route }) {
 
             const updates = [];
             snap.forEach((d) => {
-              if (!String(d.id || "").startsWith("r")) return; // canonical only
+              if (!String(d.id || "").startsWith("r")) return;
               updates.push(
                 setDoc(d.ref, { teeCode: null, teeName: null, teeYardage: null, updatedAt: serverTimestamp() }, { merge: true })
               );
@@ -459,6 +477,11 @@ export default function TournamentTeesScreen({ navigation, route }) {
   async function handleContinue() {
     if (saving) return;
 
+    if (!isHost) {
+      Alert.alert("Host only", "Only the host can continue tournament setup.");
+      return;
+    }
+
     if (!roundsReady) {
       Alert.alert("Rounds not set", "Set the number of rounds first, then select tees per round.");
       return;
@@ -475,11 +498,8 @@ export default function TournamentTeesScreen({ navigation, route }) {
         setupStep: "formats",
         updatedAt: serverTimestamp(),
       });
-    } catch (e) {
-      // non-blocking
-    }
+    } catch (e) {}
 
-    // NEW FLOW: Tees -> Formats -> Players
     navigation.navigate(ROUTES.TOURNAMENT_FORMATS, { tournamentId });
   }
 
@@ -492,12 +512,12 @@ export default function TournamentTeesScreen({ navigation, route }) {
     return (
       <Pressable
         onPress={() => setTeeForRound(pickerRound, item)}
-        disabled={saving}
+        disabled={saving || !isHost}
         style={({ pressed }) => [
           styles.teeRow,
           active && styles.teeRowActive,
-          pressed && !saving && styles.pressed,
-          saving && { opacity: 0.6 },
+          pressed && !saving && isHost && styles.pressed,
+          (saving || !isHost) && { opacity: 0.6 },
         ]}
       >
         <Text style={styles.teeRowTitle}>{String(item?.name || item?.code || "Tee")}</Text>
@@ -558,8 +578,12 @@ export default function TournamentTeesScreen({ navigation, route }) {
 
                   <Pressable
                     onPress={() => openPicker(r)}
-                    disabled={saving}
-                    style={({ pressed }) => [styles.selectBtn, pressed && styles.pressed, saving && { opacity: 0.7 }]}
+                    disabled={saving || !isHost}
+                    style={({ pressed }) => [
+                      styles.selectBtn,
+                      pressed && isHost && !saving && styles.pressed,
+                      (saving || !isHost) && { opacity: 0.7 },
+                    ]}
                   >
                     <Text style={styles.selectBtnText}>Select Round {r} Tees</Text>
                   </Pressable>
@@ -573,19 +597,23 @@ export default function TournamentTeesScreen({ navigation, route }) {
       <View style={styles.footer}>
         <Pressable
           onPress={handleContinue}
-          disabled={saving || !roundsReady}
-          style={({ pressed }) => [styles.primaryBtn, pressed && !saving && styles.pressed, (saving || !roundsReady) && { opacity: 0.6 }]}
+          disabled={saving || !roundsReady || !isHost}
+          style={({ pressed }) => [
+            styles.primaryBtn,
+            pressed && !saving && isHost && styles.pressed,
+            (saving || !roundsReady || !isHost) && { opacity: 0.6 },
+          ]}
         >
-          <Text style={styles.primaryText}>{saving ? "Saving..." : "Continue"}</Text>
+          <Text style={styles.primaryText}>{saving ? "Saving..." : "Confirm & Continue"}</Text>
         </Pressable>
 
         <Pressable
           onPress={clearTeesForAllRounds}
-          disabled={saving || !roundsReady}
+          disabled={saving || !roundsReady || !isHost}
           style={({ pressed }) => [
             styles.secondaryBtn,
-            pressed && !saving && styles.pressed,
-            (saving || !roundsReady) && { opacity: 0.6 },
+            pressed && !saving && isHost && styles.pressed,
+            (saving || !roundsReady || !isHost) && { opacity: 0.6 },
           ]}
         >
           <Text style={styles.secondaryText}>Clear All Round Tees</Text>
@@ -613,7 +641,7 @@ export default function TournamentTeesScreen({ navigation, route }) {
                 style={styles.input}
                 autoCapitalize="none"
                 autoCorrect={false}
-                editable={!saving && !teesLoading}
+                editable={!saving && !teesLoading && isHost}
                 returnKeyType="done"
                 onSubmitEditing={() => Keyboard.dismiss()}
               />

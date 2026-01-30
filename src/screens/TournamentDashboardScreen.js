@@ -45,7 +45,7 @@ export default function TournamentDashboardScreen({ navigation, route }) {
     );
 
     return () => unsub();
-  }, [tournamentId]);
+  }, [tournamentId, navigation]);
 
   const u = auth.currentUser;
 
@@ -293,15 +293,6 @@ export default function TournamentDashboardScreen({ navigation, route }) {
     }
   }
 
-  function routeForStep(step) {
-    const s = String(step || "");
-    if (s === "rounds") return ROUTES.TOURNAMENT_ROUNDS;
-    if (s === "courses") return ROUTES.TOURNAMENT_COURSE;
-    if (s === "players") return ROUTES.TOURNAMENT_PLAYERS;
-    if (s === "formats") return ROUTES.TOURNAMENT_FORMATS;
-    return ROUTES.TOURNAMENT_ROUNDS;
-  }
-
   async function beginSetup() {
     if (!tournamentId) return;
     if (!isHost) {
@@ -370,25 +361,32 @@ export default function TournamentDashboardScreen({ navigation, route }) {
     ]);
   }
 
-  async function continueSetup() {
+  async function restartSetupFromRounds() {
     if (!tournamentId) return;
     if (!isHost) {
       Alert.alert("Host only", "The host is setting this tournament up.");
       return;
     }
-    navigation.navigate(routeForStep(setupStep), { tournamentId });
-  }
+    if (beginBusy || starting || adminBusy || loading) return;
 
-  function footerContinue() {
-    if (!t || loading) return;
-    if (!isHost) return;
-
-    if (setupReady || isLive) {
-      navigation.navigate(ROUTES.TOURNAMENT_OVERVIEW, { tournamentId });
-      return;
+    setBeginBusy(true);
+    try {
+      // Force replay from rounds (never resume mid-flow)
+      await updateDoc(doc(db, "tournaments", tournamentId), {
+        setupStep: "rounds",
+        updatedAt: serverTimestamp(),
+      });
+    } catch (e) {
+      // Non-blocking: still navigate so the host can continue setup
+    } finally {
+      setBeginBusy(false);
     }
 
-    navigation.navigate(routeForStep(setupStep), { tournamentId });
+    navigation.navigate(ROUTES.TOURNAMENT_ROUNDS, { tournamentId });
+  }
+
+  async function continueSetup() {
+    await restartSetupFromRounds();
   }
 
   async function archiveTournament() {
@@ -466,6 +464,19 @@ export default function TournamentDashboardScreen({ navigation, route }) {
         },
       },
     ]);
+  }
+
+  async function footerContinue() {
+    if (!t || loading) return;
+    if (!isHost) return;
+
+    if (isLive) {
+      navigation.navigate(ROUTES.TOURNAMENT_OVERVIEW, { tournamentId });
+      return;
+    }
+
+    // Always replay setup from rounds (never resume mid-flow)
+    await restartSetupFromRounds();
   }
 
   const heroSubtitle = useMemo(() => {

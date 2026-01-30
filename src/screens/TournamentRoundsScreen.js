@@ -60,7 +60,7 @@ export default function TournamentRoundsScreen({ navigation, route }) {
     );
 
     return () => unsub();
-  }, [tournamentId]);
+  }, [tournamentId, navigation]);
 
   const u = auth.currentUser;
   const isHost = useMemo(() => {
@@ -174,6 +174,7 @@ export default function TournamentRoundsScreen({ navigation, route }) {
 
   async function seedRoundsDocs(roundsTotal) {
     // Create rounds docs r1..rN if missing, and delete extras if rounds reduced.
+    // IMPORTANT: never overwrite course/tee selections here.
     const roundsRef = collection(db, "tournaments", tournamentId, "rounds");
     const snap = await getDocs(roundsRef);
 
@@ -185,7 +186,7 @@ export default function TournamentRoundsScreen({ navigation, route }) {
 
     const batch = writeBatch(db);
 
-    // Upsert needed docs
+    // Upsert needed docs (minimal fields only)
     for (let i = 1; i <= roundsTotal; i++) {
       const id = `r${i}`;
       const ref = doc(db, "tournaments", tournamentId, "rounds", id);
@@ -193,15 +194,14 @@ export default function TournamentRoundsScreen({ navigation, route }) {
         ref,
         {
           roundNumber: i,
-          courseId: null,
-          courseName: null,
+          roundIndex: i,
           updatedAt: serverTimestamp(),
         },
         { merge: true }
       );
     }
 
-    // Delete extras
+    // Delete extras (including any non-canonical docs that aren’t in keepIds)
     existingById.forEach((d, id) => {
       if (!keepIds.has(id)) batch.delete(d.ref);
     });
@@ -264,7 +264,6 @@ export default function TournamentRoundsScreen({ navigation, route }) {
               value={roundsText}
               onChangeText={(txt) => {
                 if (!isHost || saving) return;
-                // digits only
                 const cleaned = String(txt || "").replace(/[^\d]/g, "");
                 setRoundsText(cleaned);
               }}
@@ -273,7 +272,7 @@ export default function TournamentRoundsScreen({ navigation, route }) {
               returnKeyType="done"
               placeholder="e.g. 4"
               placeholderTextColor={isDark ? "rgba(255,255,255,0.45)" : "rgba(10,15,26,0.45)"}
-              style={[styles.input, (isHost && !saving) && styles.inputActive, (!isHost || saving) && { opacity: 0.75 }]}
+              style={[styles.input, isHost && !saving && styles.inputActive, (!isHost || saving) && { opacity: 0.75 }]}
               maxLength={3}
             />
           </View>
