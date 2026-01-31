@@ -20,6 +20,7 @@ import {
   doc,
   collection,
   onSnapshot,
+  onSnapshot as onSnapshotQuery,
   query,
   orderBy,
   updateDoc,
@@ -61,8 +62,9 @@ function normalizeName(p, fallback) {
   return displayNameFor(p, fallback).trim().toLowerCase();
 }
 
-function safeStr(v) {
-  return String(v ?? "").trim();
+function safeSetTimeout(fn, ms) {
+  const id = setTimeout(fn, ms);
+  return () => clearTimeout(id);
 }
 
 export default function TournamentPlayersSetupScreen({ navigation, route }) {
@@ -134,7 +136,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     if (!tournamentId) return;
 
     const mref = collection(db, "tournaments", tournamentId, "members");
-    const unsub = onSnapshot(
+    const unsub = onSnapshotQuery(
       mref,
       (snap) => {
         const rows = [];
@@ -152,7 +154,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
 
     const fref = collection(db, "tournaments", tournamentId, "formats");
     const fq = query(fref, orderBy("createdAt", "asc"));
-    const unsub = onSnapshot(
+    const unsub = onSnapshotQuery(
       fq,
       (snap) => {
         const rows = [];
@@ -174,6 +176,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     return String(u.uid || "") === ownerUid;
   }, [u, ownerUid]);
 
+  // Organizer pinned first, everyone else alphabetical underneath
   const members = useMemo(() => {
     const rows = Array.isArray(rawMembers) ? [...rawMembers] : [];
 
@@ -181,12 +184,10 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
       const au = String(a?.uid || a?.id || "");
       const bu = String(b?.uid || b?.id || "");
 
-      // pin organizer first
       const aHostRank = au && ownerUid && au === ownerUid ? 0 : 1;
       const bHostRank = bu && ownerUid && bu === ownerUid ? 0 : 1;
       if (aHostRank !== bHostRank) return aHostRank - bHostRank;
 
-      // everyone else alphabetical
       const an = normalizeName(a, "player");
       const bn = normalizeName(b, "player");
       if (an !== bn) return an < bn ? -1 : 1;
@@ -218,7 +219,6 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     ROUTES.TOURNAMENT_TEAM_ASSIGN ||
     null;
 
-  // Ensure organizer exists in members as source of truth
   useEffect(() => {
     if (!tournamentId || !ownerUid || !isHost) return;
     if (autoHostWroteRef.current) return;
@@ -274,13 +274,6 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     })();
   }, [tournamentId, ownerUid, isHost, members, u?.displayName]);
 
-  const buddyFiltered = useMemo(() => {
-    const q = safeStr(buddySearch).toLowerCase();
-    const list = Array.isArray(buddyList) ? buddyList : [];
-    if (!q) return list;
-    return list.filter((b) => safeStr(b?.name).toLowerCase().includes(q));
-  }, [buddyList, buddySearch]);
-
   const styles = useMemo(() => {
     const softBorder = isDark ? "rgba(255,255,255,0.14)" : "rgba(10,15,26,0.12)";
     const softBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(10,15,26,0.06)";
@@ -298,16 +291,53 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
       screen: { flex: 1, backgroundColor: theme.bg },
       content: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 200 },
 
-      hero: { borderRadius: 22, padding: 18, borderWidth: 1, borderColor: bronzeBorder, backgroundColor: bronzeBg, marginBottom: 12 },
-      heroKicker: { color: theme.text, fontSize: 12, fontWeight: "900", letterSpacing: 1.4, opacity: 0.78, textTransform: "uppercase" },
+      hero: {
+        borderRadius: 22,
+        padding: 18,
+        borderWidth: 1,
+        borderColor: bronzeBorder,
+        backgroundColor: bronzeBg,
+        marginBottom: 12,
+      },
+      heroKicker: {
+        color: theme.text,
+        fontSize: 12,
+        fontWeight: "900",
+        letterSpacing: 1.4,
+        opacity: 0.78,
+        textTransform: "uppercase",
+      },
       heroTitle: { marginTop: 10, color: theme.text, fontSize: 18, fontWeight: "900" },
       heroSub: { marginTop: 8, color: theme.text, opacity: 0.74, fontSize: 13, fontWeight: "700", lineHeight: 19 },
 
-      playersCard: { borderRadius: 22, padding: 14, borderWidth: 2.5, borderColor: bronzeBorder, backgroundColor: theme.card2, marginBottom: 14 },
-      playersTitle: { color: theme.text, fontSize: 13, fontWeight: "900", letterSpacing: 1.2, opacity: 0.78, textTransform: "uppercase" },
+      playersCard: {
+        borderRadius: 22,
+        padding: 14,
+        borderWidth: 2.5,
+        borderColor: bronzeBorder,
+        backgroundColor: theme.card2,
+        marginBottom: 14,
+      },
+      playersTitle: {
+        color: theme.text,
+        fontSize: 13,
+        fontWeight: "900",
+        letterSpacing: 1.2,
+        opacity: 0.78,
+        textTransform: "uppercase",
+      },
       playersSub: { marginTop: 8, color: theme.text, opacity: 0.72, fontSize: 12, fontWeight: "800", lineHeight: 17 },
 
-      addBtn: { marginTop: 12, height: 54, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: greenBg, borderWidth: 1, borderColor: greenRing },
+      addBtn: {
+        marginTop: 12,
+        height: 54,
+        borderRadius: 18,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: greenBg,
+        borderWidth: 1,
+        borderColor: greenRing,
+      },
       addBtnText: { color: theme.text, fontSize: 15, fontWeight: "900" },
 
       listWrap: { marginTop: 12 },
@@ -323,62 +353,132 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
       emptyTitle: { color: theme.text, fontSize: 14, fontWeight: "900", textAlign: "center" },
       emptySub: { marginTop: 8, color: theme.text, opacity: 0.72, fontSize: 12, fontWeight: "800", textAlign: "center", lineHeight: 18 },
 
-      footer: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingBottom: footerPad, paddingTop: 12, backgroundColor: theme.bg, borderTopWidth: 1, borderTopColor: theme.divider },
+      footer: {
+        position: "absolute",
+        left: 0,
+        right: 0,
+        bottom: 0,
+        paddingHorizontal: 16,
+        paddingBottom: footerPad,
+        paddingTop: 12,
+        backgroundColor: theme.bg,
+        borderTopWidth: 1,
+        borderTopColor: theme.divider,
+      },
       primaryBtn: { height: 56, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: inkBtn },
       primaryBtnDisabled: { opacity: 0.6 },
       primaryText: { color: "#fff", fontSize: 16, fontWeight: "900", letterSpacing: 0.4 },
 
       pressed: { opacity: Platform.OS === "ios" ? 0.88 : 0.9, transform: [{ scale: 0.99 }] },
 
-      // Bottom sheet modal
-      modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end" },
+      // CENTERED MODAL (not bottom sheet)
+      modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "center", paddingHorizontal: 16 },
       modalShell: { width: "100%" },
       modalCard: {
         width: "100%",
-        maxHeight: "88%",
-        borderTopLeftRadius: 22,
-        borderTopRightRadius: 22,
+        maxWidth: 520,
+        alignSelf: "center",
+        maxHeight: "86%",
+        minHeight: 380,
+        borderRadius: 22,
         borderWidth: 1,
         borderColor: theme.border,
         backgroundColor: theme.bg,
         overflow: "hidden",
       },
-      modalBody: { padding: 16, paddingBottom: 10 },
-      modalFooter: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: Math.max(14, (insets?.bottom || 0) + 10), borderTopWidth: 1, borderTopColor: theme.divider, backgroundColor: theme.bg },
+      // Bigger card for the MENU mode so all three options are visible without scrolling
+      modalCardMenu: {
+        minHeight: 460,
+        maxHeight: "72%",
+      },
 
+      modalHeader: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: theme.divider, backgroundColor: theme.bg },
+      modalBody: { padding: 16, paddingBottom: 10 },
+      modalFooter: {
+        paddingHorizontal: 16,
+        paddingTop: 12,
+        paddingBottom: Math.max(14, (insets?.bottom || 0) + 10),
+        borderTopWidth: 1,
+        borderTopColor: theme.divider,
+        backgroundColor: theme.bg,
+      },
       sheetTitle: { color: theme.text, fontSize: 18, fontWeight: "900", textAlign: "center" },
       sheetSub: { marginTop: 8, color: theme.text, opacity: 0.72, fontSize: 13, fontWeight: "700", lineHeight: 18, textAlign: "center" },
 
-      choiceBtn: { height: 54, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: softBg, borderWidth: 1, borderColor: softBorder, marginTop: 10 },
+      choiceBtn: {
+        height: 54,
+        borderRadius: 18,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: softBg,
+        borderWidth: 1,
+        borderColor: softBorder,
+        marginTop: 10,
+      },
       choiceBtnPrimary: { backgroundColor: green, borderColor: greenRing },
       choiceText: { color: theme.text, fontSize: 15, fontWeight: "900" },
       choiceTextPrimary: { color: "#fff" },
 
-      input: { marginTop: 12, height: 52, borderRadius: 16, paddingHorizontal: 14, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.card2, color: theme.text, fontSize: 15, fontWeight: "800" },
+      input: {
+        marginTop: 12,
+        height: 52,
+        borderRadius: 16,
+        paddingHorizontal: 14,
+        borderWidth: 1,
+        borderColor: theme.border,
+        backgroundColor: theme.card2,
+        color: theme.text,
+        fontSize: 15,
+        fontWeight: "800",
+      },
 
       rowBtns: { flexDirection: "row", gap: 10 },
-      modalBtn: { flex: 1, height: 52, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: softBg, borderWidth: 1, borderColor: softBorder },
+      modalBtn: {
+        flex: 1,
+        height: 52,
+        borderRadius: 18,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: softBg,
+        borderWidth: 1,
+        borderColor: softBorder,
+      },
       modalBtnPrimary: { backgroundColor: green, borderColor: greenRing },
       modalBtnText: { color: theme.text, fontSize: 14, fontWeight: "900" },
       modalBtnTextPrimary: { color: "#fff" },
 
       spacer: { height: 10 },
 
-      buddyTopRow: { marginTop: 10, flexDirection: "row", justifyContent: "center" },
-      buddyCountPill: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: greenRing, backgroundColor: greenBg },
+      // Buddy picker rows (inside FlatList)
+      buddyTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+      buddyCountPill: {
+        paddingHorizontal: 12,
+        height: 34,
+        borderRadius: 999,
+        alignItems: "center",
+        justifyContent: "center",
+        borderWidth: 1,
+        borderColor: "rgba(15,122,74,0.35)",
+        backgroundColor: "rgba(15,122,74,0.10)",
+        alignSelf: "flex-start",
+      },
       buddyCountText: { color: theme.text, fontSize: 12, fontWeight: "900" },
 
-      buddyRow: { borderRadius: 16, padding: 12, borderWidth: 1, borderColor: softBorder, backgroundColor: softBg, marginTop: 10 },
-      buddyRowOn: { borderColor: greenRing, backgroundColor: greenBg },
+      buddyRow: { borderRadius: 16, paddingVertical: 12, paddingHorizontal: 14, borderWidth: 1, borderColor: softBorder, backgroundColor: softBg, marginTop: 10 },
+      buddyRowOn: { borderColor: "rgba(15,122,74,0.55)", backgroundColor: "rgba(15,122,74,0.12)" },
       buddyName: { color: theme.text, fontSize: 15, fontWeight: "900" },
       buddyMeta: { marginTop: 6, color: theme.text, opacity: 0.72, fontSize: 12, fontWeight: "800" },
+
+      listPad: { paddingHorizontal: 16, paddingBottom: 10 },
     });
   }, [theme, isDark, footerPad, insets?.bottom]);
 
   function closeAdd() {
     Keyboard.dismiss();
     setAddOpen(false);
-    setTimeout(() => setAddMode("menu"), 0);
+    // reset mode after close so it doesn't flicker on reopen
+    const cancel = safeSetTimeout(() => setAddMode("menu"), 0);
+    return cancel;
   }
 
   function openAdd() {
@@ -397,7 +497,13 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     setGuestEmail("");
     setGuestPhone("");
     setAddMode("guest");
-    setTimeout(() => guestNameRef.current?.focus?.(), 50);
+
+    // focus after layout settles (prevents focus/keyboard flicker)
+    safeSetTimeout(() => {
+      try {
+        guestNameRef.current?.focus?.();
+      } catch {}
+    }, 220);
   }
 
   async function startBuddies() {
@@ -407,10 +513,15 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     try {
       const list = await getBuddies();
       setBuddyList(Array.isArray(list) ? list : []);
-    } catch (e) {
+    } catch {
       setBuddyList([]);
     }
-    setTimeout(() => buddySearchRef.current?.focus?.(), 60);
+
+    safeSetTimeout(() => {
+      try {
+        buddySearchRef.current?.focus?.();
+      } catch {}
+    }, 220);
   }
 
   async function shareInvite() {
@@ -469,72 +580,6 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
       closeAdd();
     } catch (e) {
       Alert.alert("Add guest failed", e?.message || "Could not add guest.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function toggleBuddy(id) {
-    const bid = String(id || "");
-    if (!bid) return;
-    setBuddySelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(bid)) next.delete(bid);
-      else next.add(bid);
-      return next;
-    });
-  }
-
-  async function addSelectedBuddies() {
-    if (!isHost) return;
-
-    const ids = Array.from(buddySelected || []);
-    if (!ids.length) {
-      Alert.alert("Select buddies", "Pick at least one buddy to add.");
-      return;
-    }
-
-    const pick = (Array.isArray(buddyList) ? buddyList : []).filter((b) => ids.includes(String(b?.id || "")));
-    if (!pick.length) {
-      Alert.alert("No selection", "No buddies selected.");
-      return;
-    }
-
-    setSaving(true);
-    try {
-      for (const b of pick) {
-        const baseId = String(b?.id || "");
-        const memberId = `buddy_${baseId}`;
-
-        const name = String(b?.name || "").trim() || "Buddy";
-        const hNum = Number(b?.handicap ?? 0);
-        const h = Number.isFinite(hNum) ? String(Math.round(hNum * 10) / 10) : "0";
-
-        await setDoc(
-          doc(db, "tournaments", tournamentId, "members", memberId),
-          {
-            uid: memberId,
-            displayName: name,
-            isGuest: true,
-            source: "buddy",
-            handicap: h,
-            email: safeStr(b?.email),
-            phone: safeStr(b?.phone),
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
-
-        await updateDoc(doc(db, "tournaments", tournamentId), {
-          guestIds: arrayUnion(memberId),
-          updatedAt: serverTimestamp(),
-        });
-      }
-
-      closeAdd();
-    } catch (e) {
-      Alert.alert("Add buddies failed", e?.message || "Could not add selected buddies.");
     } finally {
       setSaving(false);
     }
@@ -650,6 +695,80 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     ]);
   }
 
+  function toggleBuddy(id) {
+    const key = String(id || "");
+    if (!key) return;
+    setBuddySelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  const buddyFiltered = useMemo(() => {
+    const q = String(buddySearch || "").trim().toLowerCase();
+    const list = Array.isArray(buddyList) ? buddyList : [];
+    if (!q) return list;
+    return list.filter((b) => String(b?.name || "").toLowerCase().includes(q));
+  }, [buddyList, buddySearch]);
+
+  async function addSelectedBuddies() {
+    if (!isHost) return;
+
+    const ids = Array.from(buddySelected || []);
+    if (!ids.length) {
+      Alert.alert("Select buddies", "Pick at least one buddy to add.");
+      return;
+    }
+
+    const buddyMap = new Map();
+    for (const b of buddyList || []) buddyMap.set(String(b?.id || ""), b);
+
+    setSaving(true);
+    try {
+      for (const bid of ids) {
+        const b = buddyMap.get(String(bid)) || null;
+        if (!b) continue;
+
+        const docId = `buddy_${String(bid)}`;
+        const already = (rawMembers || []).some((m) => String(m?.uid || m?.id || "") === docId);
+        if (already) continue;
+
+        const nm = String(b?.name || "").trim();
+        const hNum = Number(b?.handicap ?? 0);
+        const h = Number.isFinite(hNum) ? Math.max(0, Math.min(36, hNum)) : 0;
+
+        await setDoc(
+          doc(db, "tournaments", tournamentId, "members", docId),
+          {
+            uid: docId,
+            displayName: nm || "Buddy",
+            isGuest: true,
+            fromBuddyId: String(bid),
+            handicap: String(Math.round(h * 10) / 10),
+            phone: String(b?.phone || "").trim(),
+            email: String(b?.email || "").trim(),
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+
+        await updateDoc(doc(db, "tournaments", tournamentId), {
+          guestIds: arrayUnion(docId),
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      closeAdd();
+    } catch (e) {
+      Alert.alert("Add buddies failed", e?.message || "Could not add selected buddies.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleContinue() {
     if (saving) return;
 
@@ -680,14 +799,43 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     navigation.navigate(ROUTES.TOURNAMENT_SETUP, { tournamentId });
   }
 
-  // IMPORTANT: these are render functions, not inner components (prevents TextInput remount focus loss)
+  function renderAddHeader() {
+    if (addMode === "guest") {
+      return (
+        <>
+          <Text style={styles.sheetTitle}>Add guest</Text>
+          <Text style={styles.sheetSub}>Name + handicap required. Email/phone optional.</Text>
+        </>
+      );
+    }
+    if (addMode === "buddies") {
+      return (
+        <>
+          <Text style={styles.sheetTitle}>Add from Buddy List</Text>
+          <Text style={styles.sheetSub}>Select one or more buddies to add to this tournament.</Text>
+        </>
+      );
+    }
+    return (
+      <>
+        <Text style={styles.sheetTitle}>Add a player</Text>
+        <Text style={styles.sheetSub}>Choose how you want to add someone.</Text>
+      </>
+    );
+  }
+
   function AddMenuBody() {
     return (
       <>
         <Pressable
           onPress={startGuest}
           disabled={saving}
-          style={({ pressed }) => [styles.choiceBtn, styles.choiceBtnPrimary, pressed && !saving && styles.pressed, saving && { opacity: 0.6 }]}
+          style={({ pressed }) => [
+            styles.choiceBtn,
+            styles.choiceBtnPrimary,
+            pressed && !saving && styles.pressed,
+            saving && { opacity: 0.6 },
+          ]}
         >
           <Text style={[styles.choiceText, styles.choiceTextPrimary]}>Add Guest</Text>
         </Pressable>
@@ -703,7 +851,11 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
         <Pressable
           onPress={shareInvite}
           disabled={saving || !joinCode}
-          style={({ pressed }) => [styles.choiceBtn, pressed && !saving && styles.pressed, (saving || !joinCode) && { opacity: 0.6 }]}
+          style={({ pressed }) => [
+            styles.choiceBtn,
+            pressed && !saving && styles.pressed,
+            (saving || !joinCode) && { opacity: 0.6 },
+          ]}
         >
           <Text style={styles.choiceText}>Share invite</Text>
         </Pressable>
@@ -773,105 +925,6 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     );
   }
 
-  function BuddyPickerBody() {
-    return (
-      <>
-        <View style={styles.buddyTopRow}>
-          <View style={styles.buddyCountPill}>
-            <Text style={styles.buddyCountText}>{buddySelected.size} selected</Text>
-          </View>
-        </View>
-
-        <TextInput
-          ref={buddySearchRef}
-          value={buddySearch}
-          onChangeText={setBuddySearch}
-          placeholder="Search buddies"
-          placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
-          style={styles.input}
-          autoCapitalize="none"
-          autoCorrect={false}
-          editable={!saving}
-          returnKeyType="search"
-        />
-
-        <FlatList
-          data={buddyFiltered}
-          keyExtractor={(it) => String(it?.id || "")}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 10 }}
-          renderItem={({ item }) => {
-            const id = String(item?.id || "");
-            const on = buddySelected.has(id);
-
-            const h = Number(item?.handicap ?? 0);
-            const phone = String(item?.phone || "").trim();
-            const email = String(item?.email || "").trim();
-            const metaParts = [`HCP ${Number.isFinite(h) ? h : 0}`];
-            if (phone) metaParts.push(phone);
-            if (email) metaParts.push(email);
-
-            return (
-              <Pressable
-                onPress={() => toggleBuddy(id)}
-                style={({ pressed }) => [styles.buddyRow, on && styles.buddyRowOn, pressed && styles.pressed]}
-              >
-                <Text style={styles.buddyName} numberOfLines={1}>
-                  {String(item?.name || "Buddy")}
-                </Text>
-                <Text style={styles.buddyMeta} numberOfLines={1}>
-                  {metaParts.join("  •  ")}
-                </Text>
-              </Pressable>
-            );
-          }}
-          ListEmptyComponent={
-            <View style={{ paddingTop: 12 }}>
-              <Text style={[styles.sheetSub, { textAlign: "left" }]}>
-                No buddies found. Add buddies in your Buddy List first.
-              </Text>
-            </View>
-          }
-        />
-
-        <View style={styles.spacer} />
-      </>
-    );
-  }
-
-  function renderAddHeader() {
-    if (addMode === "guest") {
-      return (
-        <>
-          <Text style={styles.sheetTitle}>Add guest</Text>
-          <Text style={styles.sheetSub}>Name + handicap required. Email/phone optional.</Text>
-        </>
-      );
-    }
-    if (addMode === "buddies") {
-      return (
-        <>
-          <Text style={styles.sheetTitle}>Add from Buddy List</Text>
-          <Text style={styles.sheetSub}>Select one or more buddies to add to this tournament.</Text>
-        </>
-      );
-    }
-    return (
-      <>
-        <Text style={styles.sheetTitle}>Add a player</Text>
-        <Text style={styles.sheetSub}>Choose how you want to add someone.</Text>
-      </>
-    );
-  }
-
-  function renderAddBody() {
-    // KEY FIX: call as render functions, do NOT use <AddGuestBody /> etc.
-    if (addMode === "guest") return AddGuestBody();
-    if (addMode === "buddies") return BuddyPickerBody();
-    return AddMenuBody();
-  }
-
   function renderAddFooter() {
     if (addMode === "guest") {
       return (
@@ -887,7 +940,12 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
           <Pressable
             onPress={addGuest}
             disabled={saving}
-            style={({ pressed }) => [styles.modalBtn, styles.modalBtnPrimary, pressed && !saving && styles.pressed, saving && { opacity: 0.6 }]}
+            style={({ pressed }) => [
+              styles.modalBtn,
+              styles.modalBtnPrimary,
+              pressed && !saving && styles.pressed,
+              saving && { opacity: 0.6 },
+            ]}
           >
             <Text style={[styles.modalBtnText, styles.modalBtnTextPrimary]}>{saving ? "Saving..." : "Save guest"}</Text>
           </Pressable>
@@ -909,11 +967,14 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
           <Pressable
             onPress={addSelectedBuddies}
             disabled={saving}
-            style={({ pressed }) => [styles.modalBtn, styles.modalBtnPrimary, pressed && !saving && styles.pressed, saving && { opacity: 0.6 }]}
+            style={({ pressed }) => [
+              styles.modalBtn,
+              styles.modalBtnPrimary,
+              pressed && !saving && styles.pressed,
+              saving && { opacity: 0.6 },
+            ]}
           >
-            <Text style={[styles.modalBtnText, styles.modalBtnTextPrimary]}>
-              {saving ? "Saving..." : "Add selected"}
-            </Text>
+            <Text style={[styles.modalBtnText, styles.modalBtnTextPrimary]}>{saving ? "Saving..." : "Add selected"}</Text>
           </Pressable>
         </View>
       );
@@ -938,14 +999,23 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
 
     return (
       <View style={styles.rowBtns}>
-        <Pressable onPress={closeEdit} disabled={saving} style={({ pressed }) => [styles.modalBtn, pressed && !saving && styles.pressed, saving && { opacity: 0.6 }]}>
+        <Pressable
+          onPress={closeEdit}
+          disabled={saving}
+          style={({ pressed }) => [styles.modalBtn, pressed && !saving && styles.pressed, saving && { opacity: 0.6 }]}
+        >
           <Text style={styles.modalBtnText}>Cancel</Text>
         </Pressable>
 
         <Pressable
           onPress={saveEdit}
           disabled={saving || !isHost}
-          style={({ pressed }) => [styles.modalBtn, styles.modalBtnPrimary, pressed && !saving && styles.pressed, (saving || !isHost) && { opacity: 0.6 }]}
+          style={({ pressed }) => [
+            styles.modalBtn,
+            styles.modalBtnPrimary,
+            pressed && !saving && styles.pressed,
+            (saving || !isHost) && { opacity: 0.6 },
+          ]}
         >
           <Text style={[styles.modalBtnText, styles.modalBtnTextPrimary]}>{saving ? "Saving..." : "Save"}</Text>
         </Pressable>
@@ -988,6 +1058,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
           editable={!saving && isHost}
           returnKeyType="next"
           autoFocus
+          blurOnSubmit={false}
         />
 
         <TextInput
@@ -999,6 +1070,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
           keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
           editable={!saving && isHost}
           returnKeyType={isGuest ? "next" : "done"}
+          blurOnSubmit={false}
           onSubmitEditing={() => Keyboard.dismiss()}
         />
 
@@ -1015,6 +1087,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
               keyboardType="email-address"
               editable={!saving && isHost}
               returnKeyType="next"
+              blurOnSubmit={false}
             />
 
             <TextInput
@@ -1063,7 +1136,10 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
           radius={18}
           actionWidth={120}
         >
-          <Pressable onPress={() => (canEdit ? openEdit(p) : null)} style={({ pressed }) => [styles.rowInner, pressed && canEdit && styles.pressed]}>
+          <Pressable
+            onPress={() => (canEdit ? openEdit(p) : null)}
+            style={({ pressed }) => [styles.rowInner, pressed && canEdit && styles.pressed]}
+          >
             <View style={styles.rowTop}>
               <Text style={styles.rowName} numberOfLines={1}>
                 {nm}
@@ -1074,7 +1150,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
             </View>
 
             <Text style={styles.rowSub}>
-              {isOwner ? "Organizer" : p?.isGuest ? (p?.source === "buddy" ? "Buddy" : "Guest") : "Player"}
+              {isOwner ? "Organizer" : p?.isGuest ? "Guest" : "Player"}
               {"  •  "}
               {h.ok ? "Handicap set" : "Handicap required"}
             </Text>
@@ -1084,7 +1160,8 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     );
   }
 
-  const kavOffset = Math.max(0, (insets?.top || 0) + 24);
+  const addKavBehavior = Platform.OS === "ios" ? "padding" : "height";
+  const addKavOffset = Math.max(0, (insets?.top || 0) + 16);
 
   return (
     <View style={styles.screen}>
@@ -1132,24 +1209,91 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
         </Pressable>
       </View>
 
-      {/* Add modal */}
+      {/* Add modal (CENTERED) */}
       <Modal visible={addOpen} transparent animationType="fade" onRequestClose={closeAdd}>
         <View style={styles.modalOverlay}>
           <Pressable style={StyleSheet.absoluteFillObject} onPress={closeAdd} />
-          <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            keyboardVerticalOffset={kavOffset}
-            style={styles.modalShell}
-          >
-            <View style={styles.modalCard}>
-              <ScrollView
-                contentContainerStyle={styles.modalBody}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-              >
-                {renderAddHeader()}
-                {renderAddBody()}
-              </ScrollView>
+          <KeyboardAvoidingView behavior={addKavBehavior} keyboardVerticalOffset={addKavOffset} style={styles.modalShell}>
+            <View style={[styles.modalCard, addMode === "menu" && styles.modalCardMenu]}>
+              <View style={styles.modalHeader}>{renderAddHeader()}</View>
+
+              {/* IMPORTANT: Avoid FlatList inside ScrollView */}
+              {addMode === "buddies" ? (
+                <FlatList
+                  data={buddyFiltered}
+                  keyExtractor={(it) => String(it?.id || "")}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={styles.listPad}
+                  ListHeaderComponent={
+                    <View style={{ paddingTop: 14 }}>
+                      <View style={styles.buddyTopRow}>
+                        <View style={styles.buddyCountPill}>
+                          <Text style={styles.buddyCountText}>{buddySelected.size} selected</Text>
+                        </View>
+                      </View>
+
+                      <TextInput
+                        ref={buddySearchRef}
+                        value={buddySearch}
+                        onChangeText={setBuddySearch}
+                        placeholder="Search buddies"
+                        placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+                        style={styles.input}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        editable={!saving}
+                        returnKeyType="search"
+                      />
+                    </View>
+                  }
+                  renderItem={({ item }) => {
+                    const id = String(item?.id || "");
+                    const on = buddySelected.has(id);
+
+                    const h = Number(item?.handicap ?? 0);
+                    const phone = String(item?.phone || "").trim();
+                    const email = String(item?.email || "").trim();
+                    const metaParts = [`HCP ${Number.isFinite(h) ? h : 0}`];
+                    if (phone) metaParts.push(phone);
+                    if (email) metaParts.push(email);
+
+                    return (
+                      <Pressable
+                        onPress={() => toggleBuddy(id)}
+                        style={({ pressed }) => [styles.buddyRow, on && styles.buddyRowOn, pressed && styles.pressed]}
+                      >
+                        <Text style={styles.buddyName} numberOfLines={1}>
+                          {String(item?.name || "Buddy")}
+                        </Text>
+                        <Text style={styles.buddyMeta} numberOfLines={1}>
+                          {metaParts.join("  •  ")}
+                        </Text>
+                      </Pressable>
+                    );
+                  }}
+                  ListEmptyComponent={
+                    <View style={{ paddingTop: 14 }}>
+                      <Text style={[styles.sheetSub, { textAlign: "left" }]}>No buddies found. Add buddies in your Buddy List first.</Text>
+                    </View>
+                  }
+                />
+              ) : addMode === "menu" ? (
+                // MENU: no ScrollView so the card can naturally show all 3 options without scrolling
+                <View style={styles.modalBody}>
+                  <AddMenuBody />
+                </View>
+              ) : (
+                // GUEST: keep ScrollView for keyboard + smaller screens
+                <ScrollView
+                  contentContainerStyle={styles.modalBody}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  <AddGuestBody />
+                </ScrollView>
+              )}
+
               <View style={styles.modalFooter}>{renderAddFooter()}</View>
             </View>
           </KeyboardAvoidingView>
@@ -1160,11 +1304,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
       <Modal visible={editOpen} transparent animationType="fade" onRequestClose={closeEdit}>
         <View style={styles.modalOverlay}>
           <Pressable style={StyleSheet.absoluteFillObject} onPress={closeEdit} />
-          <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            keyboardVerticalOffset={kavOffset}
-            style={styles.modalShell}
-          >
+          <KeyboardAvoidingView behavior={addKavBehavior} keyboardVerticalOffset={addKavOffset} style={styles.modalShell}>
             <View style={styles.modalCard}>
               <ScrollView contentContainerStyle={styles.modalBody} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                 {renderEditBody()}
