@@ -14,14 +14,12 @@ import {
   Keyboard,
   Share,
   FlatList,
-  TouchableWithoutFeedback,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   doc,
   collection,
   onSnapshot,
-  onSnapshot as onSnapshotQuery,
   query,
   orderBy,
   updateDoc,
@@ -63,6 +61,10 @@ function normalizeName(p, fallback) {
   return displayNameFor(p, fallback).trim().toLowerCase();
 }
 
+function safeStr(v) {
+  return String(v ?? "").trim();
+}
+
 export default function TournamentPlayersSetupScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const { scheme, theme } = useTheme();
@@ -90,7 +92,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
   const [editEmail, setEditEmail] = useState("");
   const [editPhone, setEditPhone] = useState("");
 
-  // Buddy picker state
+  // Buddy picker
   const [buddyList, setBuddyList] = useState([]);
   const [buddySearch, setBuddySearch] = useState("");
   const [buddySelected, setBuddySelected] = useState(new Set());
@@ -106,9 +108,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     openSwipeRef.current = null;
   }
 
-  // Input refs + stable focus (no autoFocus props)
   const guestNameRef = useRef(null);
-  const editNameRef = useRef(null);
   const buddySearchRef = useRef(null);
 
   const u = auth.currentUser;
@@ -134,7 +134,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     if (!tournamentId) return;
 
     const mref = collection(db, "tournaments", tournamentId, "members");
-    const unsub = onSnapshotQuery(
+    const unsub = onSnapshot(
       mref,
       (snap) => {
         const rows = [];
@@ -152,7 +152,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
 
     const fref = collection(db, "tournaments", tournamentId, "formats");
     const fq = query(fref, orderBy("createdAt", "asc"));
-    const unsub = onSnapshotQuery(
+    const unsub = onSnapshot(
       fq,
       (snap) => {
         const rows = [];
@@ -174,7 +174,6 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     return String(u.uid || "") === ownerUid;
   }, [u, ownerUid]);
 
-  // Organizer pinned first (Player 1), others alphabetical
   const members = useMemo(() => {
     const rows = Array.isArray(rawMembers) ? [...rawMembers] : [];
 
@@ -182,10 +181,12 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
       const au = String(a?.uid || a?.id || "");
       const bu = String(b?.uid || b?.id || "");
 
+      // pin organizer first
       const aHostRank = au && ownerUid && au === ownerUid ? 0 : 1;
       const bHostRank = bu && ownerUid && bu === ownerUid ? 0 : 1;
       if (aHostRank !== bHostRank) return aHostRank - bHostRank;
 
+      // everyone else alphabetical
       const an = normalizeName(a, "player");
       const bn = normalizeName(b, "player");
       if (an !== bn) return an < bn ? -1 : 1;
@@ -217,7 +218,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     ROUTES.TOURNAMENT_TEAM_ASSIGN ||
     null;
 
-  // Auto-create host row if missing
+  // Ensure organizer exists in members as source of truth
   useEffect(() => {
     if (!tournamentId || !ownerUid || !isHost) return;
     if (autoHostWroteRef.current) return;
@@ -273,59 +274,11 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     })();
   }, [tournamentId, ownerUid, isHost, members, u?.displayName]);
 
-  // Modal focus behavior (one-time, stable)
-  useEffect(() => {
-    if (!addOpen) return;
-
-    if (addMode === "guest") {
-      const t0 = setTimeout(() => {
-        try {
-          guestNameRef.current?.focus?.();
-        } catch (e) {}
-      }, 220);
-      return () => clearTimeout(t0);
-    }
-
-    if (addMode === "buddies") {
-      const t0 = setTimeout(() => {
-        try {
-          buddySearchRef.current?.focus?.();
-        } catch (e) {}
-      }, 220);
-      return () => clearTimeout(t0);
-    }
-  }, [addOpen, addMode]);
-
-  useEffect(() => {
-    if (!editOpen) return;
-    const t0 = setTimeout(() => {
-      try {
-        editNameRef.current?.focus?.();
-      } catch (e) {}
-    }, 220);
-    return () => clearTimeout(t0);
-  }, [editOpen]);
-
-  // Load buddies when opening buddy picker
-  useEffect(() => {
-    if (!addOpen) return;
-    if (addMode !== "buddies") return;
-
-    (async () => {
-      try {
-        const list = await getBuddies();
-        setBuddyList(Array.isArray(list) ? list : []);
-      } catch (e) {
-        setBuddyList([]);
-      }
-    })();
-  }, [addOpen, addMode]);
-
   const buddyFiltered = useMemo(() => {
-    const q = String(buddySearch || "").trim().toLowerCase();
-    const base = Array.isArray(buddyList) ? buddyList : [];
-    if (!q) return base;
-    return base.filter((b) => String(b?.name || "").toLowerCase().includes(q));
+    const q = safeStr(buddySearch).toLowerCase();
+    const list = Array.isArray(buddyList) ? buddyList : [];
+    if (!q) return list;
+    return list.filter((b) => safeStr(b?.name).toLowerCase().includes(q));
   }, [buddyList, buddySearch]);
 
   const styles = useMemo(() => {
@@ -340,8 +293,6 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     const green = "rgba(15,122,74,0.92)";
 
     const inkBtn = isDark ? "rgba(46,125,255,0.92)" : "rgba(10,15,26,0.92)";
-
-    const sheetBorder = isDark ? "rgba(255,255,255,0.12)" : "rgba(10,15,26,0.12)";
 
     return StyleSheet.create({
       screen: { flex: 1, backgroundColor: theme.bg },
@@ -361,7 +312,6 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
 
       listWrap: { marginTop: 12 },
       rowOuter: { marginBottom: 10 },
-
       rowInner: { padding: 14 },
       rowTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
       rowName: { flex: 1, color: theme.text, fontSize: 15, fontWeight: "900" },
@@ -382,23 +332,22 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
 
       // Bottom sheet modal
       modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end" },
-      sheetWrap: { width: "100%" },
-      sheetCard: {
+      modalShell: { width: "100%" },
+      modalCard: {
         width: "100%",
         maxHeight: "88%",
         borderTopLeftRadius: 22,
         borderTopRightRadius: 22,
         borderWidth: 1,
-        borderColor: sheetBorder,
+        borderColor: theme.border,
         backgroundColor: theme.bg,
         overflow: "hidden",
       },
-      sheetHeader: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 12 },
+      modalBody: { padding: 16, paddingBottom: 10 },
+      modalFooter: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: Math.max(14, (insets?.bottom || 0) + 10), borderTopWidth: 1, borderTopColor: theme.divider, backgroundColor: theme.bg },
+
       sheetTitle: { color: theme.text, fontSize: 18, fontWeight: "900", textAlign: "center" },
       sheetSub: { marginTop: 8, color: theme.text, opacity: 0.72, fontSize: 13, fontWeight: "700", lineHeight: 18, textAlign: "center" },
-
-      sheetBody: { paddingHorizontal: 16, paddingBottom: 10 },
-      sheetFooter: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: Math.max(14, (insets?.bottom || 0) + 10), borderTopWidth: 1, borderTopColor: theme.divider, backgroundColor: theme.bg },
 
       choiceBtn: { height: 54, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: softBg, borderWidth: 1, borderColor: softBorder, marginTop: 10 },
       choiceBtnPrimary: { backgroundColor: green, borderColor: greenRing },
@@ -415,36 +364,21 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
 
       spacer: { height: 10 },
 
-      buddyTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 6 },
-      buddyCountPill: { paddingHorizontal: 10, paddingVertical: 7, borderRadius: 999, borderWidth: 1, borderColor: greenRing, backgroundColor: greenBg },
+      buddyTopRow: { marginTop: 10, flexDirection: "row", justifyContent: "center" },
+      buddyCountPill: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: greenRing, backgroundColor: greenBg },
       buddyCountText: { color: theme.text, fontSize: 12, fontWeight: "900" },
 
-      buddyRow: {
-        marginTop: 10,
-        borderRadius: 18,
-        borderWidth: 1,
-        borderColor: softBorder,
-        backgroundColor: softBg,
-        paddingVertical: 12,
-        paddingHorizontal: 14,
-      },
-      buddyRowOn: {
-        borderColor: greenRing,
-        backgroundColor: greenBg,
-      },
+      buddyRow: { borderRadius: 16, padding: 12, borderWidth: 1, borderColor: softBorder, backgroundColor: softBg, marginTop: 10 },
+      buddyRowOn: { borderColor: greenRing, backgroundColor: greenBg },
       buddyName: { color: theme.text, fontSize: 15, fontWeight: "900" },
-      buddyMeta: { marginTop: 4, color: theme.text, opacity: 0.70, fontSize: 12, fontWeight: "800" },
+      buddyMeta: { marginTop: 6, color: theme.text, opacity: 0.72, fontSize: 12, fontWeight: "800" },
     });
-  }, [theme, isDark, footerPad, insets?.bottom, insets?.top]);
+  }, [theme, isDark, footerPad, insets?.bottom]);
 
   function closeAdd() {
     Keyboard.dismiss();
     setAddOpen(false);
-    setTimeout(() => {
-      setAddMode("menu");
-      setBuddySearch("");
-      setBuddySelected(new Set());
-    }, 0);
+    setTimeout(() => setAddMode("menu"), 0);
   }
 
   function openAdd() {
@@ -463,12 +397,20 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     setGuestEmail("");
     setGuestPhone("");
     setAddMode("guest");
+    setTimeout(() => guestNameRef.current?.focus?.(), 50);
   }
 
-  function startBuddies() {
+  async function startBuddies() {
     setBuddySearch("");
     setBuddySelected(new Set());
     setAddMode("buddies");
+    try {
+      const list = await getBuddies();
+      setBuddyList(Array.isArray(list) ? list : []);
+    } catch (e) {
+      setBuddyList([]);
+    }
+    setTimeout(() => buddySearchRef.current?.focus?.(), 60);
   }
 
   async function shareInvite() {
@@ -527,6 +469,72 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
       closeAdd();
     } catch (e) {
       Alert.alert("Add guest failed", e?.message || "Could not add guest.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function toggleBuddy(id) {
+    const bid = String(id || "");
+    if (!bid) return;
+    setBuddySelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(bid)) next.delete(bid);
+      else next.add(bid);
+      return next;
+    });
+  }
+
+  async function addSelectedBuddies() {
+    if (!isHost) return;
+
+    const ids = Array.from(buddySelected || []);
+    if (!ids.length) {
+      Alert.alert("Select buddies", "Pick at least one buddy to add.");
+      return;
+    }
+
+    const pick = (Array.isArray(buddyList) ? buddyList : []).filter((b) => ids.includes(String(b?.id || "")));
+    if (!pick.length) {
+      Alert.alert("No selection", "No buddies selected.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      for (const b of pick) {
+        const baseId = String(b?.id || "");
+        const memberId = `buddy_${baseId}`;
+
+        const name = String(b?.name || "").trim() || "Buddy";
+        const hNum = Number(b?.handicap ?? 0);
+        const h = Number.isFinite(hNum) ? String(Math.round(hNum * 10) / 10) : "0";
+
+        await setDoc(
+          doc(db, "tournaments", tournamentId, "members", memberId),
+          {
+            uid: memberId,
+            displayName: name,
+            isGuest: true,
+            source: "buddy",
+            handicap: h,
+            email: safeStr(b?.email),
+            phone: safeStr(b?.phone),
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+
+        await updateDoc(doc(db, "tournaments", tournamentId), {
+          guestIds: arrayUnion(memberId),
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      closeAdd();
+    } catch (e) {
+      Alert.alert("Add buddies failed", e?.message || "Could not add selected buddies.");
     } finally {
       setSaving(false);
     }
@@ -642,87 +650,6 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     ]);
   }
 
-  function toggleBuddy(id) {
-    if (!id) return;
-    setBuddySelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  async function addSelectedBuddies() {
-    if (!isHost) return;
-
-    const ids = Array.from(buddySelected || []);
-    if (!ids.length) {
-      Alert.alert("No selection", "Select at least one buddy to add.");
-      return;
-    }
-
-    const existing = new Set((members || []).map((m) => String(m?.uid || m?.id || "")));
-    const toAdd = (buddyList || []).filter((b) => ids.includes(String(b?.id || "")));
-
-    const rows = toAdd
-      .map((b) => {
-        const uid = String(b?.id || "").trim();
-        if (!uid) return null;
-        if (existing.has(uid)) return null;
-
-        const nm = String(b?.name || "").trim();
-        const h = parseHandicap(b?.handicap);
-
-        // BuddyList handicap is usually integer; we store as string for consistency here
-        const hStr = h.ok ? String(h.value) : String(Number(b?.handicap ?? 0) || 0);
-
-        return {
-          uid,
-          displayName: nm || "Player",
-          handicap: hStr,
-          email: String(b?.email || "").trim(),
-          phone: String(b?.phone || "").trim(),
-        };
-      })
-      .filter(Boolean);
-
-    if (!rows.length) {
-      Alert.alert("Nothing to add", "Those buddies are already in the roster.");
-      return;
-    }
-
-    setSaving(true);
-    try {
-      for (const r of rows) {
-        await setDoc(
-          doc(db, "tournaments", tournamentId, "members", r.uid),
-          {
-            uid: r.uid,
-            displayName: r.displayName,
-            isGuest: false,
-            handicap: r.handicap,
-            email: r.email || "",
-            phone: r.phone || "",
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
-      }
-
-      await updateDoc(doc(db, "tournaments", tournamentId), {
-        memberIds: arrayUnion(...rows.map((r) => r.uid)),
-        updatedAt: serverTimestamp(),
-      });
-
-      closeAdd();
-    } catch (e) {
-      Alert.alert("Add buddies failed", e?.message || "Could not add buddies.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
   async function handleContinue() {
     if (saving) return;
 
@@ -753,6 +680,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     navigation.navigate(ROUTES.TOURNAMENT_SETUP, { tournamentId });
   }
 
+  // IMPORTANT: these are render functions, not inner components (prevents TextInput remount focus loss)
   function AddMenuBody() {
     return (
       <>
@@ -800,9 +728,6 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
           editable={!saving}
           returnKeyType="next"
           blurOnSubmit={false}
-          onSubmitEditing={() => {
-            // move to next input by letting RN pick; no scroll jump
-          }}
         />
 
         <TextInput
@@ -890,11 +815,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
             return (
               <Pressable
                 onPress={() => toggleBuddy(id)}
-                style={({ pressed }) => [
-                  styles.buddyRow,
-                  on && styles.buddyRowOn,
-                  pressed && styles.pressed,
-                ]}
+                style={({ pressed }) => [styles.buddyRow, on && styles.buddyRowOn, pressed && styles.pressed]}
               >
                 <Text style={styles.buddyName} numberOfLines={1}>
                   {String(item?.name || "Buddy")}
@@ -945,9 +866,10 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
   }
 
   function renderAddBody() {
-    if (addMode === "guest") return <AddGuestBody />;
-    if (addMode === "buddies") return <BuddyPickerBody />;
-    return <AddMenuBody />;
+    // KEY FIX: call as render functions, do NOT use <AddGuestBody /> etc.
+    if (addMode === "guest") return AddGuestBody();
+    if (addMode === "buddies") return BuddyPickerBody();
+    return AddMenuBody();
   }
 
   function renderAddFooter() {
@@ -1016,11 +938,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
 
     return (
       <View style={styles.rowBtns}>
-        <Pressable
-          onPress={closeEdit}
-          disabled={saving}
-          style={({ pressed }) => [styles.modalBtn, pressed && !saving && styles.pressed, saving && { opacity: 0.6 }]}
-        >
+        <Pressable onPress={closeEdit} disabled={saving} style={({ pressed }) => [styles.modalBtn, pressed && !saving && styles.pressed, saving && { opacity: 0.6 }]}>
           <Text style={styles.modalBtnText}>Cancel</Text>
         </Pressable>
 
@@ -1056,8 +974,10 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
 
     return (
       <>
+        <Text style={styles.sheetTitle}>Edit player</Text>
+        <Text style={styles.sheetSub}>Name + handicap required.</Text>
+
         <TextInput
-          ref={editNameRef}
           value={editName}
           onChangeText={setEditName}
           placeholder="Player name"
@@ -1067,7 +987,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
           autoCorrect={false}
           editable={!saving && isHost}
           returnKeyType="next"
-          blurOnSubmit={false}
+          autoFocus
         />
 
         <TextInput
@@ -1095,7 +1015,6 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
               keyboardType="email-address"
               editable={!saving && isHost}
               returnKeyType="next"
-              blurOnSubmit={false}
             />
 
             <TextInput
@@ -1155,7 +1074,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
             </View>
 
             <Text style={styles.rowSub}>
-              {isOwner ? "Organizer" : p?.isGuest ? "Guest" : "Player"}
+              {isOwner ? "Organizer" : p?.isGuest ? (p?.source === "buddy" ? "Buddy" : "Guest") : "Player"}
               {"  •  "}
               {h.ok ? "Handicap set" : "Handicap required"}
             </Text>
@@ -1165,15 +1084,13 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     );
   }
 
+  const kavOffset = Math.max(0, (insets?.top || 0) + 24);
+
   return (
     <View style={styles.screen}>
       <ScreenHeader navigation={navigation} title="Tournament Players" subtitle="Build the roster, then continue." />
 
-      <ScrollView
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <View style={styles.hero}>
           <Text style={styles.heroKicker}>Players</Text>
           <Text style={styles.heroTitle}>{tournamentName}</Text>
@@ -1215,51 +1132,45 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
         </Pressable>
       </View>
 
-      {/* Add bottom-sheet modal */}
+      {/* Add modal */}
       <Modal visible={addOpen} transparent animationType="fade" onRequestClose={closeAdd}>
         <View style={styles.modalOverlay}>
           <Pressable style={StyleSheet.absoluteFillObject} onPress={closeAdd} />
           <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
-            keyboardVerticalOffset={Platform.OS === "ios" ? Math.max(10, (insets?.top || 0) + 10) : 0}
-            style={styles.sheetWrap}
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            keyboardVerticalOffset={kavOffset}
+            style={styles.modalShell}
           >
-            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-              <View style={styles.sheetCard}>
-                <View style={styles.sheetHeader}>{renderAddHeader()}</View>
-
-                <View style={styles.sheetBody}>
-                  {renderAddBody()}
-                </View>
-
-                <View style={styles.sheetFooter}>{renderAddFooter()}</View>
-              </View>
-            </TouchableWithoutFeedback>
+            <View style={styles.modalCard}>
+              <ScrollView
+                contentContainerStyle={styles.modalBody}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
+                {renderAddHeader()}
+                {renderAddBody()}
+              </ScrollView>
+              <View style={styles.modalFooter}>{renderAddFooter()}</View>
+            </View>
           </KeyboardAvoidingView>
         </View>
       </Modal>
 
-      {/* Edit bottom-sheet modal */}
+      {/* Edit modal */}
       <Modal visible={editOpen} transparent animationType="fade" onRequestClose={closeEdit}>
         <View style={styles.modalOverlay}>
           <Pressable style={StyleSheet.absoluteFillObject} onPress={closeEdit} />
           <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
-            keyboardVerticalOffset={Platform.OS === "ios" ? Math.max(10, (insets?.top || 0) + 10) : 0}
-            style={styles.sheetWrap}
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            keyboardVerticalOffset={kavOffset}
+            style={styles.modalShell}
           >
-            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-              <View style={styles.sheetCard}>
-                <View style={styles.sheetHeader}>
-                  <Text style={styles.sheetTitle}>Edit player</Text>
-                  <Text style={styles.sheetSub}>Name + handicap required.</Text>
-                </View>
-
-                <View style={styles.sheetBody}>{renderEditBody()}</View>
-
-                <View style={styles.sheetFooter}>{renderEditFooter()}</View>
-              </View>
-            </TouchableWithoutFeedback>
+            <View style={styles.modalCard}>
+              <ScrollView contentContainerStyle={styles.modalBody} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                {renderEditBody()}
+              </ScrollView>
+              <View style={styles.modalFooter}>{renderEditFooter()}</View>
+            </View>
           </KeyboardAvoidingView>
         </View>
       </Modal>
