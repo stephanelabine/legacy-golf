@@ -80,7 +80,8 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
   const [saving, setSaving] = useState(false);
 
   const [addOpen, setAddOpen] = useState(false);
-  const [addMode, setAddMode] = useState("menu"); // menu | guest | buddies
+  const [addMode, setAddMode] = useState("menu"); // menu | guest | buddies | share
+  const [menuChoice, setMenuChoice] = useState(null); // guest | buddies | share | null
 
   const [guestName, setGuestName] = useState("");
   const [guestHandicap, setGuestHandicap] = useState("");
@@ -287,6 +288,9 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
 
     const inkBtn = isDark ? "rgba(46,125,255,0.92)" : "rgba(10,15,26,0.92)";
 
+    const cardBg = theme.bg;
+    const cardBgSubtle = theme.card2 || cardBg;
+
     return StyleSheet.create({
       screen: { flex: 1, backgroundColor: theme.bg },
       content: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 200 },
@@ -371,8 +375,8 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
 
       pressed: { opacity: Platform.OS === "ios" ? 0.88 : 0.9, transform: [{ scale: 0.99 }] },
 
-      // CENTERED MODAL (not bottom sheet)
-      modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "center", paddingHorizontal: 16 },
+      // CENTERED MODAL (premium framed)
+      modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.58)", justifyContent: "center", paddingHorizontal: 16 },
       modalShell: { width: "100%" },
       modalCard: {
         width: "100%",
@@ -381,18 +385,23 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
         maxHeight: "86%",
         minHeight: 380,
         borderRadius: 22,
-        borderWidth: 1,
-        borderColor: theme.border,
-        backgroundColor: theme.bg,
+        borderWidth: 2.5,
+        borderColor: bronzeBorder,
+        backgroundColor: cardBg,
         overflow: "hidden",
       },
-      // Bigger card for the MENU mode so all three options are visible without scrolling
-      modalCardMenu: {
-        minHeight: 460,
-        maxHeight: "72%",
-      },
+      modalCardMenu: { minHeight: 460, maxHeight: "72%" },
+      modalCardBuddies: { minHeight: 520, maxHeight: "86%" },
+      modalCardShare: { minHeight: 420, maxHeight: "72%" },
 
-      modalHeader: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: theme.divider, backgroundColor: theme.bg },
+      modalHeader: {
+        paddingHorizontal: 16,
+        paddingTop: 14,
+        paddingBottom: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: theme.divider,
+        backgroundColor: cardBg,
+      },
       modalBody: { padding: 16, paddingBottom: 10 },
       modalFooter: {
         paddingHorizontal: 16,
@@ -400,11 +409,13 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
         paddingBottom: Math.max(14, (insets?.bottom || 0) + 10),
         borderTopWidth: 1,
         borderTopColor: theme.divider,
-        backgroundColor: theme.bg,
+        backgroundColor: cardBgSubtle,
       },
+
       sheetTitle: { color: theme.text, fontSize: 18, fontWeight: "900", textAlign: "center" },
       sheetSub: { marginTop: 8, color: theme.text, opacity: 0.72, fontSize: 13, fontWeight: "700", lineHeight: 18, textAlign: "center" },
 
+      // Menu choice buttons: neutral by default, flash green only while pressed
       choiceBtn: {
         height: 54,
         borderRadius: 18,
@@ -415,9 +426,10 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
         borderColor: softBorder,
         marginTop: 10,
       },
-      choiceBtnPrimary: { backgroundColor: green, borderColor: greenRing },
+      choiceBtnSelected: { borderColor: bronzeBorder, backgroundColor: bronzeBg },
+      choiceBtnPressed: { backgroundColor: green, borderColor: greenRing },
       choiceText: { color: theme.text, fontSize: 15, fontWeight: "900" },
-      choiceTextPrimary: { color: "#fff" },
+      choiceTextPressed: { color: "#fff" },
 
       input: {
         marginTop: 12,
@@ -449,7 +461,6 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
 
       spacer: { height: 10 },
 
-      // Buddy picker rows (inside FlatList)
       buddyTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
       buddyCountPill: {
         paddingHorizontal: 12,
@@ -470,14 +481,29 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
       buddyMeta: { marginTop: 6, color: theme.text, opacity: 0.72, fontSize: 12, fontWeight: "800" },
 
       listPad: { paddingHorizontal: 16, paddingBottom: 10 },
+
+      shareBox: {
+        marginTop: 12,
+        borderRadius: 18,
+        padding: 14,
+        borderWidth: 1,
+        borderColor: softBorder,
+        backgroundColor: softBg,
+      },
+      shareCode: { marginTop: 10, color: theme.text, fontSize: 22, fontWeight: "900", letterSpacing: 2, textAlign: "center" },
+      shareHint: { marginTop: 10, color: theme.text, opacity: 0.72, fontSize: 12, fontWeight: "800", lineHeight: 18, textAlign: "center" },
     });
   }, [theme, isDark, footerPad, insets?.bottom]);
 
   function closeAdd() {
     Keyboard.dismiss();
     setAddOpen(false);
-    // reset mode after close so it doesn't flicker on reopen
-    const cancel = safeSetTimeout(() => setAddMode("menu"), 0);
+    const cancel = safeSetTimeout(() => {
+      setAddMode("menu");
+      setMenuChoice(null);
+      setBuddySearch("");
+      setBuddySelected(new Set());
+    }, 0);
     return cancel;
   }
 
@@ -487,6 +513,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
       Alert.alert("Host only", "Only the organizer can edit the roster.");
       return;
     }
+    setMenuChoice(null);
     setAddMode("menu");
     setAddOpen(true);
   }
@@ -498,7 +525,6 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     setGuestPhone("");
     setAddMode("guest");
 
-    // focus after layout settles (prevents focus/keyboard flicker)
     safeSetTimeout(() => {
       try {
         guestNameRef.current?.focus?.();
@@ -524,7 +550,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     }, 220);
   }
 
-  async function shareInvite() {
+  async function doShareNow() {
     if (!joinCode) {
       Alert.alert("No code", "This tournament does not have a join code yet.");
       return;
@@ -816,50 +842,48 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
         </>
       );
     }
+    if (addMode === "share") {
+      return (
+        <>
+          <Text style={styles.sheetTitle}>Share invite</Text>
+          <Text style={styles.sheetSub}>Send the join code to players who have Legacy Golf.</Text>
+        </>
+      );
+    }
     return (
       <>
         <Text style={styles.sheetTitle}>Add a player</Text>
-        <Text style={styles.sheetSub}>Choose how you want to add someone.</Text>
+        <Text style={styles.sheetSub}>Choose an action, then tap Open.</Text>
       </>
     );
   }
 
   function AddMenuBody() {
-    return (
-      <>
+    function MenuChoiceBtn({ id, label }) {
+      const selected = menuChoice === id;
+
+      return (
         <Pressable
-          onPress={startGuest}
+          onPress={() => setMenuChoice(id)}
           disabled={saving}
           style={({ pressed }) => [
             styles.choiceBtn,
-            styles.choiceBtnPrimary,
+            selected && styles.choiceBtnSelected,
+            pressed && styles.choiceBtnPressed,
             pressed && !saving && styles.pressed,
             saving && { opacity: 0.6 },
           ]}
         >
-          <Text style={[styles.choiceText, styles.choiceTextPrimary]}>Add Guest</Text>
+          {({ pressed }) => <Text style={[styles.choiceText, pressed && styles.choiceTextPressed]}>{label}</Text>}
         </Pressable>
+      );
+    }
 
-        <Pressable
-          onPress={startBuddies}
-          disabled={saving}
-          style={({ pressed }) => [styles.choiceBtn, pressed && !saving && styles.pressed, saving && { opacity: 0.6 }]}
-        >
-          <Text style={styles.choiceText}>Add from Buddy List</Text>
-        </Pressable>
-
-        <Pressable
-          onPress={shareInvite}
-          disabled={saving || !joinCode}
-          style={({ pressed }) => [
-            styles.choiceBtn,
-            pressed && !saving && styles.pressed,
-            (saving || !joinCode) && { opacity: 0.6 },
-          ]}
-        >
-          <Text style={styles.choiceText}>Share invite</Text>
-        </Pressable>
-
+    return (
+      <>
+        <MenuChoiceBtn id="guest" label="Add Guest" />
+        <MenuChoiceBtn id="buddies" label="Add from Buddy List" />
+        <MenuChoiceBtn id="share" label="Share invite" />
         <View style={styles.spacer} />
       </>
     );
@@ -925,7 +949,70 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     );
   }
 
+  function AddShareBody() {
+    return (
+      <>
+        <View style={styles.shareBox}>
+          <Text style={[styles.sheetSub, { textAlign: "left", marginTop: 0 }]}>Join code</Text>
+          <Text style={styles.shareCode}>{joinCode || "—"}</Text>
+          <Text style={styles.shareHint}>
+            Players can open Legacy Golf and join this tournament using the code above. Tap Share to send it by text or email.
+          </Text>
+        </View>
+
+        <View style={styles.spacer} />
+      </>
+    );
+  }
+
+  function handleOpenFromMenu() {
+    if (saving) return;
+    if (!menuChoice) return;
+
+    if (menuChoice === "guest") {
+      startGuest();
+      return;
+    }
+    if (menuChoice === "buddies") {
+      startBuddies();
+      return;
+    }
+    if (menuChoice === "share") {
+      setAddMode("share");
+      return;
+    }
+  }
+
   function renderAddFooter() {
+    if (addMode === "menu") {
+      const canOpen = !!menuChoice && !saving;
+
+      return (
+        <View style={styles.rowBtns}>
+          <Pressable
+            onPress={closeAdd}
+            disabled={saving}
+            style={({ pressed }) => [styles.modalBtn, pressed && !saving && styles.pressed, saving && { opacity: 0.6 }]}
+          >
+            <Text style={styles.modalBtnText}>Close</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={handleOpenFromMenu}
+            disabled={!canOpen}
+            style={({ pressed }) => [
+              styles.modalBtn,
+              canOpen && styles.modalBtnPrimary,
+              pressed && canOpen && styles.pressed,
+              (!canOpen || saving) && { opacity: 0.6 },
+            ]}
+          >
+            <Text style={[styles.modalBtnText, canOpen && styles.modalBtnTextPrimary]}>Open</Text>
+          </Pressable>
+        </View>
+      );
+    }
+
     if (addMode === "guest") {
       return (
         <View style={styles.rowBtns}>
@@ -983,11 +1070,24 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     return (
       <View style={styles.rowBtns}>
         <Pressable
-          onPress={closeAdd}
+          onPress={() => setAddMode("menu")}
           disabled={saving}
           style={({ pressed }) => [styles.modalBtn, pressed && !saving && styles.pressed, saving && { opacity: 0.6 }]}
         >
-          <Text style={styles.modalBtnText}>Close</Text>
+          <Text style={styles.modalBtnText}>Back</Text>
+        </Pressable>
+
+        <Pressable
+          onPress={doShareNow}
+          disabled={saving || !joinCode}
+          style={({ pressed }) => [
+            styles.modalBtn,
+            styles.modalBtnPrimary,
+            pressed && !saving && styles.pressed,
+            (saving || !joinCode) && { opacity: 0.6 },
+          ]}
+        >
+          <Text style={[styles.modalBtnText, styles.modalBtnTextPrimary]}>Share</Text>
         </Pressable>
       </View>
     );
@@ -1031,7 +1131,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
               (saving || !isHost) && { opacity: 0.6 },
             ]}
           >
-            <Text style={[styles.modalBtnText, styles.modalBtnTextPrimary]}>Remove</Text>
+            <Text style={[styles.modalBtnText, { color: "#fff" }]}>Remove</Text>
           </Pressable>
         ) : null}
       </View>
@@ -1163,6 +1263,15 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
   const addKavBehavior = Platform.OS === "ios" ? "padding" : "height";
   const addKavOffset = Math.max(0, (insets?.top || 0) + 16);
 
+  const addCardStyle =
+    addMode === "menu"
+      ? styles.modalCardMenu
+      : addMode === "buddies"
+      ? styles.modalCardBuddies
+      : addMode === "share"
+      ? styles.modalCardShare
+      : null;
+
   return (
     <View style={styles.screen}>
       <ScreenHeader navigation={navigation} title="Tournament Players" subtitle="Build the roster, then continue." />
@@ -1209,17 +1318,17 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
         </Pressable>
       </View>
 
-      {/* Add modal (CENTERED) */}
+      {/* Add modal (CENTERED, premium framed) */}
       <Modal visible={addOpen} transparent animationType="fade" onRequestClose={closeAdd}>
         <View style={styles.modalOverlay}>
           <Pressable style={StyleSheet.absoluteFillObject} onPress={closeAdd} />
           <KeyboardAvoidingView behavior={addKavBehavior} keyboardVerticalOffset={addKavOffset} style={styles.modalShell}>
-            <View style={[styles.modalCard, addMode === "menu" && styles.modalCardMenu]}>
+            <View style={[styles.modalCard, addCardStyle]}>
               <View style={styles.modalHeader}>{renderAddHeader()}</View>
 
-              {/* IMPORTANT: Avoid FlatList inside ScrollView */}
               {addMode === "buddies" ? (
                 <FlatList
+                  style={{ flex: 1 }}
                   data={buddyFiltered}
                   keyExtractor={(it) => String(it?.id || "")}
                   keyboardShouldPersistTaps="handled"
@@ -1279,17 +1388,15 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
                   }
                 />
               ) : addMode === "menu" ? (
-                // MENU: no ScrollView so the card can naturally show all 3 options without scrolling
                 <View style={styles.modalBody}>
                   <AddMenuBody />
                 </View>
+              ) : addMode === "share" ? (
+                <ScrollView contentContainerStyle={styles.modalBody} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                  <AddShareBody />
+                </ScrollView>
               ) : (
-                // GUEST: keep ScrollView for keyboard + smaller screens
-                <ScrollView
-                  contentContainerStyle={styles.modalBody}
-                  showsVerticalScrollIndicator={false}
-                  keyboardShouldPersistTaps="handled"
-                >
+                <ScrollView contentContainerStyle={styles.modalBody} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <AddGuestBody />
                 </ScrollView>
               )}
