@@ -49,6 +49,7 @@ import HazardsScreen from "../screens/HazardsScreen";
 
 import TournamentsScreen from "../screens/TournamentsScreen";
 import TournamentHubSplashScreen from "../screens/TournamentHubSplashScreen";
+import TournamentOrganizerProfileScreen from "../screens/TournamentOrganizerProfileScreen";
 import TournamentDashboardScreen from "../screens/TournamentDashboardScreen";
 import JoinTournamentScreen from "../screens/JoinTournamentScreen";
 
@@ -135,6 +136,7 @@ export default function RootNavigator() {
 
           {/* Tournaments */}
           <Stack.Screen name={ROUTES.TOURNAMENT_HUB_SPLASH} component={TournamentHubSplashScreen} />
+          <Stack.Screen name={ROUTES.TOURNAMENT_ORGANIZER_PROFILE} component={TournamentOrganizerProfileScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENTS} component={TournamentsScreen} />
           <Stack.Screen name={ROUTES.JOIN_TOURNAMENT} component={JoinTournamentScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_DASHBOARD} component={TournamentDashboardScreen} />
