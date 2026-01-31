@@ -27,12 +27,12 @@ export default function TournamentHubSplashScreen({ navigation }) {
 
   // Logo: start VERY small and grow continuously to final
   const logoOpacity = useRef(new Animated.Value(0)).current;
-  const logoScale = useRef(new Animated.Value(0.16)).current; // was 0.86
+  const logoScale = useRef(new Animated.Value(0.16)).current;
   const logoY = useRef(new Animated.Value(22)).current;
 
   // Text: start VERY small and grow continuously to final
   const textOpacity = useRef(new Animated.Value(0)).current;
-  const textScale = useRef(new Animated.Value(0.16)).current; // was 0.92
+  const textScale = useRef(new Animated.Value(0.16)).current;
   const textY = useRef(new Animated.Value(18)).current;
 
   // Flash at landing (subtle)
@@ -165,7 +165,6 @@ export default function TournamentHubSplashScreen({ navigation }) {
     const ctaBorder = isDark ? "rgba(255,210,92,0.78)" : "rgba(255,210,92,0.84)";
 
     const w = Dimensions.get("window").width;
-
     const logoW = Math.min(Math.floor(w * 0.98), 720);
     const logoH = Math.floor(logoW * 0.34);
 
@@ -177,7 +176,6 @@ export default function TournamentHubSplashScreen({ navigation }) {
 
       flash: { ...StyleSheet.absoluteFillObject, backgroundColor: "#ffffff" },
 
-      // LOGO
       logoWrap: {
         position: "absolute",
         left: 0,
@@ -196,7 +194,6 @@ export default function TournamentHubSplashScreen({ navigation }) {
         transform: [{ scale: 1.30 }],
       },
 
-      // TEXT
       textCenter: {
         ...StyleSheet.absoluteFillObject,
         alignItems: "center",
@@ -208,7 +205,7 @@ export default function TournamentHubSplashScreen({ navigation }) {
       welcome: {
         fontFamily: "Cinzel",
         color: "#fff",
-        opacity: 0.90,
+        opacity: 0.9,
         fontSize: 17,
         letterSpacing: 2.2,
         textTransform: "uppercase",
@@ -242,7 +239,6 @@ export default function TournamentHubSplashScreen({ navigation }) {
         fontWeight: "800",
       },
 
-      // CTA
       footer: {
         position: "absolute",
         left: 0,
@@ -295,7 +291,7 @@ export default function TournamentHubSplashScreen({ navigation }) {
   }, [theme, isDark, insets?.top, insets?.bottom]);
 
   function start() {
-    navigation.replace(ROUTES.TOURNAMENTS);
+    navigation.replace(ROUTES.TOURNAMENT_ORGANIZER_PROFILE);
   }
 
   return (
@@ -311,7 +307,6 @@ export default function TournamentHubSplashScreen({ navigation }) {
 
       <Animated.View pointerEvents="none" style={[styles.flash, { opacity: flashOpacity }]} />
 
-      {/* LOGO */}
       <View style={styles.logoWrap} pointerEvents="none">
         <Animated.View
           style={{
@@ -320,14 +315,10 @@ export default function TournamentHubSplashScreen({ navigation }) {
             alignItems: "center",
           }}
         >
-          <Animated.Image
-            source={require("../../assets/legacy-logo-transparent.png")}
-            style={styles.logo}
-          />
+          <Animated.Image source={require("../../assets/legacy-logo-transparent.png")} style={styles.logo} />
         </Animated.View>
       </View>
 
-      {/* TEXT */}
       <View style={styles.textCenter} pointerEvents="none">
         <Animated.View
           style={{
@@ -342,7 +333,6 @@ export default function TournamentHubSplashScreen({ navigation }) {
         </Animated.View>
       </View>
 
-      {/* CTA */}
       <View style={styles.footer}>
         <Animated.View style={{ opacity: ctaOpacity, transform: [{ translateY: ctaY }] }}>
           <Pressable onPress={start} style={({ pressed }) => [styles.ctaCard, pressed && styles.pressed]}>

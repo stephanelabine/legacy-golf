@@ -40,6 +40,7 @@ const ROUTES = {
 
   TOURNAMENTS: "Tournaments",
   TOURNAMENT_HUB_SPLASH: "TournamentHubSplash",
+  TOURNAMENT_ORGANIZER_PROFILE: "TournamentOrganizerProfile",
   TOURNAMENT_DASHBOARD: "TournamentDashboard",
   JOIN_TOURNAMENT: "JoinTournament",
 
