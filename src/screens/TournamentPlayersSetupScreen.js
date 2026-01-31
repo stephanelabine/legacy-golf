@@ -214,11 +214,9 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     });
   }, [formatDocs]);
 
-  const teamRoute =
-    ROUTES.TOURNAMENT_TEAM_VS_TEAM ||
-    ROUTES.TOURNAMENT_TEAMS ||
-    ROUTES.TOURNAMENT_TEAM_ASSIGN ||
-    null;
+  const teamRoute = ROUTES.TOURNAMENT_TEAM_VS_TEAM_SETUP || null;
+
+  const primaryLabel = hasTeamVsTeam ? "Continue to Team vs Team setup" : "Continue";
 
   useEffect(() => {
     if (!tournamentId || !ownerUid || !isHost) return;
@@ -818,7 +816,23 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     } catch (e) {}
 
     if (hasTeamVsTeam && teamRoute) {
-      navigation.navigate(teamRoute, { tournamentId });
+      const playersParam = (members || []).map((p) => {
+        const uid = String(p?.uid || p?.id || "");
+        const name = displayNameFor(p, "Player");
+        const h = parseHandicap(p?.handicap);
+        return {
+          uid,
+          id: uid,
+          name,
+          displayName: name,
+          handicap: h.ok ? h.value : 0,
+          isGuest: !!p?.isGuest,
+          email: String(p?.email || "").trim(),
+          phone: String(p?.phone || "").trim(),
+        };
+      });
+
+      navigation.navigate(teamRoute, { tournamentId, players: playersParam });
       return;
     }
 
@@ -1236,10 +1250,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
           radius={18}
           actionWidth={120}
         >
-          <Pressable
-            onPress={() => (canEdit ? openEdit(p) : null)}
-            style={({ pressed }) => [styles.rowInner, pressed && canEdit && styles.pressed]}
-          >
+          <Pressable onPress={() => (canEdit ? openEdit(p) : null)} style={({ pressed }) => [styles.rowInner, pressed && canEdit && styles.pressed]}>
             <View style={styles.rowTop}>
               <Text style={styles.rowName} numberOfLines={1}>
                 {nm}
@@ -1264,13 +1275,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
   const addKavOffset = Math.max(0, (insets?.top || 0) + 16);
 
   const addCardStyle =
-    addMode === "menu"
-      ? styles.modalCardMenu
-      : addMode === "buddies"
-      ? styles.modalCardBuddies
-      : addMode === "share"
-      ? styles.modalCardShare
-      : null;
+    addMode === "menu" ? styles.modalCardMenu : addMode === "buddies" ? styles.modalCardBuddies : addMode === "share" ? styles.modalCardShare : null;
 
   return (
     <View style={styles.screen}>
@@ -1314,7 +1319,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
           disabled={saving}
           style={({ pressed }) => [styles.primaryBtn, pressed && !saving && styles.pressed, saving && styles.primaryBtnDisabled]}
         >
-          <Text style={styles.primaryText}>{saving ? "Saving..." : "Continue"}</Text>
+          <Text style={styles.primaryText}>{saving ? "Saving..." : primaryLabel}</Text>
         </Pressable>
       </View>
 
@@ -1368,10 +1373,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
                     if (email) metaParts.push(email);
 
                     return (
-                      <Pressable
-                        onPress={() => toggleBuddy(id)}
-                        style={({ pressed }) => [styles.buddyRow, on && styles.buddyRowOn, pressed && styles.pressed]}
-                      >
+                      <Pressable onPress={() => toggleBuddy(id)} style={({ pressed }) => [styles.buddyRow, on && styles.buddyRowOn, pressed && styles.pressed]}>
                         <Text style={styles.buddyName} numberOfLines={1}>
                           {String(item?.name || "Buddy")}
                         </Text>

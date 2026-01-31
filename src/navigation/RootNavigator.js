@@ -66,6 +66,10 @@ import TournamentPlayersSetupScreen from "../screens/TournamentPlayersSetupScree
 import TournamentPlayersScreen from "../screens/TournamentPlayersScreen";
 import TournamentOverviewScreen from "../screens/TournamentOverviewScreen";
 
+import TournamentTeamVsTeamSetupScreen from "../screens/TournamentTeamVsTeamSetupScreen";
+import TournamentTeamVsTeamPairingsScreen from "../screens/TournamentTeamVsTeamPairingsScreen";
+import TournamentTeamVsTeamPairingsOverviewScreen from "../screens/TournamentTeamVsTeamPairingsOverviewScreen";
+
 /* ---------------- results/payouts ---------------- */
 
 import FinalResultsScreen from "../screens/FinalResultsScreen";
@@ -152,6 +156,14 @@ export default function RootNavigator() {
 
           <Stack.Screen name={ROUTES.TOURNAMENT_PLAYERS_SETUP} component={TournamentPlayersSetupScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_PLAYERS} component={TournamentPlayersScreen} />
+
+          <Stack.Screen name={ROUTES.TOURNAMENT_TEAM_VS_TEAM_SETUP} component={TournamentTeamVsTeamSetupScreen} />
+          <Stack.Screen name={ROUTES.TOURNAMENT_TEAM_VS_TEAM_PAIRINGS} component={TournamentTeamVsTeamPairingsScreen} />
+          <Stack.Screen
+            name={ROUTES.TOURNAMENT_TEAM_VS_TEAM_PAIRINGS_OVERVIEW}
+            component={TournamentTeamVsTeamPairingsOverviewScreen}
+          />
+
           <Stack.Screen name={ROUTES.TOURNAMENT_OVERVIEW} component={TournamentOverviewScreen} />
 
           {/* Modals */}

@@ -58,6 +58,10 @@ const ROUTES = {
   TOURNAMENT_FORMAT_POOLS: "TournamentFormatPools",
   TOURNAMENT_ROUNDS: "TournamentRounds",
 
+  TOURNAMENT_TEAM_VS_TEAM_SETUP: "TournamentTeamVsTeamSetup",
+  TOURNAMENT_TEAM_VS_TEAM_PAIRINGS: "TournamentTeamVsTeamPairings",
+  TOURNAMENT_TEAM_VS_TEAM_PAIRINGS_OVERVIEW: "TournamentTeamVsTeamPairingsOverview",
+
   /* ---------------- Tournaments (canonical aliases) ---------------- */
 
   TOURNAMENT_SPLASH: "Tournaments",
