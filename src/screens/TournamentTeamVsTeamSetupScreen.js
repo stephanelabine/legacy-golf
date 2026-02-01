@@ -13,9 +13,10 @@ import {
   Keyboard,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { doc, onSnapshot, updateDoc, serverTimestamp, collection } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, serverTimestamp, collection, onSnapshot as onSnapshotCol } from "firebase/firestore";
 
 import ROUTES from "../navigation/routes";
+import ScreenHeader from "../components/ScreenHeader";
 import { db } from "../firebase/firebase";
 
 function safeNum(x, fallback = 0) {
@@ -235,6 +236,8 @@ export default function TournamentTeamVsTeamSetupScreen({ navigation, route }) {
 
   const isWide = Dimensions.get("window").width >= 720;
 
+  const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
+
   useEffect(() => {
     if (!tournamentId) {
       setLoading(false);
@@ -259,7 +262,7 @@ export default function TournamentTeamVsTeamSetupScreen({ navigation, route }) {
     if (!tournamentId) return;
 
     const mref = collection(db, "tournaments", tournamentId, "members");
-    const unsub = onSnapshot(
+    const unsub = onSnapshotCol(
       mref,
       (snap) => {
         const rows = [];
@@ -430,10 +433,7 @@ export default function TournamentTeamVsTeamSetupScreen({ navigation, route }) {
     }
 
     if (!canRenderTeams) {
-      Alert.alert(
-        "Players missing",
-        "No roster found yet. Go back, confirm players are saved, then try again."
-      );
+      Alert.alert("Players missing", "No roster found yet. Go back, confirm players are saved, then try again.");
       return;
     }
 
@@ -447,16 +447,15 @@ export default function TournamentTeamVsTeamSetupScreen({ navigation, route }) {
   };
 
   return (
-    <View style={[styles.root, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+    <View style={styles.root}>
+      <ScreenHeader navigation={navigation} title="Team vs Team" subtitle="Build teams, rename, regenerate, then continue to pairings." />
+
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: footerPad + 16 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.hero}>
-          <Text style={styles.heroTitle}>Team vs Team</Text>
-          <Text style={styles.heroSub}>Build teams, rename, regenerate, then continue to pairings.</Text>
-
           <View style={styles.heroActionsRow}>
             <Pressable
               onPress={onRegenerateTeams}
@@ -494,8 +493,7 @@ export default function TournamentTeamVsTeamSetupScreen({ navigation, route }) {
           <View style={styles.notice}>
             <Text style={styles.noticeTitle}>Roster not available</Text>
             <Text style={styles.noticeSub}>
-              I can’t see players here yet. Confirm players exist in tournaments/{tournamentId}/members,
-              then return.
+              I can’t see players here yet. Confirm players exist in tournaments/{tournamentId}/members, then return.
             </Text>
           </View>
         ) : (
@@ -520,8 +518,6 @@ export default function TournamentTeamVsTeamSetupScreen({ navigation, route }) {
             />
           </View>
         )}
-
-        <View style={{ height: 18 }} />
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 10) }]}>
@@ -568,24 +564,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 10 },
     elevation: 8,
   },
-  heroTitle: {
-    color: TEXT,
-    fontSize: 26,
-    fontWeight: "900",
-    letterSpacing: 0.2,
-    textAlign: "center",
-  },
-  heroSub: {
-    marginTop: 8,
-    color: "rgba(234,242,255,0.76)",
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 18,
-    textAlign: "center",
-  },
 
   heroActionsRow: {
-    marginTop: 14,
     flexDirection: "row",
     gap: 10,
     justifyContent: "center",
