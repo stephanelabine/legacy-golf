@@ -234,7 +234,6 @@ export default function TournamentDashboardScreen({ navigation, route }) {
         borderTopColor: theme.divider,
       },
 
-      // FULL-WIDTH STACKED BUTTONS
       footerRow: { flexDirection: "column", gap: 10 },
 
       footerBtn: {
@@ -245,27 +244,10 @@ export default function TournamentDashboardScreen({ navigation, route }) {
         paddingHorizontal: 12,
       },
 
-      // Primary (dominant)
       footerBtnPrimary: { height: 56, borderRadius: 18 },
-
-      // Secondary (thin pill)
-      footerBtnSecondary: { height: 44, borderRadius: 999 },
 
       primaryBtn: { backgroundColor: isDark ? "rgba(46,125,255,0.92)" : "rgba(10,15,26,0.92)" },
       primaryText: { color: "#fff", fontSize: 16, fontWeight: "900", letterSpacing: 0.4 },
-
-      // Soft "status pill" look
-      secondaryBtn: { backgroundColor: blueBg, borderWidth: 1, borderColor: blue },
-
-      secondaryText: {
-        color: theme.text,
-        fontSize: 14,
-        fontWeight: "900",
-        letterSpacing: 0.2,
-        textAlign: "center",
-        includeFontPadding: false,
-        textAlignVertical: "center",
-      },
 
       pressed: { opacity: Platform.OS === "ios" ? 0.88 : 0.9, transform: [{ scale: 0.99 }] },
     });
@@ -376,13 +358,12 @@ export default function TournamentDashboardScreen({ navigation, route }) {
 
     setBeginBusy(true);
     try {
-      // Force replay from rounds (never resume mid-flow)
       await updateDoc(doc(db, "tournaments", tournamentId), {
         setupStep: "rounds",
         updatedAt: serverTimestamp(),
       });
     } catch (e) {
-      // Non-blocking: still navigate so the host can continue setup
+      // non-blocking
     } finally {
       setBeginBusy(false);
     }
@@ -480,7 +461,6 @@ export default function TournamentDashboardScreen({ navigation, route }) {
       return;
     }
 
-    // Always replay setup from rounds (never resume mid-flow)
     await restartSetupFromRounds();
   }
 
@@ -573,7 +553,6 @@ export default function TournamentDashboardScreen({ navigation, route }) {
       {isHost ? (
         <View style={styles.footer}>
           <View style={styles.footerRow}>
-            {/* CONTINUE (TOP / PRIMARY / BIGGER) */}
             <Pressable
               onPress={footerContinue}
               disabled={primaryDisabled}
@@ -586,19 +565,6 @@ export default function TournamentDashboardScreen({ navigation, route }) {
               ]}
             >
               <Text style={styles.primaryText}>Continue</Text>
-            </Pressable>
-
-            {/* TOURNAMENT OVERVIEW (BOTTOM / THIN PILL) */}
-            <Pressable
-              onPress={() => navigation.navigate(ROUTES.TOURNAMENT_OVERVIEW, { tournamentId })}
-              style={({ pressed }) => [
-                styles.footerBtn,
-                styles.footerBtnSecondary,
-                styles.secondaryBtn,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Text style={styles.secondaryText}>Tournament Overview</Text>
             </Pressable>
           </View>
         </View>

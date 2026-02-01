@@ -1,5 +1,5 @@
 // src/screens/TournamentFormatsScreen.js
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Alert, Platform, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -13,10 +13,12 @@ import {
   deleteDoc,
   serverTimestamp,
   updateDoc,
+  getDoc,
 } from "firebase/firestore";
 
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
+import PremiumSwipeRow from "../components/PremiumSwipeRow";
 import { useTheme } from "../theme/ThemeProvider";
 import { auth, db } from "../firebase/firebase";
 
@@ -29,48 +31,12 @@ import { auth, db } from "../firebase/firebase";
  */
 
 const FORMAT_CATALOG = [
-  {
-    key: "kp",
-    name: "KP",
-    subtitle: "Closest to the pin",
-    needsHoles: true,
-    blurb: "Select the official KP holes per round on the next step.",
-  },
-  {
-    key: "long_drive",
-    name: "Long Drive",
-    subtitle: "Longest drive on a hole",
-    needsHoles: true,
-    blurb: "Select the official holes per round on the next step.",
-  },
-  {
-    key: "second_shot_kp",
-    name: "Second Shot KP",
-    subtitle: "Closest after second shot",
-    needsHoles: true,
-    blurb: "Select the official holes per round on the next step.",
-  },
-  {
-    key: "deuce_pot",
-    name: "Deuce Pot",
-    subtitle: "Split pot among all deuces",
-    needsHoles: false,
-    blurb: "Calculated later: every score of 2 counts, across all rounds.",
-  },
-  {
-    key: "putting_contest",
-    name: "Putting Contest",
-    subtitle: "Lowest total putts wins",
-    needsHoles: false,
-    blurb: "Calculated later from the round scoring data (fewest total putts).",
-  },
-  {
-    key: "team_vs_team",
-    name: "Team vs Team",
-    subtitle: "Team points battle",
-    needsHoles: false,
-    blurb: "Set team names next. Team assignment and matchups come later (with handicap balancing).",
-  },
+  { key: "kp", name: "KP", subtitle: "Closest to the pin", needsHoles: true, blurb: "Select the official KP holes per round on the next step." },
+  { key: "long_drive", name: "Long Drive", subtitle: "Longest drive on a hole", needsHoles: true, blurb: "Select the official holes per round on the next step." },
+  { key: "second_shot_kp", name: "Second Shot KP", subtitle: "Closest after second shot", needsHoles: true, blurb: "Select the official holes per round on the next step." },
+  { key: "deuce_pot", name: "Deuce Pot", subtitle: "Split pot among all deuces", needsHoles: false, blurb: "Calculated later: every score of 2 counts, across all rounds." },
+  { key: "putting_contest", name: "Putting Contest", subtitle: "Lowest total putts wins", needsHoles: false, blurb: "Calculated later from the round scoring data (fewest total putts)." },
+  { key: "team_vs_team", name: "Team vs Team", subtitle: "Team points battle", needsHoles: false, blurb: "Set team names next. Team assignment and matchups come later (with handicap balancing)." },
 ];
 
 export default function TournamentFormatsScreen({ navigation, route }) {
@@ -85,6 +51,16 @@ export default function TournamentFormatsScreen({ navigation, route }) {
   const [formatDocs, setFormatDocs] = useState([]);
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
+
+  // enforce: only one swipe row open at a time
+  const openSwipeRef = useRef(null);
+  const closeAnyOpenSwipe = () => {
+    try {
+      openSwipeRef.current?.close?.();
+    } catch (e) {
+      // ignore
+    }
+  };
 
   useEffect(() => {
     if (!tournamentId) {
@@ -153,7 +129,7 @@ export default function TournamentFormatsScreen({ navigation, route }) {
 
     return StyleSheet.create({
       screen: { flex: 1, backgroundColor: theme.bg },
-      content: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 190 },
+      content: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: footerPad + 90 },
 
       hero: {
         borderRadius: 22,
@@ -270,6 +246,39 @@ export default function TournamentFormatsScreen({ navigation, route }) {
     });
   }, [theme, isDark, footerPad]);
 
+  async function ensureSelected(item) {
+    if (!tournamentId) return;
+    if (!item?.key) return;
+
+    const key = String(item.key);
+    const ref = doc(db, "tournaments", tournamentId, "formats", key);
+
+    const already = selectedKeys.has(key);
+    if (already) return;
+
+    // if it exists for some reason but not in snapshot yet, merge update
+    try {
+      const snap = await getDoc(ref);
+      if (snap.exists()) return;
+    } catch (e) {
+      // ignore and proceed to setDoc
+    }
+
+    await setDoc(
+      ref,
+      {
+        key,
+        name: item.name,
+        subtitle: item.subtitle || "",
+        needsHoles: !!item.needsHoles,
+        blurb: item.blurb || "",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  }
+
   async function toggleFormat(item) {
     if (!tournamentId) return;
     if (!isHost) {
@@ -304,6 +313,47 @@ export default function TournamentFormatsScreen({ navigation, route }) {
       }
     } catch (e) {
       Alert.alert("Save failed", e?.message || "Could not update formats.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function editFormat(item) {
+    if (!tournamentId) return;
+    if (!isHost) {
+      Alert.alert("Host only", "Only the host can edit formats.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await ensureSelected(item);
+    } catch (e) {
+      Alert.alert("Save failed", e?.message || "Could not update formats.");
+      setSaving(false);
+      return;
+    }
+    setSaving(false);
+
+    navigation.navigate(ROUTES.TOURNAMENT_FORMAT_DETAILS, { tournamentId, focusKey: String(item?.key || "") });
+  }
+
+  async function deleteFormat(item) {
+    if (!tournamentId) return;
+    if (!isHost) {
+      Alert.alert("Host only", "Only the host can edit formats.");
+      return;
+    }
+    if (!item?.key) return;
+
+    const key = String(item.key);
+    if (!selectedKeys.has(key)) return;
+
+    setSaving(true);
+    try {
+      await deleteDoc(doc(db, "tournaments", tournamentId, "formats", key));
+    } catch (e) {
+      Alert.alert("Delete failed", e?.message || "Could not remove this format.");
     } finally {
       setSaving(false);
     }
@@ -367,31 +417,61 @@ export default function TournamentFormatsScreen({ navigation, route }) {
     navigation.navigate(ROUTES.TOURNAMENT_FORMAT_DETAILS, { tournamentId });
   }
 
+  function onRowPress(item) {
+    if (saving) return;
+    if (!isHost) return;
+
+    const key = String(item?.key || "");
+    const on = selectedKeys.has(key);
+
+    // Premium behavior:
+    // - if not selected: tap selects it
+    // - if selected: tap edits/configures it (go to details)
+    if (!on) {
+      toggleFormat(item);
+      return;
+    }
+
+    editFormat(item);
+  }
+
   function renderRow(item) {
-    const on = selectedKeys.has(String(item.key));
+    const key = String(item.key);
+    const on = selectedKeys.has(key);
     const sub = item.blurb || "";
 
     return (
-      <Pressable
-        key={String(item.key)}
-        onPress={() => toggleFormat(item)}
-        disabled={saving || !isHost}
-        style={({ pressed }) => [
-          styles.formatRow,
-          on && styles.formatRowOn,
-          pressed && !saving && isHost && styles.pressed,
-          (!isHost || saving) && { opacity: 0.7 },
-        ]}
+      <PremiumSwipeRow
+        key={key}
+        id={key}
+        openSwipeRef={openSwipeRef}
+        closeAnyOpenSwipe={closeAnyOpenSwipe}
+        onEdit={() => editFormat(item)}
+        onDelete={() => deleteFormat(item)}
+        editLabel="Edit"
+        deleteLabel="Delete"
+        disabled={!isHost || saving}
       >
-        {on ? (
-          <View style={[styles.selectedBadge, styles.selectedBadgeOn]}>
-            <Text style={styles.selectedBadgeText}>Selected</Text>
-          </View>
-        ) : null}
+        <Pressable
+          onPress={() => onRowPress(item)}
+          disabled={saving || !isHost}
+          style={({ pressed }) => [
+            styles.formatRow,
+            on && styles.formatRowOn,
+            pressed && !saving && isHost && styles.pressed,
+            (!isHost || saving) && { opacity: 0.7 },
+          ]}
+        >
+          {on ? (
+            <View style={[styles.selectedBadge, styles.selectedBadgeOn]}>
+              <Text style={styles.selectedBadgeText}>Selected</Text>
+            </View>
+          ) : null}
 
-        <Text style={styles.formatRowTitle}>{item.name}</Text>
-        <Text style={styles.formatRowSub}>{sub}</Text>
-      </Pressable>
+          <Text style={styles.formatRowTitle}>{item.name}</Text>
+          <Text style={styles.formatRowSub}>{sub}</Text>
+        </Pressable>
+      </PremiumSwipeRow>
     );
   }
 
@@ -399,7 +479,11 @@ export default function TournamentFormatsScreen({ navigation, route }) {
     <View style={styles.screen}>
       <ScreenHeader navigation={navigation} title="Formats" subtitle="Choose tournament side games." />
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={styles.hero}>
           <Text style={styles.heroKicker}>Step 4</Text>
           <Text style={styles.heroTitle}>Tournament Side Games</Text>
