@@ -15,7 +15,17 @@ import {
   FlatList,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { doc, onSnapshot, updateDoc, serverTimestamp, collection, getDocs, setDoc, query, orderBy } from "firebase/firestore";
+import {
+  doc,
+  onSnapshot,
+  updateDoc,
+  serverTimestamp,
+  collection,
+  getDocs,
+  setDoc,
+  query,
+  orderBy,
+} from "firebase/firestore";
 
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
@@ -23,10 +33,6 @@ import { useTheme } from "../theme/ThemeProvider";
 import { auth, db } from "../firebase/firebase";
 import { getTeesForCourse } from "../services/tees";
 
-/**
- * Canonical rounds docs: tournaments/{id}/rounds/r1..rN
- * Tees MUST write to those same docs, or they won’t “stick”.
- */
 function roundDocId(n) {
   const v = Number(n);
   const idx = Number.isFinite(v) && v >= 1 ? Math.floor(v) : 1;
@@ -50,15 +56,19 @@ export default function TournamentTeesScreen({ navigation, route }) {
 
   const tournamentId = route?.params?.tournamentId;
 
+  // IMPORTANT: when opened from Overview, return by POP (goBack) so we don't stack Overview screens
+  const fromOverview = !!route?.params?.fromOverview;
+  const returnTo = String(route?.params?.returnTo || ROUTES.TOURNAMENT_OVERVIEW);
+
   const [t, setT] = useState(null);
   const [saving, setSaving] = useState(false);
 
   const [roundDocs, setRoundDocs] = useState([]);
 
-  // tee picker modal
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerRound, setPickerRound] = useState(1);
   const [pickerCourseId, setPickerCourseId] = useState("");
+  const [pickerCourseName, setPickerCourseName] = useState("");
   const [teesLoading, setTeesLoading] = useState(false);
   const [tees, setTees] = useState([]);
   const [qText, setQText] = useState("");
@@ -88,7 +98,6 @@ export default function TournamentTeesScreen({ navigation, route }) {
     return String(t.ownerUid || "") === String(u.uid || "");
   }, [t, u]);
 
-  // Canonical rounds only (r1..rN). Sort by roundNumber when available.
   useEffect(() => {
     if (!tournamentId) return;
 
@@ -103,7 +112,6 @@ export default function TournamentTeesScreen({ navigation, route }) {
           if (String(d.id || "").startsWith("r")) rows.push({ id: d.id, ...d.data() });
         });
 
-        // Extra safety: local sort fallback
         rows.sort((a, b) => {
           const ai = Number(a?.roundNumber);
           const bi = Number(b?.roundNumber);
@@ -314,7 +322,15 @@ export default function TournamentTeesScreen({ navigation, route }) {
         backgroundColor: theme.bg,
       },
       modalTitle: { color: theme.text, fontSize: 18, fontWeight: "900", textAlign: "center" },
-      modalSub: { marginTop: 6, color: theme.text, opacity: 0.7, fontSize: 13, fontWeight: "700", lineHeight: 18, textAlign: "center" },
+      modalSub: {
+        marginTop: 6,
+        color: theme.text,
+        opacity: 0.7,
+        fontSize: 13,
+        fontWeight: "700",
+        lineHeight: 18,
+        textAlign: "center",
+      },
 
       input: {
         marginTop: 14,
@@ -356,6 +372,7 @@ export default function TournamentTeesScreen({ navigation, route }) {
 
     const info = roundInfo.get(roundIndex) || {};
     const cid = String(info.courseId || "").trim();
+    const cname = String(info.courseName || "").trim();
 
     if (!cid) {
       Alert.alert("Course required", `Select a course for Round ${roundIndex} first.`);
@@ -364,6 +381,7 @@ export default function TournamentTeesScreen({ navigation, route }) {
 
     setPickerRound(roundIndex);
     setPickerCourseId(cid);
+    setPickerCourseName(cname);
     setQText("");
     setPickerOpen(true);
   }
@@ -377,7 +395,7 @@ export default function TournamentTeesScreen({ navigation, route }) {
 
       setTeesLoading(true);
       try {
-        const data = await getTeesForCourse(pickerCourseId);
+        const data = await getTeesForCourse(pickerCourseId, { courseName: pickerCourseName });
         const list = Array.isArray(data) ? data : [];
         if (!mounted) return;
         setTees(list);
@@ -395,7 +413,7 @@ export default function TournamentTeesScreen({ navigation, route }) {
     return () => {
       mounted = false;
     };
-  }, [pickerOpen, pickerCourseId]);
+  }, [pickerOpen, pickerCourseId, pickerCourseName]);
 
   async function setTeeForRound(roundIndex, tee) {
     if (!tournamentId) return;
@@ -464,6 +482,13 @@ export default function TournamentTeesScreen({ navigation, route }) {
             });
 
             await Promise.all(updates);
+
+            try {
+              await updateDoc(doc(db, "tournaments", tournamentId), {
+                teesReady: false,
+                updatedAt: serverTimestamp(),
+              });
+            } catch (e) {}
           } catch (e) {
             Alert.alert("Clear failed", e?.message || "Could not clear round tees.");
           } finally {
@@ -474,7 +499,7 @@ export default function TournamentTeesScreen({ navigation, route }) {
     ]);
   }
 
-  async function handleContinue() {
+  async function onSaveOrContinue() {
     if (saving) return;
 
     if (!isHost) {
@@ -493,12 +518,19 @@ export default function TournamentTeesScreen({ navigation, route }) {
     }
 
     try {
-      await updateDoc(doc(db, "tournaments", tournamentId), {
+      const patch = {
         teesReady: true,
-        setupStep: "formats",
         updatedAt: serverTimestamp(),
-      });
+      };
+      if (!fromOverview) patch.setupStep = "formats";
+      await updateDoc(doc(db, "tournaments", tournamentId), patch);
     } catch (e) {}
+
+    if (fromOverview) {
+      if (navigation.canGoBack()) navigation.goBack();
+      else navigation.navigate(returnTo, { tournamentId });
+      return;
+    }
 
     navigation.navigate(ROUTES.TOURNAMENT_FORMATS, { tournamentId });
   }
@@ -529,16 +561,26 @@ export default function TournamentTeesScreen({ navigation, route }) {
     );
   }
 
+  const primaryLabel = fromOverview ? "Save and return to overview" : "Confirm & Continue";
+
   return (
     <View style={styles.screen}>
-      <ScreenHeader navigation={navigation} title="Tournament Tees" subtitle="Select tees per round." />
+      <ScreenHeader
+        navigation={navigation}
+        title="Tournament Tees"
+        subtitle={fromOverview ? "Edit tees, then return." : "Select tees per round."}
+      />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.hero}>
-          <Text style={styles.heroKicker}>Tees</Text>
+          <Text style={styles.heroKicker}>{fromOverview ? "Edit" : "Tees"}</Text>
           <Text style={styles.heroTitle}>{roundsReady ? "Round Tees" : "Rounds required"}</Text>
           <Text style={styles.heroSub}>
-            {roundsReady ? "Choose tees for each round. This stays separate from normal round setup." : "Go back and set rounds first."}
+            {roundsReady
+              ? fromOverview
+                ? "Choose tees for each round. Saving will return to the overview."
+                : "Choose tees for each round. This stays separate from normal round setup."
+              : "Go back and set rounds first."}
           </Text>
         </View>
 
@@ -596,7 +638,7 @@ export default function TournamentTeesScreen({ navigation, route }) {
 
       <View style={styles.footer}>
         <Pressable
-          onPress={handleContinue}
+          onPress={onSaveOrContinue}
           disabled={saving || !roundsReady || !isHost}
           style={({ pressed }) => [
             styles.primaryBtn,
@@ -604,7 +646,7 @@ export default function TournamentTeesScreen({ navigation, route }) {
             (saving || !roundsReady || !isHost) && { opacity: 0.6 },
           ]}
         >
-          <Text style={styles.primaryText}>{saving ? "Saving..." : "Confirm & Continue"}</Text>
+          <Text style={styles.primaryText}>{saving ? "Saving..." : primaryLabel}</Text>
         </Pressable>
 
         <Pressable
@@ -631,12 +673,14 @@ export default function TournamentTeesScreen({ navigation, route }) {
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
             <Pressable style={styles.modalCard} onPress={() => {}}>
               <Text style={styles.modalTitle}>Round {pickerRound} Tees</Text>
-              <Text style={styles.modalSub}>Search, then tap tees to set them for this round.</Text>
+              <Text style={styles.modalSub}>
+                {pickerCourseName ? `${pickerCourseName} • ` : ""}Search, then tap tees to set them for this round.
+              </Text>
 
               <TextInput
                 value={qText}
                 onChangeText={setQText}
-                placeholder="Search tees (e.g. Blue, White, Championship)"
+                placeholder="Search tees (e.g. Gold, Tournament, Blue)"
                 placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
                 style={styles.input}
                 autoCapitalize="none"

@@ -6,7 +6,6 @@ import {
   doc,
   collection,
   onSnapshot,
-  onSnapshot as onSnapshotQuery,
   query,
   orderBy,
   setDoc,
@@ -46,21 +45,37 @@ export default function TournamentFormatsScreen({ navigation, route }) {
 
   const tournamentId = route?.params?.tournamentId;
 
+  // IMPORTANT: when opened from Overview, return by POP (goBack) so we don't break stack history
+  const fromOverview = !!route?.params?.fromOverview;
+  const returnTo = String(route?.params?.returnTo || ROUTES.TOURNAMENT_OVERVIEW);
+
   const [t, setT] = useState(null);
   const [saving, setSaving] = useState(false);
   const [formatDocs, setFormatDocs] = useState([]);
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
-  // enforce: only one swipe row open at a time
+  // Enforce: only one swipe row open at a time
   const openSwipeRef = useRef(null);
-  const closeAnyOpenSwipe = () => {
+  function closeAnyOpenSwipe() {
     try {
       openSwipeRef.current?.close?.();
-    } catch (e) {
-      // ignore
+    } catch (e) {}
+    openSwipeRef.current = null;
+  }
+
+  function popReturnToOverview() {
+    closeAnyOpenSwipe();
+
+    // KEY: do NOT reset nav here. POP back so Overview keeps its history.
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
     }
-  };
+
+    // fallback (only if there's no back stack, which is rare)
+    navigation.navigate(returnTo, { tournamentId });
+  }
 
   useEffect(() => {
     if (!tournamentId) {
@@ -85,7 +100,7 @@ export default function TournamentFormatsScreen({ navigation, route }) {
     const fref = collection(db, "tournaments", tournamentId, "formats");
     const fq = query(fref, orderBy("createdAt", "asc"));
 
-    const unsub = onSnapshotQuery(
+    const unsub = onSnapshot(
       fq,
       (snap) => {
         const rows = [];
@@ -99,6 +114,7 @@ export default function TournamentFormatsScreen({ navigation, route }) {
   }, [tournamentId]);
 
   const u = auth.currentUser;
+
   const isHost = useMemo(() => {
     if (!u || !t) return false;
     return String(t.ownerUid || "") === String(u.uid || "");
@@ -113,6 +129,9 @@ export default function TournamentFormatsScreen({ navigation, route }) {
 
   const selectedCount = selectedKeys.size;
   const roundsTotal = Math.max(1, Number(t?.roundsTotal || 1));
+
+  // Swipe active when host + not saving
+  const canSwipe = isHost && !saving;
 
   const styles = useMemo(() => {
     const softBorder = isDark ? "rgba(255,255,255,0.14)" : "rgba(10,15,26,0.12)";
@@ -172,6 +191,13 @@ export default function TournamentFormatsScreen({ navigation, route }) {
         textTransform: "uppercase",
       },
 
+      // Clips swipe panes + row so you don’t get “side beams”
+      swipeWrap: {
+        marginBottom: 12,
+        borderRadius: 18,
+        overflow: "hidden",
+      },
+
       formatRow: {
         position: "relative",
         borderRadius: 18,
@@ -179,7 +205,6 @@ export default function TournamentFormatsScreen({ navigation, route }) {
         borderWidth: 2,
         borderColor: softBorder,
         backgroundColor: theme.card2,
-        marginBottom: 12,
       },
       formatRowOn: { borderColor: greenRing, backgroundColor: greenBg },
       formatRowTitle: { color: theme.text, fontSize: 15, fontWeight: "900" },
@@ -256,13 +281,10 @@ export default function TournamentFormatsScreen({ navigation, route }) {
     const already = selectedKeys.has(key);
     if (already) return;
 
-    // if it exists for some reason but not in snapshot yet, merge update
     try {
       const snap = await getDoc(ref);
       if (snap.exists()) return;
-    } catch (e) {
-      // ignore and proceed to setDoc
-    }
+    } catch (e) {}
 
     await setDoc(
       ref,
@@ -335,7 +357,15 @@ export default function TournamentFormatsScreen({ navigation, route }) {
     }
     setSaving(false);
 
-    navigation.navigate(ROUTES.TOURNAMENT_FORMAT_DETAILS, { tournamentId, focusKey: String(item?.key || "") });
+    closeAnyOpenSwipe();
+
+    // Pass through overview-return params so DETAILS screens can also return correctly.
+    navigation.navigate(ROUTES.TOURNAMENT_FORMAT_DETAILS, {
+      tournamentId,
+      focusKey: String(item?.key || ""),
+      fromOverview,
+      returnTo,
+    });
   }
 
   async function deleteFormat(item) {
@@ -414,7 +444,38 @@ export default function TournamentFormatsScreen({ navigation, route }) {
       setSaving(false);
     }
 
-    navigation.navigate(ROUTES.TOURNAMENT_FORMAT_DETAILS, { tournamentId });
+    closeAnyOpenSwipe();
+
+    navigation.navigate(ROUTES.TOURNAMENT_FORMAT_DETAILS, {
+      tournamentId,
+      fromOverview: false,
+      returnTo: ROUTES.TOURNAMENT_OVERVIEW,
+    });
+  }
+
+  async function onSaveReturnToOverview() {
+    if (!tournamentId) return;
+
+    if (!isHost) {
+      Alert.alert("Host only", "Only the host can edit formats.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      // Don’t advance setupStep when editing from overview.
+      // Just keep a small breadcrumb that formats are selected or not.
+      await updateDoc(doc(db, "tournaments", tournamentId), {
+        formatsSelected: selectedCount > 0,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (e) {
+      // non-blocking
+    } finally {
+      setSaving(false);
+    }
+
+    popReturnToOverview();
   }
 
   function onRowPress(item) {
@@ -440,55 +501,78 @@ export default function TournamentFormatsScreen({ navigation, route }) {
     const on = selectedKeys.has(key);
     const sub = item.blurb || "";
 
-    return (
-      <PremiumSwipeRow
-        key={key}
-        id={key}
-        openSwipeRef={openSwipeRef}
-        closeAnyOpenSwipe={closeAnyOpenSwipe}
-        onEdit={() => editFormat(item)}
-        onDelete={() => deleteFormat(item)}
-        editLabel="Edit"
-        deleteLabel="Delete"
-        disabled={!isHost || saving}
+    const rowInner = (
+      <Pressable
+        onPress={() => onRowPress(item)}
+        disabled={saving || !isHost}
+        style={({ pressed }) => [
+          styles.formatRow,
+          on && styles.formatRowOn,
+          pressed && !saving && isHost && styles.pressed,
+          (!isHost || saving) && { opacity: 0.7 },
+        ]}
       >
-        <Pressable
-          onPress={() => onRowPress(item)}
-          disabled={saving || !isHost}
-          style={({ pressed }) => [
-            styles.formatRow,
-            on && styles.formatRowOn,
-            pressed && !saving && isHost && styles.pressed,
-            (!isHost || saving) && { opacity: 0.7 },
-          ]}
-        >
-          {on ? (
-            <View style={[styles.selectedBadge, styles.selectedBadgeOn]}>
-              <Text style={styles.selectedBadgeText}>Selected</Text>
-            </View>
-          ) : null}
+        {on ? (
+          <View style={[styles.selectedBadge, styles.selectedBadgeOn]}>
+            <Text style={styles.selectedBadgeText}>Selected</Text>
+          </View>
+        ) : null}
 
-          <Text style={styles.formatRowTitle}>{item.name}</Text>
-          <Text style={styles.formatRowSub}>{sub}</Text>
-        </Pressable>
-      </PremiumSwipeRow>
+        <Text style={styles.formatRowTitle}>{item.name}</Text>
+        <Text style={styles.formatRowSub}>{sub}</Text>
+      </Pressable>
+    );
+
+    // If swipe is not allowed, still keep the same clipped wrapper for consistent look
+    if (!canSwipe) {
+      return (
+        <View key={key} style={styles.swipeWrap}>
+          {rowInner}
+        </View>
+      );
+    }
+
+    return (
+      <View key={key} style={styles.swipeWrap}>
+        <PremiumSwipeRow
+          openSwipeRef={openSwipeRef}
+          closeAnyOpenSwipe={closeAnyOpenSwipe}
+          enabled={canSwipe}
+          actionWidth={120}
+          friction={2}
+          threshold={48}
+          radius={18}
+          borderColor={theme.border}
+          backgroundColor={theme.card2}
+          editColor={"rgba(15,122,74,0.92)"}
+          deleteColor={isDark ? "rgba(220, 52, 52, 0.92)" : "rgba(190, 40, 40, 0.92)"}
+          onEdit={() => editFormat(item)}
+          onDelete={() => deleteFormat(item)}
+        >
+          {rowInner}
+        </PremiumSwipeRow>
+      </View>
     );
   }
 
+  const primaryLabel = fromOverview ? "Save and return to overview" : "Continue to Format Details";
+
   return (
     <View style={styles.screen}>
-      <ScreenHeader navigation={navigation} title="Formats" subtitle="Choose tournament side games." />
+      <ScreenHeader
+        navigation={navigation}
+        title="Formats"
+        subtitle={fromOverview ? "Edit formats, then return." : "Choose tournament side games."}
+      />
 
-      <ScrollView
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <View style={styles.hero}>
-          <Text style={styles.heroKicker}>Step 4</Text>
+          <Text style={styles.heroKicker}>{fromOverview ? "Edit" : "Step 4"}</Text>
           <Text style={styles.heroTitle}>Tournament Side Games</Text>
           <Text style={styles.heroSub}>
-            Select what your tournament will include. Next you’ll configure holes and team names before money pools.
+            {fromOverview
+              ? "Select what your tournament will include. When finished, save and return to the overview."
+              : "Select what your tournament will include. Next you’ll configure holes and team names before money pools."}
           </Text>
 
           <View style={styles.pillRow}>
@@ -510,7 +594,7 @@ export default function TournamentFormatsScreen({ navigation, route }) {
 
       <View style={styles.footer}>
         <Pressable
-          onPress={onContinue}
+          onPress={fromOverview ? onSaveReturnToOverview : onContinue}
           disabled={saving || !isHost}
           style={({ pressed }) => [
             styles.primaryBtn,
@@ -518,7 +602,7 @@ export default function TournamentFormatsScreen({ navigation, route }) {
             (saving || !isHost) && { opacity: 0.7 },
           ]}
         >
-          <Text style={styles.primaryText}>{saving ? "Saving..." : "Continue to Format Details"}</Text>
+          <Text style={styles.primaryText}>{saving ? "Saving..." : primaryLabel}</Text>
         </Pressable>
 
         <Pressable

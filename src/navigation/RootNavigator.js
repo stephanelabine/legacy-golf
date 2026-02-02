@@ -1,4 +1,3 @@
-// src/navigation/RootNavigator.js
 import React, { useEffect, useState } from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { onAuthStateChanged } from "firebase/auth";
@@ -69,6 +68,10 @@ import TournamentOverviewScreen from "../screens/TournamentOverviewScreen";
 import TournamentTeamVsTeamSetupScreen from "../screens/TournamentTeamVsTeamSetupScreen";
 import TournamentTeamVsTeamPairingsScreen from "../screens/TournamentTeamVsTeamPairingsScreen";
 import TournamentTeamVsTeamPairingsOverviewScreen from "../screens/TournamentTeamVsTeamPairingsOverviewScreen";
+
+// NEW
+import TournamentPayoutsScreen from "../screens/TournamentPayoutsScreen";
+import TournamentStartSplashScreen from "../screens/TournamentStartSplashScreen";
 
 /* ---------------- results/payouts ---------------- */
 
@@ -165,6 +168,10 @@ export default function RootNavigator() {
           />
 
           <Stack.Screen name={ROUTES.TOURNAMENT_OVERVIEW} component={TournamentOverviewScreen} />
+
+          {/* NEW: announcement + start splash (normal screens) */}
+          <Stack.Screen name={ROUTES.TOURNAMENT_PAYOUTS} component={TournamentPayoutsScreen} />
+          <Stack.Screen name={ROUTES.TOURNAMENT_START_SPLASH} component={TournamentStartSplashScreen} />
 
           {/* Modals */}
           <Stack.Group

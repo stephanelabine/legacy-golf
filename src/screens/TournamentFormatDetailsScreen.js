@@ -1,6 +1,7 @@
 // src/screens/TournamentFormatDetailsScreen.js
 import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Alert, Platform, ScrollView, TextInput } from "react-native";
+import { CommonActions } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   doc,
@@ -67,6 +68,11 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
 
   const tournamentId = route?.params?.tournamentId;
 
+  // If this screen was opened from Tournament Overview (edit mode),
+  // saving must return to the Overview WITHOUT sending the user forward to Money Pools.
+  const fromOverview = !!route?.params?.fromOverview;
+  const returnTo = String(route?.params?.returnTo || ROUTES.TOURNAMENT_OVERVIEW);
+
   const [t, setT] = useState(null);
   const [formatDocs, setFormatDocs] = useState([]);
   const [saving, setSaving] = useState(false);
@@ -78,6 +84,48 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
   const [teamBName, setTeamBName] = useState("Slackers");
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
+
+  // This is the key fix:
+  // Return to an existing Overview that’s already in the stack (so Back returns to the parent screen, not Home),
+  // and remove the edit screens above it (so no stacking/duplicates).
+  function smartReturnTo(routeName, params) {
+    try {
+      const state = navigation.getState?.();
+      const routes = state?.routes;
+
+      if (!state || !Array.isArray(routes) || !routes.length) {
+        navigation.navigate(routeName, params);
+        return;
+      }
+
+      let idx = -1;
+      for (let i = routes.length - 1; i >= 0; i--) {
+        if (routes[i]?.name === routeName) {
+          idx = i;
+          break;
+        }
+      }
+
+      if (idx >= 0) {
+        const nextRoutes = routes.slice(0, idx + 1).map((r, i) => {
+          if (i !== idx) return r;
+          return { ...r, params: { ...(r?.params || {}), ...(params || {}) } };
+        });
+
+        navigation.dispatch(
+          CommonActions.reset({
+            index: idx,
+            routes: nextRoutes,
+          })
+        );
+        return;
+      }
+
+      navigation.navigate(routeName, params);
+    } catch (e) {
+      navigation.navigate(routeName, params);
+    }
+  }
 
   useEffect(() => {
     if (!tournamentId) {
@@ -625,9 +673,26 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
         }
 
         // eslint-disable-next-line no-await-in-loop
-        await setDoc(doc(db, "tournaments", tournamentId, "formats", key), { config, updatedAt: serverTimestamp() }, { merge: true });
+        await setDoc(
+          doc(db, "tournaments", tournamentId, "formats", key),
+          { config, updatedAt: serverTimestamp() },
+          { merge: true }
+        );
       }
 
+      if (fromOverview) {
+        // Edit mode: do NOT advance the setup flow.
+        await updateDoc(doc(db, "tournaments", tournamentId), {
+          formatDetailsReady: true,
+          updatedAt: serverTimestamp(),
+        });
+
+        // Return to the existing Overview already in the stack (so Back returns to Pairings overview).
+        smartReturnTo(returnTo, { tournamentId });
+        return;
+      }
+
+      // Setup flow mode: proceed to Money Pools.
       await updateDoc(doc(db, "tournaments", tournamentId), {
         setupStep: "pools",
         formatDetailsReady: true,
@@ -642,32 +707,42 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
     }
   }
 
-  const holeBased = useMemo(() => orderedDocs.filter((f) => HOLE_FORMAT_KEYS.has(getKey(f))), [orderedDocs]);
+  const ordered = useMemo(() => sortByCatalog(formatDocs), [formatDocs]);
+
+  const holeBased = useMemo(() => ordered.filter((f) => HOLE_FORMAT_KEYS.has(getKey(f))), [ordered]);
   const otherFormats = useMemo(
     () =>
-      orderedDocs.filter((f) => {
+      ordered.filter((f) => {
         const k = getKey(f);
         return k && !HOLE_FORMAT_KEYS.has(k) && k !== TEAM_KEY;
       }),
-    [orderedDocs]
+    [ordered]
   );
-  const teamFormats = useMemo(() => orderedDocs.filter((f) => getKey(f) === TEAM_KEY), [orderedDocs]);
+  const teamFormats = useMemo(() => ordered.filter((f) => getKey(f) === TEAM_KEY), [ordered]);
+
+  const primaryLabel = fromOverview ? "Save and return to overview" : "Save & Continue to Money Pools";
+  const kickerLabel = fromOverview ? "Edit" : "Step 5";
+  const heroSub = fromOverview
+    ? "Edit your format details. Saving will return to the overview."
+    : "Hole-based games need official hole selection per round. Team vs Team stores team names now and supports auto-balancing later.";
 
   return (
     <View style={styles.screen}>
-      <ScreenHeader navigation={navigation} title="Format Details" subtitle="Set holes and core rules (foundation only)." />
+      <ScreenHeader
+        navigation={navigation}
+        title="Format Details"
+        subtitle={fromOverview ? "Edit details, then return." : "Set holes and core rules (foundation only)."}
+      />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.hero}>
-          <Text style={styles.heroKicker}>Step 5</Text>
+          <Text style={styles.heroKicker}>{kickerLabel}</Text>
           <Text style={styles.heroTitle}>Details & Rules</Text>
-          <Text style={styles.heroSub}>
-            Hole-based games need official hole selection per round. Team vs Team stores team names now and supports auto-balancing later.
-          </Text>
+          <Text style={styles.heroSub}>{heroSub}</Text>
 
           <View style={styles.pillRow}>
             <View style={styles.pill}>
-              <Text style={styles.pillText}>formats: {orderedDocs.length}</Text>
+              <Text style={styles.pillText}>formats: {ordered.length}</Text>
             </View>
             <View style={styles.pill}>
               <Text style={styles.pillText}>rounds: {roundsTotal}</Text>
@@ -678,7 +753,7 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
           </View>
         </View>
 
-        {!orderedDocs.length ? (
+        {!ordered.length ? (
           <View style={styles.empty}>
             <Text style={styles.emptyTitle}>No formats selected</Text>
             <Text style={styles.emptySub}>Go back and select at least one tournament side game.</Text>
@@ -707,7 +782,7 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
             (saving || !isHost) && { opacity: 0.7 },
           ]}
         >
-          <Text style={styles.primaryText}>{saving ? "Saving..." : "Save & Continue to Money Pools"}</Text>
+          <Text style={styles.primaryText}>{saving ? "Saving..." : primaryLabel}</Text>
         </Pressable>
       </View>
     </View>

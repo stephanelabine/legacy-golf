@@ -16,7 +16,6 @@ import {
   ScrollView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-// Part A
 import PremiumSwipeRow from "../components/PremiumSwipeRow";
 import {
   doc,
@@ -55,6 +54,10 @@ export default function TournamentPlayersScreen({ navigation, route }) {
   const isDark = scheme === "dark";
 
   const tournamentId = route?.params?.tournamentId;
+
+  // IMPORTANT: when opened from Overview, return by POP (goBack) so we don't stack Overview screens
+  const fromOverview = !!route?.params?.fromOverview;
+  const returnTo = String(route?.params?.returnTo || ROUTES.TOURNAMENT_OVERVIEW);
 
   const [t, setT] = useState(null);
   const [rawMembers, setRawMembers] = useState([]);
@@ -99,6 +102,7 @@ export default function TournamentPlayersScreen({ navigation, route }) {
   const [editIsGuest, setEditIsGuest] = useState(false);
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
+
   // keep only one swipe row open at a time
   const openSwipeRef = useRef(null);
   function closeAnyOpenSwipe() {
@@ -244,7 +248,6 @@ export default function TournamentPlayersScreen({ navigation, route }) {
     setBuddyLoading(true);
 
     // Expected path: users/{uid}/buddies
-    // Expected doc shape: { buddyUid, displayName, handicap, phone, email }
     const bref = collection(db, "users", String(u.uid), "buddies");
 
     const unsub = onSnapshot(
@@ -311,7 +314,6 @@ export default function TournamentPlayersScreen({ navigation, route }) {
       screen: { flex: 1, backgroundColor: theme.bg },
       listContent: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 190 },
 
-      // Slim join code
       codeCard: {
         borderRadius: 18,
         padding: 12,
@@ -400,11 +402,12 @@ export default function TournamentPlayersScreen({ navigation, route }) {
         opacity: 0.75,
         textTransform: "uppercase",
       },
+
       swipeWrap: {
         marginBottom: 12,
         borderRadius: 18,
         overflow: "hidden",
-},
+      },
 
       row: {
         borderRadius: 18,
@@ -414,15 +417,10 @@ export default function TournamentPlayersScreen({ navigation, route }) {
         backgroundColor: theme.card2,
       },
 
-// Subtle zebra stripe — just enough to break up the list.
-rowAlt: {
-  backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "rgba(10,15,26,0.04)",
-},
+      rowAlt: {
+        backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "rgba(10,15,26,0.04)",
+      },
 
-        
-
-
-      // Player row visual separation + "ready" highlight
       playerRow: {
         borderWidth: 1,
         borderColor: softBorder,
@@ -430,18 +428,15 @@ rowAlt: {
       playerRowReady: {
         borderColor: isDark ? "rgba(46, 204, 113, 0.78)" : "rgba(46, 204, 113, 0.72)",
       },
-
-        playerRowReadyA: {
+      playerRowReadyA: {
         backgroundColor: isDark ? "rgba(46, 204, 113, 0.14)" : "rgba(46, 204, 113, 0.12)",
       },
-
       playerRowReadyB: {
         backgroundColor: isDark ? "rgba(46, 204, 113, 0.18)" : "rgba(46, 204, 113, 0.15)",
       },
 
       rowTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
       rowLeft: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1 },
-
 
       avatar: {
         width: 44,
@@ -468,21 +463,6 @@ rowAlt: {
       },
       pillText: { color: theme.text, fontSize: 12, fontWeight: "900" },
 
-      rowActions: { marginTop: 12, flexDirection: "row", gap: 10 },
-      actionBtn: {
-        flex: 1,
-        height: 46,
-        borderRadius: 16,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: softBg,
-        borderWidth: 1,
-        borderColor: softBorder,
-      },
-      actionText: { color: theme.text, fontSize: 13, fontWeight: "900" },
-      actionBtnDanger: { backgroundColor: "rgba(231,76,60,0.14)", borderColor: "rgba(231,76,60,0.28)" },
-
-      // Swipe actions
       swipeAction: {
         width: 96,
         alignItems: "center",
@@ -607,7 +587,6 @@ rowAlt: {
       },
       optionRightText: { color: theme.text, fontSize: 12, fontWeight: "900", opacity: 0.95 },
 
-      // Buddy list rows
       buddyRow: {
         borderRadius: 18,
         padding: 14,
@@ -653,6 +632,12 @@ rowAlt: {
   function goSetup(routeName) {
     if (!tournamentId) return;
     setSetupOpen(false);
+
+    if (fromOverview) {
+      navigation.navigate(routeName, { tournamentId, fromOverview: true, returnTo });
+      return;
+    }
+
     navigation.navigate(routeName, { tournamentId });
   }
 
@@ -828,7 +813,6 @@ rowAlt: {
       return;
     }
 
-    // Don’t add organizer, don’t add duplicates already in roster
     const toAdd = keys
       .map((k) => String(k))
       .filter((k) => k && k !== ownerUid && !existingMemberUidSet.has(k));
@@ -838,7 +822,6 @@ rowAlt: {
       return;
     }
 
-    // Build data lookup by uid from buddyRaw (best effort)
     const buddyByUid = new Map();
     (buddies || []).forEach((b) => {
       const uid = String(b.buddyUid || b.uid || b.id || "");
@@ -849,7 +832,6 @@ rowAlt: {
     try {
       const batch = writeBatch(db);
 
-      // Member docs
       toAdd.forEach((uid) => {
         const b = buddyByUid.get(uid) || {};
         const displayName = String(b.displayName || b.name || "").trim();
@@ -872,7 +854,6 @@ rowAlt: {
         );
       });
 
-      // Tournament roster array update
       batch.update(doc(db, "tournaments", tournamentId), {
         memberUids: arrayUnion(...toAdd),
         updatedAt: serverTimestamp(),
@@ -999,25 +980,25 @@ rowAlt: {
     ]);
   }
 
-const rosterCount = members.length || (Array.isArray(t?.memberUids) ? t.memberUids.length : 0);
-const playerCount = members.length;
+  const rosterCount = members.length || (Array.isArray(t?.memberUids) ? t.memberUids.length : 0);
+  const playerCount = members.length;
 
-const missingHcpCount = useMemo(() => {
-  let n = 0;
-  (members || []).forEach((p) => {
-    const h = p?.handicap;
-    const num =
-      typeof h === "number"
-        ? h
-        : h === null || h === undefined || h === ""
-        ? NaN
-        : Number(String(h).trim());
-    if (!Number.isFinite(num)) n += 1;
-  });
-  return n;
-}, [members]);
+  const missingHcpCount = useMemo(() => {
+    let n = 0;
+    (members || []).forEach((p) => {
+      const h = p?.handicap;
+      const num =
+        typeof h === "number"
+          ? h
+          : h === null || h === undefined || h === ""
+          ? NaN
+          : Number(String(h).trim());
+      if (!Number.isFinite(num)) n += 1;
+    });
+    return n;
+  }, [members]);
 
-const canContinue = playerCount >= 2 && missingHcpCount === 0;
+  const canContinue = playerCount >= 2 && missingHcpCount === 0;
 
   async function handleContinue() {
     if (saving) return;
@@ -1032,12 +1013,20 @@ const canContinue = playerCount >= 2 && missingHcpCount === 0;
     }
 
     try {
-      await updateDoc(doc(db, "tournaments", tournamentId), {
+      const patch = {
         playersReady: true,
-        setupStep: "formats",
         updatedAt: serverTimestamp(),
-      });
+      };
+      if (!fromOverview) patch.setupStep = "formats";
+
+      await updateDoc(doc(db, "tournaments", tournamentId), patch);
     } catch (e) {}
+
+    if (fromOverview) {
+      if (navigation.canGoBack()) navigation.goBack();
+      else navigation.navigate(returnTo, { tournamentId });
+      return;
+    }
 
     navigation.navigate(ROUTES.TOURNAMENT_FORMATS, { tournamentId });
   }
@@ -1074,10 +1063,8 @@ const canContinue = playerCount >= 2 && missingHcpCount === 0;
       ]
     );
   }
-// Part B
-const canSwipe = isHost && !rosterLocked && !saving;
 
-
+  const canSwipe = isHost && !rosterLocked && !saving;
 
   function playerNumberFor(uid) {
     const order = members.map((m) => String(m.uid || m.id || ""));
@@ -1086,91 +1073,87 @@ const canSwipe = isHost && !rosterLocked && !saving;
   }
 
   function renderRow({ item }) {
-  const uid = String(item?.uid || item?.id || "");
-  const isOwner = uid && ownerUid && uid === ownerUid;
-  const isGuest = !!item?.isGuest;
+    const uid = String(item?.uid || item?.id || "");
+    const isOwner = uid && ownerUid && uid === ownerUid;
+    const isGuest = !!item?.isGuest;
 
-  const displayName = String(item?.displayName || "").trim();
-  const hcpRaw = item?.handicap;
-  const hcp = String(hcpRaw ?? "").trim();
-  const pnum = playerNumberFor(uid);
+    const displayName = String(item?.displayName || "").trim();
+    const hcpRaw = item?.handicap;
+    const hcp = String(hcpRaw ?? "").trim();
+    const pnum = playerNumberFor(uid);
 
-  const sub = isOwner ? "Tournament Organizer" : isGuest ? "Guest" : "Player";
-  const badge = isOwner ? "P1" : pnum ? `P${pnum}` : "P";
+    const sub = isOwner ? "Tournament Organizer" : isGuest ? "Guest" : "Player";
+    const badge = isOwner ? "P1" : pnum ? `P${pnum}` : "P";
 
-  const hNum =
-    typeof hcpRaw === "number"
-      ? hcpRaw
-      : hcpRaw === null || hcpRaw === undefined || hcpRaw === ""
-      ? NaN
-      : Number(String(hcpRaw).trim());
-  const hasHcp = Number.isFinite(hNum);
+    const hNum =
+      typeof hcpRaw === "number"
+        ? hcpRaw
+        : hcpRaw === null || hcpRaw === undefined || hcpRaw === ""
+        ? NaN
+        : Number(String(hcpRaw).trim());
+    const hasHcp = Number.isFinite(hNum);
 
-  const isAlt = pnum ? pnum % 2 === 0 : false;
+    const isAlt = pnum ? pnum % 2 === 0 : false;
 
-const rowInner = (
-  <View
-    style={[
-      styles.row,
-      !hasHcp && isAlt && styles.rowAlt,
-      styles.playerRow,
-      hasHcp && styles.playerRowReady,
-      hasHcp && (isAlt ? styles.playerRowReadyB : styles.playerRowReadyA),
-    ]}
-  >
-    <View style={styles.rowTop}>
-      <View style={styles.rowLeft}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{initialsFromName(displayName, isOwner ? "P1" : "P")}</Text>
-        </View>
-
-        <View style={{ flex: 1 }}>
-          <Text style={styles.rowTitle} numberOfLines={1}>
-            {displayName ||
-              (isOwner ? "Organizer (name not set)" : isGuest ? "Guest (name not set)" : "Player (name not set)")}
-          </Text>
-          <Text style={styles.rowSub} numberOfLines={1}>
-            {sub}
-            {hcp ? ` • HCP ${hcp}` : ""}
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.pill}>
-        <Text style={styles.pillText}>{badge}</Text>
-      </View>
-    </View>
-  </View>
-);
-
-
-    // Swipe is only active when host + roster unlocked + not saving
-  if (!canSwipe) return <View style={styles.swipeWrap}>{rowInner}</View>;
-
-  return (
-    <View style={styles.swipeWrap}>
-      <PremiumSwipeRow
-        openSwipeRef={openSwipeRef}
-        closeAnyOpenSwipe={closeAnyOpenSwipe}
-        enabled={canSwipe}
-        actionWidth={120}
-        friction={2}
-        threshold={48}
-        radius={18}
-        borderColor={theme.border}
-        backgroundColor={theme.card2}
-        editColor={"rgba(15,122,74,0.92)"}
-        deleteColor={isDark ? "rgba(220, 52, 52, 0.92)" : "rgba(190, 40, 40, 0.92)"}
-        onEdit={() => openEditPlayer(item)}
-        onDelete={isOwner ? null : () => removePlayer(item)}
+    const rowInner = (
+      <View
+        style={[
+          styles.row,
+          !hasHcp && isAlt && styles.rowAlt,
+          styles.playerRow,
+          hasHcp && styles.playerRowReady,
+          hasHcp && (isAlt ? styles.playerRowReadyB : styles.playerRowReadyA),
+        ]}
       >
-        {rowInner}
-      </PremiumSwipeRow>
-    </View>
-  );
-}
+        <View style={styles.rowTop}>
+          <View style={styles.rowLeft}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{initialsFromName(displayName, isOwner ? "P1" : "P")}</Text>
+            </View>
 
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowTitle} numberOfLines={1}>
+                {displayName ||
+                  (isOwner ? "Organizer (name not set)" : isGuest ? "Guest (name not set)" : "Player (name not set)")}
+              </Text>
+              <Text style={styles.rowSub} numberOfLines={1}>
+                {sub}
+                {hcp ? ` • HCP ${hcp}` : ""}
+              </Text>
+            </View>
+          </View>
 
+          <View style={styles.pill}>
+            <Text style={styles.pillText}>{badge}</Text>
+          </View>
+        </View>
+      </View>
+    );
+
+    if (!canSwipe) return <View style={styles.swipeWrap}>{rowInner}</View>;
+
+    return (
+      <View style={styles.swipeWrap}>
+        <PremiumSwipeRow
+          openSwipeRef={openSwipeRef}
+          closeAnyOpenSwipe={closeAnyOpenSwipe}
+          enabled={canSwipe}
+          actionWidth={120}
+          friction={2}
+          threshold={48}
+          radius={18}
+          borderColor={theme.border}
+          backgroundColor={theme.card2}
+          editColor={"rgba(15,122,74,0.92)"}
+          deleteColor={isDark ? "rgba(220, 52, 52, 0.92)" : "rgba(190, 40, 40, 0.92)"}
+          onEdit={() => openEditPlayer(item)}
+          onDelete={isOwner ? null : () => removePlayer(item)}
+        >
+          {rowInner}
+        </PremiumSwipeRow>
+      </View>
+    );
+  }
 
   function renderBuddyRow({ item }) {
     const uid = String(item?.buddyUid || item?.uid || item?.id || "");
@@ -1229,26 +1212,22 @@ const rowInner = (
     );
   }
 
+  const primaryLabel = fromOverview ? "Save and return to overview" : "Continue";
+
   return (
     <View style={styles.screen}>
-      <ScreenHeader
-  navigation={navigation}
-  title="Players"
-  subtitle="Add Players."
-/>
-
+      <ScreenHeader navigation={navigation} title="Players" subtitle="Add Players." />
 
       <FlatList
         data={[
-  { _type: "code", key: "code" },
-  { _type: "organizer", key: "organizer" },
-  { _type: "add", key: "add" },
-  { _type: "section", key: "section" },
-  ...(canSwipe ? [{ _type: "swipeHint", key: "swipeHint" }] : []),
-  ...members.map((m) => ({ _type: "member", key: `m:${m.uid || m.id}`, ...m })),
-  { _type: "end", key: "end" },
-]}
-
+          { _type: "code", key: "code" },
+          { _type: "organizer", key: "organizer" },
+          { _type: "add", key: "add" },
+          { _type: "section", key: "section" },
+          ...(canSwipe ? [{ _type: "swipeHint", key: "swipeHint" }] : []),
+          ...members.map((m) => ({ _type: "member", key: `m:${m.uid || m.id}`, ...m })),
+          { _type: "end", key: "end" },
+        ]}
         keyExtractor={(x) => x.key}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
@@ -1267,7 +1246,12 @@ const rowInner = (
                   </Pressable>
 
                   <Pressable
-                    onPress={() => Alert.alert("How to Join", "Open Legacy Golf → Games → Tournaments → Join with Code, then enter this join code.")}
+                    onPress={() =>
+                      Alert.alert(
+                        "How to Join",
+                        "Open Legacy Golf → Games → Tournaments → Join with Code, then enter this join code."
+                      )
+                    }
                     style={({ pressed }) => [styles.smallBtn, pressed && styles.pressed]}
                   >
                     <Text style={styles.smallBtnText}>How to Join</Text>
@@ -1324,31 +1308,30 @@ const rowInner = (
             );
           }
 
-if (item._type === "section") return <Text style={styles.sectionTitle}>{`Players • ${rosterCount}`}</Text>;
+          if (item._type === "section") return <Text style={styles.sectionTitle}>{`Players • ${rosterCount}`}</Text>;
 
-if (item._type === "swipeHint") {
-  return (
-    <Text style={[styles.rowSub, { marginTop: -6, marginBottom: 10, opacity: 0.55 }]}>
-      Swipe right to edit • Swipe left to delete
-    </Text>
-  );
-}
+          if (item._type === "swipeHint") {
+            return (
+              <Text style={[styles.rowSub, { marginTop: -6, marginBottom: 10, opacity: 0.55 }]}>
+                Swipe right to edit • Swipe left to delete
+              </Text>
+            );
+          }
 
-if (item._type === "end") {
-  if (loadingM) return null;
-  if (!members.length) {
-    return (
-      <View style={styles.empty}>
-        <Text style={styles.emptyTitle}>No players yet</Text>
-        <Text style={styles.emptySub}>Share the join code or add guests/buddies as host.</Text>
-      </View>
-    );
-  }
-  return null;
-}
+          if (item._type === "end") {
+            if (loadingM) return null;
+            if (!members.length) {
+              return (
+                <View style={styles.empty}>
+                  <Text style={styles.emptyTitle}>No players yet</Text>
+                  <Text style={styles.emptySub}>Share the join code or add guests/buddies as host.</Text>
+                </View>
+              );
+            }
+            return null;
+          }
 
-return renderRow({ item });
-
+          return renderRow({ item });
         }}
       />
 
@@ -1366,7 +1349,7 @@ return renderRow({ item });
             <View style={{ flex: 1 }} />
           )}
 
-                    <Pressable
+          <Pressable
             onPress={handleContinue}
             style={({ pressed }) => [
               styles.footerBtn,
@@ -1376,9 +1359,8 @@ return renderRow({ item });
             ]}
             disabled={!canContinue || saving}
           >
-            <Text style={styles.primaryText}>Continue</Text>
+            <Text style={styles.primaryText}>{primaryLabel}</Text>
           </Pressable>
-
         </View>
       </View>
 
@@ -1426,10 +1408,7 @@ return renderRow({ item });
                     </View>
                   </Pressable>
 
-                  <Pressable
-                    onPress={() => goSetup(ROUTES.TOURNAMENT_PLAYERS_SETUP)}
-                    style={({ pressed }) => [styles.optionItem, pressed && styles.pressed]}
-                  >
+                  <Pressable onPress={() => goSetup(ROUTES.TOURNAMENT_PLAYERS_SETUP)} style={({ pressed }) => [styles.optionItem, pressed && styles.pressed]}>
                     <Text style={styles.optionTitle}>Edit Players</Text>
                     <View style={styles.optionRight}>
                       <Text style={styles.optionRightText}>Open</Text>
@@ -1564,12 +1543,7 @@ return renderRow({ item });
                     <Text style={styles.emptySub}>Pulling your buddies from the cloud.</Text>
                   </View>
                 ) : filteredBuddies.length ? (
-                  <FlatList
-                    data={filteredBuddies}
-                    keyExtractor={(x) => String(x.buddyUid || x.uid || x.id)}
-                    renderItem={renderBuddyRow}
-                    scrollEnabled={false}
-                  />
+                  <FlatList data={filteredBuddies} keyExtractor={(x) => String(x.buddyUid || x.uid || x.id)} renderItem={renderBuddyRow} scrollEnabled={false} />
                 ) : (
                   <View style={styles.empty}>
                     <Text style={styles.emptyTitle}>No buddies found</Text>
@@ -1666,11 +1640,7 @@ return renderRow({ item });
                     <Text style={styles.modalBtnText}>Cancel</Text>
                   </Pressable>
 
-                  <Pressable
-                    onPress={saveOrganizer}
-                    style={({ pressed }) => [styles.modalBtn, styles.modalBtnSave, pressed && styles.pressed]}
-                    disabled={saving}
-                  >
+                  <Pressable onPress={saveOrganizer} style={({ pressed }) => [styles.modalBtn, styles.modalBtnSave, pressed && styles.pressed]} disabled={saving}>
                     <Text style={[styles.modalBtnText, styles.modalBtnTextSave]}>{saving ? "Saving..." : "Save"}</Text>
                   </Pressable>
                 </View>
@@ -1741,11 +1711,7 @@ return renderRow({ item });
                     <Text style={styles.modalBtnText}>Cancel</Text>
                   </Pressable>
 
-                  <Pressable
-                    onPress={addGuestNow}
-                    style={({ pressed }) => [styles.modalBtn, styles.modalBtnSave, pressed && styles.pressed]}
-                    disabled={saving}
-                  >
+                  <Pressable onPress={addGuestNow} style={({ pressed }) => [styles.modalBtn, styles.modalBtnSave, pressed && styles.pressed]} disabled={saving}>
                     <Text style={[styles.modalBtnText, styles.modalBtnTextSave]}>{saving ? "Saving..." : "Add Guest"}</Text>
                   </Pressable>
                 </View>
@@ -1816,11 +1782,7 @@ return renderRow({ item });
                     <Text style={styles.modalBtnText}>Cancel</Text>
                   </Pressable>
 
-                  <Pressable
-                    onPress={savePlayerEdit}
-                    style={({ pressed }) => [styles.modalBtn, styles.modalBtnSave, pressed && styles.pressed]}
-                    disabled={saving}
-                  >
+                  <Pressable onPress={savePlayerEdit} style={({ pressed }) => [styles.modalBtn, styles.modalBtnSave, pressed && styles.pressed]} disabled={saving}>
                     <Text style={[styles.modalBtnText, styles.modalBtnTextSave]}>{saving ? "Saving..." : "Save"}</Text>
                   </Pressable>
                 </View>

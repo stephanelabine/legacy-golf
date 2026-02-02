@@ -1,23 +1,70 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
+// src/services/tees.js
 
-const CACHE_KEY = "TEE_CACHE";
+function norm(s) {
+  return String(s || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
 
-export async function getTeesForCourse(courseId) {
-  const cacheRaw = await AsyncStorage.getItem(CACHE_KEY);
-  const cache = cacheRaw ? JSON.parse(cacheRaw) : {};
+function matchesCourse(courseId, courseName, tokens) {
+  const id = norm(courseId);
+  const name = norm(courseName);
+  const hay = `${id} ${name}`.trim();
+  return tokens.every((t) => hay.includes(t));
+}
 
-  if (cache[courseId]) return cache[courseId];
+function makeTee(name, code, yardage = null) {
+  return {
+    name: String(name || "").trim(),
+    code: String(code || "").trim(),
+    yardage: Number.isFinite(Number(yardage)) ? Number(yardage) : null,
+  };
+}
 
-  // MOCKED API RESPONSE SHAPE (ready for real API swap)
-  const apiResponse = [
-    { code: "red", name: "Red", yardage: 5200 },
-    { code: "white", name: "White", yardage: 6000 },
-    { code: "blue", name: "Blue", yardage: 6550 },
-    { code: "gold", name: "Gold", yardage: 7000 },
+// Temporary local mappings (API-ready later)
+function getLocalTees(courseId, courseName) {
+  // Osoyoos Desert (your note: "dessert" course)
+  if (matchesCourse(courseId, courseName, ["osoyoos", "desert"])) {
+    return [
+      makeTee("Gold", "GOLD"),
+      makeTee("Black", "BLACK"),
+      makeTee("Silver", "SILVER"),
+      makeTee("Bronze", "BRONZE"),
+    ];
+  }
+
+  // Park Meadows
+  if (matchesCourse(courseId, courseName, ["park", "meadows"])) {
+    return [
+      makeTee("Tournament", "TOURNAMENT"),
+      makeTee("Blue", "BLUE"),
+      makeTee("White", "WHITE"),
+      makeTee("Red", "RED"),
+    ];
+  }
+
+  return null;
+}
+
+// Default fallback tees (keeps the app usable for all other courses)
+function getDefaultTees() {
+  return [
+    makeTee("Championship", "CHAMP"),
+    makeTee("Blue", "BLUE"),
+    makeTee("White", "WHITE"),
+    makeTee("Gold", "GOLD"),
+    makeTee("Red", "RED"),
   ];
+}
 
-  cache[courseId] = apiResponse;
-  await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+// Public API (later you can swap this to a real API call)
+export async function getTeesForCourse(courseId, opts = {}) {
+  const courseName = String(opts?.courseName || "");
 
-  return apiResponse;
+  const local = getLocalTees(courseId, courseName);
+  if (local) return local;
+
+  return getDefaultTees();
 }

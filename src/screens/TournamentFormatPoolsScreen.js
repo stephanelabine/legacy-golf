@@ -12,6 +12,7 @@ import {
   KeyboardAvoidingView,
   Keyboard,
 } from "react-native";
+import { CommonActions } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   doc,
@@ -130,6 +131,9 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
 
   const tournamentId = route?.params?.tournamentId;
 
+  const fromOverview = !!route?.params?.fromOverview;
+  const returnTo = String(route?.params?.returnTo || ROUTES.TOURNAMENT_OVERVIEW);
+
   const [t, setT] = useState(null);
   const [formatDocs, setFormatDocs] = useState([]);
   const [saving, setSaving] = useState(false);
@@ -139,6 +143,27 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
   const dirtyRef = useRef(false);
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
+
+  function returnToOverview() {
+    Keyboard.dismiss();
+
+    // Key fix:
+    // If we came from Overview, preserve the existing stack by going back.
+    // That way, the Overview back button returns to the previous tournament screen
+    // (not Home), because we didn’t nuke the stack with a reset.
+    if (navigation?.canGoBack?.()) {
+      navigation.goBack();
+      return;
+    }
+
+    // Fallback for edge cases (deep link, etc.)
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 0,
+        routes: [{ name: returnTo, params: { tournamentId } }],
+      })
+    );
+  }
 
   useEffect(() => {
     if (!tournamentId) {
@@ -210,7 +235,7 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
     return s.size;
   }, [t]);
 
-  // enforce the same order as Formats + Details, using detectFormatType (prevents Second Shot KP -> KP)
+  // enforce the same order as Formats + Details, using detectFormatType
   const orderedFormats = useMemo(() => {
     const getRank = (f) => {
       const type = detectFormatType(f);
@@ -273,7 +298,6 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
         textTransform: "uppercase",
       },
 
-      // premium outer card (thick bronzy border)
       premiumCard: {
         borderRadius: 18,
         padding: 14,
@@ -289,7 +313,6 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
 
       sub: { marginTop: 6, color: theme.text, opacity: 0.72, fontSize: 12, fontWeight: "800", lineHeight: 16 },
 
-      // inner green section like prior screen
       innerSection: {
         marginTop: 12,
         borderRadius: 16,
@@ -421,14 +444,30 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
         );
       }
 
+      dirtyRef.current = false;
+      Keyboard.dismiss();
+
+      if (fromOverview) {
+        // Edit mode: do not advance setupStep, just mark poolsReady + go back to Overview (preserve stack)
+        try {
+          await updateDoc(doc(db, "tournaments", tournamentId), {
+            poolsReady: true,
+            updatedAt: serverTimestamp(),
+          });
+        } catch (e) {
+          // non-blocking
+        }
+
+        returnToOverview();
+        return;
+      }
+
+      // Flow mode
       await updateDoc(doc(db, "tournaments", tournamentId), {
         setupStep: "players",
         poolsReady: true,
         updatedAt: serverTimestamp(),
       });
-
-      dirtyRef.current = false;
-      Keyboard.dismiss();
 
       navigation.navigate(ROUTES.TOURNAMENT_PLAYERS_SETUP, { tournamentId });
     } catch (e) {
@@ -494,14 +533,20 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
     );
   }
 
+  const primaryLabel = fromOverview ? "Save and return to overview" : "Save & Continue to Players";
+
   return (
     <View style={styles.screen}>
-      <ScreenHeader navigation={navigation} title="Money Pools" subtitle="Set the entry fee per selected side game." />
+      <ScreenHeader
+        navigation={navigation}
+        title="Money Pools"
+        subtitle={fromOverview ? "Edit pools, then return." : "Set the entry fee per selected side game."}
+      />
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.hero}>
-            <Text style={styles.heroKicker}>Step 5</Text>
+            <Text style={styles.heroKicker}>{fromOverview ? "Edit" : "Step 6"}</Text>
             <Text style={styles.heroTitle}>Tournament Pools</Text>
             <Text style={styles.heroSub}>
               Set the buy-in per side game. Pool estimate uses fee x roster. Current roster estimate: {rosterCount || 0}.
@@ -570,7 +615,7 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
               (saving || !isHost) && { opacity: 0.7 },
             ]}
           >
-            <Text style={styles.primaryText}>{saving ? "Saving..." : "Save & Continue to Players"}</Text>
+            <Text style={styles.primaryText}>{saving ? "Saving..." : primaryLabel}</Text>
           </Pressable>
         </View>
       </KeyboardAvoidingView>

@@ -2,15 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Alert, Platform, ScrollView, TextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import {
-  doc,
-  onSnapshot,
-  updateDoc,
-  serverTimestamp,
-  collection,
-  getDocs,
-  writeBatch,
-} from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, serverTimestamp, collection, getDocs, writeBatch } from "firebase/firestore";
 
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
@@ -24,11 +16,14 @@ export default function TournamentRoundsScreen({ navigation, route }) {
 
   const tournamentId = route?.params?.tournamentId;
 
+  // IMPORTANT: when opened from Overview, return by POP (goBack) so we don't stack Overview screens
+  const fromOverview = !!route?.params?.fromOverview;
+  const returnTo = String(route?.params?.returnTo || ROUTES.TOURNAMENT_OVERVIEW);
+
   const [t, setT] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // Text input state (premium: simple + explicit)
   const [roundsText, setRoundsText] = useState("");
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
@@ -127,7 +122,14 @@ export default function TournamentRoundsScreen({ navigation, route }) {
         borderColor: softBorder,
         backgroundColor: theme.card2,
       },
-      inputLabel: { color: theme.text, fontSize: 12, fontWeight: "900", letterSpacing: 1.2, opacity: 0.75, textTransform: "uppercase" },
+      inputLabel: {
+        color: theme.text,
+        fontSize: 12,
+        fontWeight: "900",
+        letterSpacing: 1.2,
+        opacity: 0.75,
+        textTransform: "uppercase",
+      },
 
       inputRow: { marginTop: 10, flexDirection: "row", alignItems: "center", gap: 10 },
       input: {
@@ -173,8 +175,6 @@ export default function TournamentRoundsScreen({ navigation, route }) {
   }, [theme, isDark, footerPad]);
 
   async function seedRoundsDocs(roundsTotal) {
-    // Create rounds docs r1..rN if missing, and delete extras if rounds reduced.
-    // IMPORTANT: never overwrite course/tee selections here.
     const roundsRef = collection(db, "tournaments", tournamentId, "rounds");
     const snap = await getDocs(roundsRef);
 
@@ -186,7 +186,6 @@ export default function TournamentRoundsScreen({ navigation, route }) {
 
     const batch = writeBatch(db);
 
-    // Upsert needed docs (minimal fields only)
     for (let i = 1; i <= roundsTotal; i++) {
       const id = `r${i}`;
       const ref = doc(db, "tournaments", tournamentId, "rounds", id);
@@ -201,7 +200,6 @@ export default function TournamentRoundsScreen({ navigation, route }) {
       );
     }
 
-    // Delete extras (including any non-canonical docs that aren’t in keepIds)
     existingById.forEach((d, id) => {
       if (!keepIds.has(id)) batch.delete(d.ref);
     });
@@ -209,7 +207,7 @@ export default function TournamentRoundsScreen({ navigation, route }) {
     await batch.commit();
   }
 
-  async function onConfirmContinue() {
+  async function onSave() {
     if (!tournamentId) return;
 
     if (!isHost) {
@@ -226,12 +224,24 @@ export default function TournamentRoundsScreen({ navigation, route }) {
     try {
       await seedRoundsDocs(parsedRounds);
 
-      await updateDoc(doc(db, "tournaments", tournamentId), {
+      const patch = {
         roundsTotal: parsedRounds,
         roundsReady: true,
-        setupStep: "courses",
         updatedAt: serverTimestamp(),
-      });
+      };
+
+      if (!fromOverview) {
+        patch.setupStep = "courses";
+      }
+
+      await updateDoc(doc(db, "tournaments", tournamentId), patch);
+
+      // KEY FIX: do NOT navigate to overview (that stacks). POP back to it.
+      if (fromOverview) {
+        if (navigation.canGoBack()) navigation.goBack();
+        else navigation.navigate(returnTo, { tournamentId });
+        return;
+      }
 
       navigation.navigate(ROUTES.TOURNAMENT_COURSE, { tournamentId });
     } catch (e) {
@@ -241,16 +251,24 @@ export default function TournamentRoundsScreen({ navigation, route }) {
     }
   }
 
+  const primaryLabel = fromOverview ? "Save and return to overview" : "Confirm & Continue";
+
   return (
     <View style={styles.screen}>
-      <ScreenHeader navigation={navigation} title="Rounds" subtitle="Confirm today’s structure" />
+      <ScreenHeader
+        navigation={navigation}
+        title="Rounds"
+        subtitle={fromOverview ? "Edit rounds, then return." : "Confirm today’s structure"}
+      />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.hero}>
-          <Text style={styles.heroKicker}>Step 1</Text>
+          <Text style={styles.heroKicker}>{fromOverview ? "Edit" : "Step 1"}</Text>
           <Text style={styles.heroTitle}>{loading ? "Loading..." : "How many rounds?"}</Text>
           <Text style={styles.heroSub}>
-            Type the number of rounds. Next, you’ll confirm the course for each round.
+            {fromOverview
+              ? "Update the number of rounds. Saving will return to the overview."
+              : "Type the number of rounds. Next, you’ll confirm the course for each round."}
           </Text>
         </View>
 
@@ -277,15 +295,13 @@ export default function TournamentRoundsScreen({ navigation, route }) {
             />
           </View>
 
-          <Text style={styles.hint}>
-            You can always return and reconfirm this later. Reducing rounds will remove extra rounds.
-          </Text>
+          <Text style={styles.hint}>You can always return and reconfirm this later. Reducing rounds will remove extra rounds.</Text>
         </View>
       </ScrollView>
 
       <View style={styles.footer}>
         <Pressable
-          onPress={onConfirmContinue}
+          onPress={onSave}
           disabled={!isHost || saving || !isValid}
           style={({ pressed }) => [
             styles.primaryBtn,
@@ -293,7 +309,7 @@ export default function TournamentRoundsScreen({ navigation, route }) {
             (!isHost || saving || !isValid) && { opacity: 0.7 },
           ]}
         >
-          <Text style={styles.primaryText}>{saving ? "Saving..." : "Confirm & Continue"}</Text>
+          <Text style={styles.primaryText}>{saving ? "Saving..." : primaryLabel}</Text>
         </Pressable>
       </View>
     </View>

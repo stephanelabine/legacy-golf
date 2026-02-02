@@ -1,4 +1,3 @@
-// src/navigation/routes.js
 const ROUTES = {
   BOOT: "Boot",
 
@@ -61,6 +60,10 @@ const ROUTES = {
   TOURNAMENT_TEAM_VS_TEAM_SETUP: "TournamentTeamVsTeamSetup",
   TOURNAMENT_TEAM_VS_TEAM_PAIRINGS: "TournamentTeamVsTeamPairings",
   TOURNAMENT_TEAM_VS_TEAM_PAIRINGS_OVERVIEW: "TournamentTeamVsTeamPairingsOverview",
+
+  // NEW: pre-start announcement page + animated start splash
+  TOURNAMENT_PAYOUTS: "TournamentPayouts",
+  TOURNAMENT_START_SPLASH: "TournamentStartSplash",
 
   /* ---------------- Tournaments (canonical aliases) ---------------- */
 
