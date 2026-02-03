@@ -33,7 +33,7 @@ import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import { useTheme } from "../theme/ThemeProvider";
 import { auth, db } from "../firebase/firebase";
-import { COURSES_LOCAL } from "../data/coursesLocal";
+import { searchCoursesUnified } from "../services/courseSearch";
 
 export default function TournamentCourseScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
@@ -53,7 +53,11 @@ export default function TournamentCourseScreen({ navigation, route }) {
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerRound, setPickerRound] = useState(1);
+
   const [qText, setQText] = useState("");
+
+  const [courseResults, setCourseResults] = useState([]);
+  const [searching, setSearching] = useState(false);
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
@@ -151,10 +155,10 @@ export default function TournamentCourseScreen({ navigation, route }) {
             typeof sourceData?.teeYardage === "number"
               ? sourceData.teeYardage
               : typeof migrateFromNumeric?.teeYardage === "number"
-              ? migrateFromNumeric.teeYardage
-              : migrateFromNumeric?.teeYardage
-              ? Number(migrateFromNumeric.teeYardage)
-              : null;
+                ? migrateFromNumeric.teeYardage
+                : migrateFromNumeric?.teeYardage
+                  ? Number(migrateFromNumeric.teeYardage)
+                  : null;
 
           batch.set(
             targetRef,
@@ -207,7 +211,7 @@ export default function TournamentCourseScreen({ navigation, route }) {
               courseName: r1CourseName || null,
               updatedAt: serverTimestamp(),
             });
-          } catch (e) {}
+          } catch (e) { }
         }
       } catch (e) {
         if (!cancelled) Alert.alert("Setup failed", e?.message || "Could not prepare round records.");
@@ -273,21 +277,33 @@ export default function TournamentCourseScreen({ navigation, route }) {
 
   const allRoundsHaveCourses = roundsReady && missingRounds.length === 0;
 
-  const courses = useMemo(() => {
-    const arr = Array.isArray(COURSES_LOCAL) ? [...COURSES_LOCAL] : [];
-    arr.sort((a, b) => String(a?.name || "").localeCompare(String(b?.name || "")));
-    return arr;
-  }, []);
+  // Search results for the picker (debounced, safe, minimal API usage)
+  useEffect(() => {
+    if (!pickerOpen) return;
 
-  const filteredCourses = useMemo(() => {
-    const q = String(qText || "").trim().toLowerCase();
-    if (!q) return courses;
-    return courses.filter((c) => {
-      const name = String(c?.name || "").toLowerCase();
-      const id = String(c?.id || "").toLowerCase();
-      return name.includes(q) || id.includes(q);
-    });
-  }, [courses, qText]);
+    let cancelled = false;
+    let timer = null;
+
+    async function run() {
+      setSearching(true);
+      try {
+        const list = await searchCoursesUnified(qText, { limit: 50 });
+        if (!cancelled) setCourseResults(Array.isArray(list) ? list : []);
+      } catch (e) {
+        if (!cancelled) setCourseResults([]);
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }
+
+    // Debounce typing so we don't spam API calls
+    timer = setTimeout(run, 350);
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [pickerOpen, qText]);
 
   const styles = useMemo(() => {
     const softBorder = isDark ? "rgba(255,255,255,0.14)" : "rgba(10,15,26,0.12)";
@@ -437,7 +453,15 @@ export default function TournamentCourseScreen({ navigation, route }) {
         backgroundColor: theme.bg,
       },
       modalTitle: { color: theme.text, fontSize: 18, fontWeight: "900", textAlign: "center" },
-      modalSub: { marginTop: 6, color: theme.text, opacity: 0.7, fontSize: 13, fontWeight: "700", lineHeight: 18, textAlign: "center" },
+      modalSub: {
+        marginTop: 6,
+        color: theme.text,
+        opacity: 0.7,
+        fontSize: 13,
+        fontWeight: "700",
+        lineHeight: 18,
+        textAlign: "center",
+      },
 
       input: {
         marginTop: 14,
@@ -450,6 +474,16 @@ export default function TournamentCourseScreen({ navigation, route }) {
         color: theme.text,
         fontSize: 15,
         fontWeight: "800",
+      },
+
+      hintLine: {
+        marginTop: 10,
+        marginBottom: 2,
+        color: theme.text,
+        opacity: 0.7,
+        fontSize: 12,
+        fontWeight: "800",
+        textAlign: "center",
       },
 
       courseRow: {
@@ -478,7 +512,20 @@ export default function TournamentCourseScreen({ navigation, route }) {
     }
     setPickerRound(roundIndex);
     setQText("");
+    setCourseResults([]);
     setPickerOpen(true);
+  }
+
+  function normalizePickedCourse(item) {
+    // from unified search:
+    // local: { id, name, ... }
+    // api: { id, name, clubName?, city?, state?, country?, raw... }
+    if (!item) return { id: "", name: "Course" };
+
+    const id = String(item?.id ?? item?.courseId ?? "").trim();
+    const name = String(item?.name ?? item?.courseName ?? "Course").trim();
+
+    return { id, name, raw: item?.raw || null, source: item?.source || null };
   }
 
   async function setCourseForRound(roundIndex, course) {
@@ -488,8 +535,9 @@ export default function TournamentCourseScreen({ navigation, route }) {
       return;
     }
 
-    const cid = String(course?.id ?? course?.courseId ?? "");
-    const cname = String(course?.name ?? "Course");
+    const picked = normalizePickedCourse(course);
+    const cid = picked.id;
+    const cname = picked.name || "Course";
 
     if (!cid) {
       Alert.alert("Missing course id", "This course is missing an id.");
@@ -589,7 +637,7 @@ export default function TournamentCourseScreen({ navigation, route }) {
       if (!fromOverview) patch.setupStep = "tees";
 
       await updateDoc(doc(db, "tournaments", tournamentId), patch);
-    } catch (e) {}
+    } catch (e) { }
 
     // Return behavior:
     // - If opened from Overview: POP back to the existing Overview (no duplicate Overview in stack)
@@ -613,6 +661,22 @@ export default function TournamentCourseScreen({ navigation, route }) {
     const current = roundInfo.get(pickerRound) || {};
     const active = String(current.courseId || "") && String(current.courseId) === cid;
 
+    const source = String(item?.source || "");
+    const subParts = [];
+    if (source === "api") {
+      const club = String(item?.clubName || "").trim();
+      const city = String(item?.city || "").trim();
+      const state = String(item?.state || "").trim();
+      const country = String(item?.country || "").trim();
+
+      const loc = [city, state].filter(Boolean).join(", ");
+      const tail = [loc, country].filter(Boolean).join(" · ");
+      if (club && club !== cname) subParts.push(club);
+      if (tail) subParts.push(tail);
+    } else if (source === "local") {
+      subParts.push("Local");
+    }
+
     return (
       <Pressable
         onPress={() => setCourseForRound(pickerRound, item)}
@@ -625,7 +689,7 @@ export default function TournamentCourseScreen({ navigation, route }) {
         ]}
       >
         <Text style={styles.courseRowTitle}>{cname}</Text>
-        <Text style={styles.courseRowSub}>courseId: {cid}</Text>
+        <Text style={styles.courseRowSub}>{subParts.length ? subParts.join(" · ") : `courseId: ${cid}`}</Text>
       </Pressable>
     );
   }
@@ -738,14 +802,14 @@ export default function TournamentCourseScreen({ navigation, route }) {
           }}
         >
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
-            <Pressable style={styles.modalCard} onPress={() => {}}>
+            <Pressable style={styles.modalCard} onPress={() => { }}>
               <Text style={styles.modalTitle}>Round {pickerRound} Course</Text>
               <Text style={styles.modalSub}>Search, then tap a course to set it for this round.</Text>
 
               <TextInput
                 value={qText}
                 onChangeText={setQText}
-                placeholder="Search courses (e.g. Osoyoos, Desert Gold, Park Meadows)"
+                placeholder="Search courses (type 3+ letters for live results)"
                 placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
                 style={styles.input}
                 autoCapitalize="none"
@@ -755,8 +819,12 @@ export default function TournamentCourseScreen({ navigation, route }) {
                 onSubmitEditing={() => Keyboard.dismiss()}
               />
 
+              <Text style={styles.hintLine}>
+                {searching ? "Searching…" : qText.trim().length < 3 ? "Tip: type at least 3 letters to search the live database." : "Tap a course to select it."}
+              </Text>
+
               <FlatList
-                data={filteredCourses}
+                data={courseResults}
                 keyExtractor={(c, i) => String(c?.id ?? c?.courseId ?? c?.name ?? i)}
                 renderItem={renderCoursePickRow}
                 keyboardShouldPersistTaps="handled"

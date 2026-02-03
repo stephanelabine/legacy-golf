@@ -1,5 +1,5 @@
 // src/screens/NewRoundScreen.js
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   SafeAreaView,
   View,
@@ -21,21 +21,111 @@ import ScreenHeader from "../components/ScreenHeader";
 import { COURSES_LOCAL } from "../data/coursesLocal";
 import { haversineKm } from "../utils/distance";
 import { loadActiveRound, saveActiveRound, updateActiveRound } from "../storage/roundState";
+import { searchCoursesUnified } from "../services/courseSearch";
 
 const FALLBACK_CENTER = { lat: 49.0504, lng: -122.3045 };
-const MAX_KM = 200;
 
-// Legacy green accents (matches the green-border language used elsewhere)
+// Legacy green accents
 const GREEN = "rgba(15,122,74,0.95)";
 const GREEN_BORDER = "rgba(15,122,74,0.55)";
 const GREEN_BG = "rgba(15,122,74,0.12)";
 const GREEN_BG_SOFT = "rgba(15,122,74,0.08)";
+
+// Option B: hide local courses except Green Tee
+const PINNED_LOCAL_COURSE_IDS = new Set([
+  "green-tee-country-club",
+  "green_tee_country_club",
+]);
+
+function norm(s) {
+  return String(s || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function isGreenTeeLocal(course) {
+  const id = String(course?.id || course?.courseId || "").trim();
+  if (PINNED_LOCAL_COURSE_IDS.has(id)) return true;
+
+  const name = norm(course?.name || course?.courseName || "");
+  return name.includes("green tee");
+}
 
 function formatKm(d) {
   const n = Number(d);
   if (!Number.isFinite(n)) return "—";
   if (n < 1) return "<1 km";
   return `${Math.round(n)} km`;
+}
+
+function safeNum(x, fallback = null) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function getLatLngFromAny(item) {
+  // local list: {lat,lng}
+  const latLocal = safeNum(item?.lat, null);
+  const lngLocal = safeNum(item?.lng, null);
+  if (Number.isFinite(latLocal) && Number.isFinite(lngLocal)) return { lat: latLocal, lng: lngLocal };
+
+  // api: raw.location.latitude/longitude (if present)
+  const latApi = safeNum(item?.raw?.location?.latitude, null);
+  const lngApi = safeNum(item?.raw?.location?.longitude, null);
+  if (Number.isFinite(latApi) && Number.isFinite(lngApi)) return { lat: latApi, lng: lngApi };
+
+  return null;
+}
+
+function normCourseName(x) {
+  return String(x || "").trim();
+}
+
+function normalizeSelectedCourse(course, { preferApi = false } = {}) {
+  const raw = course?.raw || null;
+
+  const idFromData = String(course?.id ?? course?.courseId ?? "").trim();
+  const nameFromData = normCourseName(course?.name ?? course?.courseName ?? course?.course_name ?? course?.clubName);
+
+  const fallbackId = nameFromData ? nameFromData.replace(/\s/g, "_").toLowerCase() : "";
+  const id = idFromData || fallbackId || `course_${Date.now()}`;
+
+  const ll = getLatLngFromAny(course);
+  const lat = ll?.lat ?? null;
+  const lng = ll?.lng ?? null;
+
+  const source = String(course?.source || (preferApi ? "api" : "local")).trim() || "local";
+
+  return {
+    id,
+    name: nameFromData || "Course",
+    lat,
+    lng,
+    source,
+    city: String(course?.city || "").trim(),
+    state: String(course?.state || "").trim(),
+    country: String(course?.country || "").trim(),
+    raw,
+  };
+}
+
+function dedupeApiResults(list) {
+  const seen = new Set();
+  const out = [];
+
+  for (const it of Array.isArray(list) ? list : []) {
+    const name = norm(it?.name || it?.courseName || it?.course_name || it?.clubName);
+    const city = norm(it?.city || it?.raw?.location?.city);
+    const state = norm(it?.state || it?.raw?.location?.state);
+    const key = `${name}|${city}|${state}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(it);
+  }
+
+  return out;
 }
 
 export default function NewRoundScreen({ navigation, route }) {
@@ -46,7 +136,18 @@ export default function NewRoundScreen({ navigation, route }) {
 
   const [selectedCourse, setSelectedCourse] = useState(null);
 
-  // Seed Active Round with GameSetup params (gameId, scoringMode, wagers, etc.)
+  const [searching, setSearching] = useState(false);
+  const [apiResults, setApiResults] = useState([]);
+  const searchSeqRef = useRef(0);
+  const debounceRef = useRef(null);
+
+  const qTrim = String(query || "").trim();
+  const qLower = qTrim.toLowerCase();
+
+  // API mode only at 3+ chars (clear, predictable)
+  const useApiMode = qTrim.length >= 3;
+
+  // Seed Active Round with GameSetup params
   useEffect(() => {
     let alive = true;
 
@@ -81,6 +182,7 @@ export default function NewRoundScreen({ navigation, route }) {
     };
   }, [route?.params?.gameId, route?.params?.gameTitle, route?.params?.scoringMode, route?.params?.wagers]);
 
+  // Location for distance labels (API results + pinned course)
   useEffect(() => {
     let active = true;
 
@@ -116,52 +218,110 @@ export default function NewRoundScreen({ navigation, route }) {
     return () => (active = false);
   }, []);
 
-  const nearbyCourses = useMemo(() => {
-    return COURSES_LOCAL.map((c) => {
-      const d = haversineKm(center, { lat: c.lat, lng: c.lng });
+  // Pinned local course only (Green Tee)
+  const pinnedLocalList = useMemo(() => {
+    const found = (Array.isArray(COURSES_LOCAL) ? COURSES_LOCAL : []).filter((c) => isGreenTeeLocal(c));
+
+    // enrich with distance
+    return found.map((c) => {
+      const ll = getLatLngFromAny(c);
+      const d = ll ? haversineKm(center, ll) : null;
       return {
         ...c,
-        distanceKm: Number.isFinite(d) ? d : 999999,
+        source: "local",
+        distanceKm: Number.isFinite(d) ? d : null,
       };
-    })
-      .filter((c) => c.distanceKm <= MAX_KM)
-      .sort((a, b) => a.distanceKm - b.distanceKm);
+    });
   }, [center]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return nearbyCourses;
-    return nearbyCourses.filter((c) => c.name.toLowerCase().includes(q));
-  }, [query, nearbyCourses]);
+  // API unified search (debounced) when query length >= 3
+  useEffect(() => {
+    if (!useApiMode) {
+      setSearching(false);
+      setApiResults([]);
+      return;
+    }
 
-  function tapCourse(course) {
-    Keyboard.dismiss();
+    if (debounceRef.current) clearTimeout(debounceRef.current);
 
-    const courseObj = {
-      id: course.name.replace(/\s/g, "_").toLowerCase(),
-      name: course.name,
-      lat: course.lat,
-      lng: course.lng,
+    const seq = ++searchSeqRef.current;
+
+    debounceRef.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await searchCoursesUnified(qTrim, { limit: 60 });
+        if (searchSeqRef.current !== seq) return;
+
+        // Option B: API-only results (no local fallback)
+        const apiOnly = (Array.isArray(res) ? res : []).filter((x) => String(x?.source || "") === "api");
+
+        const enriched = apiOnly.map((it) => {
+          const ll = getLatLngFromAny(it);
+          const d = ll ? haversineKm(center, ll) : null;
+          return { ...it, distanceKm: Number.isFinite(d) ? d : null };
+        });
+
+        setApiResults(dedupeApiResults(enriched));
+      } catch {
+        if (searchSeqRef.current !== seq) return;
+        setApiResults([]);
+      } finally {
+        if (searchSeqRef.current === seq) setSearching(false);
+      }
+    }, 250);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
     };
+  }, [useApiMode, qTrim, center]);
+
+  const listData = useApiMode ? apiResults : pinnedLocalList;
+
+  function tapCourse(item) {
+    Keyboard.dismiss();
+    const preferApi = String(item?.source || "") === "api";
+    const normalized = normalizeSelectedCourse(item, { preferApi });
 
     setSelectedCourse((prev) => {
-      if (prev?.id === courseObj.id) return null; // tap again to unselect
-      return courseObj;
+      if (prev?.id === normalized.id) return null;
+      return normalized;
     });
   }
 
   async function onContinue() {
     if (!selectedCourse) return;
 
-    await updateActiveRound({ course: { id: selectedCourse.id, name: selectedCourse.name } });
+    await updateActiveRound({
+      course: {
+        id: selectedCourse.id,
+        name: selectedCourse.name,
+        raw: selectedCourse.raw || null,
+        source: selectedCourse.source || null,
+        city: selectedCourse.city || null,
+        state: selectedCourse.state || null,
+        country: selectedCourse.country || null,
+        lat: Number.isFinite(Number(selectedCourse.lat)) ? Number(selectedCourse.lat) : null,
+        lng: Number.isFinite(Number(selectedCourse.lng)) ? Number(selectedCourse.lng) : null,
+      },
+    });
 
     if (__DEV__) {
       console.log("[LegacyGolf] Active round updated with course:", selectedCourse);
     }
 
     navigation.navigate(ROUTES.TEE_SELECTION, {
-      course: { id: selectedCourse.id, name: selectedCourse.name },
       ...(route?.params || {}),
+      course: {
+        id: selectedCourse.id,
+        name: selectedCourse.name,
+        raw: selectedCourse.raw || null,
+        source: selectedCourse.source || null,
+        city: selectedCourse.city || null,
+        state: selectedCourse.state || null,
+        country: selectedCourse.country || null,
+        lat: selectedCourse.lat ?? null,
+        lng: selectedCourse.lng ?? null,
+      },
     });
   }
 
@@ -169,24 +329,35 @@ export default function NewRoundScreen({ navigation, route }) {
   const listBottomPad = footerHeight + 20;
 
   function renderRow({ item }) {
-    const courseObjId = item.name.replace(/\s/g, "_").toLowerCase();
-    const active = selectedCourse?.id === courseObjId;
+    const preferApi = String(item?.source || "") === "api";
+    const obj = normalizeSelectedCourse(item, { preferApi });
+    const active = selectedCourse?.id === obj.id;
+
+    const distanceLabel = Number.isFinite(Number(item?.distanceKm)) ? formatKm(item.distanceKm) : null;
+
+    let metaRight = preferApi ? "Online" : "Home";
+    if (distanceLabel) metaRight = distanceLabel;
+
+    let subLeft = "Tap to select";
+    if (preferApi) {
+      const loc = [String(item?.city || "").trim(), String(item?.state || "").trim(), String(item?.country || "").trim()]
+        .filter(Boolean)
+        .join(", ");
+      subLeft = loc || "Tap to select";
+    } else {
+      subLeft = "Protected local course (no API import)";
+    }
 
     return (
       <Pressable
         onPress={() => tapCourse(item)}
-        style={({ pressed }) => [
-          styles.row,
-          styles.rowShadow,
-          active && styles.rowActive,
-          pressed && styles.pressed,
-        ]}
+        style={({ pressed }) => [styles.row, styles.rowShadow, active && styles.rowActive, pressed && styles.pressed]}
       >
         <View style={styles.rowMain}>
           <View style={{ flex: 1, minWidth: 0 }}>
             <View style={styles.rowTop}>
               <Text style={styles.rowTitle} numberOfLines={1}>
-                {item.name}
+                {obj.name}
               </Text>
 
               {active ? (
@@ -198,11 +369,11 @@ export default function NewRoundScreen({ navigation, route }) {
 
             <View style={styles.rowMeta}>
               <View style={[styles.kmPill, active && styles.kmPillActive]}>
-                <Text style={[styles.kmText, active && styles.kmTextActive]}>{formatKm(item.distanceKm)}</Text>
+                <Text style={[styles.kmText, active && styles.kmTextActive]}>{metaRight}</Text>
               </View>
 
               <Text style={styles.rowSub} numberOfLines={1}>
-                Tap to select
+                {subLeft}
               </Text>
             </View>
           </View>
@@ -215,9 +386,20 @@ export default function NewRoundScreen({ navigation, route }) {
     );
   }
 
+  const headerSubtitle = useApiMode
+    ? "Online course search"
+    : "Home course (local) • Type 3+ letters to search online";
+
+  const showLoadingState = (!useApiMode && loadingLoc && pinnedLocalList.length === 0) || (useApiMode && searching);
+
+  const emptyTitle = useApiMode ? "No online matches" : "Home course not found";
+  const emptySub = useApiMode
+    ? "Try a different spelling. (Online search starts at 3+ letters.)"
+    : "Green Tee isn’t present in your local list. We can add it back safely.";
+
   return (
     <SafeAreaView style={styles.safe}>
-      <ScreenHeader navigation={navigation} title="Select Course" subtitle={`Nearby courses within ${MAX_KM} km.`} />
+      <ScreenHeader navigation={navigation} title="Select Course" subtitle={headerSubtitle} />
 
       <View style={styles.topArea}>
         <TextInput
@@ -232,28 +414,38 @@ export default function NewRoundScreen({ navigation, route }) {
           clearButtonMode="while-editing"
         />
 
+        {!useApiMode ? (
+          <View style={styles.bannerHome}>
+            <Text style={styles.bannerTextHome}>Green Tee is protected. Search 3+ letters for online courses.</Text>
+          </View>
+        ) : (
+          <View style={styles.bannerApi}>
+            <Text style={styles.bannerTextApi}>{searching ? "Searching online courses…" : "Powered by GolfCourseAPI"}</Text>
+          </View>
+        )}
+
         {locationDenied ? (
           <View style={styles.banner}>
-            <Text style={styles.bannerText}>Location off — showing default nearby</Text>
+            <Text style={styles.bannerText}>Location off — distance may be approximate</Text>
           </View>
         ) : null}
       </View>
 
       <View style={styles.body}>
-        {loadingLoc ? (
+        {showLoadingState ? (
           <View style={styles.loadingWrap}>
             <ActivityIndicator />
-            <Text style={styles.loadingText}>Finding nearby courses…</Text>
+            <Text style={styles.loadingText}>{useApiMode ? "Searching courses…" : "Loading…"}</Text>
           </View>
-        ) : filtered.length === 0 ? (
+        ) : listData.length === 0 ? (
           <View style={styles.emptyWrap}>
-            <Text style={styles.emptyTitle}>No matches nearby</Text>
-            <Text style={styles.emptySub}>Try a different search, or adjust your spelling.</Text>
+            <Text style={styles.emptyTitle}>{emptyTitle}</Text>
+            <Text style={styles.emptySub}>{emptySub}</Text>
           </View>
         ) : (
           <FlatList
-            data={filtered}
-            keyExtractor={(item) => item.name}
+            data={listData}
+            keyExtractor={(item, idx) => String(item?.id || item?.name || idx)}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={[styles.listContent, { paddingBottom: listBottomPad }]}
             renderItem={renderRow}
@@ -262,7 +454,6 @@ export default function NewRoundScreen({ navigation, route }) {
         )}
       </View>
 
-      {/* PREMIUM FOOTER CTA */}
       <View style={styles.footer}>
         <View style={styles.footerInner}>
           <View style={{ flex: 1, minWidth: 0 }}>
@@ -307,7 +498,7 @@ const styles = StyleSheet.create({
   },
 
   banner: {
-    marginTop: 12,
+    marginTop: 10,
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderRadius: 14,
@@ -316,6 +507,28 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.04)",
   },
   bannerText: { color: "#fff", opacity: 0.72, fontSize: 12, fontWeight: "800" },
+
+  bannerHome: {
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(15,122,74,0.20)",
+    backgroundColor: "rgba(15,122,74,0.10)",
+  },
+  bannerTextHome: { color: "#fff", opacity: 0.82, fontSize: 12, fontWeight: "800" },
+
+  bannerApi: {
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(46,125,255,0.18)",
+    backgroundColor: "rgba(46,125,255,0.08)",
+  },
+  bannerTextApi: { color: "#fff", opacity: 0.78, fontSize: 12, fontWeight: "800" },
 
   body: { flex: 1 },
 

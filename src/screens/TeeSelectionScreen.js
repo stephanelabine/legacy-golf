@@ -1,3 +1,4 @@
+// src/screens/TeeSelectionScreen.js
 import React, { useEffect, useMemo, useState } from "react";
 import {
   SafeAreaView,
@@ -19,6 +20,16 @@ import { getTeesForCourse } from "../services/tees";
 import { loadCourseData } from "../storage/courseData";
 import { updateActiveRound } from "../storage/roundState";
 
+const PROTECTED_LOCAL_COURSE_IDS = new Set([
+  "green-tee-country-club", // Green Tee Country Club (your home course)
+]);
+
+function formatYds(y) {
+  const n = Number(y);
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  return String(Math.round(n));
+}
+
 export default function TeeSelectionScreen({ navigation, route }) {
   const { course } = route.params;
 
@@ -31,21 +42,43 @@ export default function TeeSelectionScreen({ navigation, route }) {
     let mounted = true;
 
     (async () => {
-      const [data, saved] = await Promise.all([getTeesForCourse(course.id), loadCourseData(course.id)]);
+      try {
+        const courseId = String(course?.id || "").trim();
+        const isProtected = PROTECTED_LOCAL_COURSE_IDS.has(courseId);
 
-      if (!mounted) return;
+        const [teeList, saved] = await Promise.all([
+          // If protected, do NOT call API tees (prevents mismatched/overwritten tees)
+          isProtected
+            ? getTeesForCourse(courseId, { courseName: course?.name || "", forceLocalOnly: true })
+            : getTeesForCourse(courseId, { courseName: course?.name || "" }),
 
-      const list = Array.isArray(data) ? data : [];
-      setTees(list);
-      setHoleMeta(saved?.holeMeta || null);
-      setSelectedCode(list?.[0]?.code || null);
-      setLoading(false);
+          // If protected, do NOT allow API import
+          loadCourseData(courseId, { allowApiImport: !isProtected, publishIfAdmin: false }),
+        ]);
+
+        if (!mounted) return;
+
+        const list = Array.isArray(teeList) ? teeList : [];
+        setTees(list);
+        setHoleMeta(saved?.holeMeta || null);
+        setSelectedCode(list?.[0]?.code || null);
+      } catch (e) {
+        if (!mounted) return;
+        setTees([]);
+        setHoleMeta(null);
+        setSelectedCode(null);
+      } finally {
+        if (mounted) setLoading(false);
+      }
     })();
 
     return () => (mounted = false);
-  }, [course.id]);
+  }, [course.id, course?.name]);
 
-  const selectedTee = useMemo(() => tees.find((t) => t.code === selectedCode), [tees, selectedCode]);
+  const selectedTee = useMemo(
+    () => tees.find((t) => t.code === selectedCode),
+    [tees, selectedCode]
+  );
 
   function openCourseData() {
     navigation.navigate(ROUTES.COURSE_DATA, { course });
@@ -58,13 +91,8 @@ export default function TeeSelectionScreen({ navigation, route }) {
     }
 
     const scoring = route?.params?.scoring || route?.params?.scoringType || "net";
-
-    // IMPORTANT:
-    // Do NOT default playerCount to 4 here.
-    // Leave it null/undefined so the Player Setup screen can show a blank input on arrival.
     const playerCount = route?.params?.playerCount ?? null;
 
-    // Persist tee + holeMeta into Active Round (stability for downstream screens)
     const patch = {
       tee: selectedTee,
       holeMeta: holeMeta || null,
@@ -89,7 +117,11 @@ export default function TeeSelectionScreen({ navigation, route }) {
   }
 
   const right = (
-    <Pressable onPress={openCourseData} hitSlop={12} style={({ pressed }) => [styles.headerAction, pressed && styles.pressed]}>
+    <Pressable
+      onPress={openCourseData}
+      hitSlop={12}
+      style={({ pressed }) => [styles.headerAction, pressed && styles.pressed]}
+    >
       <Text style={styles.headerActionText}>Edit</Text>
     </Pressable>
   );
@@ -106,19 +138,32 @@ export default function TeeSelectionScreen({ navigation, route }) {
         />
 
         <View style={styles.headerBody}>
-          <Pressable onPress={openCourseData} style={({ pressed }) => [styles.editCard, pressed && styles.pressed]}>
+          <Pressable
+            onPress={openCourseData}
+            style={({ pressed }) => [styles.editCard, pressed && styles.pressed]}
+          >
             <View style={styles.editLeft}>
               <View style={styles.editIconWrap}>
-                <MaterialCommunityIcons name="pencil" size={18} color="rgba(255,255,255,0.85)" />
+                <MaterialCommunityIcons
+                  name="pencil"
+                  size={18}
+                  color="rgba(255,255,255,0.85)"
+                />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.editTitle}>Edit Course Hole Data</Text>
-                <Text style={styles.editSub}>Set Par + Stroke Index (for Net scoring)</Text>
+                <Text style={styles.editSub}>
+                  Set Par + Stroke Index (for Net scoring)
+                </Text>
               </View>
             </View>
 
             <View style={styles.chevWrap}>
-              <MaterialCommunityIcons name="chevron-right" size={22} color="rgba(255,255,255,0.65)" />
+              <MaterialCommunityIcons
+                name="chevron-right"
+                size={22}
+                color="rgba(255,255,255,0.65)"
+              />
             </View>
           </Pressable>
 
@@ -126,7 +171,11 @@ export default function TeeSelectionScreen({ navigation, route }) {
             <View style={styles.selectedSummary}>
               <View style={styles.summaryLeft}>
                 <View style={styles.summaryIcon}>
-                  <MaterialCommunityIcons name="flag-variant" size={18} color="rgba(255,255,255,0.90)" />
+                  <MaterialCommunityIcons
+                    name="flag-variant"
+                    size={18}
+                    color="rgba(255,255,255,0.90)"
+                  />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.summaryLabel}>Selected tee</Text>
@@ -137,7 +186,9 @@ export default function TeeSelectionScreen({ navigation, route }) {
               </View>
 
               <View style={styles.summaryPill}>
-                <Text style={styles.summaryPillText}>{selectedTee.yardage} yds</Text>
+                <Text style={styles.summaryPillText}>
+                  {formatYds(selectedTee.yardage)} yds
+                </Text>
               </View>
             </View>
           ) : null}
@@ -152,7 +203,12 @@ export default function TeeSelectionScreen({ navigation, route }) {
     return (
       <Pressable
         onPress={() => setSelectedCode(item.code)}
-        style={({ pressed }) => [styles.teeCard, styles.rowShadow, active && styles.teeCardActive, pressed && styles.pressed]}
+        style={({ pressed }) => [
+          styles.teeCard,
+          styles.rowShadow,
+          active && styles.teeCardActive,
+          pressed && styles.pressed,
+        ]}
       >
         <View style={styles.teeTop}>
           <Text style={styles.teeTitle} numberOfLines={1}>
@@ -168,7 +224,7 @@ export default function TeeSelectionScreen({ navigation, route }) {
 
         <View style={styles.teeMeta}>
           <View style={styles.kmPill}>
-            <Text style={styles.kmText}>{item.yardage} yds</Text>
+            <Text style={styles.kmText}>{formatYds(item.yardage)} yds</Text>
           </View>
           <Text style={styles.teeSub}>Tap to select</Text>
         </View>
@@ -191,7 +247,7 @@ export default function TeeSelectionScreen({ navigation, route }) {
     <SafeAreaView style={styles.safe}>
       <FlatList
         data={tees}
-        keyExtractor={(t) => t.code}
+        keyExtractor={(t, i) => String(t?.code || i)}
         renderItem={renderItem}
         ListHeaderComponent={renderHeader}
         contentContainerStyle={styles.listContent}
@@ -258,7 +314,14 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.04)",
   },
   editTitle: { color: "#fff", fontSize: 14, fontWeight: "900" },
-  editSub: { marginTop: 6, color: "#fff", opacity: 0.62, fontSize: 12, fontWeight: "700", lineHeight: 17 },
+  editSub: {
+    marginTop: 6,
+    color: "#fff",
+    opacity: 0.62,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 17,
+  },
 
   chevWrap: {
     width: 36,

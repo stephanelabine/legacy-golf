@@ -1,6 +1,14 @@
 // src/storage/courseData.js
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { readCourseRemote, writeCourseRemote, wipeCourseRemote, isAdmin } from "./courseDataRemote";
+import {
+  readCourseRemote,
+  writeCourseRemote,
+  wipeCourseRemote,
+  isAdmin,
+} from "./courseDataRemote";
+
+// Setup-time API import (only when explicitly enabled via opts.allowApiImport)
+import { getCourseDetails } from "../api/golfCourseApi";
 
 const PREFIX = "LEGACY_GOLF_COURSE_DATA_V1:";
 
@@ -28,6 +36,108 @@ function deepMerge(base, patch) {
     else out[k] = pv;
   }
   return out;
+}
+
+function safeNum(x) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : null;
+}
+
+function coerceHoleMetaFromApiDetails(details) {
+  // normalizeCourseDetails in golfCourseApi returns { tees: teesFlat, raw }
+  // teesFlat entries may include: total_yards, holes: [{par, yardage, handicap}, ...]
+  const tees = Array.isArray(details?.tees) ? details.tees : [];
+
+  let bestTee = null;
+  let bestScore = -1;
+
+  for (const t of tees) {
+    const holes = Array.isArray(t?.holes) ? t.holes : [];
+    const holeCount = holes.length;
+
+    let hasPar = 0;
+    let hasSi = 0;
+    for (const h of holes) {
+      if (safeNum(h?.par) != null) hasPar++;
+      if (safeNum(h?.handicap) != null) hasSi++;
+    }
+
+    const score = holeCount * 10 + hasPar * 2 + hasSi;
+    if (score > bestScore) {
+      bestScore = score;
+      bestTee = t;
+    }
+  }
+
+  const holes = Array.isArray(bestTee?.holes) ? bestTee.holes : [];
+  if (!holes.length) return null;
+
+  const holeMeta = {};
+  for (let i = 0; i < holes.length; i++) {
+    const n = i + 1;
+    const h = holes[i] || {};
+
+    const par = safeNum(h?.par);
+    const si =
+      safeNum(h?.handicap) ??
+      safeNum(h?.stroke_index) ??
+      safeNum(h?.strokeIndex) ??
+      safeNum(h?.si);
+
+    // Only set fields we actually have; do not invent values.
+    holeMeta[String(n)] = {
+      ...(par != null ? { par } : {}),
+      ...(si != null ? { si } : {}),
+    };
+  }
+
+  return holeMeta;
+}
+
+async function tryImportCourseDataFromApi(courseId, opts = {}) {
+  const cid = String(courseId || "").trim();
+  if (!cid) return null;
+
+  try {
+    const details = await getCourseDetails(cid);
+    if (!details) return null;
+
+    const holeMeta = coerceHoleMetaFromApiDetails(details);
+
+    // If API doesn’t provide holes/par/si, don’t save junk.
+    const hasHoleMeta = holeMeta && Object.keys(holeMeta).length > 0;
+    if (!hasHoleMeta) return null;
+
+    const payload = {
+      source: "golfcourseapi",
+      importedAt: new Date().toISOString(),
+      courseSummary: {
+        id: details?.id || cid,
+        courseName: details?.courseName || "",
+        clubName: details?.clubName || "",
+        city: details?.city || "",
+        state: details?.state || "",
+        country: details?.country || "",
+      },
+      holeMeta,
+    };
+
+    // Save local immediately so the app can use it.
+    await saveCourseDataLocalOnly(cid, payload);
+
+    // Optional: publish to cloud only if explicitly asked AND admin.
+    if (opts?.publishIfAdmin === true && isAdmin()) {
+      try {
+        await writeCourseRemote(cid, payload, { merge: false });
+      } catch {
+        // keep local even if remote fails
+      }
+    }
+
+    return payload;
+  } catch {
+    return null;
+  }
 }
 
 export async function loadCourseDataLocalOnly(courseId) {
@@ -58,7 +168,10 @@ export async function clearCourseDataLocalOnly(courseId) {
 }
 
 // MAIN LOAD: remote first, fallback to local
-export async function loadCourseData(courseId) {
+// opts:
+// - allowApiImport: true/false (default false)
+// - publishIfAdmin: true/false (default false) only used if allowApiImport is true
+export async function loadCourseData(courseId, opts = {}) {
   const cid = String(courseId);
 
   try {
@@ -71,7 +184,16 @@ export async function loadCourseData(courseId) {
     // ignore remote errors; fall back to local
   }
 
-  return await loadCourseDataLocalOnly(cid);
+  const local = await loadCourseDataLocalOnly(cid);
+  if (local) return local;
+
+  // IMPORTANT: Only import from API when explicitly enabled.
+  if (opts?.allowApiImport === true) {
+    const imported = await tryImportCourseDataFromApi(cid, opts);
+    if (imported) return imported;
+  }
+
+  return null;
 }
 
 // MAIN SAVE: admin writes remote + local. guests only local is blocked by UI, but keep safe here too.
@@ -143,7 +265,8 @@ export async function listLocalCourseDataSummaries() {
       const si1 = hole1?.si ?? null;
       const par1 = hole1?.par ?? null;
 
-      const holesObj = parsed?.gps?.holes && typeof parsed.gps.holes === "object" ? parsed.gps.holes : {};
+      const holesObj =
+        parsed?.gps?.holes && typeof parsed.gps.holes === "object" ? parsed.gps.holes : {};
       const gpsHolesCount = Object.keys(holesObj || {}).length;
 
       out.push({
