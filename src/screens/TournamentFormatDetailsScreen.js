@@ -24,7 +24,6 @@ const HOLE_FORMAT_KEYS = new Set(["kp", "second_shot_kp", "long_drive"]);
 const TEAM_KEY = "team_vs_team";
 
 const FORMAT_ORDER = ["kp", "long_drive", "second_shot_kp", "deuce_pot", "putting_contest", "team_vs_team"];
-
 const HOLE_COLS = 6;
 
 function clampInt(n, min, max) {
@@ -68,8 +67,6 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
 
   const tournamentId = route?.params?.tournamentId;
 
-  // If this screen was opened from Tournament Overview (edit mode),
-  // saving must return to the Overview WITHOUT sending the user forward to Money Pools.
   const fromOverview = !!route?.params?.fromOverview;
   const returnTo = String(route?.params?.returnTo || ROUTES.TOURNAMENT_OVERVIEW);
 
@@ -85,9 +82,6 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
-  // This is the key fix:
-  // Return to an existing Overview that’s already in the stack (so Back returns to the parent screen, not Home),
-  // and remove the edit screens above it (so no stacking/duplicates).
   function smartReturnTo(routeName, params) {
     try {
       const state = navigation.getState?.();
@@ -211,7 +205,6 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
     const softBorder = isDark ? "rgba(255,255,255,0.14)" : "rgba(10,15,26,0.12)";
     const softBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(10,15,26,0.06)";
 
-    // premium bronze-gold (less yellow)
     const premiumGold = isDark ? "rgba(196, 160, 98, 0.88)" : "rgba(176, 136, 78, 0.90)";
     const premiumGoldGlow = isDark ? "rgba(196, 160, 98, 0.10)" : "rgba(176, 136, 78, 0.10)";
 
@@ -221,11 +214,9 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
     const blue = isDark ? "rgba(46,125,255,0.92)" : "rgba(29,53,87,0.92)";
     const blueBgStrong = isDark ? "rgba(46,125,255,0.22)" : "rgba(29,53,87,0.16)";
 
-    // clear green section borders
     const greenSectionBorder = isDark ? "rgba(90, 235, 165, 0.55)" : "rgba(42, 200, 125, 0.55)";
     const greenSectionBg = isDark ? "rgba(15, 122, 74, 0.10)" : "rgba(15, 122, 74, 0.08)";
 
-    // stronger selected holes
     const greenOnBorder = isDark ? "rgba(90, 235, 165, 0.92)" : "rgba(42, 200, 125, 0.92)";
     const greenOnBg = isDark ? "rgba(90, 235, 165, 0.24)" : "rgba(42, 200, 125, 0.18)";
 
@@ -267,7 +258,6 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
         textTransform: "uppercase",
       },
 
-      // thick gold border around the entire format card
       card: {
         borderRadius: 20,
         padding: 14,
@@ -291,7 +281,6 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
       cardTitle: { flex: 1, color: theme.text, fontSize: 15, fontWeight: "900" },
       cardSub: { marginTop: 8, color: theme.text, opacity: 0.72, fontSize: 12, fontWeight: "800", lineHeight: 16 },
 
-      // green bordered inner sections
       groupBox: {
         marginTop: 12,
         borderRadius: 16,
@@ -301,7 +290,6 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
         backgroundColor: greenSectionBg,
       },
 
-      // rounds (4-column aligned)
       roundRow: {
         flexDirection: "row",
         flexWrap: "wrap",
@@ -325,7 +313,6 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
       roundChipOn: { borderColor: blue, backgroundColor: blueBgStrong },
       roundChipText: { color: theme.text, fontSize: 12, fontWeight: "900", opacity: 0.9 },
 
-      // holes: fixed size + forced rows of 6
       holesWrap: { marginTop: 10 },
       holeRow: { flexDirection: "row", gap: 8, marginBottom: 8 },
       holeChip: {
@@ -356,7 +343,6 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
         fontWeight: "900",
       },
 
-      // notes also get the same green border system
       note: {
         marginTop: 12,
         borderRadius: 16,
@@ -417,7 +403,8 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
     setConfigByKey((prev) => {
       const base = prev && typeof prev === "object" ? prev : {};
       const existingCfg = base[formatKey] && typeof base[formatKey] === "object" ? base[formatKey] : {};
-      const holesByRound = existingCfg?.holesByRound && typeof existingCfg.holesByRound === "object" ? existingCfg.holesByRound : {};
+      const holesByRound =
+        existingCfg?.holesByRound && typeof existingCfg.holesByRound === "object" ? existingCfg.holesByRound : {};
 
       const current = uniqInts(holesByRound?.[roundKey] || []);
       const has = current.includes(hn);
@@ -509,8 +496,8 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
                   })}
                   {row.length < HOLE_COLS
                     ? Array.from({ length: HOLE_COLS - row.length }, (_, i) => (
-                        <View key={`${key}_${selectedRound}_sp_${idx}_${i}`} style={styles.holeSpacer} />
-                      ))
+                      <View key={`${key}_${selectedRound}_sp_${idx}_${i}`} style={styles.holeSpacer} />
+                    ))
                     : null}
                 </View>
               ))}
@@ -620,6 +607,7 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
 
   async function saveDetails() {
     if (!tournamentId) return;
+
     if (!isHost) {
       Alert.alert("Host only", "Only the host can edit format details.");
       return;
@@ -634,6 +622,8 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
 
     setSaving(true);
     try {
+      let teamNamesToSync = null;
+
       for (const f of orderedDocs || []) {
         const key = getKey(f);
         if (!key) continue;
@@ -655,6 +645,9 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
         if (isTeam) {
           const safeA = String(teamAName || "Hackers").trim() || "Hackers";
           const safeB = String(teamBName || "Slackers").trim() || "Slackers";
+
+          teamNamesToSync = { teamAName: safeA, teamBName: safeB };
+
           config = {
             ...config,
             teams: {
@@ -680,19 +673,28 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
         );
       }
 
+      // key fix: also persist to tournament.teamVsTeam so other screens auto-populate
+      if (teamNamesToSync) {
+        await updateDoc(doc(db, "tournaments", tournamentId), {
+          teamVsTeam: {
+            ...(t?.teamVsTeam && typeof t.teamVsTeam === "object" ? t.teamVsTeam : {}),
+            teamAName: teamNamesToSync.teamAName,
+            teamBName: teamNamesToSync.teamBName,
+          },
+          updatedAt: serverTimestamp(),
+        });
+      }
+
       if (fromOverview) {
-        // Edit mode: do NOT advance the setup flow.
         await updateDoc(doc(db, "tournaments", tournamentId), {
           formatDetailsReady: true,
           updatedAt: serverTimestamp(),
         });
 
-        // Return to the existing Overview already in the stack (so Back returns to Pairings overview).
         smartReturnTo(returnTo, { tournamentId });
         return;
       }
 
-      // Setup flow mode: proceed to Money Pools.
       await updateDoc(doc(db, "tournaments", tournamentId), {
         setupStep: "pools",
         formatDetailsReady: true,
@@ -707,21 +709,22 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
     }
   }
 
-  const ordered = useMemo(() => sortByCatalog(formatDocs), [formatDocs]);
+  const holeBased = useMemo(() => orderedDocs.filter((f) => HOLE_FORMAT_KEYS.has(getKey(f))), [orderedDocs]);
 
-  const holeBased = useMemo(() => ordered.filter((f) => HOLE_FORMAT_KEYS.has(getKey(f))), [ordered]);
   const otherFormats = useMemo(
     () =>
-      ordered.filter((f) => {
+      orderedDocs.filter((f) => {
         const k = getKey(f);
         return k && !HOLE_FORMAT_KEYS.has(k) && k !== TEAM_KEY;
       }),
-    [ordered]
+    [orderedDocs]
   );
-  const teamFormats = useMemo(() => ordered.filter((f) => getKey(f) === TEAM_KEY), [ordered]);
+
+  const teamFormats = useMemo(() => orderedDocs.filter((f) => getKey(f) === TEAM_KEY), [orderedDocs]);
 
   const primaryLabel = fromOverview ? "Save and return to overview" : "Save & Continue to Money Pools";
   const kickerLabel = fromOverview ? "Edit" : "Step 5";
+
   const heroSub = fromOverview
     ? "Edit your format details. Saving will return to the overview."
     : "Hole-based games need official hole selection per round. Team vs Team stores team names now and supports auto-balancing later.";
@@ -742,7 +745,7 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
 
           <View style={styles.pillRow}>
             <View style={styles.pill}>
-              <Text style={styles.pillText}>formats: {ordered.length}</Text>
+              <Text style={styles.pillText}>formats: {orderedDocs.length}</Text>
             </View>
             <View style={styles.pill}>
               <Text style={styles.pillText}>rounds: {roundsTotal}</Text>
@@ -753,7 +756,7 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
           </View>
         </View>
 
-        {!ordered.length ? (
+        {!orderedDocs.length ? (
           <View style={styles.empty}>
             <Text style={styles.emptyTitle}>No formats selected</Text>
             <Text style={styles.emptySub}>Go back and select at least one tournament side game.</Text>

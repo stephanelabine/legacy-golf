@@ -72,6 +72,8 @@ import TournamentTeamVsTeamPairingsOverviewScreen from "../screens/TournamentTea
 // NEW
 import TournamentPayoutsScreen from "../screens/TournamentPayoutsScreen";
 import TournamentStartSplashScreen from "../screens/TournamentStartSplashScreen";
+import TournamentLiveHubScreen from "../screens/TournamentLiveHubScreen";
+import TournamentPlayerBriefingScreen from "../screens/TournamentPlayerBriefingScreen";
 
 /* ---------------- results/payouts ---------------- */
 
@@ -169,9 +171,11 @@ export default function RootNavigator() {
 
           <Stack.Screen name={ROUTES.TOURNAMENT_OVERVIEW} component={TournamentOverviewScreen} />
 
-          {/* NEW: announcement + start splash (normal screens) */}
+          {/* Post-setup runway */}
           <Stack.Screen name={ROUTES.TOURNAMENT_PAYOUTS} component={TournamentPayoutsScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_START_SPLASH} component={TournamentStartSplashScreen} />
+          <Stack.Screen name={ROUTES.TOURNAMENT_LIVE_HUB} component={TournamentLiveHubScreen} />
+          <Stack.Screen name={ROUTES.TOURNAMENT_PLAYER_BRIEFING} component={TournamentPlayerBriefingScreen} />
 
           {/* Modals */}
           <Stack.Group

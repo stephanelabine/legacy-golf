@@ -61,9 +61,11 @@ const ROUTES = {
   TOURNAMENT_TEAM_VS_TEAM_PAIRINGS: "TournamentTeamVsTeamPairings",
   TOURNAMENT_TEAM_VS_TEAM_PAIRINGS_OVERVIEW: "TournamentTeamVsTeamPairingsOverview",
 
-  // NEW: pre-start announcement page + animated start splash
   TOURNAMENT_PAYOUTS: "TournamentPayouts",
   TOURNAMENT_START_SPLASH: "TournamentStartSplash",
+
+  TOURNAMENT_LIVE_HUB: "TournamentLiveHub",
+  TOURNAMENT_PLAYER_BRIEFING: "TournamentPlayerBriefing",
 
   /* ---------------- Tournaments (canonical aliases) ---------------- */
 

@@ -66,14 +66,14 @@ export default function TournamentStartSplashScreen({ navigation, route }) {
         Animated.spring(scale, { toValue: 1, friction: 6, tension: 110, useNativeDriver: true }),
       ]).start();
 
-      // DEV PREVIEW: show the splash but do NOT lock or change tournament status
+      // DEV PREVIEW: show splash but do NOT lock or change tournament status
       if (__DEV__ && devPreview) {
         setTimeout(() => {
           if (cancelled) return;
           setStarting(false);
 
-          // Replace splash with Overview so Back returns to Payouts (normal dev navigation)
-          navigation.replace(ROUTES.TOURNAMENT_OVERVIEW, { tournamentId, devPreview: true });
+          // Replace splash with Live Hub so Back doesn’t create a loop
+          navigation.replace(ROUTES.TOURNAMENT_LIVE_HUB, { tournamentId, devPreview: true });
         }, 900);
 
         return;
@@ -102,11 +102,10 @@ export default function TournamentStartSplashScreen({ navigation, route }) {
 
         setStarting(false);
 
-        // Keep existing behavior for real start:
         navigation.dispatch(
           CommonActions.reset({
             index: 0,
-            routes: [{ name: ROUTES.TOURNAMENT_OVERVIEW, params: { tournamentId } }],
+            routes: [{ name: ROUTES.TOURNAMENT_LIVE_HUB, params: { tournamentId } }],
           })
         );
       }, 900);
