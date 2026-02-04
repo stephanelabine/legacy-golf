@@ -267,10 +267,10 @@ export default function TournamentTeamVsTeamPairingsScreen({ navigation, route }
     const round1 =
       legacy.length > 0
         ? legacy.map((m) => ({
-            aUid: String(m?.aUid || ""),
-            bUid: String(m?.bUid || ""),
-            teeTime: safeStr(m?.teeTime || ""),
-          }))
+          aUid: String(m?.aUid || ""),
+          bUid: String(m?.bUid || ""),
+          teeTime: safeStr(m?.teeTime || ""),
+        }))
         : makeRoundMatchups1v1(teamAList, teamBList, 1, tournamentId || "seed");
 
     next[1] = round1;
@@ -396,10 +396,10 @@ export default function TournamentTeamVsTeamPairingsScreen({ navigation, route }
       const minIndex = Math.max(0, MINS.indexOf(init.minute));
       try {
         hourRef.current?.scrollTo?.({ y: hourIndex * ROW_H, animated: false });
-      } catch {}
+      } catch { }
       try {
         minRef.current?.scrollTo?.({ y: minIndex * ROW_H, animated: false });
-      } catch {}
+      } catch { }
     });
   };
 
@@ -566,9 +566,13 @@ export default function TournamentTeamVsTeamPairingsScreen({ navigation, route }
       };
 
       await updateDoc(doc(db, "tournaments", tournamentId), {
-        teamVsTeam: payload,
+        "teamVsTeam.matchType": payload.matchType || "1v1",
+        "teamVsTeam.pairingsByRound": payload.pairingsByRound || {},
+        "teamVsTeam.groupTeeTimes": payload.groupTeeTimes || {},
+        "teamVsTeam.updatedAt": serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
+
 
       navigation.navigate(ROUTES.TOURNAMENT_TEAM_VS_TEAM_PAIRINGS_OVERVIEW, { tournamentId });
     } catch (e) {

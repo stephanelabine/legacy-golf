@@ -13,7 +13,14 @@ import {
   Keyboard,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { doc, onSnapshot, updateDoc, serverTimestamp, collection, onSnapshot as onSnapshotCol } from "firebase/firestore";
+import {
+  doc,
+  onSnapshot,
+  updateDoc,
+  serverTimestamp,
+  collection,
+  onSnapshot as onSnapshotCol,
+} from "firebase/firestore";
 
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
@@ -111,7 +118,15 @@ function balanceTeamsRandom(players) {
   };
 }
 
-const TeamCard = memo(function TeamCard({ side, name, onCommitName, players, total, locked, isWide }) {
+const TeamCard = memo(function TeamCard({
+  side,
+  name,
+  onCommitName,
+  players,
+  total,
+  locked,
+  isWide,
+}) {
   const list = useMemo(() => sortAlpha(players), [players]);
 
   const inputRef = useRef(null);
@@ -269,7 +284,7 @@ export default function TournamentTeamVsTeamSetupScreen({ navigation, route }) {
         snap.forEach((d) => rows.push({ id: d.id, ...d.data() }));
         setRawMembers(rows);
       },
-      () => {}
+      () => { }
     );
 
     return () => unsub();
@@ -294,8 +309,8 @@ export default function TournamentTeamVsTeamSetupScreen({ navigation, route }) {
           typeof h === "number"
             ? h
             : h === null || h === undefined || h === ""
-            ? NaN
-            : Number(String(h).trim());
+              ? NaN
+              : Number(String(h).trim());
 
         return {
           uid,
@@ -353,12 +368,12 @@ export default function TournamentTeamVsTeamSetupScreen({ navigation, route }) {
       const nextMatchups =
         Array.isArray(saved.matchups) && saved.matchups.length
           ? saved.matchups
-              .map((m) => {
-                const a = toPlayerObj(m?.aUid || m?.a || null);
-                const b = toPlayerObj(m?.bUid || m?.b || null);
-                return { a: a || null, b: b || null };
-              })
-              .filter((m) => m.a || m.b)
+            .map((m) => {
+              const a = toPlayerObj(m?.aUid || m?.a || null);
+              const b = toPlayerObj(m?.bUid || m?.b || null);
+              return { a: a || null, b: b || null };
+            })
+            .filter((m) => m.a || m.b)
           : makeMatchups1v1(mappedA, mappedB);
 
       setMatchups(nextMatchups);
@@ -393,35 +408,41 @@ export default function TournamentTeamVsTeamSetupScreen({ navigation, route }) {
     setMatchups(makeMatchups1v1(a, b));
   };
 
+  // CRITICAL: dot-path update so we never overwrite teamVsTeam.pairingsByRound (tee times)
   const saveTeamVsTeam = async (nextLocked) => {
     if (!tournamentId) return;
 
-    const payload = {
-      teamAName: String(teamAName || "Team A"),
-      teamBName: String(teamBName || "Team B"),
-      teamA: teamA.map((p) => ({
-        uid: getPlayerId(p),
-        name: getPlayerName(p),
-        handicap: getPlayerHandicap(p),
-        isGuest: !!p?.isGuest,
-      })),
-      teamB: teamB.map((p) => ({
-        uid: getPlayerId(p),
-        name: getPlayerName(p),
-        handicap: getPlayerHandicap(p),
-        isGuest: !!p?.isGuest,
-      })),
-      matchType: "1v1",
-      matchups: (Array.isArray(matchups) ? matchups : []).map((m) => ({
-        aUid: getPlayerId(m?.a),
-        bUid: getPlayerId(m?.b),
-      })),
-      locked: !!nextLocked,
-      updatedAt: serverTimestamp(),
-    };
+    const safeAName = String(teamAName || "Team A").trim() || "Team A";
+    const safeBName = String(teamBName || "Team B").trim() || "Team B";
+
+    const teamAOut = (Array.isArray(teamA) ? teamA : []).map((p) => ({
+      uid: getPlayerId(p),
+      name: getPlayerName(p),
+      handicap: getPlayerHandicap(p),
+      isGuest: !!p?.isGuest,
+    }));
+
+    const teamBOut = (Array.isArray(teamB) ? teamB : []).map((p) => ({
+      uid: getPlayerId(p),
+      name: getPlayerName(p),
+      handicap: getPlayerHandicap(p),
+      isGuest: !!p?.isGuest,
+    }));
+
+    const matchupsOut = (Array.isArray(matchups) ? matchups : []).map((m) => ({
+      aUid: getPlayerId(m?.a),
+      bUid: getPlayerId(m?.b),
+    }));
 
     await updateDoc(doc(db, "tournaments", tournamentId), {
-      teamVsTeam: payload,
+      "teamVsTeam.teamAName": safeAName,
+      "teamVsTeam.teamBName": safeBName,
+      "teamVsTeam.teamA": teamAOut,
+      "teamVsTeam.teamB": teamBOut,
+      "teamVsTeam.matchType": "1v1",
+      "teamVsTeam.matchups": matchupsOut,
+      "teamVsTeam.locked": !!nextLocked,
+      "teamVsTeam.updatedAt": serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
   };
@@ -433,7 +454,10 @@ export default function TournamentTeamVsTeamSetupScreen({ navigation, route }) {
     }
 
     if (!canRenderTeams) {
-      Alert.alert("Players missing", "No roster found yet. Go back, confirm players are saved, then try again.");
+      Alert.alert(
+        "Players missing",
+        "No roster found yet. Go back, confirm players are saved, then try again."
+      );
       return;
     }
 
@@ -448,7 +472,11 @@ export default function TournamentTeamVsTeamSetupScreen({ navigation, route }) {
 
   return (
     <View style={styles.root}>
-      <ScreenHeader navigation={navigation} title="Team vs Team" subtitle="Build teams, rename, regenerate, then continue to pairings." />
+      <ScreenHeader
+        navigation={navigation}
+        title="Team vs Team"
+        subtitle="Build teams, rename, regenerate, then continue to pairings."
+      />
 
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: footerPad + 16 }]}
@@ -482,7 +510,9 @@ export default function TournamentTeamVsTeamSetupScreen({ navigation, route }) {
         {!tournamentId ? (
           <View style={styles.notice}>
             <Text style={styles.noticeTitle}>Missing tournamentId</Text>
-            <Text style={styles.noticeSub}>This screen needs a tournamentId param to load/save.</Text>
+            <Text style={styles.noticeSub}>
+              This screen needs a tournamentId param to load/save.
+            </Text>
           </View>
         ) : loading ? (
           <View style={styles.notice}>
@@ -493,7 +523,8 @@ export default function TournamentTeamVsTeamSetupScreen({ navigation, route }) {
           <View style={styles.notice}>
             <Text style={styles.noticeTitle}>Roster not available</Text>
             <Text style={styles.noticeSub}>
-              I can’t see players here yet. Confirm players exist in tournaments/{tournamentId}/members, then return.
+              I can’t see players here yet. Confirm players exist in tournaments/
+              {tournamentId}/members, then return.
             </Text>
           </View>
         ) : (
