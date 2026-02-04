@@ -9,26 +9,30 @@ export default function TournamentRoundStartSplashScreen({ navigation, route }) 
 
     const tournamentId = String(route?.params?.tournamentId || "");
     const roundNumber = Number(route?.params?.roundNumber || 1);
-    const sideGameKey = String(route?.params?.sideGameKey || "LONG_DRIVE");
     const holeNumber = Number(route?.params?.holeNumber || 1);
 
+    // IMPORTANT: default to empty. Only show format UI if caller sets it.
+    const sideGameKey = String(route?.params?.sideGameKey || "");
     const ms = Number(route?.params?.ms || 3000);
 
+    // Pass-through optional context if provided (course/tee/meta/players)
+    const course = route?.params?.course;
+    const tee = route?.params?.tee;
+    const courseId = route?.params?.courseId;
+    const courseName = route?.params?.courseName;
+    const teeName = route?.params?.teeName;
+    const holeMeta = route?.params?.holeMeta;
+    const players = route?.params?.players;
+
     const fade = useRef(new Animated.Value(0)).current;
-
-    // start much farther away
-    const zoom = useRef(new Animated.Value(0.02)).current;
-
-    // multi-spin
+    const zoom = useRef(new Animated.Value(0.08)).current;
     const rotate = useRef(new Animated.Value(0)).current;
-
     const shimmer = useRef(new Animated.Value(0)).current;
 
     const rotDeg = useMemo(() => {
-        // 5 full spins while coming in
         return rotate.interpolate({
             inputRange: [0, 1],
-            outputRange: ["-1800deg", "0deg"],
+            outputRange: ["-40deg", "0deg"],
         });
     }, [rotate]);
 
@@ -43,25 +47,25 @@ export default function TournamentRoundStartSplashScreen({ navigation, route }) 
         const intro = Animated.parallel([
             Animated.timing(fade, {
                 toValue: 1,
-                duration: 200,
+                duration: 220,
                 useNativeDriver: true,
             }),
             Animated.timing(rotate, {
                 toValue: 1,
-                duration: 1400,
+                duration: 900,
                 easing: Easing.out(Easing.cubic),
                 useNativeDriver: true,
             }),
             Animated.sequence([
                 Animated.timing(zoom, {
-                    toValue: 1.08,
-                    duration: 1400,
+                    toValue: 1.06,
+                    duration: 1000,
                     easing: Easing.out(Easing.cubic),
                     useNativeDriver: true,
                 }),
                 Animated.timing(zoom, {
                     toValue: 1,
-                    duration: 240,
+                    duration: 220,
                     easing: Easing.out(Easing.cubic),
                     useNativeDriver: true,
                 }),
@@ -79,12 +83,23 @@ export default function TournamentRoundStartSplashScreen({ navigation, route }) 
         shimmerLoop.start();
 
         const t = setTimeout(() => {
-            navigation.replace(ROUTES.TOURNAMENT_SIDEGAME_SPLASH, {
+            navigation.replace(ROUTES.TOURNAMENT_HOLE_VIEW, {
                 tournamentId,
                 roundNumber,
-                sideGameKey,
                 holeNumber,
-                ms: 4200,
+
+                // Only show overlay if a real sideGameKey exists and showFormatSplash true
+                sideGameKey,
+                showFormatSplash: true,
+
+                // Pass-through (so TournamentHoleView can forward to HoleMap without breaking)
+                course,
+                tee,
+                courseId,
+                courseName,
+                teeName,
+                holeMeta,
+                players,
             });
         }, Math.max(500, ms));
 
@@ -93,7 +108,25 @@ export default function TournamentRoundStartSplashScreen({ navigation, route }) 
             intro.stop();
             shimmerLoop.stop();
         };
-    }, [fade, zoom, rotate, shimmer, navigation, ms, tournamentId, roundNumber, sideGameKey, holeNumber]);
+    }, [
+        fade,
+        zoom,
+        rotate,
+        shimmer,
+        navigation,
+        ms,
+        tournamentId,
+        roundNumber,
+        holeNumber,
+        sideGameKey,
+        course,
+        tee,
+        courseId,
+        courseName,
+        teeName,
+        holeMeta,
+        players,
+    ]);
 
     return (
         <View style={[styles.root, { paddingTop: Math.max(insets.top, 14), paddingBottom: Math.max(insets.bottom, 14) }]}>
@@ -118,11 +151,11 @@ export default function TournamentRoundStartSplashScreen({ navigation, route }) 
                             <Text style={styles.badgeText}>LEGACY TOURNAMENT</Text>
                         </View>
                         <View style={styles.badgeGold}>
-                            <Text style={styles.badgeText}>AUTO CONTINUE</Text>
+                            <Text style={styles.badgeText}>CONTINUING</Text>
                         </View>
                     </View>
 
-                    <Text style={styles.note}>{tournamentId ? "Preparing your next screen..." : "Preparing..."}</Text>
+                    <Text style={styles.note}>{tournamentId ? "Loading Tournament Hole…" : "Loading…"}</Text>
 
                     <Animated.View style={[styles.shimmer, { transform: [{ translateX: shimmerX }, { rotate: "-18deg" }] }]} pointerEvents="none" />
                 </Animated.View>

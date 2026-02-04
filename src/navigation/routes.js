@@ -71,6 +71,10 @@ const ROUTES = {
   TOURNAMENT_LIVE_HUB: "TournamentLiveHub",
   TOURNAMENT_PLAYER_BRIEFING: "TournamentPlayerBriefing",
 
+  // NEW: tournament-first play screens
+  TOURNAMENT_HOLE_VIEW: "TournamentHoleView",
+  TOURNAMENT_SCORE_ENTRY: "TournamentScoreEntry",
+
   /* ---------------- Tournaments (canonical aliases) ---------------- */
 
   TOURNAMENT_SPLASH: "Tournaments",

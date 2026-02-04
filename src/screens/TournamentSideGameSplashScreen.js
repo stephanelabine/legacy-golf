@@ -1,72 +1,83 @@
 // src/screens/TournamentSideGameSplashScreen.js
 import React, { useEffect, useMemo, useRef } from "react";
-import { View, Text, StyleSheet, Animated, Easing, Dimensions } from "react-native";
+import {
+    View,
+    Text,
+    StyleSheet,
+    Animated,
+    Easing,
+    ImageBackground,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ROUTES from "../navigation/routes";
 
 function labelForSideGame(key) {
     const k = String(key || "").toUpperCase();
     if (k.includes("LONG")) return { title: "LONG DRIVE", sub: "Let it rip. Fairway first." };
-    if (k.includes("KP") || k.includes("CLOSE")) return { title: "CLOSEST TO PIN", sub: "Dial it in. Stick it close." };
     if (k.includes("SECOND")) return { title: "2ND SHOT KP", sub: "Precision wins. Land it tight." };
+    if (k.includes("KP") || k.includes("CLOSE")) return { title: "CLOSEST TO PIN", sub: "Dial it in. Stick it close." };
     return { title: "SIDE GAME", sub: "Special scoring is active on this hole." };
 }
 
 function iconForSideGame(key) {
     const k = String(key || "").toUpperCase();
     if (k.includes("LONG")) return "🏌️‍♂️";
-    if (k.includes("KP") || k.includes("CLOSE")) return "⛳️";
     if (k.includes("SECOND")) return "🎯";
+    if (k.includes("KP") || k.includes("CLOSE")) return "⛳️";
     return "⭐";
 }
 
 export default function TournamentSideGameSplashScreen({ navigation, route }) {
     const insets = useSafeAreaInsets();
+    const p = route?.params || {};
 
-    const tournamentId = String(route?.params?.tournamentId || "");
-    const roundNumber = Number(route?.params?.roundNumber || 1);
-    const sideGameKey = String(route?.params?.sideGameKey || "LONG_DRIVE");
-    const holeNumber = Number(route?.params?.holeNumber || 1);
+    const tournamentId = String(p.tournamentId || "");
+    const roundIndex = Number.isFinite(Number(p.roundIndex)) ? Number(p.roundIndex) : null;
+    const holeIndex = Number.isFinite(Number(p.holeIndex)) ? Number(p.holeIndex) : null;
 
-    const ms = Number(route?.params?.ms || 4200);
+    // Accept both “new” and “old” param shapes (dev-safe)
+    const roundNumber = Number.isFinite(Number(p.roundNumber))
+        ? Number(p.roundNumber)
+        : Number.isFinite(roundIndex)
+            ? roundIndex + 1
+            : 1;
+
+    const holeNumber = Number.isFinite(Number(p.holeNumber))
+        ? Number(p.holeNumber)
+        : Number.isFinite(holeIndex)
+            ? holeIndex + 1
+            : 1;
+
+    const sideGameKey = String(p.sideGameKey || "LONG_DRIVE");
+    const ms = Number(p.ms || 4200);
+
+    // Optional: background image (either a URI string or { uri })
+    const bg = p?.bgImageUri ? { uri: String(p.bgImageUri) } : (p?.bgImage || null);
+
+    const { title, sub } = useMemo(() => labelForSideGame(sideGameKey), [sideGameKey]);
+    const icon = useMemo(() => iconForSideGame(sideGameKey), [sideGameKey]);
 
     const fade = useRef(new Animated.Value(0)).current;
-    const zoom = useRef(new Animated.Value(0.08)).current;
+    const zoom = useRef(new Animated.Value(0.92)).current;
     const pop = useRef(new Animated.Value(0.86)).current;
     const sweep = useRef(new Animated.Value(0)).current;
 
     const sweepX = useMemo(() => {
         return sweep.interpolate({
             inputRange: [0, 1],
-            outputRange: [-240, 300],
+            outputRange: [-260, 320],
         });
     }, [sweep]);
-
-    const { title, sub } = useMemo(() => labelForSideGame(sideGameKey), [sideGameKey]);
-    const icon = useMemo(() => iconForSideGame(sideGameKey), [sideGameKey]);
-
-    const heroMinHeight = useMemo(() => {
-        const h = Dimensions.get("window").height;
-        // push the card to fill more of the screen
-        return Math.max(520, Math.floor(h * 0.72));
-    }, []);
-
-    const bigIconSize = useMemo(() => {
-        // make LONG DRIVE noticeably bigger than the others
-        const k = String(sideGameKey || "").toUpperCase();
-        if (k.includes("LONG")) return 92;
-        return 74;
-    }, [sideGameKey]);
 
     useEffect(() => {
         const intro = Animated.parallel([
             Animated.timing(fade, { toValue: 1, duration: 220, useNativeDriver: true }),
             Animated.sequence([
-                Animated.timing(zoom, { toValue: 1.10, duration: 900, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-                Animated.timing(zoom, { toValue: 1, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+                Animated.timing(zoom, { toValue: 1.03, duration: 720, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+                Animated.timing(zoom, { toValue: 1, duration: 200, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
             ]),
             Animated.sequence([
-                Animated.timing(pop, { toValue: 1.04, duration: 560, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+                Animated.timing(pop, { toValue: 1.04, duration: 520, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
                 Animated.timing(pop, { toValue: 1, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
             ]),
         ]);
@@ -82,8 +93,22 @@ export default function TournamentSideGameSplashScreen({ navigation, route }) {
         sweepLoop.start();
 
         const t = setTimeout(() => {
-            // keep behavior dev-safe for now (no writes). We’ll decide the “real next screen” next.
-            navigation.replace(ROUTES.TOURNAMENT_LIVE_HUB, { tournamentId, roundNumber, holeNumber, sideGameKey, devPreview: true });
+            // Keep current dev flow stable for now
+            const nextRoute = p.nextRoute;
+            const nextParams = p.nextParams;
+
+            if (nextRoute) {
+                navigation.replace(nextRoute, { ...(nextParams || {}), tournamentId, roundIndex: roundNumber - 1, holeIndex: holeNumber - 1 });
+                return;
+            }
+
+            navigation.replace(ROUTES.TOURNAMENT_PLAYER_BRIEFING, {
+                tournamentId,
+                roundIndex: roundNumber - 1,
+                holeIndex: holeNumber - 1,
+                sideGameKey,
+                fromSideGameSplash: true,
+            });
         }, Math.max(900, ms));
 
         return () => {
@@ -91,23 +116,27 @@ export default function TournamentSideGameSplashScreen({ navigation, route }) {
             intro.stop();
             sweepLoop.stop();
         };
-    }, [fade, zoom, pop, sweep, navigation, ms, tournamentId, roundNumber, holeNumber, sideGameKey]);
+    }, [fade, zoom, pop, sweep, navigation, ms, tournamentId, roundNumber, holeNumber, sideGameKey, p.nextRoute, p.nextParams]);
+
+    const Root = bg ? ImageBackground : View;
+    const rootProps = bg ? { source: bg, resizeMode: "cover" } : {};
 
     return (
-        <View style={[styles.root, { paddingTop: Math.max(insets.top, 14), paddingBottom: Math.max(insets.bottom, 14) }]}>
-            {/* golf/green mood background */}
+        <Root style={[styles.root, { paddingTop: Math.max(insets.top, 14), paddingBottom: Math.max(insets.bottom, 14) }]} {...rootProps}>
+            {/* If there’s an image, add a cinematic dark overlay so text stays premium/legible */}
+            <View style={styles.imageOverlay} pointerEvents="none" />
+
+            {/* glows */}
             <View style={styles.bgGlowGold} pointerEvents="none" />
             <View style={styles.bgGlowBlue} pointerEvents="none" />
-            <View style={styles.bgGreenLeft} pointerEvents="none" />
-            <View style={styles.bgGreenRight} pointerEvents="none" />
 
-            <Animated.View style={[styles.center, { opacity: fade }]}>
-                <Animated.View style={[styles.hero, { minHeight: heroMinHeight, transform: [{ scale: zoom }] }]}>
-                    <View style={styles.ringOuter} />
-                    <View style={styles.ringInner} />
+            <Animated.View style={[styles.center, { opacity: fade, transform: [{ scale: zoom }] }]}>
+                <View style={styles.hero}>
+                    <View style={styles.ringOuter} pointerEvents="none" />
+                    <View style={styles.ringInner} pointerEvents="none" />
 
                     <Animated.View style={[styles.iconWrap, { transform: [{ scale: pop }] }]}>
-                        <Text style={[styles.icon, { fontSize: bigIconSize }]}>{icon}</Text>
+                        <Text style={styles.icon}>{icon}</Text>
                     </Animated.View>
 
                     <Text style={styles.kicker}>HOLE {holeNumber}</Text>
@@ -126,15 +155,15 @@ export default function TournamentSideGameSplashScreen({ navigation, route }) {
                     <Text style={styles.note}>Auto continuing…</Text>
 
                     <Animated.View style={[styles.sweep, { transform: [{ translateX: sweepX }, { rotate: "-18deg" }] }]} pointerEvents="none" />
-                </Animated.View>
+                </View>
             </Animated.View>
-        </View>
+        </Root>
     );
 }
 
 const BG = "#071017";
 const TEXT = "#EAF2FF";
-const CARD = "#0B151E";
+const CARD = "rgba(11,21,30,0.92)";
 const GOLD = "rgba(201,162,74,0.95)";
 const GOLD_RING = "rgba(201,162,74,0.65)";
 const BLUE_GLOW = "rgba(46,125,255,0.12)";
@@ -147,42 +176,28 @@ const styles = StyleSheet.create({
         justifyContent: "center",
     },
 
+    imageOverlay: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: "rgba(7,16,23,0.64)",
+    },
+
     bgGlowGold: {
         position: "absolute",
-        width: 680,
-        height: 680,
-        borderRadius: 680,
-        backgroundColor: "rgba(201,162,74,0.16)",
-        top: -220,
-        right: -220,
+        width: 760,
+        height: 760,
+        borderRadius: 760,
+        backgroundColor: "rgba(201,162,74,0.18)",
+        top: -260,
+        right: -260,
     },
     bgGlowBlue: {
         position: "absolute",
-        width: 680,
-        height: 680,
-        borderRadius: 680,
+        width: 760,
+        height: 760,
+        borderRadius: 760,
         backgroundColor: BLUE_GLOW,
-        bottom: -220,
-        left: -220,
-    },
-
-    bgGreenLeft: {
-        position: "absolute",
-        width: 520,
-        height: 520,
-        borderRadius: 520,
-        backgroundColor: "rgba(26, 182, 108, 0.10)",
-        top: 40,
-        left: -220,
-    },
-    bgGreenRight: {
-        position: "absolute",
-        width: 520,
-        height: 520,
-        borderRadius: 520,
-        backgroundColor: "rgba(26, 182, 108, 0.08)",
-        bottom: 40,
-        right: -220,
+        bottom: -260,
+        left: -260,
     },
 
     center: {
@@ -192,11 +207,13 @@ const styles = StyleSheet.create({
         justifyContent: "center",
     },
 
+    // Fill more of the screen (premium / immersive)
     hero: {
         width: "100%",
         maxWidth: 560,
-        borderRadius: 28,
-        paddingVertical: 34,
+        minHeight: 520,
+        borderRadius: 30,
+        paddingVertical: 40,
         paddingHorizontal: 18,
         backgroundColor: CARD,
         borderWidth: 2,
@@ -217,7 +234,7 @@ const styles = StyleSheet.create({
         height: 420,
         borderRadius: 420,
         borderWidth: 2,
-        borderColor: "rgba(201,162,74,0.28)",
+        borderColor: "rgba(201,162,74,0.30)",
         backgroundColor: "rgba(255,255,255,0.02)",
     },
     ringInner: {
@@ -230,6 +247,7 @@ const styles = StyleSheet.create({
         backgroundColor: "rgba(201,162,74,0.10)",
     },
 
+    // Bigger icon (your request)
     iconWrap: {
         width: 190,
         height: 190,
@@ -246,7 +264,7 @@ const styles = StyleSheet.create({
         shadowOffset: { width: 0, height: 12 },
         elevation: 8,
     },
-    icon: { color: TEXT },
+    icon: { fontSize: 84 },
 
     kicker: {
         color: "rgba(234,242,255,0.80)",
@@ -270,7 +288,7 @@ const styles = StyleSheet.create({
         fontWeight: "800",
         lineHeight: 19,
         textAlign: "center",
-        paddingHorizontal: 12,
+        paddingHorizontal: 10,
     },
 
     badgesRow: {
@@ -315,7 +333,7 @@ const styles = StyleSheet.create({
         position: "absolute",
         top: -60,
         width: 140,
-        height: 640,
+        height: 700,
         backgroundColor: "rgba(255,255,255,0.08)",
         borderRadius: 18,
     },

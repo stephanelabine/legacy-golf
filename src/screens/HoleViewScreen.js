@@ -167,6 +167,82 @@ function holeHasAllStrokes(state, holeNumber, playersList) {
   return ids.length > 0;
 }
 
+/* -------------------------- */
+/* side game overlay helpers  */
+/* -------------------------- */
+
+function normalizeSideKey(x) {
+  return String(x || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+}
+
+function getSideGameMeta(sideGameKeyRaw) {
+  const k = normalizeSideKey(sideGameKeyRaw);
+
+  if (k === "long_drive" || k === "longdrive" || k === "ld") {
+    return { title: "LONG DRIVE", subtitle: "Let it rip.", icon: "🏌️‍♂️" };
+  }
+
+  if (k === "kp" || k === "closest_to_pin" || k === "closest-to-pin") {
+    return { title: "KP", subtitle: "Closest to the pin.", icon: "🎯" };
+  }
+
+  if (
+    k === "second_shot_kp" ||
+    k === "secondshotkp" ||
+    k === "2nd_shot_kp" ||
+    k === "second_shot_closest_to_pin"
+  ) {
+    return { title: "SECOND SHOT KP", subtitle: "Closest on the second shot.", icon: "🎯" };
+  }
+
+  if (k === "putting_contest" || k === "putting" || k === "putt") {
+    return { title: "PUTTING CONTEST", subtitle: "We’ll track it later.", icon: "⛳" };
+  }
+
+  return { title: "FORMAT HOLE", subtitle: "Special hole", icon: "⭐" };
+}
+
+function SideGameOverlayModal({ visible, meta, currentHole, roundNumber, onDismiss }) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onDismiss} statusBarTranslucent>
+      <View style={styles.sgWrap}>
+        <View style={styles.sgBackdrop} />
+        <View style={styles.sgCard}>
+          <View style={styles.sgTopRow}>
+            <View style={styles.sgIconPill}>
+              <Text style={styles.sgIcon}>{meta?.icon || "⭐"}</Text>
+            </View>
+
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.sgKicker}>
+                {Number.isFinite(Number(roundNumber)) ? `ROUND ${Number(roundNumber)}` : "ROUND"}
+                {Number.isFinite(Number(currentHole)) ? `  •  HOLE ${Number(currentHole)}` : ""}
+              </Text>
+              <Text style={styles.sgTitle}>{meta?.title || "FORMAT HOLE"}</Text>
+              {!!meta?.subtitle ? <Text style={styles.sgSub}>{meta.subtitle}</Text> : null}
+            </View>
+          </View>
+
+          <View style={styles.sgDivider} />
+
+          <View style={styles.sgBottomRow}>
+            <View style={styles.sgMiniPill}>
+              <Text style={styles.sgMiniText}>FORMAT ACTIVE</Text>
+            </View>
+
+            <Pressable onPress={onDismiss} style={({ pressed }) => [styles.sgBtn, pressed && styles.pressed]}>
+              <Text style={styles.sgBtnText}>Continue</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 export default function HoleViewScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const params = route?.params || {};
@@ -200,6 +276,73 @@ export default function HoleViewScreen({ navigation, route }) {
   }, [params.holeMeta]);
 
   const par = holeMeta?.[String(currentHole)]?.par ?? 4;
+
+  /* -------------------------- */
+  /* side game overlay behavior */
+  /* -------------------------- */
+
+  const showFormatSplash = !!params?.showFormatSplash;
+  const sideGameKey = params?.sideGameKey;
+  const roundNumber = params?.roundNumber;
+
+  const sideMeta = useMemo(() => getSideGameMeta(sideGameKey), [sideGameKey]);
+
+  const [sgVisible, setSgVisible] = useState(false);
+  const sgTimerRef = useRef(null);
+  const sgShownKeyRef = useRef(null);
+
+  const sgOnceKey = useMemo(() => {
+    const t = String(params?.tournamentId || "t");
+    const r = String(roundNumber || "r");
+    const h = String(currentHole || "h");
+    const s = String(sideGameKey || "none");
+    return `${t}__${r}__${h}__${s}`;
+  }, [params?.tournamentId, roundNumber, currentHole, sideGameKey]);
+
+  function clearSgTimer() {
+    if (sgTimerRef.current) {
+      clearTimeout(sgTimerRef.current);
+      sgTimerRef.current = null;
+    }
+  }
+
+  const dismissSideGameOverlay = useCallback(() => {
+    clearSgTimer();
+    setSgVisible(false);
+
+    // Dev-safe: clear the trigger so it cannot loop if the same screen instance re-focuses
+    try {
+      navigation.setParams({ showFormatSplash: false });
+    } catch { }
+  }, [navigation]);
+
+  useFocusEffect(
+    useCallback(() => {
+      // Only show if explicitly requested and a sideGameKey exists
+      if (!showFormatSplash) return undefined;
+      if (!sideGameKey) return undefined;
+
+      // Only once per (tournament/round/hole/sidegame) key for this screen instance
+      if (sgShownKeyRef.current === sgOnceKey) return undefined;
+      sgShownKeyRef.current = sgOnceKey;
+
+      setSgVisible(true);
+      clearSgTimer();
+      sgTimerRef.current = setTimeout(() => {
+        dismissSideGameOverlay();
+      }, 3200);
+
+      return () => {
+        clearSgTimer();
+      };
+    }, [showFormatSplash, sideGameKey, sgOnceKey, dismissSideGameOverlay])
+  );
+
+  useEffect(() => {
+    return () => {
+      clearSgTimer();
+    };
+  }, []);
 
   useEffect(() => {
     const incoming = Number(params?.hole);
@@ -251,7 +394,7 @@ export default function HoleViewScreen({ navigation, route }) {
               setUser({ lat: p.coords.latitude, lon: p.coords.longitude });
             }
           );
-        } catch {}
+        } catch { }
       })();
 
       return () => {
@@ -319,7 +462,7 @@ export default function HoleViewScreen({ navigation, route }) {
       const obj = raw ? JSON.parse(raw) : {};
       obj[String(currentHole)] = String(yardageText || "").trim();
       await AsyncStorage.setItem(key, JSON.stringify(obj));
-    } catch {}
+    } catch { }
     setSaving(false);
     Keyboard.dismiss();
     setYardageOpen(false);
@@ -513,7 +656,7 @@ export default function HoleViewScreen({ navigation, route }) {
 
       try {
         await RoundState.clearActiveRoundEverywhere();
-      } catch {}
+      } catch { }
 
       const FINAL_RESULTS = ROUTES.FINAL_RESULTS || "FinalResults";
 
@@ -622,6 +765,14 @@ export default function HoleViewScreen({ navigation, route }) {
         safeTop={false}
         rightLabel="Home"
         onRightPress={onPressHome}
+      />
+
+      <SideGameOverlayModal
+        visible={sgVisible}
+        meta={sideMeta}
+        currentHole={currentHole}
+        roundNumber={roundNumber}
+        onDismiss={dismissSideGameOverlay}
       />
 
       <ScrollView
@@ -1080,4 +1231,67 @@ const styles = StyleSheet.create({
   confirmBtnDangerT: { color: WHITE, fontWeight: "900" },
 
   pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
+
+  /* -------------------------- */
+  /* side game overlay styles   */
+  /* -------------------------- */
+
+  sgWrap: {
+    flex: 1,
+    justifyContent: "center",
+    padding: 18,
+  },
+  sgBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.62)",
+  },
+  sgCard: {
+    borderRadius: 24,
+    padding: 14,
+    backgroundColor: "rgba(18,22,30,0.96)",
+    borderWidth: 2,
+    borderColor: "rgba(242,201,76,0.85)",
+  },
+  sgTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  sgIconPill: {
+    width: 48,
+    height: 48,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(242,201,76,0.14)",
+    borderWidth: 1,
+    borderColor: "rgba(242,201,76,0.40)",
+  },
+  sgIcon: { fontSize: 20 },
+  sgKicker: { color: "rgba(255,255,255,0.72)", fontWeight: "900", fontSize: 11, letterSpacing: 1.1 },
+  sgTitle: { marginTop: 4, color: WHITE, fontWeight: "900", fontSize: 20, letterSpacing: 0.8 },
+  sgSub: { marginTop: 6, color: "rgba(255,255,255,0.74)", fontWeight: "800", fontSize: 13, lineHeight: 17 },
+
+  sgDivider: { height: 1, backgroundColor: "rgba(255,255,255,0.12)", marginTop: 12, marginBottom: 12 },
+
+  sgBottomRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  sgMiniPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+  sgMiniText: { color: "rgba(255,255,255,0.78)", fontWeight: "900", fontSize: 11, letterSpacing: 0.8 },
+
+  sgBtn: {
+    height: 44,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    backgroundColor: "rgba(242,201,76,0.92)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sgBtnText: { color: "#1A1A1A", fontWeight: "900", fontSize: 13, letterSpacing: 0.3 },
 });
