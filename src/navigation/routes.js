@@ -1,3 +1,4 @@
+// src/navigation/routes.js
 const ROUTES = {
   BOOT: "Boot",
 
@@ -63,6 +64,9 @@ const ROUTES = {
 
   TOURNAMENT_PAYOUTS: "TournamentPayouts",
   TOURNAMENT_START_SPLASH: "TournamentStartSplash",
+
+  TOURNAMENT_ROUND_START_SPLASH: "TournamentRoundStartSplash",
+  TOURNAMENT_SIDEGAME_SPLASH: "TournamentSideGameSplash",
 
   TOURNAMENT_LIVE_HUB: "TournamentLiveHub",
   TOURNAMENT_PLAYER_BRIEFING: "TournamentPlayerBriefing",

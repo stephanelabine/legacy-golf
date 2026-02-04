@@ -1,257 +1,302 @@
+// src/screens/TournamentRoundStartSplashScreen.js
 import React, { useEffect, useMemo, useRef } from "react";
-import { View, Text, StyleSheet, Animated, Easing, Platform } from "react-native";
+import { View, Text, StyleSheet, Animated, Easing } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
-
 import ROUTES from "../navigation/routes";
 
 export default function TournamentRoundStartSplashScreen({ navigation, route }) {
     const insets = useSafeAreaInsets();
-    const params = route?.params || {};
 
-    const tournamentId = params.tournamentId || null;
-    const roundIndex = Number.isFinite(Number(params.roundIndex)) ? Number(params.roundIndex) : 0;
-    const holeIndex = Number.isFinite(Number(params.holeIndex)) ? Number(params.holeIndex) : 0;
+    const tournamentId = String(route?.params?.tournamentId || "");
+    const roundNumber = Number(route?.params?.roundNumber || 1);
+    const sideGameKey = String(route?.params?.sideGameKey || "LONG_DRIVE");
+    const holeNumber = Number(route?.params?.holeNumber || 1);
 
-    // sideGameKey can be decided upstream; default to LONG_DRIVE for now (dev-friendly)
-    const sideGameKey = String(params.sideGameKey || "LONG_DRIVE");
+    const ms = Number(route?.params?.ms || 3000);
 
-    const title = useMemo(() => {
-        const roundNum = roundIndex + 1;
-        return `Round ${roundNum} started`;
-    }, [roundIndex]);
+    const fade = useRef(new Animated.Value(0)).current;
 
-    const subtitle = useMemo(() => {
-        const holeNum = holeIndex + 1;
-        return `Get ready for Hole ${holeNum}`;
-    }, [holeIndex]);
+    // start much farther away
+    const zoom = useRef(new Animated.Value(0.02)).current;
 
-    const zoom = useRef(new Animated.Value(0)).current;
-    const spin = useRef(new Animated.Value(0)).current;
-    const glow = useRef(new Animated.Value(0)).current;
+    // multi-spin
+    const rotate = useRef(new Animated.Value(0)).current;
+
+    const shimmer = useRef(new Animated.Value(0)).current;
+
+    const rotDeg = useMemo(() => {
+        // 5 full spins while coming in
+        return rotate.interpolate({
+            inputRange: [0, 1],
+            outputRange: ["-1800deg", "0deg"],
+        });
+    }, [rotate]);
+
+    const shimmerX = useMemo(() => {
+        return shimmer.interpolate({
+            inputRange: [0, 1],
+            outputRange: [-180, 220],
+        });
+    }, [shimmer]);
 
     useEffect(() => {
-        const zoomAnim = Animated.timing(zoom, {
-            toValue: 1,
-            duration: 900,
-            easing: Easing.out(Easing.cubic),
-            useNativeDriver: true,
-        });
-
-        const spinAnim = Animated.timing(spin, {
-            toValue: 1,
-            duration: 1400,
-            easing: Easing.out(Easing.cubic),
-            useNativeDriver: true,
-        });
-
-        const glowLoop = Animated.loop(
+        const intro = Animated.parallel([
+            Animated.timing(fade, {
+                toValue: 1,
+                duration: 200,
+                useNativeDriver: true,
+            }),
+            Animated.timing(rotate, {
+                toValue: 1,
+                duration: 1400,
+                easing: Easing.out(Easing.cubic),
+                useNativeDriver: true,
+            }),
             Animated.sequence([
-                Animated.timing(glow, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-                Animated.timing(glow, { toValue: 0, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+                Animated.timing(zoom, {
+                    toValue: 1.08,
+                    duration: 1400,
+                    easing: Easing.out(Easing.cubic),
+                    useNativeDriver: true,
+                }),
+                Animated.timing(zoom, {
+                    toValue: 1,
+                    duration: 240,
+                    easing: Easing.out(Easing.cubic),
+                    useNativeDriver: true,
+                }),
+            ]),
+        ]);
+
+        const shimmerLoop = Animated.loop(
+            Animated.sequence([
+                Animated.timing(shimmer, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+                Animated.timing(shimmer, { toValue: 0, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
             ])
         );
 
-        glowLoop.start();
-        Animated.parallel([zoomAnim, spinAnim]).start();
+        intro.start();
+        shimmerLoop.start();
 
         const t = setTimeout(() => {
             navigation.replace(ROUTES.TOURNAMENT_SIDEGAME_SPLASH, {
                 tournamentId,
-                roundIndex,
-                holeIndex,
+                roundNumber,
                 sideGameKey,
-                // Optional: let side splash know where to go next later.
-                nextRoute: params.nextRoute || null,
-                nextParams: params.nextParams || null,
+                holeNumber,
+                ms: 4200,
             });
-        }, 3000);
+        }, Math.max(500, ms));
 
         return () => {
             clearTimeout(t);
-            glowLoop.stop();
+            intro.stop();
+            shimmerLoop.stop();
         };
-    }, [navigation, zoom, spin, glow, tournamentId, roundIndex, holeIndex, sideGameKey, params.nextRoute, params.nextParams]);
-
-    const trophyScale = zoom.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0.18, 1],
-    });
-
-    const trophyTranslateY = zoom.interpolate({
-        inputRange: [0, 1],
-        outputRange: [120, 0],
-    });
-
-    const trophyRotate = spin.interpolate({
-        inputRange: [0, 1],
-        outputRange: ["-16deg", "0deg"],
-    });
-
-    const glowOpacity = glow.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0.28, 0.6],
-    });
-
-    const ringScale = glow.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0.92, 1.08],
-    });
+    }, [fade, zoom, rotate, shimmer, navigation, ms, tournamentId, roundNumber, sideGameKey, holeNumber]);
 
     return (
-        <View style={[styles.root, { paddingTop: Math.max(insets.top, 12), paddingBottom: Math.max(insets.bottom, 12) }]}>
-            {/* cinematic background layers (no new libs) */}
-            <View style={styles.bgBase} />
-            <View style={styles.bgVignette} />
-            <View style={styles.bgTopGlow} />
+        <View style={[styles.root, { paddingTop: Math.max(insets.top, 14), paddingBottom: Math.max(insets.bottom, 14) }]}>
+            <View style={styles.bgGlow1} pointerEvents="none" />
+            <View style={styles.bgGlow2} pointerEvents="none" />
+            <View style={styles.stars} pointerEvents="none" />
 
-            <View style={styles.centerWrap}>
-                <Animated.View style={[styles.ring, { opacity: glowOpacity, transform: [{ scale: ringScale }] }]} />
-                <Animated.View
-                    style={[
-                        styles.heroCard,
-                        {
-                            transform: [
-                                { translateY: trophyTranslateY },
-                                { scale: trophyScale },
-                                { rotate: trophyRotate },
-                            ],
-                            opacity: zoom,
-                        },
-                    ]}
-                >
-                    <View style={styles.iconWrap}>
-                        <Ionicons name="trophy" size={94} color="#E7C46A" />
+            <Animated.View style={[styles.heroWrap, { opacity: fade }]}>
+                <Animated.View style={[styles.hero, { transform: [{ scale: zoom }, { rotate: rotDeg }] }]}>
+                    <View style={styles.heroRingOuter} />
+                    <View style={styles.heroRingInner} />
+
+                    <View style={styles.trophyWrap}>
+                        <Text style={styles.trophy}>🏆</Text>
                     </View>
 
-                    <Text style={styles.title}>{title}</Text>
-                    <Text style={styles.subtitle}>{subtitle}</Text>
+                    <Text style={styles.title}>ROUND {roundNumber}</Text>
+                    <Text style={styles.subtitle}>STARTED</Text>
 
-                    <View style={styles.footerHint}>
-                        <Text style={styles.footerHintText}>Legacy Tournament</Text>
+                    <View style={styles.badgesRow}>
+                        <View style={styles.badge}>
+                            <Text style={styles.badgeText}>LEGACY TOURNAMENT</Text>
+                        </View>
+                        <View style={styles.badgeGold}>
+                            <Text style={styles.badgeText}>AUTO CONTINUE</Text>
+                        </View>
                     </View>
+
+                    <Text style={styles.note}>{tournamentId ? "Preparing your next screen..." : "Preparing..."}</Text>
+
+                    <Animated.View style={[styles.shimmer, { transform: [{ translateX: shimmerX }, { rotate: "-18deg" }] }]} pointerEvents="none" />
                 </Animated.View>
-            </View>
-
-            {/* subtle bottom “floor” shine */}
-            <View style={styles.floorWrap}>
-                <View style={styles.floorLine} />
-                <View style={styles.floorGlow} />
-            </View>
+            </Animated.View>
         </View>
     );
 }
 
+const BG = "#071017";
+const TEXT = "#EAF2FF";
+const GOLD = "rgba(201,162,74,0.95)";
+const GOLD_SOFT = "rgba(201,162,74,0.12)";
+const CARD = "#0B151E";
+
 const styles = StyleSheet.create({
     root: {
         flex: 1,
-        backgroundColor: "#05070C",
-    },
-    bgBase: {
-        ...StyleSheet.absoluteFillObject,
-        backgroundColor: "#05070C",
-    },
-    bgVignette: {
-        ...StyleSheet.absoluteFillObject,
-        backgroundColor: "rgba(0,0,0,0.38)",
-    },
-    bgTopGlow: {
-        position: "absolute",
-        left: -40,
-        right: -40,
-        top: -120,
-        height: 340,
-        backgroundColor: "rgba(231,196,106,0.08)",
-        borderBottomLeftRadius: 240,
-        borderBottomRightRadius: 240,
-        transform: [{ scaleX: 1.1 }],
-    },
-    centerWrap: {
-        flex: 1,
+        backgroundColor: BG,
         alignItems: "center",
         justifyContent: "center",
-        paddingHorizontal: 18,
     },
-    ring: {
+
+    bgGlow1: {
         position: "absolute",
-        width: 340,
-        height: 340,
-        borderRadius: 170,
-        borderWidth: 1,
-        borderColor: "rgba(231,196,106,0.34)",
-        backgroundColor: "rgba(231,196,106,0.04)",
+        width: 520,
+        height: 520,
+        borderRadius: 520,
+        backgroundColor: "rgba(201,162,74,0.16)",
+        top: -120,
+        left: -140,
     },
-    heroCard: {
+    bgGlow2: {
+        position: "absolute",
+        width: 680,
+        height: 680,
+        borderRadius: 680,
+        backgroundColor: "rgba(46,125,255,0.10)",
+        bottom: -220,
+        right: -220,
+    },
+    stars: {
+        position: "absolute",
+        left: 0,
+        right: 0,
+        top: 0,
+        bottom: 0,
+        opacity: 0.25,
+        backgroundColor: "transparent",
+    },
+
+    heroWrap: {
         width: "100%",
-        maxWidth: 420,
+        paddingHorizontal: 16,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+
+    hero: {
+        width: "100%",
+        maxWidth: 520,
         borderRadius: 28,
-        paddingVertical: 26,
-        paddingHorizontal: 22,
-        backgroundColor: "rgba(255,255,255,0.06)",
+        paddingVertical: 34,
+        paddingHorizontal: 18,
+        backgroundColor: CARD,
+        borderWidth: 2,
+        borderColor: "rgba(201,162,74,0.65)",
+        alignItems: "center",
+        justifyContent: "center",
+        overflow: "hidden",
+        shadowColor: "#000",
+        shadowOpacity: 0.45,
+        shadowRadius: 24,
+        shadowOffset: { width: 0, height: 16 },
+        elevation: 10,
+    },
+
+    heroRingOuter: {
+        position: "absolute",
+        width: 360,
+        height: 360,
+        borderRadius: 360,
+        borderWidth: 2,
+        borderColor: "rgba(201,162,74,0.30)",
+        backgroundColor: "rgba(255,255,255,0.02)",
+    },
+    heroRingInner: {
+        position: "absolute",
+        width: 260,
+        height: 260,
+        borderRadius: 260,
         borderWidth: 1,
-        borderColor: "rgba(231,196,106,0.22)",
+        borderColor: "rgba(234,242,255,0.10)",
+        backgroundColor: GOLD_SOFT,
+    },
+
+    trophyWrap: {
+        width: 132,
+        height: 132,
+        borderRadius: 132,
+        backgroundColor: "rgba(255,255,255,0.03)",
+        borderWidth: 2,
+        borderColor: GOLD,
+        alignItems: "center",
+        justifyContent: "center",
         shadowColor: "#000",
         shadowOpacity: 0.35,
-        shadowRadius: 18,
-        shadowOffset: { width: 0, height: 10 },
-        elevation: 10,
-        overflow: Platform.OS === "android" ? "hidden" : "visible",
-        alignItems: "center",
-    },
-    iconWrap: {
-        width: 140,
-        height: 140,
-        borderRadius: 70,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: "rgba(231,196,106,0.08)",
-        borderWidth: 1,
-        borderColor: "rgba(231,196,106,0.28)",
+        shadowRadius: 16,
+        shadowOffset: { width: 0, height: 12 },
+        elevation: 8,
         marginBottom: 18,
     },
+    trophy: { fontSize: 56 },
+
     title: {
-        fontSize: 30,
-        color: "#F4F6FA",
+        color: TEXT,
+        fontSize: 18,
+        fontWeight: "900",
+        letterSpacing: 3.2,
         textAlign: "center",
-        letterSpacing: 0.2,
-        marginBottom: 6,
+        opacity: 0.92,
     },
     subtitle: {
-        fontSize: 16,
-        color: "rgba(244,246,250,0.75)",
+        marginTop: 6,
+        color: TEXT,
+        fontSize: 34,
+        fontWeight: "900",
+        letterSpacing: 1.0,
         textAlign: "center",
-        letterSpacing: 0.2,
     },
-    footerHint: {
+
+    badgesRow: {
         marginTop: 18,
-        paddingVertical: 8,
-        paddingHorizontal: 14,
-        borderRadius: 999,
-        backgroundColor: "rgba(0,0,0,0.28)",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.10)",
-    },
-    footerHintText: {
-        fontSize: 12,
-        color: "rgba(244,246,250,0.72)",
-        letterSpacing: 0.9,
-    },
-    floorWrap: {
-        height: 56,
-        alignItems: "center",
+        flexDirection: "row",
+        gap: 10,
+        flexWrap: "wrap",
         justifyContent: "center",
     },
-    floorLine: {
-        width: "70%",
-        height: 1,
-        backgroundColor: "rgba(255,255,255,0.10)",
+    badge: {
+        borderRadius: 999,
+        paddingVertical: 10,
+        paddingHorizontal: 14,
+        backgroundColor: "rgba(255,255,255,0.04)",
+        borderWidth: 1,
+        borderColor: "rgba(234,242,255,0.12)",
     },
-    floorGlow: {
-        marginTop: -1,
-        width: "70%",
-        height: 18,
-        backgroundColor: "rgba(231,196,106,0.08)",
-        borderBottomLeftRadius: 18,
-        borderBottomRightRadius: 18,
+    badgeGold: {
+        borderRadius: 999,
+        paddingVertical: 10,
+        paddingHorizontal: 14,
+        backgroundColor: "rgba(201,162,74,0.12)",
+        borderWidth: 1,
+        borderColor: "rgba(201,162,74,0.65)",
+    },
+    badgeText: {
+        color: TEXT,
+        fontSize: 12,
+        fontWeight: "900",
+        letterSpacing: 0.8,
+    },
+
+    note: {
+        marginTop: 18,
+        color: "rgba(234,242,255,0.60)",
+        fontSize: 12,
+        fontWeight: "800",
+        textAlign: "center",
+    },
+
+    shimmer: {
+        position: "absolute",
+        top: -40,
+        width: 120,
+        height: 420,
+        backgroundColor: "rgba(255,255,255,0.08)",
+        borderRadius: 18,
     },
 });

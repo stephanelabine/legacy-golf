@@ -1,314 +1,322 @@
+// src/screens/TournamentSideGameSplashScreen.js
 import React, { useEffect, useMemo, useRef } from "react";
-import { View, Text, StyleSheet, Animated, Easing, Platform } from "react-native";
+import { View, Text, StyleSheet, Animated, Easing, Dimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
-
 import ROUTES from "../navigation/routes";
 
-function getSideGameVisual(sideGameKey) {
-    const key = String(sideGameKey || "").toUpperCase();
+function labelForSideGame(key) {
+    const k = String(key || "").toUpperCase();
+    if (k.includes("LONG")) return { title: "LONG DRIVE", sub: "Let it rip. Fairway first." };
+    if (k.includes("KP") || k.includes("CLOSE")) return { title: "CLOSEST TO PIN", sub: "Dial it in. Stick it close." };
+    if (k.includes("SECOND")) return { title: "2ND SHOT KP", sub: "Precision wins. Land it tight." };
+    return { title: "SIDE GAME", sub: "Special scoring is active on this hole." };
+}
 
-    if (key === "LONG_DRIVE") {
-        return {
-            title: "Side game",
-            big: "Long Drive",
-            icon: { lib: "ion", name: "golf", color: "#E7C46A" },
-            caption: "Bomb it. Fairway finds glory.",
-        };
-    }
-
-    if (key === "KP") {
-        return {
-            title: "Side game",
-            big: "KP",
-            icon: { lib: "ion", name: "locate", color: "#E7C46A" },
-            caption: "Closest to the pin takes it.",
-        };
-    }
-
-    if (key === "SECOND_SHOT_KP") {
-        return {
-            title: "Side game",
-            big: "Second Shot KP",
-            icon: { lib: "ion", name: "navigate", color: "#E7C46A" },
-            caption: "Second-shot precision wins.",
-        };
-    }
-
-    return {
-        title: "Side game",
-        big: "In play",
-        icon: { lib: "ion", name: "sparkles", color: "#E7C46A" },
-        caption: "Play smart. Confirm after the hole.",
-    };
+function iconForSideGame(key) {
+    const k = String(key || "").toUpperCase();
+    if (k.includes("LONG")) return "🏌️‍♂️";
+    if (k.includes("KP") || k.includes("CLOSE")) return "⛳️";
+    if (k.includes("SECOND")) return "🎯";
+    return "⭐";
 }
 
 export default function TournamentSideGameSplashScreen({ navigation, route }) {
     const insets = useSafeAreaInsets();
-    const params = route?.params || {};
 
-    const tournamentId = params.tournamentId || null;
-    const roundIndex = Number.isFinite(Number(params.roundIndex)) ? Number(params.roundIndex) : 0;
-    const holeIndex = Number.isFinite(Number(params.holeIndex)) ? Number(params.holeIndex) : 0;
-    const sideGameKey = String(params.sideGameKey || "LONG_DRIVE");
+    const tournamentId = String(route?.params?.tournamentId || "");
+    const roundNumber = Number(route?.params?.roundNumber || 1);
+    const sideGameKey = String(route?.params?.sideGameKey || "LONG_DRIVE");
+    const holeNumber = Number(route?.params?.holeNumber || 1);
 
-    const visual = useMemo(() => getSideGameVisual(sideGameKey), [sideGameKey]);
+    const ms = Number(route?.params?.ms || 4200);
 
-    const inAnim = useRef(new Animated.Value(0)).current;
-    const pulse = useRef(new Animated.Value(0)).current;
+    const fade = useRef(new Animated.Value(0)).current;
+    const zoom = useRef(new Animated.Value(0.08)).current;
+    const pop = useRef(new Animated.Value(0.86)).current;
     const sweep = useRef(new Animated.Value(0)).current;
 
-    useEffect(() => {
-        const intro = Animated.timing(inAnim, {
-            toValue: 1,
-            duration: 760,
-            easing: Easing.out(Easing.cubic),
-            useNativeDriver: true,
+    const sweepX = useMemo(() => {
+        return sweep.interpolate({
+            inputRange: [0, 1],
+            outputRange: [-240, 300],
         });
+    }, [sweep]);
 
-        const pulseLoop = Animated.loop(
+    const { title, sub } = useMemo(() => labelForSideGame(sideGameKey), [sideGameKey]);
+    const icon = useMemo(() => iconForSideGame(sideGameKey), [sideGameKey]);
+
+    const heroMinHeight = useMemo(() => {
+        const h = Dimensions.get("window").height;
+        // push the card to fill more of the screen
+        return Math.max(520, Math.floor(h * 0.72));
+    }, []);
+
+    const bigIconSize = useMemo(() => {
+        // make LONG DRIVE noticeably bigger than the others
+        const k = String(sideGameKey || "").toUpperCase();
+        if (k.includes("LONG")) return 92;
+        return 74;
+    }, [sideGameKey]);
+
+    useEffect(() => {
+        const intro = Animated.parallel([
+            Animated.timing(fade, { toValue: 1, duration: 220, useNativeDriver: true }),
             Animated.sequence([
-                Animated.timing(pulse, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-                Animated.timing(pulse, { toValue: 0, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-            ])
-        );
+                Animated.timing(zoom, { toValue: 1.10, duration: 900, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+                Animated.timing(zoom, { toValue: 1, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+            ]),
+            Animated.sequence([
+                Animated.timing(pop, { toValue: 1.04, duration: 560, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+                Animated.timing(pop, { toValue: 1, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+            ]),
+        ]);
 
         const sweepLoop = Animated.loop(
             Animated.sequence([
-                Animated.timing(sweep, { toValue: 1, duration: 1800, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-                Animated.timing(sweep, { toValue: 0, duration: 1800, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+                Animated.timing(sweep, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+                Animated.timing(sweep, { toValue: 0, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
             ])
         );
 
-        pulseLoop.start();
-        sweepLoop.start();
         intro.start();
+        sweepLoop.start();
 
         const t = setTimeout(() => {
-            // Dev-safe default: return to Player Briefing so we can repeat quickly.
-            // Later, pass nextRoute/nextParams when HoleView is ready.
-            const nextRoute = params.nextRoute;
-            const nextParams = params.nextParams;
-
-            if (nextRoute) {
-                navigation.replace(nextRoute, { ...(nextParams || {}), tournamentId, roundIndex, holeIndex });
-                return;
-            }
-
-            navigation.replace(ROUTES.TOURNAMENT_PLAYER_BRIEFING, {
-                tournamentId,
-                roundIndex,
-                holeIndex,
-                sideGameKey,
-                fromSideGameSplash: true,
-            });
-        }, 4500);
+            // keep behavior dev-safe for now (no writes). We’ll decide the “real next screen” next.
+            navigation.replace(ROUTES.TOURNAMENT_LIVE_HUB, { tournamentId, roundNumber, holeNumber, sideGameKey, devPreview: true });
+        }, Math.max(900, ms));
 
         return () => {
             clearTimeout(t);
-            pulseLoop.stop();
+            intro.stop();
             sweepLoop.stop();
         };
-    }, [navigation, inAnim, pulse, sweep, params.nextRoute, params.nextParams, tournamentId, roundIndex, holeIndex, sideGameKey]);
-
-    const cardScale = inAnim.interpolate({ inputRange: [0, 1], outputRange: [0.86, 1] });
-    const cardTranslateY = inAnim.interpolate({ inputRange: [0, 1], outputRange: [26, 0] });
-    const cardOpacity = inAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
-
-    const pulseScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1.07] });
-    const pulseOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.26, 0.6] });
-
-    const sweepX = sweep.interpolate({ inputRange: [0, 1], outputRange: [-180, 180] });
-    const sweepOpacity = sweep.interpolate({ inputRange: [0, 1], outputRange: [0.10, 0.22] });
-
-    const holeText = useMemo(() => `Applies to Hole ${holeIndex + 1}`, [holeIndex]);
+    }, [fade, zoom, pop, sweep, navigation, ms, tournamentId, roundNumber, holeNumber, sideGameKey]);
 
     return (
-        <View style={[styles.root, { paddingTop: Math.max(insets.top, 12), paddingBottom: Math.max(insets.bottom, 12) }]}>
-            <View style={styles.bgBase} />
-            <View style={styles.bgVignette} />
-            <View style={styles.bgTopGlow} />
+        <View style={[styles.root, { paddingTop: Math.max(insets.top, 14), paddingBottom: Math.max(insets.bottom, 14) }]}>
+            {/* golf/green mood background */}
+            <View style={styles.bgGlowGold} pointerEvents="none" />
+            <View style={styles.bgGlowBlue} pointerEvents="none" />
+            <View style={styles.bgGreenLeft} pointerEvents="none" />
+            <View style={styles.bgGreenRight} pointerEvents="none" />
 
-            <View style={styles.centerWrap}>
-                <Animated.View style={[styles.pulseRing, { opacity: pulseOpacity, transform: [{ scale: pulseScale }] }]} />
+            <Animated.View style={[styles.center, { opacity: fade }]}>
+                <Animated.View style={[styles.hero, { minHeight: heroMinHeight, transform: [{ scale: zoom }] }]}>
+                    <View style={styles.ringOuter} />
+                    <View style={styles.ringInner} />
 
-                <Animated.View
-                    style={[
-                        styles.heroCard,
-                        {
-                            opacity: cardOpacity,
-                            transform: [{ translateY: cardTranslateY }, { scale: cardScale }],
-                        },
-                    ]}
-                >
-                    <View style={styles.smallPill}>
-                        <Text style={styles.smallPillText}>{visual.title.toUpperCase()}</Text>
+                    <Animated.View style={[styles.iconWrap, { transform: [{ scale: pop }] }]}>
+                        <Text style={[styles.icon, { fontSize: bigIconSize }]}>{icon}</Text>
+                    </Animated.View>
+
+                    <Text style={styles.kicker}>HOLE {holeNumber}</Text>
+                    <Text style={styles.title}>{title}</Text>
+                    <Text style={styles.sub}>{sub}</Text>
+
+                    <View style={styles.badgesRow}>
+                        <View style={styles.badge}>
+                            <Text style={styles.badgeText}>ROUND {roundNumber}</Text>
+                        </View>
+                        <View style={styles.badgeGold}>
+                            <Text style={styles.badgeText}>SPECIAL SCORING</Text>
+                        </View>
                     </View>
 
-                    <View style={styles.iconWrap}>
-                        <Ionicons name={visual.icon.name} size={92} color={visual.icon.color} />
-                    </View>
+                    <Text style={styles.note}>Auto continuing…</Text>
 
-                    <Text style={styles.big}>{visual.big}</Text>
-                    <Text style={styles.hole}>{holeText}</Text>
-                    <Text style={styles.caption}>{visual.caption}</Text>
-
-                    <View style={styles.footerHint}>
-                        <Text style={styles.footerHintText}>Auto continuing…</Text>
-                    </View>
-
-                    <Animated.View style={[styles.sweep, { opacity: sweepOpacity, transform: [{ translateX: sweepX }] }]} />
+                    <Animated.View style={[styles.sweep, { transform: [{ translateX: sweepX }, { rotate: "-18deg" }] }]} pointerEvents="none" />
                 </Animated.View>
-            </View>
-
-            <View style={styles.floorWrap}>
-                <View style={styles.floorLine} />
-                <View style={styles.floorGlow} />
-            </View>
+            </Animated.View>
         </View>
     );
 }
 
+const BG = "#071017";
+const TEXT = "#EAF2FF";
+const CARD = "#0B151E";
+const GOLD = "rgba(201,162,74,0.95)";
+const GOLD_RING = "rgba(201,162,74,0.65)";
+const BLUE_GLOW = "rgba(46,125,255,0.12)";
+
 const styles = StyleSheet.create({
     root: {
         flex: 1,
-        backgroundColor: "#05070C",
-    },
-    bgBase: {
-        ...StyleSheet.absoluteFillObject,
-        backgroundColor: "#05070C",
-    },
-    bgVignette: {
-        ...StyleSheet.absoluteFillObject,
-        backgroundColor: "rgba(0,0,0,0.38)",
-    },
-    bgTopGlow: {
-        position: "absolute",
-        left: -40,
-        right: -40,
-        top: -120,
-        height: 340,
-        backgroundColor: "rgba(231,196,106,0.08)",
-        borderBottomLeftRadius: 240,
-        borderBottomRightRadius: 240,
-        transform: [{ scaleX: 1.1 }],
-    },
-    centerWrap: {
-        flex: 1,
+        backgroundColor: BG,
         alignItems: "center",
         justifyContent: "center",
-        paddingHorizontal: 18,
     },
-    pulseRing: {
+
+    bgGlowGold: {
         position: "absolute",
-        width: 360,
-        height: 360,
-        borderRadius: 180,
-        borderWidth: 1,
-        borderColor: "rgba(231,196,106,0.32)",
-        backgroundColor: "rgba(231,196,106,0.04)",
+        width: 680,
+        height: 680,
+        borderRadius: 680,
+        backgroundColor: "rgba(201,162,74,0.16)",
+        top: -220,
+        right: -220,
     },
-    heroCard: {
+    bgGlowBlue: {
+        position: "absolute",
+        width: 680,
+        height: 680,
+        borderRadius: 680,
+        backgroundColor: BLUE_GLOW,
+        bottom: -220,
+        left: -220,
+    },
+
+    bgGreenLeft: {
+        position: "absolute",
+        width: 520,
+        height: 520,
+        borderRadius: 520,
+        backgroundColor: "rgba(26, 182, 108, 0.10)",
+        top: 40,
+        left: -220,
+    },
+    bgGreenRight: {
+        position: "absolute",
+        width: 520,
+        height: 520,
+        borderRadius: 520,
+        backgroundColor: "rgba(26, 182, 108, 0.08)",
+        bottom: 40,
+        right: -220,
+    },
+
+    center: {
         width: "100%",
-        maxWidth: 440,
-        borderRadius: 30,
-        paddingVertical: 26,
-        paddingHorizontal: 22,
-        backgroundColor: "rgba(255,255,255,0.06)",
+        paddingHorizontal: 14,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+
+    hero: {
+        width: "100%",
+        maxWidth: 560,
+        borderRadius: 28,
+        paddingVertical: 34,
+        paddingHorizontal: 18,
+        backgroundColor: CARD,
+        borderWidth: 2,
+        borderColor: GOLD_RING,
+        alignItems: "center",
+        justifyContent: "center",
+        overflow: "hidden",
+        shadowColor: "#000",
+        shadowOpacity: 0.45,
+        shadowRadius: 24,
+        shadowOffset: { width: 0, height: 16 },
+        elevation: 10,
+    },
+
+    ringOuter: {
+        position: "absolute",
+        width: 420,
+        height: 420,
+        borderRadius: 420,
+        borderWidth: 2,
+        borderColor: "rgba(201,162,74,0.28)",
+        backgroundColor: "rgba(255,255,255,0.02)",
+    },
+    ringInner: {
+        position: "absolute",
+        width: 300,
+        height: 300,
+        borderRadius: 300,
         borderWidth: 1,
-        borderColor: "rgba(231,196,106,0.22)",
+        borderColor: "rgba(234,242,255,0.10)",
+        backgroundColor: "rgba(201,162,74,0.10)",
+    },
+
+    iconWrap: {
+        width: 190,
+        height: 190,
+        borderRadius: 190,
+        backgroundColor: "rgba(255,255,255,0.03)",
+        borderWidth: 2,
+        borderColor: GOLD,
+        alignItems: "center",
+        justifyContent: "center",
+        marginBottom: 18,
         shadowColor: "#000",
         shadowOpacity: 0.35,
-        shadowRadius: 18,
-        shadowOffset: { width: 0, height: 10 },
-        elevation: 10,
-        overflow: Platform.OS === "android" ? "hidden" : "visible",
-        alignItems: "center",
+        shadowRadius: 16,
+        shadowOffset: { width: 0, height: 12 },
+        elevation: 8,
     },
-    smallPill: {
-        paddingVertical: 7,
-        paddingHorizontal: 12,
-        borderRadius: 999,
-        backgroundColor: "rgba(0,0,0,0.30)",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.10)",
-        marginBottom: 14,
-    },
-    smallPillText: {
+    icon: { color: TEXT },
+
+    kicker: {
+        color: "rgba(234,242,255,0.80)",
         fontSize: 12,
-        color: "rgba(244,246,250,0.75)",
-        letterSpacing: 1.1,
+        fontWeight: "900",
+        letterSpacing: 3.2,
+        textAlign: "center",
     },
-    iconWrap: {
-        width: 152,
-        height: 152,
-        borderRadius: 76,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: "rgba(231,196,106,0.08)",
-        borderWidth: 1,
-        borderColor: "rgba(231,196,106,0.28)",
-        marginBottom: 14,
-    },
-    big: {
+    title: {
+        marginTop: 10,
+        color: TEXT,
         fontSize: 34,
-        color: "#F4F6FA",
+        fontWeight: "900",
+        letterSpacing: 0.8,
         textAlign: "center",
-        letterSpacing: 0.2,
-        marginBottom: 6,
     },
-    hole: {
-        fontSize: 16,
-        color: "rgba(244,246,250,0.78)",
+    sub: {
+        marginTop: 12,
+        color: "rgba(234,242,255,0.74)",
+        fontSize: 13,
+        fontWeight: "800",
+        lineHeight: 19,
         textAlign: "center",
-        letterSpacing: 0.2,
-        marginBottom: 10,
+        paddingHorizontal: 12,
     },
-    caption: {
-        fontSize: 14,
-        color: "rgba(244,246,250,0.64)",
-        textAlign: "center",
-        lineHeight: 20,
-    },
-    footerHint: {
+
+    badgesRow: {
         marginTop: 18,
-        paddingVertical: 8,
-        paddingHorizontal: 14,
+        flexDirection: "row",
+        gap: 10,
+        flexWrap: "wrap",
+        justifyContent: "center",
+    },
+    badge: {
         borderRadius: 999,
-        backgroundColor: "rgba(0,0,0,0.28)",
+        paddingVertical: 10,
+        paddingHorizontal: 14,
+        backgroundColor: "rgba(255,255,255,0.04)",
         borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.10)",
+        borderColor: "rgba(234,242,255,0.12)",
     },
-    footerHintText: {
+    badgeGold: {
+        borderRadius: 999,
+        paddingVertical: 10,
+        paddingHorizontal: 14,
+        backgroundColor: "rgba(201,162,74,0.12)",
+        borderWidth: 1,
+        borderColor: "rgba(201,162,74,0.65)",
+    },
+    badgeText: {
+        color: TEXT,
         fontSize: 12,
-        color: "rgba(244,246,250,0.72)",
-        letterSpacing: 0.3,
+        fontWeight: "900",
+        letterSpacing: 0.8,
     },
+
+    note: {
+        marginTop: 18,
+        color: "rgba(234,242,255,0.60)",
+        fontSize: 12,
+        fontWeight: "800",
+        textAlign: "center",
+    },
+
     sweep: {
         position: "absolute",
-        top: -40,
-        bottom: -40,
-        width: 120,
-        backgroundColor: "rgba(255,255,255,0.06)",
-        transform: [{ rotate: "18deg" }],
-        borderRadius: 40,
-    },
-    floorWrap: {
-        height: 56,
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    floorLine: {
-        width: "70%",
-        height: 1,
-        backgroundColor: "rgba(255,255,255,0.10)",
-    },
-    floorGlow: {
-        marginTop: -1,
-        width: "70%",
-        height: 18,
-        backgroundColor: "rgba(231,196,106,0.08)",
-        borderBottomLeftRadius: 18,
-        borderBottomRightRadius: 18,
+        top: -60,
+        width: 140,
+        height: 640,
+        backgroundColor: "rgba(255,255,255,0.08)",
+        borderRadius: 18,
     },
 });

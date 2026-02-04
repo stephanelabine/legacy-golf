@@ -200,21 +200,17 @@ export default function TournamentPlayerBriefingScreen({ navigation, route }) {
     };
 
     const myLabel = useMemo(() => {
-        // 1) auth displayName
         const authName = safeStr(u?.displayName);
         if (authName) return authName;
 
-        // 2) users/{uid} doc
         const fromUserDoc = pickUserLabelFromUserDoc(meDoc);
         if (fromUserDoc) return fromUserDoc;
 
-        // 3) if you exist inside teamA/teamB arrays (common in dev)
         const fromRoster = myUid ? safeStr(resolveName(myUid)) : "";
         if (fromRoster && fromRoster !== "TBD") return fromRoster;
 
-        // 4) last resort
         return "You";
-    }, [u, meDoc, myUid, playersById]); // playersById changes when teamVsTeam loads
+    }, [u, meDoc, myUid, playersById]);
 
     const myStartingHole = useMemo(() => {
         const n = Number(t?.startingHole);
@@ -491,7 +487,15 @@ export default function TournamentPlayerBriefingScreen({ navigation, route }) {
 
             <View style={styles.footer}>
                 <Pressable
-                    onPress={() => navigation.navigate(ROUTES.TOURNAMENT_LIVE_HUB, { tournamentId })}
+                    onPress={() =>
+                        navigation.navigate(ROUTES.TOURNAMENT_ROUND_START_SPLASH, {
+                            tournamentId,
+                            devPreview: true,
+                            roundIndex: (Number(t?.activeRound) || 1) - 1,
+                            holeIndex: (Number(t?.startingHole) || 1) - 1,
+                            sideGameKey: "LONG_DRIVE",
+                        })
+                    }
                     style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}
                 >
                     <View style={styles.primaryBtnInner}>

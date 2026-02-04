@@ -1,3 +1,4 @@
+// src/navigation/RootNavigator.js
 import React, { useEffect, useState } from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { onAuthStateChanged } from "firebase/auth";
@@ -69,11 +70,14 @@ import TournamentTeamVsTeamSetupScreen from "../screens/TournamentTeamVsTeamSetu
 import TournamentTeamVsTeamPairingsScreen from "../screens/TournamentTeamVsTeamPairingsScreen";
 import TournamentTeamVsTeamPairingsOverviewScreen from "../screens/TournamentTeamVsTeamPairingsOverviewScreen";
 
-// NEW
 import TournamentPayoutsScreen from "../screens/TournamentPayoutsScreen";
 import TournamentStartSplashScreen from "../screens/TournamentStartSplashScreen";
 import TournamentLiveHubScreen from "../screens/TournamentLiveHubScreen";
 import TournamentPlayerBriefingScreen from "../screens/TournamentPlayerBriefingScreen";
+
+// NEW: round start + side game splash screens
+import TournamentRoundStartSplashScreen from "../screens/TournamentRoundStartSplashScreen";
+import TournamentSideGameSplashScreen from "../screens/TournamentSideGameSplashScreen";
 
 /* ---------------- results/payouts ---------------- */
 
@@ -174,6 +178,11 @@ export default function RootNavigator() {
           {/* Post-setup runway */}
           <Stack.Screen name={ROUTES.TOURNAMENT_PAYOUTS} component={TournamentPayoutsScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_START_SPLASH} component={TournamentStartSplashScreen} />
+
+          {/* NEW splashes */}
+          <Stack.Screen name={ROUTES.TOURNAMENT_ROUND_START_SPLASH} component={TournamentRoundStartSplashScreen} />
+          <Stack.Screen name={ROUTES.TOURNAMENT_SIDEGAME_SPLASH} component={TournamentSideGameSplashScreen} />
+
           <Stack.Screen name={ROUTES.TOURNAMENT_LIVE_HUB} component={TournamentLiveHubScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_PLAYER_BRIEFING} component={TournamentPlayerBriefingScreen} />
 
