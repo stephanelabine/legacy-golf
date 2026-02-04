@@ -565,10 +565,11 @@ export default function TournamentTeamVsTeamPairingsScreen({ navigation, route }
         updatedAt: serverTimestamp(),
       };
 
+      // DO NOT write { teamVsTeam: payload } here — it can wipe nested fields like pairingsByRound (tee times). Use dot-path updates only.
+
       await updateDoc(doc(db, "tournaments", tournamentId), {
         "teamVsTeam.matchType": payload.matchType || "1v1",
         "teamVsTeam.pairingsByRound": payload.pairingsByRound || {},
-        "teamVsTeam.groupTeeTimes": payload.groupTeeTimes || {},
         "teamVsTeam.updatedAt": serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
