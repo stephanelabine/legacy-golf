@@ -674,13 +674,11 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
       }
 
       // key fix: also persist to tournament.teamVsTeam so other screens auto-populate
+      // CRITICAL: use dot-path updates so we never overwrite teamVsTeam.pairingsByRound (tee times)
       if (teamNamesToSync) {
         await updateDoc(doc(db, "tournaments", tournamentId), {
-          teamVsTeam: {
-            ...(t?.teamVsTeam && typeof t.teamVsTeam === "object" ? t.teamVsTeam : {}),
-            teamAName: teamNamesToSync.teamAName,
-            teamBName: teamNamesToSync.teamBName,
-          },
+          "teamVsTeam.teamAName": teamNamesToSync.teamAName,
+          "teamVsTeam.teamBName": teamNamesToSync.teamBName,
           updatedAt: serverTimestamp(),
         });
       }
