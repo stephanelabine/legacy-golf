@@ -1,6 +1,16 @@
 // src/screens/TournamentScoreEntryScreen.js
 import React, { useEffect, useMemo, useState, useCallback } from "react";
-import { SafeAreaView, View, Text, StyleSheet, Pressable, TextInput, FlatList, Alert, Keyboard } from "react-native";
+import {
+    SafeAreaView,
+    View,
+    Text,
+    StyleSheet,
+    Pressable,
+    TextInput,
+    FlatList,
+    Alert,
+    Keyboard,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { doc, collection, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
 
@@ -46,27 +56,50 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
     const [inputs, setInputs] = useState({}); // { [playerId]: { strokes: "", putts: "" } }
     const [saving, setSaving] = useState(false);
 
-    // If players weren't passed, try to load roster from Firestore (stable fallback).
+    // If players weren't passed, load roster from Firestore.
+    // Your DB uses tournaments/{tournamentId}/members (not /roster).
     useEffect(() => {
         if (!tournamentId) return;
         if (Array.isArray(params?.players) && params.players.length) return;
 
-        const rosterRef = collection(db, "tournaments", String(tournamentId), "roster");
+        const membersRef = collection(db, "tournaments", String(tournamentId), "members");
+        const rosterRef = collection(db, "tournaments", String(tournamentId), "roster"); // optional legacy
+
+        let unsubMembers = null;
         let unsubRoster = null;
 
         try {
-            unsubRoster = onSnapshot(
-                rosterRef,
+            unsubMembers = onSnapshot(
+                membersRef,
                 (snap) => {
-                    if (!snap?.docs) return;
-                    const list = snap.docs.map((d) => ({ id: d.id, ...((d.data && d.data()) || {}) }));
-                    if (list.length) setPlayers(list);
+                    const docs = snap?.docs || [];
+                    const list = docs.map((d) => ({ id: d.id, ...((d.data && d.data()) || {}) }));
+                    if (list.length) {
+                        setPlayers(list);
+                        return;
+                    }
+
+                    // Fallback: if members is empty for some reason, try legacy /roster.
+                    try {
+                        if (!unsubRoster) {
+                            unsubRoster = onSnapshot(
+                                rosterRef,
+                                (snap2) => {
+                                    const docs2 = snap2?.docs || [];
+                                    const list2 = docs2.map((d) => ({ id: d.id, ...((d.data && d.data()) || {}) }));
+                                    if (list2.length) setPlayers(list2);
+                                },
+                                () => { }
+                            );
+                        }
+                    } catch { }
                 },
                 () => { }
             );
         } catch { }
 
         return () => {
+            if (unsubMembers) unsubMembers();
             if (unsubRoster) unsubRoster();
         };
     }, [tournamentId, params?.players]);
@@ -97,7 +130,10 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
         }
 
         if (!playerRows.length) {
-            Alert.alert("No players loaded", "Roster not available yet. Make sure the tournament roster exists in Firebase.");
+            Alert.alert(
+                "No players loaded",
+                "No members found yet. Make sure tournaments/{tournamentId}/members contains player docs."
+            );
             return;
         }
 
@@ -126,7 +162,7 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
                     String(pid)
                 );
 
-                // Schema A: one doc per player, holes map inside.
+                // one doc per player, holes map inside.
                 const payload = {
                     playerId: String(pid),
                     playerName: p._name,
@@ -156,7 +192,14 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
 
     return (
         <SafeAreaView style={styles.safe}>
-            <ScreenHeader navigation={navigation} title={title} subtitle={""} safeTop={false} rightLabel={null} onRightPress={null} />
+            <ScreenHeader
+                navigation={navigation}
+                title={title}
+                subtitle={""}
+                safeTop={false}
+                rightLabel={null}
+                onRightPress={null}
+            />
 
             <View style={styles.body}>
                 <FlatList
@@ -202,15 +245,23 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
                     }}
                     ListEmptyComponent={
                         <View style={styles.emptyCard}>
-                            <Text style={styles.emptyTitle}>Loading roster…</Text>
-                            <Text style={styles.emptySub}>Waiting for tournament roster from Firebase.</Text>
+                            <Text style={styles.emptyTitle}>Loading players…</Text>
+                            <Text style={styles.emptySub}>Waiting for tournament members from Firebase.</Text>
                         </View>
                     }
                 />
             </View>
 
             <View style={[styles.footer, { paddingBottom: Math.max(10, (insets?.bottom || 0) + 8) }]}>
-                <Pressable onPress={onPressSaveAll} disabled={saving} style={({ pressed }) => [styles.saveBtn, pressed && styles.pressed, saving && { opacity: 0.7 }]}>
+                <Pressable
+                    onPress={onPressSaveAll}
+                    disabled={saving}
+                    style={({ pressed }) => [
+                        styles.saveBtn,
+                        pressed && styles.pressed,
+                        saving && { opacity: 0.7 },
+                    ]}
+                >
                     <Text style={styles.saveBtnText}>{saving ? "Saving…" : "Save Scores"}</Text>
                 </Pressable>
 
@@ -267,7 +318,13 @@ const styles = StyleSheet.create({
         borderColor: "rgba(255,255,255,0.10)",
     },
     emptyTitle: { color: WHITE, fontWeight: "900", fontSize: 15 },
-    emptySub: { marginTop: 8, color: "rgba(255,255,255,0.72)", fontWeight: "800", fontSize: 12, lineHeight: 17 },
+    emptySub: {
+        marginTop: 8,
+        color: "rgba(255,255,255,0.72)",
+        fontWeight: "800",
+        fontSize: 12,
+        lineHeight: 17,
+    },
 
     footer: {
         paddingTop: 10,
@@ -284,7 +341,13 @@ const styles = StyleSheet.create({
         justifyContent: "center",
     },
     saveBtnText: { color: GREEN_TEXT, fontSize: 17, fontWeight: "900" },
-    microNote: { marginTop: 8, color: "rgba(255,255,255,0.55)", fontWeight: "800", fontSize: 10, letterSpacing: 0.2 },
+    microNote: {
+        marginTop: 8,
+        color: "rgba(255,255,255,0.55)",
+        fontWeight: "800",
+        fontSize: 10,
+        letterSpacing: 0.2,
+    },
 
     pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
 });
