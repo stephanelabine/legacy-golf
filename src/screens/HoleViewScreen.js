@@ -137,6 +137,36 @@ function pickHoleFromActive(activeState) {
   return holeNumber;
 }
 
+function pickCourseIdAny(obj) {
+  if (!obj || typeof obj !== "object") return null;
+  const c = obj?.course;
+  const cid =
+    obj?.courseId ??
+    c?.id ??
+    c?.courseId ??
+    (typeof c === "string" ? c : null) ??
+    null;
+  return cid ? String(cid) : null;
+}
+
+function pickCourseNameAny(obj, fallback = "Course") {
+  if (!obj || typeof obj !== "object") return fallback;
+  const c = obj?.course;
+  const name =
+    obj?.courseName ??
+    c?.name ??
+    c?.courseName ??
+    (typeof c === "string" ? c : null) ??
+    null;
+  return String(name || fallback);
+}
+
+function pickCourseCenterAny(obj) {
+  if (!obj || typeof obj !== "object") return null;
+  const c = obj?.course;
+  return obj?.courseCenter ?? c?.center ?? c?.courseCenter ?? null;
+}
+
 function getMissingHolesFromState(state, playersList) {
   const players = Array.isArray(playersList) ? playersList : [];
   const ids = players.map((p, idx) => String(p?.id ?? String(idx)));
@@ -250,17 +280,19 @@ export default function HoleViewScreen({ navigation, route }) {
   const courseParam = params.course;
   const teeParam = params.tee;
 
-  const courseId =
+  const courseIdFromParams =
     params.courseId ??
     courseParam?.id ??
     courseParam?.courseId ??
     (typeof courseParam === "string" ? courseParam : null);
 
-  const courseName =
+  const courseNameFromParams =
     params.courseName ??
     courseParam?.name ??
     courseParam?.courseName ??
-    (typeof courseParam === "string" ? courseParam : "Course");
+    (typeof courseParam === "string" ? courseParam : "");
+
+  const courseCenterFromParams = params.courseCenter ?? courseParam?.center ?? courseParam?.courseCenter ?? null;
 
   const teeName = teeParam?.name ?? (typeof teeParam === "string" ? teeParam : "Tees");
   const players = params.players || [];
@@ -270,6 +302,22 @@ export default function HoleViewScreen({ navigation, route }) {
   const [courseData, setCourseData] = useState(null);
   const [user, setUser] = useState(null);
   const [activeSnap, setActiveSnap] = useState(null);
+
+  const activeRoot = useMemo(() => unwrapRound(activeSnap), [activeSnap]);
+
+  const courseId = useMemo(() => {
+    return courseIdFromParams ? String(courseIdFromParams) : pickCourseIdAny(activeRoot);
+  }, [courseIdFromParams, activeRoot]);
+
+  const courseName = useMemo(() => {
+    const name = String(courseNameFromParams || "").trim();
+    if (name) return name;
+    return pickCourseNameAny(activeRoot, "Course");
+  }, [courseNameFromParams, activeRoot]);
+
+  const courseCenter = useMemo(() => {
+    return courseCenterFromParams ?? pickCourseCenterAny(activeRoot) ?? null;
+  }, [courseCenterFromParams, activeRoot]);
 
   const holeMeta = useMemo(() => {
     return params.holeMeta && typeof params.holeMeta === "object" ? params.holeMeta : buildDefaultHoleMeta();
@@ -310,7 +358,6 @@ export default function HoleViewScreen({ navigation, route }) {
     clearSgTimer();
     setSgVisible(false);
 
-    // Dev-safe: clear the trigger so it cannot loop if the same screen instance re-focuses
     try {
       navigation.setParams({ showFormatSplash: false });
     } catch { }
@@ -318,11 +365,9 @@ export default function HoleViewScreen({ navigation, route }) {
 
   useFocusEffect(
     useCallback(() => {
-      // Only show if explicitly requested and a sideGameKey exists
       if (!showFormatSplash) return undefined;
       if (!sideGameKey) return undefined;
 
-      // Only once per (tournament/round/hole/sidegame) key for this screen instance
       if (sgShownKeyRef.current === sgOnceKey) return undefined;
       sgShownKeyRef.current = sgOnceKey;
 
@@ -470,35 +515,39 @@ export default function HoleViewScreen({ navigation, route }) {
 
   function openScoreEntry(extra = {}) {
     navigation.navigate(ROUTES.SCORE_ENTRY, {
-      course: courseParam ?? { name: courseName },
-      tee: teeParam ?? { name: teeName },
+      course: courseParam ?? activeRoot?.course ?? { name: courseName, id: courseId },
+      tee: teeParam ?? activeRoot?.tee ?? { name: teeName },
       players,
       hole: currentHole,
       holeMeta,
       roundId,
       courseName,
       teeName,
+      courseCenter,
+      courseId,
       ...extra,
     });
   }
 
   function openScorecard() {
     navigation.navigate(ROUTES.SCORECARD, {
-      course: courseParam ?? { name: courseName },
-      tee: teeParam ?? { name: teeName },
+      course: courseParam ?? activeRoot?.course ?? { name: courseName, id: courseId },
+      tee: teeParam ?? activeRoot?.tee ?? { name: teeName },
       players,
       holeMeta,
       roundId,
       hole: currentHole,
       holeIndex: currentHole - 1,
+      courseCenter,
+      courseId,
     });
   }
 
   function openGreenView() {
     navigation.navigate(ROUTES.GREEN_VIEW, {
       ...params,
-      course: courseParam ?? { name: courseName },
-      tee: teeParam ?? { name: teeName },
+      course: courseParam ?? activeRoot?.course ?? { name: courseName, id: courseId, center: courseCenter },
+      tee: teeParam ?? activeRoot?.tee ?? { name: teeName },
       players,
       holeMeta,
       roundId,
@@ -506,14 +555,16 @@ export default function HoleViewScreen({ navigation, route }) {
       holeIndex: currentHole - 1,
       courseName,
       teeName,
+      courseCenter,
+      courseId,
     });
   }
 
   function openHazards() {
     navigation.navigate(ROUTES.HAZARDS, {
       ...params,
-      course: courseParam ?? { name: courseName },
-      tee: teeParam ?? { name: teeName },
+      course: courseParam ?? activeRoot?.course ?? { name: courseName, id: courseId, center: courseCenter },
+      tee: teeParam ?? activeRoot?.tee ?? { name: teeName },
       players,
       holeMeta,
       roundId,
@@ -521,20 +572,32 @@ export default function HoleViewScreen({ navigation, route }) {
       holeIndex: currentHole - 1,
       courseName,
       teeName,
+      courseCenter,
+      courseId,
     });
   }
 
   function openHoleMap(openSetup = false) {
+    const cid = courseId || pickCourseIdAny(activeRoot);
+    if (!cid) {
+      Alert.alert(
+        "Missing courseId",
+        "This screen does not have a courseId yet, so mapping cannot open.\n\nFix: start the round from a course picker that provides courseId."
+      );
+      return;
+    }
+
     navigation.navigate(ROUTES.HOLE_MAP, {
       roundId,
       holeIndex: currentHole - 1,
       hole: currentHole,
-      course: courseParam ?? { name: courseName, id: courseId },
-      tee: teeParam ?? { name: teeName },
+      course: courseParam ?? activeRoot?.course ?? { name: courseName, id: cid, center: courseCenter },
+      tee: teeParam ?? activeRoot?.tee ?? { name: teeName },
       players,
       holeMeta,
       courseName,
-      courseId: courseId ? String(courseId) : null,
+      courseId: String(cid),
+      courseCenter,
       openSetup: !!openSetup,
     });
   }
@@ -572,11 +635,10 @@ export default function HoleViewScreen({ navigation, route }) {
       const active = (await RoundState.loadActiveRound()) || {};
 
       const safePlayers = Array.isArray(active?.players) && active.players.length ? active.players : players;
-      const safeCourse = active?.course || courseParam || { name: courseName };
+      const safeCourse = active?.course || courseParam || { name: courseName, id: courseId, center: courseCenter };
       const safeTee = active?.tee || teeParam || { name: teeName };
       const safeHoles = active?.holes || {};
 
-      // NEW: persist wagers + holeMeta to the saved round
       const safeWagers = active?.wagers || params?.wagers || null;
       const safeMeta = active?.meta && typeof active.meta === "object" ? active.meta : {};
       const mergedMeta = { ...safeMeta, holeMeta };
@@ -665,7 +727,7 @@ export default function HoleViewScreen({ navigation, route }) {
           name: FINAL_RESULTS,
           params: {
             roundId: res?.roundId || active?.id || roundId || null,
-            course: active?.course || courseParam || { name: courseName },
+            course: active?.course || courseParam || { name: courseName, id: courseId, center: courseCenter },
             tee: active?.tee || teeParam || { name: teeName },
             players: active?.players || players,
             holeMeta: active?.meta?.holeMeta || holeMeta,
@@ -1231,10 +1293,6 @@ const styles = StyleSheet.create({
   confirmBtnDangerT: { color: WHITE, fontWeight: "900" },
 
   pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
-
-  /* -------------------------- */
-  /* side game overlay styles   */
-  /* -------------------------- */
 
   sgWrap: {
     flex: 1,

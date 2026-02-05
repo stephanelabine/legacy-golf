@@ -21,6 +21,7 @@ import ROUTES from "../navigation/routes";
 import { MAPBOX_TOKEN } from "../config/mapbox";
 import { loadCourseData, saveCourseData } from "../storage/courseData";
 import { isAdmin as isAdminUser } from "../storage/courseDataRemote";
+import * as RoundState from "../storage/roundState";
 
 function toRad(v) {
   return (v * Math.PI) / 180;
@@ -37,6 +38,41 @@ function haversineMeters(a, b) {
 function yds(m) {
   if (!Number.isFinite(m)) return "—";
   return String(Math.round(m * 1.09361));
+}
+
+function unwrapRound(state) {
+  if (!state || typeof state !== "object") return null;
+  return state?.activeRound || state?.currentRound || state?.round || state;
+}
+
+function pickCourseIdAny(stateOrParams) {
+  if (!stateOrParams || typeof stateOrParams !== "object") return null;
+  const c = stateOrParams?.course;
+  const cid =
+    stateOrParams?.courseId ??
+    c?.id ??
+    c?.courseId ??
+    (typeof c === "string" ? c : null) ??
+    null;
+  return cid ? String(cid) : null;
+}
+
+function pickCourseNameAny(stateOrParams, fallback = "Course") {
+  if (!stateOrParams || typeof stateOrParams !== "object") return fallback;
+  const c = stateOrParams?.course;
+  const name =
+    stateOrParams?.courseName ??
+    c?.name ??
+    c?.courseName ??
+    (typeof c === "string" ? c : null) ??
+    null;
+  return String(name || fallback);
+}
+
+function pickCourseCenterAny(stateOrParams) {
+  if (!stateOrParams || typeof stateOrParams !== "object") return null;
+  const c = stateOrParams?.course;
+  return stateOrParams?.courseCenter ?? c?.center ?? c?.courseCenter ?? null;
 }
 
 function buildHtml() {
@@ -146,7 +182,6 @@ function hasAllGreenPoints(holeObj) {
   const g = holeObj?.green;
   return !!(g?.front && g?.middle && g?.back);
 }
-
 function all18Complete(courseData) {
   const holes = courseData?.gps?.holes;
   if (!holes || typeof holes !== "object") return false;
@@ -168,9 +203,51 @@ export default function HoleMapScreen({ navigation, route }) {
   const roundId = params.roundId ?? null;
   const holeMetaParam = params.holeMeta || null;
 
-  const courseId = params.courseId ?? course?.id ?? (typeof course === "string" ? course : null);
-  const courseName = params.courseName ?? course?.name ?? course?.courseName ?? "Course";
-  const courseCenter = params.courseCenter ?? course?.center ?? course?.courseCenter ?? null;
+  // IMPORTANT: allow HoleMap to work even when navigated with only {roundId, holeIndex}
+  const [resolvedCourseId, setResolvedCourseId] = useState(
+    pickCourseIdAny(params) || pickCourseIdAny({ course })
+  );
+  const [resolvedCourseName, setResolvedCourseName] = useState(
+    pickCourseNameAny(params, pickCourseNameAny({ course }, "Course"))
+  );
+  const [resolvedCourseCenter, setResolvedCourseCenter] = useState(
+    pickCourseCenterAny(params) || pickCourseCenterAny({ course }) || null
+  );
+
+  useEffect(() => {
+    let live = true;
+
+    (async () => {
+      // if we already have it, done
+      const cidNow = pickCourseIdAny({ courseId: resolvedCourseId, course });
+      if (cidNow) return;
+
+      try {
+        const active = await RoundState.loadActiveRound();
+        if (!live) return;
+
+        const root = unwrapRound(active);
+        const cid = pickCourseIdAny(root);
+        const cname = pickCourseNameAny(root, resolvedCourseName || "Course");
+        const ccenter = pickCourseCenterAny(root) || null;
+
+        if (cid) setResolvedCourseId(String(cid));
+        if (cname) setResolvedCourseName(String(cname));
+        if (ccenter) setResolvedCourseCenter(ccenter);
+      } catch {
+        // ignore
+      }
+    })();
+
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const courseId = resolvedCourseId ? String(resolvedCourseId) : null;
+  const courseName = String(resolvedCourseName || "Course");
+  const courseCenter = resolvedCourseCenter || null;
 
   const [holeIndex, setHoleIndex] = useState(Number.isFinite(params.holeIndex) ? params.holeIndex : 0);
   const clampedHoleIndex = Math.max(0, Math.min(17, holeIndex));
@@ -229,8 +306,8 @@ export default function HoleMapScreen({ navigation, route }) {
     return holeMetaParam && typeof holeMetaParam === "object"
       ? holeMetaParam
       : courseData?.holeMeta && typeof courseData.holeMeta === "object"
-      ? courseData.holeMeta
-      : null;
+        ? courseData.holeMeta
+        : null;
   }, [holeMetaParam, courseData]);
 
   const par = holeMeta?.[String(holeNumber)]?.par ?? null;
@@ -284,10 +361,10 @@ export default function HoleMapScreen({ navigation, route }) {
       tee: teePoint && Number.isFinite(teePoint?.lon) && Number.isFinite(teePoint?.lat) ? teePoint : null,
       green: green
         ? {
-            front: green.front || null,
-            middle: green.middle || null,
-            back: green.back || null,
-          }
+          front: green.front || null,
+          middle: green.middle || null,
+          back: green.back || null,
+        }
         : null,
       fit,
     };
@@ -322,6 +399,7 @@ export default function HoleMapScreen({ navigation, route }) {
       roundId,
       courseName,
       courseCenter,
+      courseId,
     });
   }
 
@@ -347,9 +425,14 @@ export default function HoleMapScreen({ navigation, route }) {
     return "GPS ready";
   }, [user]);
 
-  async function setPoint(kind) {
+  async function setGreenPoint(kind) {
     if (!admin) return;
-    if (!courseId || !canSet) return;
+
+    if (!courseId) {
+      Alert.alert("Set point unavailable", "No courseId in route params.");
+      return;
+    }
+    if (!canSet) return;
 
     setSavingSetup(true);
     try {
@@ -365,7 +448,7 @@ export default function HoleMapScreen({ navigation, route }) {
       }
 
       const gps = existing.gps && typeof existing.gps === "object" ? existing.gps : {};
-      const holes = gps.holes && typeof holes === "object" ? holes : {};
+      const holes = gps.holes && typeof gps.holes === "object" ? gps.holes : {};
       const hKey = String(holeNumber);
       const holeObj = holes[hKey] && typeof holes[hKey] === "object" ? holes[hKey] : {};
       const existingGreen = holeObj.green && typeof holeObj.green === "object" ? holeObj.green : {};
@@ -392,6 +475,50 @@ export default function HoleMapScreen({ navigation, route }) {
       if (ok) {
         await reloadCourseData();
         postPayload(true);
+        Alert.alert("Saved", `Green ${kind} saved for Hole ${holeNumber}.`);
+      }
+    } finally {
+      setSavingSetup(false);
+    }
+  }
+
+  async function setTeePoint() {
+    if (!admin) return;
+
+    if (!courseId) {
+      Alert.alert("Set Tee unavailable", "No courseId in route params.");
+      return;
+    }
+    if (!canSet) return;
+
+    setSavingSetup(true);
+    try {
+      const cid = String(courseId);
+      const existing = (await loadCourseData(cid)) || {};
+
+      const gps = existing.gps && typeof existing.gps === "object" ? existing.gps : {};
+      const holes = gps.holes && typeof gps.holes === "object" ? gps.holes : {};
+      const hKey = String(holeNumber);
+      const holeObj = holes[hKey] && typeof holes[hKey] === "object" ? holes[hKey] : {};
+
+      const nextHoleObj = { ...holeObj, tee: { lat: user.lat, lon: user.lon } };
+
+      const next = {
+        ...existing,
+        gps: {
+          ...gps,
+          holes: {
+            ...holes,
+            [hKey]: nextHoleObj,
+          },
+        },
+      };
+
+      const ok = await saveCourseData(cid, next);
+      if (ok) {
+        await reloadCourseData();
+        postPayload(true);
+        Alert.alert("Saved", `Tee point saved for Hole ${holeNumber}.`);
       }
     } finally {
       setSavingSetup(false);
@@ -400,13 +527,14 @@ export default function HoleMapScreen({ navigation, route }) {
 
   function lockGreenPoints() {
     if (!admin) return;
-    if (!courseId) return;
+
+    if (!courseId) {
+      Alert.alert("Lock unavailable", "No courseId in route params.");
+      return;
+    }
 
     if (!canLockNow) {
-      Alert.alert(
-        "Not ready to lock",
-        "To lock green points, you must have Front/Mid/Back saved for all 18 holes."
-      );
+      Alert.alert("Not ready to lock", "To lock green points, you must have Front/Mid/Back saved for all 18 holes.");
       return;
     }
 
@@ -433,6 +561,8 @@ export default function HoleMapScreen({ navigation, route }) {
     );
   }
 
+  const teeSet = !!(teePoint && Number.isFinite(teePoint?.lat) && Number.isFinite(teePoint?.lon));
+
   return (
     <SafeAreaView style={styles.safe}>
       <WebView ref={web} source={{ html: buildHtml() }} style={{ flex: 1 }} onLoadEnd={() => setWebReady(true)} />
@@ -450,6 +580,7 @@ export default function HoleMapScreen({ navigation, route }) {
             Hole {holeNumber}
             {par ? ` • Par ${par}` : ""}
             {si ? ` • SI ${si}` : ""}
+            {teeSet ? "" : " • Tee not set"}
           </Text>
         </View>
 
@@ -481,9 +612,7 @@ export default function HoleMapScreen({ navigation, route }) {
 
           <Text style={styles.yUnit}>YDS</Text>
 
-          {!green?.front && !green?.middle && !green?.back ? (
-            <Text style={styles.yHint}>No green points loaded for this course.</Text>
-          ) : null}
+          {!green?.front && !green?.middle && !green?.back ? <Text style={styles.yHint}>No green points loaded for this course.</Text> : null}
         </View>
       </View>
 
@@ -516,14 +645,16 @@ export default function HoleMapScreen({ navigation, route }) {
         <View style={styles.modalBg}>
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Green Points Setup</Text>
+              <Text style={styles.modalTitle}>Course Mapping Setup</Text>
               <Pressable onPress={() => setSetupOpen(false)} style={styles.modalClose}>
                 <Text style={styles.modalCloseT}>Done</Text>
               </Pressable>
             </View>
 
             <Text style={styles.modalSub}>
-              {admin ? "Select a hole, stand at the green front/mid/back, then tap Set." : "Read-only for guests."}
+              {admin
+                ? "Stand at tee / green points and tap Set. Tee is used for Long Drive distance."
+                : "Read-only for guests."}
             </Text>
 
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.holePills}>
@@ -534,11 +665,7 @@ export default function HoleMapScreen({ navigation, route }) {
                   <Pressable
                     key={h}
                     onPress={() => setHoleIndex(h - 1)}
-                    style={({ pressed }) => [
-                      styles.holePill,
-                      active && styles.holePillActive,
-                      pressed && styles.pressed,
-                    ]}
+                    style={({ pressed }) => [styles.holePill, active && styles.holePillActive, pressed && styles.pressed]}
                   >
                     <Text style={[styles.holePillT, active && styles.holePillTActive]}>{h}</Text>
                   </Pressable>
@@ -556,17 +683,15 @@ export default function HoleMapScreen({ navigation, route }) {
                 <>
                   <View style={styles.lockRow}>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.lockTitle}>
-                        {gpsLocked ? "Green points are locked" : "Green points are editable"}
-                      </Text>
+                      <Text style={styles.lockTitle}>{gpsLocked ? "Green points are locked" : "Green points are editable"}</Text>
                       <Text style={styles.lockSub}>
                         {!admin
                           ? "Guests cannot set or lock points."
                           : gpsLocked
-                          ? "Set buttons are disabled forever (safeguard)."
-                          : canLockNow
-                          ? "All 18 holes complete — you can lock now."
-                          : "Lock becomes available after all 18 holes have Front/Mid/Back saved."}
+                            ? "Set buttons are disabled forever (safeguard)."
+                            : canLockNow
+                              ? "All 18 holes complete — you can lock now."
+                              : "Lock becomes available after all 18 holes have Front/Mid/Back saved."}
                       </Text>
                     </View>
 
@@ -574,11 +699,7 @@ export default function HoleMapScreen({ navigation, route }) {
                       <Pressable
                         onPress={lockGreenPoints}
                         disabled={!canLockNow}
-                        style={({ pressed }) => [
-                          styles.lockBtn,
-                          pressed && styles.pressed,
-                          !canLockNow && { opacity: 0.45 },
-                        ]}
+                        style={({ pressed }) => [styles.lockBtn, pressed && styles.pressed, !canLockNow && { opacity: 0.45 }]}
                       >
                         <Text style={styles.lockBtnT}>Lock</Text>
                       </Pressable>
@@ -591,10 +712,23 @@ export default function HoleMapScreen({ navigation, route }) {
 
                   <Text style={styles.gpsStatus}>{currentAccuracyText}</Text>
 
+                  <Pressable
+                    disabled={!canSet || savingSetup}
+                    onPress={setTeePoint}
+                    style={({ pressed }) => [
+                      styles.setTeeBtn,
+                      pressed && styles.pressed,
+                      (!canSet || savingSetup) && { opacity: 0.45 },
+                    ]}
+                  >
+                    <Text style={styles.setTeeBtnT}>Set Tee</Text>
+                    <Text style={styles.setTeeBtnS}>{teeSet ? "Saved" : "Not set"}</Text>
+                  </Pressable>
+
                   <View style={styles.setRow}>
                     <Pressable
                       disabled={!canSet || savingSetup || gpsLocked}
-                      onPress={() => setPoint("front")}
+                      onPress={() => setGreenPoint("front")}
                       style={({ pressed }) => [
                         styles.setBtn,
                         pressed && styles.pressed,
@@ -609,7 +743,7 @@ export default function HoleMapScreen({ navigation, route }) {
 
                     <Pressable
                       disabled={!canSet || savingSetup || gpsLocked}
-                      onPress={() => setPoint("middle")}
+                      onPress={() => setGreenPoint("middle")}
                       style={({ pressed }) => [
                         styles.setBtn,
                         pressed && styles.pressed,
@@ -624,7 +758,7 @@ export default function HoleMapScreen({ navigation, route }) {
 
                     <Pressable
                       disabled={!canSet || savingSetup || gpsLocked}
-                      onPress={() => setPoint("back")}
+                      onPress={() => setGreenPoint("back")}
                       style={({ pressed }) => [
                         styles.setBtn,
                         pressed && styles.pressed,
@@ -640,7 +774,7 @@ export default function HoleMapScreen({ navigation, route }) {
 
                   <Text style={styles.modalHint}>
                     {admin
-                      ? "After you set points, the yardages will update live as you walk."
+                      ? "After you set points, yardages update live as you walk. Tee is used for Long Drive distance."
                       : "Guests can view yardages once points are published."}
                   </Text>
                 </>
@@ -729,12 +863,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
 
-  gpsChipWrap: {
-    position: "absolute",
-    left: 14,
-    right: 14,
-    alignItems: "center",
-  },
+  gpsChipWrap: { position: "absolute", left: 14, right: 14, alignItems: "center" },
   gpsChip: {
     flexDirection: "row",
     alignItems: "center",
@@ -891,6 +1020,18 @@ const styles = StyleSheet.create({
   lockPillT: { color: "#fff", fontWeight: "900", letterSpacing: 0.6 },
 
   gpsStatus: { color: "rgba(255,255,255,0.82)", fontWeight: "900", marginBottom: 10 },
+
+  setTeeBtn: {
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    backgroundColor: "rgba(46, 204, 113, 0.18)",
+    borderWidth: 1,
+    borderColor: "rgba(46, 204, 113, 0.28)",
+    marginBottom: 10,
+  },
+  setTeeBtnT: { color: "#fff", fontWeight: "900", fontSize: 16 },
+  setTeeBtnS: { marginTop: 6, color: "rgba(255,255,255,0.70)", fontWeight: "800", fontSize: 12 },
 
   setRow: { flexDirection: "row", gap: 10 },
   setBtn: {

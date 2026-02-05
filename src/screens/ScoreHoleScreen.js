@@ -12,6 +12,23 @@ function clampScore(v) {
   return String(n);
 }
 
+function pickCourseId(round) {
+  return (
+    round?.courseId ??
+    round?.course?.id ??
+    round?.course?.courseId ??
+    (typeof round?.course === "string" ? round.course : null)
+  );
+}
+
+function pickCourseName(round) {
+  return round?.courseName ?? round?.course?.name ?? round?.course?.courseName ?? "Course";
+}
+
+function pickCourseCenter(round) {
+  return round?.courseCenter ?? round?.course?.center ?? round?.course?.courseCenter ?? null;
+}
+
 export default function ScoreHoleScreen({ navigation, route }) {
   const roundId = route?.params?.roundId;
 
@@ -72,6 +89,34 @@ export default function ScoreHoleScreen({ navigation, route }) {
     setHoleIndex((i) => Math.max(i - 1, 0));
   }
 
+  function goToHoleMap() {
+    if (!round) return;
+
+    const courseId = pickCourseId(round);
+    const courseName = pickCourseName(round);
+    const courseCenter = pickCourseCenter(round);
+
+    if (!courseId) {
+      Alert.alert(
+        "Course not linked",
+        "This round does not contain a courseId, so Course Mapping cannot open.\n\nWe’ll fix this at the round creation flow next."
+      );
+      return;
+    }
+
+    navigation.navigate(ROUTES.HOLE_MAP, {
+      roundId: round.id,
+      holeIndex,
+      courseId: String(courseId),
+      courseName,
+      courseCenter,
+      course: round.course || { id: String(courseId), name: courseName, center: courseCenter },
+      tee: round.tee || round.teeObj || null,
+      players: round.players || [],
+      holeMeta: round.holeMeta || null,
+    });
+  }
+
   if (!round || !hole) {
     return (
       <SafeAreaView style={styles.safe}>
@@ -91,8 +136,12 @@ export default function ScoreHoleScreen({ navigation, route }) {
         </Pressable>
 
         <View style={{ flex: 1 }}>
-          <Text style={styles.title} numberOfLines={1}>{title}</Text>
-          <Text style={styles.sub} numberOfLines={1}>{sub}</Text>
+          <Text style={styles.title} numberOfLines={1}>
+            {title}
+          </Text>
+          <Text style={styles.sub} numberOfLines={1}>
+            {sub}
+          </Text>
         </View>
 
         <Pressable onPress={() => persist(true)} disabled={saving} style={[styles.saveBtn, saving && styles.disabled]}>
@@ -111,7 +160,9 @@ export default function ScoreHoleScreen({ navigation, route }) {
             const v = hole.scores?.[p.id] ?? "";
             return (
               <View key={p.id} style={styles.playerRow}>
-                <Text style={styles.playerName} numberOfLines={1}>{p.name}</Text>
+                <Text style={styles.playerName} numberOfLines={1}>
+                  {p.name}
+                </Text>
                 <TextInput
                   value={String(v)}
                   onChangeText={(t) => setStroke(p.id, t)}
@@ -127,7 +178,7 @@ export default function ScoreHoleScreen({ navigation, route }) {
         </View>
 
         <View style={styles.actions}>
-          <Pressable onPress={() => navigation.navigate(ROUTES.HOLE_MAP, { roundId: round.id, holeIndex })} style={styles.actionBtn}>
+          <Pressable onPress={goToHoleMap} style={styles.actionBtn}>
             <Text style={styles.actionTxt}>Hole View</Text>
           </Pressable>
 
@@ -159,7 +210,14 @@ const styles = StyleSheet.create({
   loading: { color: "#fff", opacity: 0.8, fontWeight: "800", marginTop: 40, textAlign: "center" },
 
   header: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 10 },
-  homeBtn: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)" },
+  homeBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+  },
   homeTxt: { color: "#fff", fontWeight: "900" },
   saveBtn: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, backgroundColor: "rgba(46,125,255,0.18)", borderWidth: 1, borderColor: "rgba(46,125,255,0.35)" },
   saveTxt: { color: "#fff", fontWeight: "900" },
