@@ -471,8 +471,13 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
             courseId: courseId ? String(courseId) : null,
             courseName,
             teeName,
-            players: players?.length ? players : null,
+
+            // IMPORTANT: do NOT pass full tournament roster here
+            // Score Entry will load the correct group itself
+            players: null,
         });
+
+
     }
 
     /* -------------------------- */
