@@ -1,0 +1,34 @@
+END OF DAY BACKUP (Legacy Golf)
+
+A) Verify what changed
+
+git branch --show-current
+
+git status
+
+git diff
+
+B) Stage + commit EVERYTHING
+4. git add -A
+5. git commit -m "EOD: <what we did today>"
+
+C) Push to GitHub
+6. git push
+
+D) Create a “backup tag” (easy rollback point)
+7. git tag -a eod-YYYY-MM-DD -m "EOD snapshot"
+8. git push --tags
+
+E) Update our daily log (1 minute)
+9. Open docs/DAILY_LOG.md and add today’s date + bullets:
+
+branch
+
+commits
+
+files touched
+
+what’s next
+
+F) Confirm clean
+10. git status (must say: working tree clean)
