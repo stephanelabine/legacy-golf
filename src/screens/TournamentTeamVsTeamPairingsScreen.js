@@ -13,7 +13,14 @@ import {
   Modal,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { doc, onSnapshot, updateDoc, serverTimestamp } from "firebase/firestore";
+import {
+  doc,
+  onSnapshot,
+  updateDoc,
+  serverTimestamp,
+  writeBatch,
+  collection,
+} from "firebase/firestore";
 
 import ROUTES from "../navigation/routes";
 import { db } from "../firebase/firebase";
@@ -497,6 +504,88 @@ export default function TournamentTeamVsTeamPairingsScreen({ navigation, route }
     return out;
   };
 
+  const buildGroupsFromMatchups = (matchups, fallbackStartingHole) => {
+    const rows = Array.isArray(matchups) ? matchups : [];
+    const groups = [];
+    for (let i = 0; i < rows.length; i += 2) {
+      const chunk = rows.slice(i, i + 2);
+      const t0 = safeStr(chunk?.[0]?.teeTime || "").trim();
+      const t1 = safeStr(chunk?.[1]?.teeTime || "").trim();
+      const teeTime = t0 || t1 || "";
+
+      const ids = [];
+      for (const m of chunk) {
+        const a = String(m?.aUid || "").trim();
+        const b = String(m?.bUid || "").trim();
+        if (a) ids.push(a);
+        if (b) ids.push(b);
+      }
+
+      const uniq = Array.from(new Set(ids));
+      groups.push({
+        groupNumber: Math.floor(i / 2) + 1,
+        orderIndex: Math.floor(i / 2) + 1,
+        teeTime: teeTime || "",
+        startingHole: Number(fallbackStartingHole || 1) || 1,
+        playerIds: uniq,
+        matchups: chunk.map((m) => ({
+          aUid: String(m?.aUid || ""),
+          bUid: String(m?.bUid || ""),
+        })),
+      });
+    }
+    return groups;
+  };
+
+  const writeRoundGroupsToFirestore = async (pairingsByRound) => {
+    if (!tournamentId) return;
+
+    const startingHole = Number(tournament?.startingHole || 1) || 1;
+
+    const batch = writeBatch(db);
+
+    for (const r of [1, 2, 3, 4]) {
+      const roundKey = `r${r}`;
+      const matchups = Array.isArray(pairingsByRound?.[String(r)]?.matchups)
+        ? pairingsByRound[String(r)].matchups
+        : [];
+
+      const groups = buildGroupsFromMatchups(matchups, startingHole);
+
+      const groupsCol = collection(db, "tournaments", String(tournamentId), "rounds", roundKey, "groups");
+
+      for (const g of groups) {
+        const gid = `g${g.groupNumber}`;
+        const groupRef = doc(groupsCol, gid);
+
+        batch.set(
+          groupRef,
+          {
+            tournamentId: String(tournamentId),
+            roundNumber: r,
+            groupId: gid,
+            groupNumber: g.groupNumber,
+            orderIndex: g.orderIndex,
+            teeTime: String(g.teeTime || ""),
+            startingHole: Number(g.startingHole || 1) || 1,
+            playerIds: Array.isArray(g.playerIds) ? g.playerIds.map(String).filter(Boolean) : [],
+            matchups: Array.isArray(g.matchups) ? g.matchups : [],
+            source: {
+              type: "team_vs_team",
+              matchType: "1v1",
+              teamAName: safeStr(teamAName || "Team A"),
+              teamBName: safeStr(teamBName || "Team B"),
+            },
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
+    }
+
+    await batch.commit();
+  };
+
   const onSaveAndContinue = async () => {
     if (!tournamentId) return;
     if (!teamVsTeam) {
@@ -558,22 +647,15 @@ export default function TournamentTeamVsTeamPairingsScreen({ navigation, route }
         },
       };
 
-      const payload = {
-        ...(teamVsTeam || {}),
-        matchType: "1v1",
-        pairingsByRound,
-        updatedAt: serverTimestamp(),
-      };
-
-      // DO NOT write { teamVsTeam: payload } here — it can wipe nested fields like pairingsByRound (tee times). Use dot-path updates only.
-
       await updateDoc(doc(db, "tournaments", tournamentId), {
-        "teamVsTeam.matchType": payload.matchType || "1v1",
-        "teamVsTeam.pairingsByRound": payload.pairingsByRound || {},
+        "teamVsTeam.matchType": "1v1",
+        "teamVsTeam.pairingsByRound": pairingsByRound || {},
         "teamVsTeam.updatedAt": serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
 
+      // UNIVERSAL GROUPS (format-agnostic downstream)
+      await writeRoundGroupsToFirestore(pairingsByRound);
 
       navigation.navigate(ROUTES.TOURNAMENT_TEAM_VS_TEAM_PAIRINGS_OVERVIEW, { tournamentId });
     } catch (e) {
@@ -773,7 +855,7 @@ export default function TournamentTeamVsTeamPairingsScreen({ navigation, route }
               pressed && canRender ? styles.pressed : null,
             ]}
           >
-            <Text style={styles.primaryText}>Save and Continue</Text>
+            <Text style={styles.primaryText}>Save • Write Groups • Continue</Text>
           </Pressable>
         </View>
 

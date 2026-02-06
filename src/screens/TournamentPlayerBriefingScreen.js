@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Platform, Alert, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { doc, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot, collection, query, orderBy } from "firebase/firestore";
 
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
@@ -84,6 +84,9 @@ export default function TournamentPlayerBriefingScreen({ navigation, route }) {
     const [teamVTeamFormat, setTeamVTeamFormat] = useState(null);
     const [meDoc, setMeDoc] = useState(null);
 
+    // universal groups for this round
+    const [roundGroups, setRoundGroups] = useState([]);
+
     const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
     const u = auth.currentUser;
@@ -133,6 +136,27 @@ export default function TournamentPlayerBriefingScreen({ navigation, route }) {
         if (Number.isFinite(r) && r > 0) return clampInt(r, 1, 10);
         return 1;
     }, [t]);
+
+    useEffect(() => {
+        if (!tournamentId) return;
+
+        const roundKey = `r${roundNum}`;
+        const qy = query(
+            collection(db, "tournaments", String(tournamentId), "rounds", roundKey, "groups"),
+            orderBy("orderIndex", "asc")
+        );
+
+        const unsub = onSnapshot(
+            qy,
+            (snap) => {
+                const list = (snap?.docs || []).map((d) => ({ id: d.id, ...((d.data && d.data()) || {}) }));
+                setRoundGroups(list);
+            },
+            () => setRoundGroups([])
+        );
+
+        return () => unsub();
+    }, [tournamentId, roundNum]);
 
     const tournamentName = useMemo(() => String(t?.name || "Tournament"), [t]);
 
@@ -219,40 +243,41 @@ export default function TournamentPlayerBriefingScreen({ navigation, route }) {
     }, [t]);
 
     const myGroup = useMemo(() => {
-        if (!teamVsTeam || !myUid) return null;
+        if (!myUid) return null;
 
-        const byRound =
-            teamVsTeam?.pairingsByRound && typeof teamVsTeam.pairingsByRound === "object" ? teamVsTeam.pairingsByRound : null;
+        const groups = Array.isArray(roundGroups) ? roundGroups : [];
+        const g = groups.find((x) => Array.isArray(x?.playerIds) && x.playerIds.map(String).includes(String(myUid)));
+        if (!g) return null;
 
-        const bucket = byRound?.[String(roundNum)];
-        const matchups = Array.isArray(bucket?.matchups)
-            ? bucket.matchups
-            : Array.isArray(teamVsTeam?.matchups)
-                ? teamVsTeam.matchups
-                : [];
+        const teeTime = safeStr(g?.teeTime);
+        const ids = Array.isArray(g?.playerIds) ? g.playerIds.map(String).filter(Boolean) : [];
 
-        if (!matchups.length) return null;
+        // if matchups exist, use them; else create 2 lines max from ids
+        const matchups = Array.isArray(g?.matchups) ? g.matchups : null;
 
-        const idx = matchups.findIndex(
-            (m) => String(m?.aUid || "").trim() === myUid || String(m?.bUid || "").trim() === myUid
-        );
-        if (idx === -1) return null;
-
-        const groupStart = Math.floor(idx / 2) * 2;
-        const rows = matchups.slice(groupStart, groupStart + 2);
-
-        const t0 = safeStr(rows?.[0]?.teeTime);
-        const t1 = safeStr(rows?.[1]?.teeTime);
-        const teeTime = t0 || t1 || safeStr(bucket?.groupTeeTimes?.[String(Math.floor(groupStart / 2) + 1)]) || "";
+        let rows = [];
+        if (matchups && matchups.length) {
+            rows = matchups.slice(0, 2).map((m) => ({
+                aUid: String(m?.aUid || ""),
+                bUid: String(m?.bUid || ""),
+            }));
+        } else {
+            const a = ids[0] || "";
+            const b = ids[1] || "";
+            const c = ids[2] || "";
+            const d = ids[3] || "";
+            rows = [
+                { aUid: a, bUid: b },
+                { aUid: c, bUid: d },
+            ].filter((m) => String(m.aUid || m.bUid).trim());
+        }
 
         return {
             teeTime: teeTime || "",
-            rows: rows.map((m) => ({
-                aUid: String(m?.aUid || ""),
-                bUid: String(m?.bUid || ""),
-            })),
+            playerIds: ids,
+            rows,
         };
-    }, [teamVsTeam, myUid, roundNum]);
+    }, [roundGroups, myUid]);
 
     const myTeeTime = useMemo(() => {
         return toTimeLabel(myGroup?.teeTime || t?.teeTime);

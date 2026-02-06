@@ -14,15 +14,18 @@ import {
     FlatList,
     InteractionManager,
     ScrollView,
+    Alert,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import * as Location from "expo-location";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import { loadCourseData } from "../storage/courseData";
+import { db, auth } from "../firebase/firebase";
 
 const BG = "#0B1220";
 const CARD = "#1D3557";
@@ -168,6 +171,16 @@ function SideGameOverlayModal({ visible, meta, currentHole, roundNumber, onDismi
     );
 }
 
+/* -------------------------- */
+/* long drive pin modal       */
+/* -------------------------- */
+
+function fmtCoord(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
+    return n.toFixed(6);
+}
+
 export default function TournamentHoleViewScreen({ navigation, route }) {
     const insets = useSafeAreaInsets();
     const params = route?.params || {};
@@ -240,8 +253,6 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
 
     const dismissSideGameOverlay = useCallback(() => {
         setSgVisible(false);
-
-        // prevent looping if the same screen instance refocuses
         try {
             navigation.setParams({ showFormatSplash: false });
         } catch { }
@@ -375,6 +386,133 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
     }
 
     /* -------------------------- */
+    /* long drive pin flow        */
+    /* -------------------------- */
+
+    const meUid = String(auth?.currentUser?.uid || "");
+    const isLongDrive = useMemo(() => {
+        const k = normalizeSideKey(sideGameKey);
+        return k === "long_drive" || k === "longdrive" || k === "ld";
+    }, [sideGameKey]);
+
+    const [pinOpen, setPinOpen] = useState(false);
+    const [pinStep, setPinStep] = useState("SET"); // SET | CONFIRM
+    const [pinCoord, setPinCoord] = useState(null);
+    const [pinBusy, setPinBusy] = useState(false);
+
+    const openPin = useCallback(() => {
+        setPinCoord(null);
+        setPinStep("SET");
+        setPinOpen(true);
+    }, []);
+
+    const closePin = useCallback(() => {
+        setPinOpen(false);
+        setPinBusy(false);
+        setPinCoord(null);
+        setPinStep("SET");
+    }, []);
+
+    const useMyLocation = useCallback(() => {
+        if (!user || !Number.isFinite(user.lat) || !Number.isFinite(user.lon)) {
+            Alert.alert("GPS not ready", "We need your GPS location to drop the pin. Give it a second and try again.");
+            return;
+        }
+        setPinCoord({ lat: user.lat, lon: user.lon });
+    }, [user]);
+
+    const savePin = useCallback(async () => {
+        if (!tournamentId) return;
+        if (!meUid) {
+            Alert.alert("Missing player", "You must be signed in to pin a drive.");
+            return;
+        }
+        if (!pinCoord || !Number.isFinite(pinCoord.lat) || !Number.isFinite(pinCoord.lon)) {
+            Alert.alert("No pin set", "Tap “Use my current location” first.");
+            return;
+        }
+
+        setPinBusy(true);
+        try {
+            const ref = doc(
+                db,
+                "tournaments",
+                String(tournamentId),
+                "rounds",
+                `r${String(roundNumber)}`,
+                "sideGames",
+                "long_drive_pins",
+                "pins",
+                String(meUid)
+            );
+
+            const payload = {
+                tournamentId: String(tournamentId),
+                roundNumber: Number(roundNumber),
+                playerId: String(meUid),
+                updatedAt: serverTimestamp(),
+                pins: {
+                    [String(currentHole)]: {
+                        holeNumber: Number(currentHole),
+                        lat: Number(pinCoord.lat),
+                        lon: Number(pinCoord.lon),
+                        savedAt: serverTimestamp(),
+                        confirmed: false,
+                        confirmedAt: null,
+                        confirmedByUid: null,
+                    },
+                },
+            };
+
+            await setDoc(ref, payload, { merge: true });
+            setPinStep("CONFIRM");
+        } catch {
+            Alert.alert("Save failed", "Could not save the pin. Please try again.");
+        } finally {
+            setPinBusy(false);
+        }
+    }, [tournamentId, roundNumber, currentHole, meUid, pinCoord]);
+
+    const confirmPin = useCallback(async () => {
+        if (!tournamentId) return;
+        if (!meUid) return;
+
+        setPinBusy(true);
+        try {
+            const ref = doc(
+                db,
+                "tournaments",
+                String(tournamentId),
+                "rounds",
+                `r${String(roundNumber)}`,
+                "sideGames",
+                "long_drive_pins",
+                "pins",
+                String(meUid)
+            );
+
+            const payload = {
+                updatedAt: serverTimestamp(),
+                pins: {
+                    [String(currentHole)]: {
+                        confirmed: true,
+                        confirmedAt: serverTimestamp(),
+                        confirmedByUid: String(meUid),
+                    },
+                },
+            };
+
+            await setDoc(ref, payload, { merge: true });
+            closePin();
+            Alert.alert("Saved", "Drive pin saved and confirmed.");
+        } catch {
+            Alert.alert("Confirm failed", "Could not confirm the pin. Please try again.");
+        } finally {
+            setPinBusy(false);
+        }
+    }, [tournamentId, roundNumber, currentHole, meUid, closePin]);
+
+    /* -------------------------- */
     /* navigation actions         */
     /* -------------------------- */
 
@@ -396,7 +534,6 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
             hole: currentHole,
             holeIndex: currentHole - 1,
 
-            // tournament context (harmless to pass)
             tournamentId,
             roundNumber,
             holeNumber: currentHole,
@@ -472,12 +609,9 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
             courseName,
             teeName,
 
-            // IMPORTANT: do NOT pass full tournament roster here
-            // Score Entry will load the correct group itself
             players: null,
+            groupPlayerIds: Array.isArray(params?.groupPlayerIds) ? params.groupPlayerIds : null,
         });
-
-
     }
 
     /* -------------------------- */
@@ -610,6 +744,15 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
 
                     <Text style={styles.mapTitle}>Hole View</Text>
                     <Text style={styles.mapSub}>Tap to open full-screen GPS</Text>
+
+                    {isLongDrive ? (
+                        <View style={styles.pinWrap}>
+                            <Pressable onPress={openPin} style={({ pressed }) => [styles.pinBtn, pressed && styles.pressed]}>
+                                <Text style={styles.pinBtnText}>Pin your drive</Text>
+                            </Pressable>
+                            <Text style={styles.pinSub}>Use your GPS location and save + confirm.</Text>
+                        </View>
+                    ) : null}
                 </Pressable>
 
                 <View style={styles.yardageRow}>
@@ -634,21 +777,25 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                 </View>
 
                 {!hasGreenPoints ? (
-                    <View style={styles.hintCard}>
-                        <View style={{ flex: 1, minWidth: 0 }}>
-                            <Text style={styles.hintTitle}>No green points yet</Text>
-                            <Text style={styles.hintSub}>Set front / mid / back once, and yardages will be perfect every round.</Text>
-                        </View>
+                    <>
+                        {/* push hint below fold so it doesn't steal premium real estate */}
+                        <View style={{ height: 92 }} />
+                        <View style={styles.hintCard}>
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                                <Text style={styles.hintTitle}>No green points yet</Text>
+                                <Text style={styles.hintSub}>Set front / mid / back once, and yardages will be perfect every round.</Text>
+                            </View>
 
-                        <Pressable
-                            onPress={() => openHoleMap(true)}
-                            disabled={!courseId}
-                            style={({ pressed }) => [styles.hintBtn, pressed && styles.pressed, !courseId && { opacity: 0.45 }]}
-                        >
-                            <Text style={styles.hintBtnT}>Set points</Text>
-                            <Text style={styles.hintBtnS}>→</Text>
-                        </Pressable>
-                    </View>
+                            <Pressable
+                                onPress={() => openHoleMap(true)}
+                                disabled={!courseId}
+                                style={({ pressed }) => [styles.hintBtn, pressed && styles.pressed, !courseId && { opacity: 0.45 }]}
+                            >
+                                <Text style={styles.hintBtnT}>Set points</Text>
+                                <Text style={styles.hintBtnS}>→</Text>
+                            </Pressable>
+                        </View>
+                    </>
                 ) : null}
             </ScrollView>
 
@@ -657,6 +804,76 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                     <Text style={styles.greenText}>Input Scores</Text>
                 </Pressable>
             </View>
+
+            {/* Pin modal */}
+            <Modal visible={pinOpen} transparent animationType="fade" onRequestClose={closePin}>
+                <View style={styles.pinModalWrap}>
+                    <Pressable style={styles.pinModalBg} onPress={closePin}>
+                        <View />
+                    </Pressable>
+
+                    <View style={styles.pinModalCard}>
+                        <View style={styles.pinModalTop}>
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                                <Text style={styles.pinModalTitle}>LONG DRIVE • HOLE {currentHole}</Text>
+                                <Text style={styles.pinModalSub}>
+                                    {pinStep === "CONFIRM" ? "Confirm the saved pin." : "Drop a pin at your current GPS location."}
+                                </Text>
+                            </View>
+
+                            <Pressable onPress={closePin} style={({ pressed }) => [styles.pinX, pressed && styles.pressed]}>
+                                <Text style={styles.pinXText}>✕</Text>
+                            </Pressable>
+                        </View>
+
+                        {pinStep === "SET" ? (
+                            <>
+                                <View style={styles.pinMiniRow}>
+                                    <View style={styles.pinMiniPill}>
+                                        <Text style={styles.pinMiniText}>{gpsLive ? "GPS READY" : "GPS WAITING"}</Text>
+                                    </View>
+
+                                    <Pressable onPress={useMyLocation} style={({ pressed }) => [styles.pinUseBtn, pressed && styles.pressed]}>
+                                        <Text style={styles.pinUseBtnText}>Use my current location</Text>
+                                    </Pressable>
+                                </View>
+
+                                <View style={styles.pinCoords}>
+                                    <Text style={styles.pinCoordsLabel}>Pin location</Text>
+                                    <Text style={styles.pinCoordsVal}>
+                                        {pinCoord ? `${fmtCoord(pinCoord.lat)}, ${fmtCoord(pinCoord.lon)}` : "Not set"}
+                                    </Text>
+                                </View>
+
+                                <Pressable
+                                    onPress={savePin}
+                                    disabled={pinBusy}
+                                    style={({ pressed }) => [styles.pinSaveBtn, pressed && styles.pressed, pinBusy && { opacity: 0.7 }]}
+                                >
+                                    <Text style={styles.pinSaveBtnText}>{pinBusy ? "Saving…" : "Save pin"}</Text>
+                                </Pressable>
+                            </>
+                        ) : (
+                            <>
+                                <View style={styles.pinConfirmCard}>
+                                    <Text style={styles.pinConfirmTitle}>Confirmation</Text>
+                                    <Text style={styles.pinConfirmSub}>
+                                        Hand the phone to another player to confirm, or confirm now if you’re the scorekeeper.
+                                    </Text>
+                                </View>
+
+                                <Pressable
+                                    onPress={confirmPin}
+                                    disabled={pinBusy}
+                                    style={({ pressed }) => [styles.pinConfirmBtn, pressed && styles.pressed, pinBusy && { opacity: 0.7 }]}
+                                >
+                                    <Text style={styles.pinConfirmBtnText}>{pinBusy ? "Confirming…" : "Confirm pin"}</Text>
+                                </Pressable>
+                            </>
+                        )}
+                    </View>
+                </View>
+            </Modal>
 
             <Modal visible={yardageOpen} transparent animationType="fade" onRequestClose={() => setYardageOpen(false)}>
                 <Pressable style={styles.modalBg} onPress={() => setYardageOpen(false)}>
@@ -758,12 +975,16 @@ const styles = StyleSheet.create({
     mapCard: {
         marginHorizontal: 16,
         marginTop: 8,
-        height: 210,
+        height: 232,
         borderRadius: 22,
         backgroundColor: CARD,
         alignItems: "center",
         justifyContent: "center",
         overflow: "hidden",
+
+        // border on hole view box (premium)
+        borderWidth: 2,
+        borderColor: "rgba(242,201,76,0.55)",
     },
     mapTitle: { color: WHITE, fontWeight: "900", fontSize: 18 },
     mapSub: { color: MUTED, marginTop: 8, fontWeight: "700", fontSize: 14 },
@@ -784,8 +1005,32 @@ const styles = StyleSheet.create({
     },
     formatBannerText: { color: WHITE, fontWeight: "900", fontSize: 12, letterSpacing: 0.5 },
 
+    pinWrap: { marginTop: 14, alignItems: "center" },
+    pinBtn: {
+        height: 40,
+        paddingHorizontal: 14,
+        borderRadius: 16,
+        backgroundColor: "rgba(242,201,76,0.92)",
+        borderWidth: 1,
+        borderColor: "rgba(242,201,76,0.85)",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    pinBtnText: { color: "#1A1A1A", fontWeight: "900", fontSize: 13, letterSpacing: 0.3 },
+    pinSub: { marginTop: 8, color: "rgba(255,255,255,0.72)", fontWeight: "800", fontSize: 12 },
+
     yardageRow: { flexDirection: "row", gap: 12, marginHorizontal: 16, marginTop: 10 },
-    yardCard: { flex: 1, backgroundColor: CARD, borderRadius: 20, alignItems: "center", paddingVertical: 10 },
+    yardCard: {
+        flex: 1,
+        backgroundColor: CARD,
+        borderRadius: 20,
+        alignItems: "center",
+        paddingVertical: 10,
+
+        // borders on front/middle/back boxes
+        borderWidth: 1,
+        borderColor: "rgba(242,201,76,0.35)",
+    },
     yardLabel: { color: MUTED, fontSize: 11, fontWeight: "900" },
     yardValue: { color: WHITE, fontSize: 30, fontWeight: "900", marginTop: 6 },
     yardUnit: { color: MUTED, fontSize: 12, fontWeight: "700" },
@@ -946,4 +1191,97 @@ const styles = StyleSheet.create({
         justifyContent: "center",
     },
     sgBtnText: { color: "#1A1A1A", fontWeight: "900", fontSize: 13, letterSpacing: 0.3 },
+
+    /* -------------------------- */
+    /* pin modal styles           */
+    /* -------------------------- */
+
+    pinModalWrap: { flex: 1, justifyContent: "center", padding: 18 },
+    pinModalBg: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.62)" },
+    pinModalCard: {
+        borderRadius: 24,
+        padding: 14,
+        backgroundColor: "rgba(18,22,30,0.96)",
+        borderWidth: 2,
+        borderColor: "rgba(242,201,76,0.85)",
+    },
+    pinModalTop: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 },
+    pinModalTitle: { color: WHITE, fontWeight: "900", fontSize: 14, letterSpacing: 0.7 },
+    pinModalSub: { marginTop: 6, color: "rgba(255,255,255,0.74)", fontWeight: "800", fontSize: 12, lineHeight: 16 },
+    pinX: {
+        width: 38,
+        height: 38,
+        borderRadius: 14,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "rgba(255,255,255,0.08)",
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.14)",
+    },
+    pinXText: { color: WHITE, fontWeight: "900", fontSize: 14 },
+
+    pinMiniRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+    pinMiniPill: {
+        paddingHorizontal: 10,
+        height: 34,
+        borderRadius: 999,
+        backgroundColor: "rgba(255,255,255,0.08)",
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.14)",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    pinMiniText: { color: "rgba(255,255,255,0.82)", fontWeight: "900", fontSize: 11, letterSpacing: 0.8 },
+    pinUseBtn: {
+        height: 34,
+        paddingHorizontal: 12,
+        borderRadius: 999,
+        backgroundColor: "rgba(46,204,113,0.14)",
+        borderWidth: 1,
+        borderColor: "rgba(46,204,113,0.28)",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    pinUseBtnText: { color: WHITE, fontWeight: "900", fontSize: 11, letterSpacing: 0.2 },
+
+    pinCoords: {
+        marginTop: 12,
+        borderRadius: 18,
+        padding: 12,
+        backgroundColor: "rgba(255,255,255,0.06)",
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.12)",
+    },
+    pinCoordsLabel: { color: "rgba(255,255,255,0.72)", fontWeight: "900", fontSize: 11, letterSpacing: 0.6 },
+    pinCoordsVal: { marginTop: 8, color: WHITE, fontWeight: "900", fontSize: 13, letterSpacing: 0.2 },
+
+    pinSaveBtn: {
+        marginTop: 12,
+        height: 50,
+        borderRadius: 18,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "rgba(242,201,76,0.92)",
+    },
+    pinSaveBtnText: { color: "#1A1A1A", fontWeight: "900", fontSize: 15 },
+
+    pinConfirmCard: {
+        borderRadius: 18,
+        padding: 12,
+        backgroundColor: "rgba(255,255,255,0.06)",
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.12)",
+    },
+    pinConfirmTitle: { color: WHITE, fontWeight: "900", fontSize: 13, letterSpacing: 0.3 },
+    pinConfirmSub: { marginTop: 8, color: "rgba(255,255,255,0.74)", fontWeight: "800", fontSize: 12, lineHeight: 16 },
+
+    pinConfirmBtn: {
+        marginTop: 12,
+        height: 50,
+        borderRadius: 18,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: GREEN,
+    },
+    pinConfirmBtnText: { color: GREEN_TEXT, fontWeight: "900", fontSize: 15 },
 });

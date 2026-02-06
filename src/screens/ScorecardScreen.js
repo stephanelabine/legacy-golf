@@ -1,287 +1,406 @@
 // src/screens/ScorecardScreen.js
-import React, { useMemo, useState, useCallback } from "react";
-import { SafeAreaView, View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
-import { useFocusEffect } from "@react-navigation/native";
+import React, { useEffect, useMemo, useState } from "react";
+import { SafeAreaView, View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { collection, onSnapshot, query, orderBy, doc } from "firebase/firestore";
 
+import { db, auth } from "../firebase/firebase";
 import ScreenHeader from "../components/ScreenHeader";
-import theme from "../theme";
-import { loadActiveRound } from "../storage/roundState";
 
 const BG = "#0B1220";
-const CARD = "rgba(255,255,255,0.05)";
-const BORDER = "rgba(255,255,255,0.14)";
-const MUTED = "rgba(255,255,255,0.65)";
+const CARD = "#1D3557";
+const INNER = "#243E63";
 const WHITE = "#FFFFFF";
-const INNER = "rgba(0,0,0,0.18)";
 
-const BLUE = theme?.colors?.primary || "#2E7DFF";
-const LIVE_GREEN = "#2ECC71";
-const LIVE_GREEN_SOFT = "rgba(46,204,113,0.18)";
-const LIVE_GREEN_BORDER = "rgba(46,204,113,0.75)";
-
-function toInt(v) {
-  const n = parseInt(String(v ?? "").replace(/[^\d]/g, ""), 10);
-  return Number.isFinite(n) ? n : 0;
+function safeStr(x, fallback = "") {
+  const s = String(x ?? "");
+  return s ? s : fallback;
 }
 
-function unwrapRound(state) {
-  if (!state || typeof state !== "object") return null;
-  return state?.activeRound || state?.currentRound || state?.round || state;
+function safePlayerId(p, fallback) {
+  return String(p?.uid || p?.id || p?._id || p?.playerId || fallback || "");
 }
 
-// Supports BOTH storage shapes:
-// A) roundState: holes["1"].players["p1"].stokes
-// B) rounds.js legacy: holes[0].scores["p1"] = strokes
-function readStroke(roundRoot, holeNumber, playerId) {
-  const rid = String(playerId);
-
-  // A) roundState shape (object keyed by hole number)
-  const a =
-    roundRoot?.holes?.[String(holeNumber)]?.players?.[rid]?.strokes ??
-    roundRoot?.holes?.[String(holeNumber)]?.scores?.[rid];
-  const aInt = toInt(a);
-  if (aInt > 0) return aInt;
-
-  // B) legacy rounds shape (array of holes)
-  const holesArr = Array.isArray(roundRoot?.holes) ? roundRoot.holes : null;
-  if (holesArr && holeNumber >= 1 && holeNumber <= holesArr.length) {
-    const h = holesArr[holeNumber - 1];
-    const b = h?.scores?.[rid] ?? h?.strokes?.[rid];
-    const bInt = toInt(b);
-    if (bInt > 0) return bInt;
-  }
-
-  return 0;
+function safePlayerName(p) {
+  return String(p?.name || p?.displayName || p?.fullName || p?.label || "Player");
 }
 
-function sumPlayerTotal(roundRoot, playerId) {
+function uniqIds(list) {
+  const out = [];
+  const seen = new Set();
+  (Array.isArray(list) ? list : []).forEach((x) => {
+    const s = String(x || "").trim();
+    if (!s) return;
+    if (seen.has(s)) return;
+    seen.add(s);
+    out.push(s);
+  });
+  return out;
+}
+
+function strokeFor(scoresByPid, pid, hole) {
+  const row = scoresByPid?.[String(pid)] || {};
+  const holes = row?.holes || {};
+  const v = holes?.[String(hole)]?.strokes;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function sumHoles(scoresByPid, pid, holes) {
   let total = 0;
-  for (let h = 1; h <= 18; h++) {
-    const n = readStroke(roundRoot, h, playerId);
-    if (n > 0) total += n;
+  let any = false;
+  for (const h of holes) {
+    const v = strokeFor(scoresByPid, pid, h);
+    if (Number.isFinite(v)) {
+      total += v;
+      any = true;
+    }
   }
-  return total;
+  return any ? total : null;
 }
 
-function holePlayerStroke(roundRoot, holeNumber, playerId) {
-  const n = readStroke(roundRoot, holeNumber, playerId);
-  return n > 0 ? String(n) : "—";
+function Pill({ text, active, onPress }) {
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.pillBtn, active && styles.pillBtnActive, pressed && styles.pressed]}>
+      <Text style={[styles.pillBtnText, active && styles.pillBtnTextActive]}>{text}</Text>
+    </Pressable>
+  );
 }
 
-// Model A (Stroke Index allocation)
-// - A handicap of 12 gets 1 stroke on SI 1-12
-// - A handicap of 20 gets 1 stroke on all 18 + 1 extra on SI 1-2
-function strokesReceivedOnHole(handicap, strokeIndex) {
-  const h = Math.max(0, Math.floor(Number(handicap) || 0));
-  const si = Math.max(1, Math.min(18, Math.floor(Number(strokeIndex) || 18)));
+function ScoreGrid({ title, holes, showOutInLabel, totalsLabel, players, scoresByPid }) {
+  return (
+    <View style={styles.sectionCard}>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>{title}</Text>
+      </View>
 
-  const base = Math.floor(h / 18);
-  const rem = h % 18;
+      <View style={styles.gridWrap}>
+        <View style={styles.leftCol}>
+          <View style={[styles.nameCell, styles.headerCell]}>
+            <Text style={styles.headerText}>Player</Text>
+          </View>
 
-  // SI is 1..18, so "rem" strokes go to SI 1..rem
-  const extra = si <= rem ? 1 : 0;
-  return base + extra;
-}
+          {players.map((p) => (
+            <View key={`nm-${p._pid}`} style={styles.nameCell}>
+              <Text numberOfLines={1} style={styles.nameText}>
+                {p._name}
+              </Text>
+            </View>
+          ))}
+        </View>
 
-function sumPlayerNetTotal(roundRoot, playerId, handicap, holeMeta) {
-  let total = 0;
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rightScroll}>
+          <View>
+            <View style={styles.row}>
+              {holes.map((h) => (
+                <View key={`h-${h}`} style={[styles.cell, styles.headerCell]}>
+                  <Text style={styles.headerText}>{String(h)}</Text>
+                </View>
+              ))}
 
-  for (let hole = 1; hole <= 18; hole++) {
-    const gross = readStroke(roundRoot, hole, playerId);
-    if (gross <= 0) continue;
+              <View style={[styles.cell, styles.headerCell, styles.totalCell]}>
+                <Text style={styles.headerText}>{showOutInLabel}</Text>
+              </View>
 
-    const si = holeMeta?.[String(hole)]?.si ?? holeMeta?.[String(hole)]?.strokeIndex ?? 18;
-    const recv = strokesReceivedOnHole(handicap, si);
+              {totalsLabel ? (
+                <View style={[styles.cell, styles.headerCell, styles.totalCell]}>
+                  <Text style={styles.headerText}>{totalsLabel}</Text>
+                </View>
+              ) : null}
+            </View>
 
-    // Keep net reasonable; if gross exists, net cannot go below 1.
-    const net = Math.max(1, gross - recv);
-    total += net;
-  }
+            {players.map((p) => {
+              const pid = String(p._pid);
+              const segmentTotal = sumHoles(scoresByPid, pid, holes);
+              const total18 = totalsLabel ? sumHoles(scoresByPid, pid, Array.from({ length: 18 }, (_, i) => i + 1)) : null;
 
-  return total;
+              return (
+                <View key={`rw-${pid}`} style={styles.row}>
+                  {holes.map((h) => {
+                    const v = strokeFor(scoresByPid, pid, h);
+                    return (
+                      <View key={`c-${pid}-${h}`} style={styles.cell}>
+                        <Text style={styles.cellText}>{v == null ? "—" : String(v)}</Text>
+                      </View>
+                    );
+                  })}
+
+                  <View style={[styles.cell, styles.totalCell]}>
+                    <Text style={[styles.cellText, styles.totalText]}>{segmentTotal == null ? "—" : String(segmentTotal)}</Text>
+                  </View>
+
+                  {totalsLabel ? (
+                    <View style={[styles.cell, styles.totalCell]}>
+                      <Text style={[styles.cellText, styles.totalText]}>{total18 == null ? "—" : String(total18)}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              );
+            })}
+          </View>
+        </ScrollView>
+      </View>
+    </View>
+  );
 }
 
 export default function ScorecardScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const params = route?.params || {};
-  const [active, setActive] = useState(null);
 
-  useFocusEffect(
-    useCallback(() => {
-      let live = true;
-      (async () => {
-        const s = await loadActiveRound();
-        if (!live) return;
-        setActive(s || null);
-      })();
-      return () => {
-        live = false;
-      };
-    }, [])
-  );
+  const tournamentId = params?.tournamentId ? String(params.tournamentId) : "";
+  const roundNumber = Number(params?.roundNumber || 1);
 
-  const root = useMemo(() => unwrapRound(active) || null, [active]);
+  const roundId = String(params?.roundId || "").trim();
+  const isTournament = !!tournamentId;
 
-  const course = params.course || root?.course || active?.course || null;
-  const tee = params.tee || root?.tee || active?.tee || null;
+  const meUid = String(auth?.currentUser?.uid || "");
+  const courseName = safeStr(params?.courseName || params?.course?.name, "");
 
-  // Hole meta passed from HoleViewScreen (or fallback to stored)
-  const holeMeta = useMemo(() => {
-    const m = params?.holeMeta || root?.meta?.holeMeta || active?.meta?.holeMeta || null;
-    return m && typeof m === "object" ? m : null;
-  }, [params?.holeMeta, root, active]);
+  const [loading, setLoading] = useState(isTournament);
+  const [players, setPlayers] = useState(() => (Array.isArray(params?.players) ? params.players : []));
+  const [scoresByPid, setScoresByPid] = useState({});
+  const [groupIds, setGroupIds] = useState(() => {
+    const fromParams = Array.isArray(params?.groupPlayerIds) ? params.groupPlayerIds.map(String) : null;
+    return fromParams && fromParams.length ? uniqIds(fromParams) : [];
+  });
 
-  const players = useMemo(() => {
-    const fromParams = Array.isArray(params.players) ? params.players : [];
-    if (fromParams.length) {
-      return fromParams.map((p, idx) => ({
-        id: p?.id ?? String(idx),
-        name: p?.name ?? `Player ${idx + 1}`,
-        handicap: p?.handicap ?? 0,
-      }));
+  const [viewMode, setViewMode] = useState("MY"); // MY | GROUP
+
+  // truth for MY mode (scorekeeper selection doc)
+  const [mySelectedIds, setMySelectedIds] = useState([]);
+  const [mySelectionReady, setMySelectionReady] = useState(false);
+
+  // Load players (members preferred, roster fallback)
+  useEffect(() => {
+    if (!isTournament) return;
+
+    const membersRef = collection(db, "tournaments", String(tournamentId), "members");
+    const rosterRef = collection(db, "tournaments", String(tournamentId), "roster");
+
+    let unsubMembers = null;
+    let unsubRoster = null;
+
+    setLoading(true);
+
+    try {
+      unsubMembers = onSnapshot(
+        membersRef,
+        (snap) => {
+          const docs = snap?.docs || [];
+          const list = docs.map((d) => ({ id: d.id, ...((d.data && d.data()) || {}) }));
+          if (list.length) {
+            setPlayers(list);
+            setLoading(false);
+            return;
+          }
+
+          try {
+            if (!unsubRoster) {
+              unsubRoster = onSnapshot(
+                rosterRef,
+                (snap2) => {
+                  const docs2 = snap2?.docs || [];
+                  const list2 = docs2.map((d) => ({ id: d.id, ...((d.data && d.data()) || {}) }));
+                  if (list2.length) setPlayers(list2);
+                  setLoading(false);
+                },
+                () => setLoading(false)
+              );
+            }
+          } catch {
+            setLoading(false);
+          }
+        },
+        () => setLoading(false)
+      );
+    } catch {
+      setLoading(false);
     }
 
-    const fromRoot = Array.isArray(root?.players) ? root.players : [];
-    if (fromRoot.length) {
-      return fromRoot.map((p, idx) => ({
-        id: p?.id ?? String(idx),
-        name: p?.name ?? `Player ${idx + 1}`,
-        handicap: p?.handicap ?? 0,
-      }));
+    return () => {
+      if (unsubMembers) unsubMembers();
+      if (unsubRoster) unsubRoster();
+    };
+  }, [isTournament, tournamentId]);
+
+  // Resolve group ids from groups collection if not provided
+  useEffect(() => {
+    if (!isTournament) return;
+    if (Array.isArray(groupIds) && groupIds.length) return;
+    if (!meUid) return;
+
+    const roundKey = `r${String(roundNumber)}`;
+    const qy = query(collection(db, "tournaments", String(tournamentId), "rounds", roundKey, "groups"), orderBy("orderIndex", "asc"));
+
+    const unsub = onSnapshot(
+      qy,
+      (snap) => {
+        const docs = snap?.docs || [];
+        for (const d of docs) {
+          const data = d.data ? d.data() : null;
+          const ids = uniqIds(Array.isArray(data?.playerIds) ? data.playerIds.map(String) : []);
+          if (ids.includes(String(meUid))) {
+            setGroupIds(ids.filter(Boolean));
+            return;
+          }
+        }
+        setGroupIds([String(meUid)]);
+      },
+      () => setGroupIds([String(meUid)])
+    );
+
+    return () => unsub();
+  }, [isTournament, tournamentId, roundNumber, meUid, groupIds]);
+
+  // Subscribe to MY selection (tournaments/.../scorekeepers/{meUid})
+  useEffect(() => {
+    if (!isTournament) return;
+    if (!tournamentId) return;
+    if (!meUid) return;
+
+    setMySelectionReady(false);
+
+    const roundKey = `r${String(roundNumber)}`;
+    const ref = doc(db, "tournaments", String(tournamentId), "rounds", roundKey, "scorekeepers", String(meUid));
+
+    const unsub = onSnapshot(
+      ref,
+      (snap) => {
+        const data = snap?.exists() ? (snap.data ? snap.data() : {}) : {};
+        const raw = uniqIds(Array.isArray(data?.selectedPlayerIds) ? data.selectedPlayerIds : []);
+        setMySelectedIds(raw);
+        setMySelectionReady(true);
+      },
+      () => {
+        setMySelectedIds([]);
+        setMySelectionReady(true);
+      }
+    );
+
+    return () => unsub();
+  }, [isTournament, tournamentId, roundNumber, meUid]);
+
+  // Subscribe to scores (GLOBAL rounds/{roundId}/scores)
+  useEffect(() => {
+    if (!isTournament) return;
+    if (!roundId) return;
+
+    const scoresRef = collection(db, "rounds", String(roundId), "scores");
+
+    const unsub = onSnapshot(
+      scoresRef,
+      (snap) => {
+        const next = {};
+        const docs = snap?.docs || [];
+        for (const d of docs) next[String(d.id)] = (d.data && d.data()) || {};
+        setScoresByPid(next);
+      },
+      () => { }
+    );
+
+    return () => unsub();
+  }, [isTournament, roundId]);
+
+  const playerRows = useMemo(() => {
+    const list = Array.isArray(players) ? players : [];
+    return list
+      .map((p, idx) => {
+        const pid = safePlayerId(p, String(idx));
+        return { ...p, _pid: pid, _name: safePlayerName(p) };
+      })
+      .filter((p) => !!p._pid);
+  }, [players]);
+
+  const mySelectionIds = useMemo(() => {
+    // truth: Firestore scorekeepers selection (clamped to group)
+    const groupSet = new Set((Array.isArray(groupIds) ? groupIds : []).map(String));
+
+    const raw = uniqIds(mySelectedIds);
+    const clamped = raw.filter((id) => groupSet.has(String(id)));
+
+    if (clamped.length) return clamped;
+
+    // fallback while loading / if missing
+    if (!mySelectionReady) return meUid ? [String(meUid)] : [];
+    return meUid ? [String(meUid)] : [];
+  }, [mySelectedIds, groupIds, meUid, mySelectionReady]);
+
+  const displayIds = useMemo(() => {
+    if (!isTournament) return null;
+
+    if (viewMode === "GROUP") {
+      const ids = Array.isArray(groupIds) && groupIds.length ? groupIds : meUid ? [String(meUid)] : [];
+      return new Set(ids.map(String));
     }
 
-    const fromActive = Array.isArray(active?.players) ? active.players : [];
-    return fromActive.map((p, idx) => ({
-      id: p?.id ?? String(idx),
-      name: p?.name ?? `Player ${idx + 1}`,
-      handicap: p?.handicap ?? 0,
-    }));
-  }, [params.players, root, active]);
+    return new Set(mySelectionIds.map(String));
+  }, [isTournament, viewMode, groupIds, mySelectionIds, meUid]);
 
-  const subtitle = useMemo(() => {
-    const parts = [];
-    if (course?.name) parts.push(course.name);
-    if (tee?.name) parts.push(`${tee.name} Tees`);
-    return parts.join(" • ");
-  }, [course?.name, tee?.name]);
+  const displayedPlayers = useMemo(() => {
+    if (!isTournament) return playerRows;
 
-  const totals = useMemo(() => {
-    const r = root || active || {};
-    return players.map((p) => {
-      const id = String(p.id);
-      const name = String(p.name || "").trim() || "Player";
-      const gross = sumPlayerTotal(r, id);
+    const rows = playerRows.filter((p) => displayIds?.has(String(p._pid)));
 
-      // Only compute Net if we have holeMeta (SI per hole). Otherwise show dash.
-      const net =
-        holeMeta && typeof holeMeta === "object" ? sumPlayerNetTotal(r, id, p?.handicap ?? 0, holeMeta) : 0;
+    if (!meUid) return rows;
+    const mine = rows.filter((r) => String(r._pid) === String(meUid));
+    const rest = rows.filter((r) => String(r._pid) !== String(meUid));
+    return [...mine, ...rest];
+  }, [isTournament, playerRows, displayIds, meUid]);
 
-      return {
-        id,
-        name,
-        handicap: Number(p?.handicap ?? 0),
-        gross,
-        net,
-        hasMeta: !!holeMeta,
-      };
-    });
-  }, [root, active, players, holeMeta]);
+  const front9 = useMemo(() => Array.from({ length: 9 }, (_, i) => i + 1), []);
+  const back9 = useMemo(() => Array.from({ length: 9 }, (_, i) => i + 10), []);
+
+  const headerTitle = useMemo(() => {
+    if (!isTournament) return "SCORECARD";
+    return `ROUND ${roundNumber} • SCORECARD`;
+  }, [isTournament, roundNumber]);
+
+  const headerSub = useMemo(() => {
+    return courseName ? courseName : "";
+  }, [courseName]);
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScreenHeader navigation={navigation} title="Scorecard" subtitle={subtitle} />
+      <ScreenHeader navigation={navigation} title={headerTitle} subtitle={headerSub} safeTop={false} rightLabel={null} onRightPress={null} />
 
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{ padding: 16, paddingBottom: 28 }}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={[styles.card, styles.liveCard]}>
-          <View style={styles.cardTopRow}>
-            <Text style={styles.cardTitle}>Totals</Text>
-            <View style={styles.liveBadge}>
-              <View style={styles.liveDot} />
-              <Text style={styles.liveBadgeText}>LIVE</Text>
-            </View>
-          </View>
+      {isTournament ? (
+        <View style={styles.topPills}>
+          <Pill text="MY" active={viewMode === "MY"} onPress={() => setViewMode("MY")} />
+          <Pill text="GROUP" active={viewMode === "GROUP"} onPress={() => setViewMode("GROUP")} />
 
-          <Text style={styles.cardSub}>
-            Totals update as scores are entered. Net totals use Model A (Stroke Index allocation).
-          </Text>
-
-          <View style={styles.strokeRow}>
-            {totals.map((p) => (
-              <View key={p.id} style={[styles.playerStrokeBox, styles.playerStrokeBoxLive]}>
-                <Text style={styles.playerStrokeName} numberOfLines={1}>
-                  {p.name}
-                </Text>
-
-                <Text style={styles.playerStrokeVal}>{p.gross > 0 ? String(p.gross) : "—"}</Text>
-                <Text style={styles.playerStrokeFoot}>gross strokes</Text>
-
-                <View style={styles.netRow}>
-                  <Text style={styles.netLabel}>net</Text>
-                  <Text style={styles.netValue}>
-                    {p.hasMeta ? (p.net > 0 ? String(p.net) : "—") : "—"}
-                  </Text>
-                </View>
-              </View>
-            ))}
+          <View style={styles.countPill}>
+            <Text style={styles.countText}>{displayedPlayers.length ? `${displayedPlayers.length} players` : "Loading…"}</Text>
           </View>
         </View>
+      ) : null}
 
-        <View style={styles.card}>
-          <View style={styles.cardTopRow}>
-            <Text style={styles.cardTitle}>Strokes by hole</Text>
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>18</Text>
-            </View>
+      <ScrollView style={styles.body} contentContainerStyle={{ paddingBottom: Math.max(18, (insets?.bottom || 0) + 18) }} showsVerticalScrollIndicator={false}>
+        {loading ? (
+          <View style={styles.loadingCard}>
+            <ActivityIndicator />
+            <Text style={styles.loadingText}>Loading scorecard…</Text>
           </View>
+        ) : null}
 
-          <Text style={[styles.cardSub, { marginTop: 8 }]}>
-            Hole label is shown above the entry boxes for quick scanning.
-          </Text>
-
-          <View style={styles.divider} />
-
-          {players.length === 0 ? (
-            <Text style={styles.emptyText}>No players found for this round yet.</Text>
-          ) : (
-            <View style={{ gap: 12 }}>
-              {Array.from({ length: 18 }).map((_, i) => {
-                const holeNumber = i + 1;
-                return (
-                  <View key={holeNumber} style={styles.holeBlock}>
-                    <Text style={styles.holeLabel}>Hole {holeNumber}</Text>
-
-                    <View style={styles.holePlayersRow}>
-                      {players.map((p) => (
-                        <View key={`${holeNumber}-${p.id}`} style={styles.holePlayerBox}>
-                          <Text style={styles.holePlayerName} numberOfLines={1}>
-                            {String(p.name || "Player")}
-                          </Text>
-                          <Text style={styles.holePlayerVal}>
-                            {holePlayerStroke(root || active || {}, holeNumber, String(p.id))}
-                          </Text>
-                        </View>
-                      ))}
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
-          )}
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Next</Text>
-          <Text style={styles.cardSub}>
-            Next we can show Par and Net-by-hole (and later add any wager/game math using Net or Gross).
-          </Text>
-
-          <Pressable onPress={() => navigation.goBack()} style={({ pressed }) => [styles.cta, pressed && styles.pressed]}>
-            <Text style={styles.ctaText}>Back</Text>
-          </Pressable>
-        </View>
+        {!isTournament ? (
+          <View style={styles.loadingCard}>
+            <Text style={styles.loadingText}>Non-tournament scorecard is not wired here yet.</Text>
+          </View>
+        ) : !roundId ? (
+          <View style={styles.loadingCard}>
+            <Text style={styles.loadingText}>Missing roundId. Go back and re-enter from Hole View.</Text>
+          </View>
+        ) : displayedPlayers.length ? (
+          <>
+            <ScoreGrid title="Front 9" holes={front9} showOutInLabel="OUT" totalsLabel={null} players={displayedPlayers} scoresByPid={scoresByPid} />
+            <ScoreGrid title="Back 9" holes={back9} showOutInLabel="IN" totalsLabel="TOT" players={displayedPlayers} scoresByPid={scoresByPid} />
+          </>
+        ) : (
+          <View style={styles.loadingCard}>
+            <Text style={styles.loadingText}>No players found for this round.</Text>
+          </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -289,176 +408,123 @@ export default function ScorecardScreen({ navigation, route }) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: BG },
+  body: { flex: 1, paddingHorizontal: 16, paddingTop: 10 },
 
-  card: {
-    borderRadius: 22,
-    padding: 16,
+  topPills: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 6,
+  },
+
+  pillBtn: {
+    height: 34,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.08)",
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: "rgba(255,255,255,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pillBtnActive: {
+    backgroundColor: "rgba(242,201,76,0.18)",
+    borderColor: "rgba(242,201,76,0.45)",
+  },
+  pillBtnText: { color: "rgba(255,255,255,0.84)", fontWeight: "900", fontSize: 12, letterSpacing: 0.4 },
+  pillBtnTextActive: { color: WHITE },
+
+  countPill: {
+    marginLeft: "auto",
+    height: 34,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: "rgba(46,204,113,0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(46,204,113,0.22)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  countText: { color: "rgba(255,255,255,0.88)", fontWeight: "900", fontSize: 12, letterSpacing: 0.2 },
+
+  sectionCard: {
     backgroundColor: CARD,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "rgba(242,201,76,0.22)",
+    overflow: "hidden",
     marginBottom: 12,
   },
+  sectionHeader: {
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(0,0,0,0.12)",
+  },
+  sectionTitle: { color: WHITE, fontWeight: "900", fontSize: 14, letterSpacing: 0.6 },
 
-  liveCard: {
-    borderColor: LIVE_GREEN_BORDER,
-    backgroundColor: "rgba(46,204,113,0.06)",
-    shadowColor: LIVE_GREEN,
-    shadowOpacity: 0.22,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
+  gridWrap: { flexDirection: "row" },
+
+  leftCol: {
+    width: 132,
+    backgroundColor: "rgba(0,0,0,0.10)",
+    borderRightWidth: 1,
+    borderRightColor: "rgba(255,255,255,0.08)",
   },
 
-  cardTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  rightScroll: { paddingRight: 8 },
 
-  cardTitle: { color: WHITE, fontSize: 15, fontWeight: "900" },
-  cardSub: { marginTop: 6, color: MUTED, fontSize: 12, fontWeight: "800", lineHeight: 17 },
+  row: { flexDirection: "row" },
 
-  liveBadge: {
-    height: 28,
-    paddingHorizontal: 10,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: LIVE_GREEN_BORDER,
-    backgroundColor: LIVE_GREEN_SOFT,
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
-    gap: 6,
-  },
-  liveDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 999,
-    backgroundColor: LIVE_GREEN,
-  },
-  liveBadgeText: { color: WHITE, fontWeight: "900", fontSize: 11, letterSpacing: 0.6 },
-
-  badge: {
-    height: 28,
-    paddingHorizontal: 10,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.06)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  badgeText: { color: WHITE, fontWeight: "900", fontSize: 12, opacity: 0.9 },
-
-  divider: { height: 1, backgroundColor: "rgba(255,255,255,0.08)", marginTop: 14, marginBottom: 14 },
-
-  strokeRow: {
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 12,
-    flexWrap: "wrap",
-  },
-
-  playerStrokeBox: {
-    minWidth: 140,
-    flexGrow: 1,
-    borderRadius: 18,
-    paddingVertical: 12,
+  nameCell: {
+    height: 42,
     paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
+    alignItems: "flex-start",
+    justifyContent: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.08)",
+  },
+  nameText: { color: WHITE, fontWeight: "900", fontSize: 12 },
+
+  cell: {
+    width: 44,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.08)",
+    borderRightWidth: 1,
+    borderRightColor: "rgba(255,255,255,0.06)",
+    backgroundColor: "rgba(255,255,255,0.03)",
+  },
+
+  headerCell: { backgroundColor: "rgba(0,0,0,0.14)" },
+  headerText: { color: "rgba(255,255,255,0.80)", fontWeight: "900", fontSize: 11, letterSpacing: 0.4 },
+
+  cellText: { color: WHITE, fontWeight: "900", fontSize: 12 },
+  totalCell: {
+    width: 54,
+    backgroundColor: "rgba(242,201,76,0.10)",
+    borderRightColor: "rgba(242,201,76,0.20)",
+  },
+  totalText: { color: WHITE },
+
+  loadingCard: {
+    marginTop: 8,
     backgroundColor: INNER,
-  },
-
-  playerStrokeBoxLive: {
-    borderColor: "rgba(46,204,113,0.45)",
-    backgroundColor: "rgba(46,204,113,0.08)",
-  },
-
-  playerStrokeName: {
-    color: "rgba(255,255,255,0.78)",
-    fontWeight: "900",
-    fontSize: 11,
-    letterSpacing: 0.4,
-  },
-
-  playerStrokeVal: {
-    marginTop: 8,
-    color: WHITE,
-    fontWeight: "900",
-    fontSize: 24,
-  },
-
-  playerStrokeFoot: {
-    marginTop: 4,
-    color: "rgba(255,255,255,0.60)",
-    fontWeight: "800",
-    fontSize: 11,
-    letterSpacing: 0.3,
-  },
-
-  netRow: {
-    marginTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.10)",
-    paddingTop: 10,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    padding: 14,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
     gap: 10,
   },
-  netLabel: { color: "rgba(255,255,255,0.70)", fontWeight: "900", fontSize: 11, letterSpacing: 0.35 },
-  netValue: { color: WHITE, fontWeight: "900", fontSize: 16 },
-
-  holeBlock: { gap: 10 },
-
-  holeLabel: {
-    color: "rgba(255,255,255,0.80)",
-    fontWeight: "900",
-    fontSize: 12,
-    letterSpacing: 0.4,
-    marginLeft: 2,
-  },
-
-  holePlayersRow: {
-    flexDirection: "row",
-    gap: 10,
-    flexWrap: "wrap",
-  },
-
-  holePlayerBox: {
-    minWidth: 140,
-    flexGrow: 1,
-    borderRadius: 18,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.04)",
-  },
-
-  holePlayerName: {
-    color: "rgba(255,255,255,0.72)",
-    fontWeight: "900",
-    fontSize: 11,
-    letterSpacing: 0.35,
-  },
-
-  holePlayerVal: {
-    marginTop: 8,
-    color: WHITE,
-    fontWeight: "900",
-    fontSize: 22,
-  },
-
-  emptyText: { color: MUTED, fontWeight: "800", fontSize: 12 },
-
-  cta: {
-    marginTop: 12,
-    height: 52,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(46,125,255,0.16)",
-    borderWidth: 1,
-    borderColor: "rgba(46,125,255,0.30)",
-  },
-  ctaText: { color: WHITE, fontWeight: "900", letterSpacing: 0.4 },
+  loadingText: { color: "rgba(255,255,255,0.78)", fontWeight: "800", fontSize: 12 },
 
   pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
 });
