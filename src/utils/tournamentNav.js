@@ -1,24 +1,43 @@
 // src/utils/tournamentNav.js
 
-export const TOURNAMENT_NAV_REQUIRED_KEYS = ["tournamentId", "roundNumber", "roundId", "holeNumber"];
+export const TOURNAMENT_NAV_REQUIRED_KEYS = ["tournamentId", "roundNumber", "holeNumber"]; // roundId is derived
+
+function toStr(x) {
+    return String(x ?? "").trim();
+}
+
+function toNum(x, fallback) {
+    const n = Number(x);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+export function computeRoundId(tournamentId, roundNumber) {
+    const t = toStr(tournamentId);
+    const r = toNum(roundNumber, 1);
+    if (!t) return "";
+    return `${t}__r${r}`;
+}
 
 export function pickTournamentNavParams(params) {
     const p = params || {};
 
-    const tournamentId = p?.tournamentId != null ? String(p.tournamentId) : "";
-    const roundNumber = Number(p?.roundNumber || 1);
-    const roundId = p?.roundId != null ? String(p.roundId).trim() : "";
-    const holeNumber = Number(p?.holeNumber ?? p?.hole ?? 1);
+    const tournamentId = toStr(p.tournamentId);
+    const roundNumber = toNum(p.roundNumber, 1);
 
-    const totalHoles = Number(p?.totalHoles || 18);
+    const roundIdIncoming = toStr(p.roundId);
+    const roundId = roundIdIncoming || computeRoundId(tournamentId, roundNumber);
 
-    const groupPlayerIds = Array.isArray(p?.groupPlayerIds) ? p.groupPlayerIds.map(String) : null;
+    const holeNumber = toNum(p.holeNumber ?? p.hole, 1);
 
-    const sideGameKey = p?.sideGameKey != null ? String(p.sideGameKey) : null;
+    const totalHoles = toNum(p.totalHoles, 18);
 
-    const courseId = p?.courseId != null ? String(p.courseId) : null;
-    const courseName = p?.courseName != null ? String(p.courseName) : null;
-    const teeName = p?.teeName != null ? String(p.teeName) : null;
+    const groupPlayerIds = Array.isArray(p.groupPlayerIds) ? p.groupPlayerIds.map(String) : null;
+
+    const sideGameKey = p.sideGameKey != null ? String(p.sideGameKey) : null;
+
+    const courseId = p.courseId != null ? String(p.courseId) : null;
+    const courseName = p.courseName != null ? String(p.courseName) : null;
+    const teeName = p.teeName != null ? String(p.teeName) : null;
 
     return {
         tournamentId,
@@ -34,26 +53,30 @@ export function pickTournamentNavParams(params) {
     };
 }
 
+const _seen = new Set();
+
 export function assertTournamentNavParams(params, screenName = "TournamentScreen") {
-    const p = pickTournamentNavParams(params);
+    const picked = pickTournamentNavParams(params);
 
     const missing = [];
-    if (!p.tournamentId) missing.push("tournamentId");
-    if (!Number.isFinite(Number(p.roundNumber))) missing.push("roundNumber");
-    if (!p.roundId) missing.push("roundId");
-    if (!Number.isFinite(Number(p.holeNumber))) missing.push("holeNumber");
+    if (!picked.tournamentId) missing.push("tournamentId");
+    if (!Number.isFinite(Number(picked.roundNumber))) missing.push("roundNumber");
+    if (!Number.isFinite(Number(picked.holeNumber))) missing.push("holeNumber");
 
     if (missing.length) {
         const msg = `[LegacyGolf] Missing tournament nav params on ${screenName}: ${missing.join(
             ", "
         )}. Params keys: ${Object.keys(params || {}).join(", ")}`;
 
-        // DEV-only loud failure mode
         if (__DEV__) {
-            // eslint-disable-next-line no-console
-            console.error(msg);
+            const sig = `${screenName}::${missing.join("|")}::${Object.keys(params || {}).join(",")}`;
+            if (!_seen.has(sig)) {
+                _seen.add(sig);
+                // eslint-disable-next-line no-console
+                console.error(msg);
+            }
         }
     }
 
-    return { ok: missing.length === 0, missing, picked: p };
+    return { ok: missing.length === 0, missing, picked };
 }

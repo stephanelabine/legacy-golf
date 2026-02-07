@@ -1,5 +1,5 @@
 // src/screens/TournamentScoreEntryScreen.js
-import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import {
     SafeAreaView,
     View,
@@ -13,19 +13,12 @@ import {
     ScrollView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import {
-    doc,
-    collection,
-    onSnapshot,
-    setDoc,
-    serverTimestamp,
-    query,
-    orderBy,
-} from "firebase/firestore";
+import { doc, collection, onSnapshot, setDoc, serverTimestamp, query, orderBy } from "firebase/firestore";
 
 import { db, auth } from "../firebase/firebase";
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
+import { pickTournamentNavParams, assertTournamentNavParams } from "../utils/tournamentNav";
 
 const BG = "#0B1220";
 const CARD = "#1D3557";
@@ -78,6 +71,14 @@ function uniqIds(list) {
     return out;
 }
 
+function NumberChip({ n, active, onPress }) {
+    return (
+        <Pressable onPress={onPress} style={({ pressed }) => [styles.numChip, active && styles.numChipOn, pressed && styles.pressed]}>
+            <Text style={[styles.numChipText, active && styles.numChipTextOn]}>{String(n)}</Text>
+        </Pressable>
+    );
+}
+
 export default function TournamentScoreEntryScreen({ navigation, route }) {
     const insets = useSafeAreaInsets();
     const params = route?.params || {};
@@ -96,6 +97,9 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
         return defaultRoundId(tournamentId, roundNumber);
     }, [params?.roundId, tournamentId, roundNumber]);
 
+    // contract (dev-only logging) — allow roundId to be derived
+    assertTournamentNavParams({ ...params, roundId }, "TournamentScoreEntryScreen");
+
     const holeMeta = useMemo(() => {
         return params?.holeMeta && typeof params.holeMeta === "object" ? params.holeMeta : buildDefaultHoleMeta();
     }, [params?.holeMeta]);
@@ -103,46 +107,30 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
     const par = holeMeta?.[String(holeNumber)]?.par ?? 4;
     const title = `HOLE ${holeNumber} • PAR ${par}`;
 
-    // players (tournament roster)
     const [players, setPlayers] = useState(() => {
         const p = params?.players;
         return Array.isArray(p) ? p : [];
     });
 
-    // group ids (the foursome you are playing with) for THIS round
     const [groupIds, setGroupIds] = useState(() => {
         const fromParams = Array.isArray(params?.groupPlayerIds) ? params.groupPlayerIds.map(String) : null;
         return fromParams && fromParams.length ? uniqIds(fromParams) : [];
     });
 
-    // selection ids (which players YOU are scoring for) persisted in Firestore
-    const [selectedIds, setSelectedIds] = useState(() => []); // will default to [meUid] once group known
+    const [selectedIds, setSelectedIds] = useState(() => []);
     const [selectionReady, setSelectionReady] = useState(false);
 
-    // scores cache from Firestore
-    const [scoresByPid, setScoresByPid] = useState({}); // { [pid]: { holes: { [hole]: {strokes, putts} } } }
-
-    // inputs per hole view
-    const [inputs, setInputs] = useState({}); // { [playerId]: { strokes: number, putts: number } }
+    const [scoresByPid, setScoresByPid] = useState({});
+    const [inputs, setInputs] = useState({});
     const [saving, setSaving] = useState(false);
 
-    // picker modal (wheel)
     const [pickOpen, setPickOpen] = useState(false);
     const [pickPid, setPickPid] = useState("");
     const [pickField, setPickField] = useState("strokes"); // "strokes" | "putts"
-    const [pickValue, setPickValue] = useState(1);
-
-    const ROW_H = 40;
-    const VISIBLE_ROWS = 5;
-    const PAD = Math.floor(VISIBLE_ROWS / 2) * ROW_H;
-
-    const strokesRef = useRef(null);
-    const puttsRef = useRef(null);
 
     const STROKES = useMemo(() => Array.from({ length: 10 }, (_, i) => i + 1), []);
     const PUTTS = useMemo(() => Array.from({ length: 11 }, (_, i) => i), []);
 
-    // selection modal
     const [selectOpen, setSelectOpen] = useState(false);
 
     // If players weren't passed, load from Firestore: prefer /members, fallback /roster
@@ -197,10 +185,7 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
         if (Array.isArray(groupIds) && groupIds.length) return;
         if (!meUid) return;
 
-        const qy = query(
-            collection(db, "tournaments", String(tournamentId), "rounds", roundKey, "groups"),
-            orderBy("orderIndex", "asc")
-        );
+        const qy = query(collection(db, "tournaments", String(tournamentId), "rounds", roundKey, "groups"), orderBy("orderIndex", "asc"));
 
         const unsub = onSnapshot(
             qy,
@@ -232,14 +217,12 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
             .filter((p) => !!p._pid);
     }, [players]);
 
-    // group-only player rows (your foursome)
     const groupRows = useMemo(() => {
         if (!playerRows.length) return [];
         const set = new Set((Array.isArray(groupIds) ? groupIds : []).map(String));
         return playerRows.filter((p) => set.has(String(p._pid)));
     }, [playerRows, groupIds]);
 
-    // ensure logged-in user always appears first in any list
     const sortMeFirst = useCallback(
         (rows) => {
             const list = Array.isArray(rows) ? [...rows] : [];
@@ -257,13 +240,11 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
 
     const groupRowsSorted = useMemo(() => sortMeFirst(groupRows), [groupRows, sortMeFirst]);
 
-    // Firestore selection doc (persist which players THIS scorekeeper is scoring for, per round)
     const selectionRef = useMemo(() => {
         if (!tournamentId || !meUid) return null;
         return doc(db, "tournaments", String(tournamentId), "rounds", roundKey, "scorekeepers", String(meUid));
     }, [tournamentId, roundKey, meUid]);
 
-    // Subscribe to selection doc; if missing, default to [meUid] and write once.
     useEffect(() => {
         if (!selectionRef) return;
         if (!Array.isArray(groupIds) || !groupIds.length) return;
@@ -289,15 +270,7 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
                     setSelectedIds(next);
                     setSelectionReady(true);
 
-                    await setDoc(
-                        selectionRef,
-                        {
-                            scorekeeperUid: String(meUid),
-                            selectedPlayerIds: next,
-                            updatedAt: serverTimestamp(),
-                        },
-                        { merge: true }
-                    );
+                    await setDoc(selectionRef, { scorekeeperUid: String(meUid), selectedPlayerIds: next, updatedAt: serverTimestamp() }, { merge: true });
                 } catch {
                     setSelectedIds([String(meUid)]);
                     setSelectionReady(true);
@@ -328,7 +301,6 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
         return groupRowsSorted.filter((p) => set.has(String(p._pid)));
     }, [groupRowsSorted, displayedIds]);
 
-    // Persist selection immediately on toggle
     const toggleSelected = useCallback(
         async (pid) => {
             const id = String(pid);
@@ -340,9 +312,7 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
                 const set = new Set(cur.map(String));
                 if (set.has(id)) set.delete(id);
                 else set.add(id);
-
                 const next = Array.from(set);
-
                 if (!next.length && meUid) return [String(meUid)];
                 return next;
             });
@@ -357,25 +327,18 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
                 let next = Array.from(set).filter((x) => groupSet.has(String(x)));
                 if (!next.length && meUid) next = [String(meUid)];
 
-                await setDoc(
-                    selectionRef,
-                    {
-                        scorekeeperUid: String(meUid),
-                        selectedPlayerIds: next,
-                        updatedAt: serverTimestamp(),
-                    },
-                    { merge: true }
-                );
+                await setDoc(selectionRef, { scorekeeperUid: String(meUid), selectedPlayerIds: next, updatedAt: serverTimestamp() }, { merge: true });
             } catch { }
         },
         [groupIds, meUid, selectionRef, selectedIds]
     );
 
-    // Subscribe to all scores for this round (GLOBAL rounds/{roundId}/scores)
+    // Subscribe to all scores for this round (tournaments/.../rounds/.../scores)
     useEffect(() => {
-        if (!roundId) return;
+        if (!tournamentId) return;
+        if (!roundKey) return;
 
-        const scoresRef = collection(db, "rounds", String(roundId), "scores");
+        const scoresRef = collection(db, "tournaments", String(tournamentId), "rounds", String(roundKey), "scores");
 
         const unsub = onSnapshot(
             scoresRef,
@@ -391,9 +354,8 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
         );
 
         return () => unsub();
-    }, [roundId]);
+    }, [tournamentId, roundKey]);
 
-    // Prefill inputs from Firestore whenever hole changes OR selection changes OR scores update
     useEffect(() => {
         if (!displayedRows.length) return;
 
@@ -425,47 +387,22 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
             const next = { ...(prev || {}) };
             const cur = next[pid] || { strokes: 0, putts: 0 };
             const v = Number(value);
+
             next[pid] = {
                 ...cur,
                 [field]: Number.isFinite(v) ? v : 0,
                 ...(field === "putts" ? { _hasPuttsSaved: true } : null),
             };
+
             return next;
         });
     }
 
     const openPicker = (pid, field) => {
         Keyboard.dismiss();
-
-        const current = inputs?.[String(pid)] || {};
-        const curVal = field === "putts" ? toInt(current.putts) : toInt(current.strokes);
-
         setPickPid(String(pid));
         setPickField(field);
-
-        if (field === "putts") {
-            const v = Math.max(0, Math.min(10, curVal || 0));
-            setPickValue(v);
-        } else {
-            const v = Math.max(1, Math.min(10, curVal || 1));
-            setPickValue(v);
-        }
-
         setPickOpen(true);
-
-        requestAnimationFrame(() => {
-            try {
-                if (field === "putts") {
-                    const v = Math.max(0, Math.min(10, curVal || 0));
-                    const idx = Math.max(0, PUTTS.indexOf(v));
-                    puttsRef.current?.scrollTo?.({ y: idx * ROW_H, animated: false });
-                } else {
-                    const v = Math.max(1, Math.min(10, curVal || 1));
-                    const idx = Math.max(0, STROKES.indexOf(v));
-                    strokesRef.current?.scrollTo?.({ y: idx * ROW_H, animated: false });
-                }
-            } catch { }
-        });
     };
 
     const closePicker = () => {
@@ -473,32 +410,23 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
         setPickPid("");
     };
 
-    const snapIndex = (y) => Math.round(Math.max(0, y) / ROW_H);
-    const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
-
-    const onPickEnd = (e) => {
-        const y = e?.nativeEvent?.contentOffset?.y || 0;
-        if (pickField === "putts") {
-            const idx = clamp(snapIndex(y), 0, PUTTS.length - 1);
-            setPickValue(PUTTS[idx]);
-        } else {
-            const idx = clamp(snapIndex(y), 0, STROKES.length - 1);
-            setPickValue(STROKES[idx]);
-        }
-    };
-
-    const onPickSet = () => {
+    const onTapNumber = (n) => {
         if (!pickPid) {
             closePicker();
             return;
         }
-        setPlayerField(pickPid, pickField, Number(pickValue));
+        setPlayerField(pickPid, pickField, Number(n));
         closePicker();
     };
 
     const onPressSaveNext = useCallback(async () => {
-        if (!roundId) {
-            Alert.alert("Missing round", "No roundId was provided.");
+        if (!tournamentId) {
+            Alert.alert("Missing tournament", "No tournamentId was provided.");
+            return;
+        }
+
+        if (!meUid) {
+            Alert.alert("Not signed in", "You must be signed in to save scores.");
             return;
         }
 
@@ -520,14 +448,20 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
                 const strokes = toInt(val.strokes);
                 const putts = toInt(val.putts);
 
-                const hasPutts = val?._hasPuttsSaved === true;
-
                 if (strokes <= 0) continue;
 
-                const scoreDocRef = doc(db, "rounds", String(roundId), "scores", String(pid));
+                const scoreDocRef = doc(
+                    db,
+                    "tournaments",
+                    String(tournamentId),
+                    "rounds",
+                    `r${String(roundNumber)}`,
+                    "scores",
+                    String(pid)
+                );
 
                 const payload = {
-                    roundId: String(roundId),
+                    roundId: String(roundId || ""),
                     tournamentId: String(tournamentId || ""),
                     roundNumber: Number(roundNumber || 1),
                     playerId: String(pid),
@@ -537,7 +471,7 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
                         [String(holeNumber)]: {
                             holeNumber: Number(holeNumber),
                             strokes: Number(strokes),
-                            ...(hasPutts ? { putts: Number.isFinite(Number(putts)) ? Number(putts) : 0 } : null),
+                            putts: Number.isFinite(Number(putts)) ? Number(Math.max(0, Math.min(10, putts))) : 0,
                             updatedAt: serverTimestamp(),
                             scorekeeperUid: String(meUid || ""),
                         },
@@ -559,6 +493,7 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
             if (nextHole > totalHoles) {
                 Alert.alert("Saved", "Scores saved.");
                 navigation.replace(ROUTES.TOURNAMENT_HOLE_VIEW, {
+                    ...pickTournamentNavParams(params),
                     ...params,
                     tournamentId,
                     roundId,
@@ -572,6 +507,7 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
             }
 
             navigation.replace(ROUTES.TOURNAMENT_HOLE_VIEW, {
+                ...pickTournamentNavParams(params),
                 ...params,
                 tournamentId,
                 roundId,
@@ -581,23 +517,15 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
                 totalHoles,
                 showFormatSplash: false,
             });
-        } catch {
-            Alert.alert("Save failed", "Could not save scores. Please try again.");
+        } catch (e) {
+            // eslint-disable-next-line no-console
+            console.error("[LegacyGolf] TournamentScoreEntry save failed:", e);
+            const msg = e?.message || e?.code || "Could not save scores. Please try again.";
+            Alert.alert("Save failed", String(msg));
         } finally {
             setSaving(false);
         }
-    }, [
-        roundId,
-        tournamentId,
-        roundNumber,
-        holeNumber,
-        totalHoles,
-        inputs,
-        displayedRows,
-        navigation,
-        params,
-        meUid,
-    ]);
+    }, [roundId, tournamentId, roundNumber, holeNumber, totalHoles, inputs, displayedRows, navigation, params, meUid]);
 
     const selectCountLabel = useMemo(() => {
         if (!selectionReady) return "Loading…";
@@ -605,16 +533,12 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
         return `${n} ${n === 1 ? "player" : "players"}`;
     }, [displayedRows.length, selectionReady]);
 
+    const pickTitle = useMemo(() => (pickField === "putts" ? "Putts" : "Strokes"), [pickField]);
+    const pickNumbers = useMemo(() => (pickField === "putts" ? PUTTS : STROKES), [pickField, PUTTS, STROKES]);
+
     return (
         <SafeAreaView style={styles.safe}>
-            <ScreenHeader
-                navigation={navigation}
-                title={title}
-                subtitle={"Tap a box to pick a value."}
-                safeTop={false}
-                rightLabel={null}
-                onRightPress={null}
-            />
+            <ScreenHeader navigation={navigation} title={title} subtitle={"Tap a box to pick a value."} safeTop={false} rightLabel={null} onRightPress={null} />
 
             <View style={styles.body}>
                 <View style={styles.topBar}>
@@ -636,7 +560,6 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
                         const val = inputs?.[pid] || {};
                         const strokes = toInt(val.strokes);
                         const putts = toInt(val.putts);
-
                         const showPutts = val?._hasPuttsSaved === true;
 
                         return (
@@ -677,11 +600,10 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
                     <Text style={styles.saveBtnText}>{saving ? "Saving…" : "Save • Next Hole"}</Text>
                 </Pressable>
 
-                <Text style={styles.microNote}>scores: rounds/{`{roundId}`}/scores/{`{playerId}`}</Text>
+                <Text style={styles.microNote}>scores: tournaments/{`{tournamentId}`}/rounds/r{`{roundNumber}`}/scores/{`{playerId}`}</Text>
                 <Text style={styles.microNote}>selection: tournaments/{`{tournamentId}`}/rounds/r{`{roundNumber}`}/scorekeepers/{`{myUid}`}</Text>
             </View>
 
-            {/* selection modal */}
             <Modal visible={selectOpen} animationType="slide" transparent onRequestClose={() => setSelectOpen(false)}>
                 <View style={styles.modalBackdrop}>
                     <View style={styles.selCard}>
@@ -726,44 +648,30 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
                 </View>
             </Modal>
 
-            {/* picker modal */}
             <Modal visible={pickOpen} transparent animationType="fade" onRequestClose={closePicker}>
                 <Pressable style={styles.pickerBackdrop} onPress={closePicker} />
-                <View style={[styles.pickerCard, { paddingBottom: Math.max(10, (insets?.bottom || 0) + 8) }]}>
-                    <View style={styles.pickerHeader}>
-                        <Pressable onPress={closePicker} style={({ pressed }) => [styles.pickerBtn, pressed && styles.pressed]}>
-                            <Text style={styles.pickerBtnText}>Cancel</Text>
+
+                <View style={[styles.numCard, { paddingBottom: Math.max(12, (insets?.bottom || 0) + 10) }]}>
+                    <View style={styles.numHeader}>
+                        <Pressable onPress={closePicker} style={({ pressed }) => [styles.numHeaderBtn, pressed && styles.pressed]}>
+                            <Text style={styles.numHeaderBtnText}>Cancel</Text>
                         </Pressable>
 
-                        <Text style={styles.pickerTitle}>{pickField === "putts" ? "Putts" : "Strokes"}</Text>
+                        <Text style={styles.numTitle}>{pickTitle}</Text>
 
-                        <Pressable onPress={onPickSet} style={({ pressed }) => [styles.pickerBtn, pressed && styles.pressed]}>
-                            <Text style={[styles.pickerBtnText, styles.pickerBtnTextSet]}>Set</Text>
-                        </Pressable>
+                        <View style={{ width: 72 }} />
                     </View>
 
-                    <View style={styles.wheelWrap}>
-                        <ScrollView
-                            ref={pickField === "putts" ? puttsRef : strokesRef}
-                            showsVerticalScrollIndicator={false}
-                            snapToInterval={ROW_H}
-                            decelerationRate="fast"
-                            contentContainerStyle={{ paddingVertical: PAD }}
-                            onMomentumScrollEnd={onPickEnd}
-                            onScrollEndDrag={onPickEnd}
-                        >
-                            {(pickField === "putts" ? PUTTS : STROKES).map((n) => (
-                                <View key={`n-${n}`} style={[styles.wheelRow, { height: ROW_H }]}>
-                                    <Text style={styles.wheelText}>{String(n)}</Text>
-                                </View>
-                            ))}
-                        </ScrollView>
-                        <View style={[styles.wheelSelection, { height: ROW_H }]} pointerEvents="none" />
+                    <View style={styles.numGrid}>
+                        {pickNumbers.map((n) => {
+                            const cur = inputs?.[String(pickPid)] || {};
+                            const curVal = pickField === "putts" ? toInt(cur.putts) : toInt(cur.strokes);
+                            const active = Number(curVal) === Number(n);
+                            return <NumberChip key={`num-${n}`} n={n} active={active} onPress={() => onTapNumber(n)} />;
+                        })}
                     </View>
 
-                    <View style={styles.previewPill}>
-                        <Text style={styles.previewText}>Selected: {String(pickValue)}</Text>
-                    </View>
+                    <Text style={styles.numHint}>{pickField === "putts" ? "Tap 0–10" : "Tap 1–10"}</Text>
                 </View>
             </Modal>
         </SafeAreaView>
@@ -840,13 +748,7 @@ const styles = StyleSheet.create({
         borderColor: "rgba(255,255,255,0.10)",
     },
     emptyTitle: { color: WHITE, fontWeight: "900", fontSize: 15 },
-    emptySub: {
-        marginTop: 8,
-        color: "rgba(255,255,255,0.72)",
-        fontWeight: "800",
-        fontSize: 12,
-        lineHeight: 17,
-    },
+    emptySub: { marginTop: 8, color: "rgba(255,255,255,0.72)", fontWeight: "800", fontSize: 12, lineHeight: 17 },
 
     footer: {
         paddingTop: 10,
@@ -855,25 +757,13 @@ const styles = StyleSheet.create({
         borderTopWidth: 1,
         borderTopColor: "rgba(255,255,255,0.08)",
     },
-    saveBtn: {
-        height: 56,
-        borderRadius: 999,
-        backgroundColor: GREEN,
-        alignItems: "center",
-        justifyContent: "center",
-    },
+    saveBtn: { height: 56, borderRadius: 999, backgroundColor: GREEN, alignItems: "center", justifyContent: "center" },
     saveBtnText: { color: GREEN_TEXT, fontSize: 17, fontWeight: "900" },
     microNote: { marginTop: 6, color: "rgba(255,255,255,0.55)", fontWeight: "800", fontSize: 10, letterSpacing: 0.2 },
 
     pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
 
-    // selection modal
-    modalBackdrop: {
-        flex: 1,
-        backgroundColor: "rgba(0,0,0,0.60)",
-        paddingHorizontal: 14,
-        justifyContent: "flex-end",
-    },
+    modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.60)", paddingHorizontal: 14, justifyContent: "flex-end" },
     selCard: {
         backgroundColor: "#0F1B33",
         borderTopLeftRadius: 22,
@@ -905,51 +795,17 @@ const styles = StyleSheet.create({
         justifyContent: "center",
     },
     selDoneText: { color: WHITE, fontWeight: "900", fontSize: 12, letterSpacing: 0.2 },
-    selSub: {
-        paddingHorizontal: 14,
-        paddingTop: 10,
-        paddingBottom: 10,
-        color: "rgba(255,255,255,0.70)",
-        fontWeight: "800",
-        fontSize: 12,
-        lineHeight: 16,
-    },
-    selRow: {
-        flexDirection: "row",
-        alignItems: "center",
-        paddingHorizontal: 14,
-        paddingVertical: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: "rgba(255,255,255,0.06)",
-    },
-    selDotOuter: {
-        width: 22,
-        height: 22,
-        borderRadius: 999,
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.25)",
-        alignItems: "center",
-        justifyContent: "center",
-        marginRight: 10,
-    },
-    selDotOuterOn: {
-        borderColor: "rgba(46,204,113,0.55)",
-    },
-    selDotInner: {
-        width: 12,
-        height: 12,
-        borderRadius: 999,
-        backgroundColor: GREEN,
-        opacity: 0,
-    },
+    selSub: { paddingHorizontal: 14, paddingTop: 10, paddingBottom: 10, color: "rgba(255,255,255,0.70)", fontWeight: "800", fontSize: 12, lineHeight: 16 },
+    selRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },
+    selDotOuter: { width: 22, height: 22, borderRadius: 999, borderWidth: 1, borderColor: "rgba(255,255,255,0.25)", alignItems: "center", justifyContent: "center", marginRight: 10 },
+    selDotOuterOn: { borderColor: "rgba(46,204,113,0.55)" },
+    selDotInner: { width: 12, height: 12, borderRadius: 999, backgroundColor: GREEN, opacity: 0 },
     selName: { color: "rgba(255,255,255,0.92)", fontWeight: "900", fontSize: 13, letterSpacing: 0.2 },
-
     modalEmpty: { paddingHorizontal: 14, paddingVertical: 18 },
     modalEmptyText: { color: "rgba(255,255,255,0.70)", fontWeight: "800", fontSize: 12 },
 
-    // picker modal
     pickerBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.60)" },
-    pickerCard: {
+    numCard: {
         position: "absolute",
         left: 14,
         right: 14,
@@ -960,16 +816,10 @@ const styles = StyleSheet.create({
         borderColor: "rgba(255,255,255,0.12)",
         padding: 14,
     },
-    pickerHeader: {
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "space-between",
-        paddingBottom: 10,
-    },
-    pickerTitle: { color: WHITE, fontWeight: "900", fontSize: 15, letterSpacing: 0.2 },
-    pickerBtn: {
+    numHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingBottom: 10 },
+    numHeaderBtn: {
         height: 34,
-        paddingHorizontal: 12,
+        width: 72,
         borderRadius: 999,
         backgroundColor: "rgba(255,255,255,0.08)",
         borderWidth: 1,
@@ -977,39 +827,23 @@ const styles = StyleSheet.create({
         alignItems: "center",
         justifyContent: "center",
     },
-    pickerBtnText: { color: "rgba(255,255,255,0.82)", fontWeight: "900", fontSize: 12, letterSpacing: 0.2 },
-    pickerBtnTextSet: { color: WHITE },
+    numHeaderBtnText: { color: "rgba(255,255,255,0.82)", fontWeight: "900", fontSize: 12, letterSpacing: 0.2 },
+    numTitle: { color: WHITE, fontWeight: "900", fontSize: 15, letterSpacing: 0.2 },
 
-    wheelWrap: {
-        borderRadius: 18,
+    numGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "center", paddingTop: 6, paddingBottom: 10 },
+    numChip: {
+        width: 52,
+        height: 44,
+        borderRadius: 16,
+        backgroundColor: "rgba(255,255,255,0.06)",
         borderWidth: 1,
         borderColor: "rgba(255,255,255,0.12)",
-        backgroundColor: "rgba(0,0,0,0.20)",
-        overflow: "hidden",
-        height: 40 * 5,
-    },
-    wheelRow: { alignItems: "center", justifyContent: "center" },
-    wheelText: { color: WHITE, fontSize: 18, fontWeight: "900", letterSpacing: 0.2 },
-    wheelSelection: {
-        position: "absolute",
-        left: 10,
-        right: 10,
-        top: (40 * 5) / 2 - 40 / 2,
-        borderRadius: 14,
-        borderWidth: 1,
-        borderColor: "rgba(46,204,113,0.45)",
-        backgroundColor: "rgba(46,204,113,0.10)",
-    },
-
-    previewPill: {
-        marginTop: 12,
-        borderRadius: 999,
-        paddingVertical: 10,
         alignItems: "center",
         justifyContent: "center",
-        backgroundColor: "rgba(46,204,113,0.12)",
-        borderWidth: 1,
-        borderColor: "rgba(46,204,113,0.22)",
     },
-    previewText: { color: WHITE, fontWeight: "900", fontSize: 13, letterSpacing: 0.2 },
+    numChipOn: { backgroundColor: "rgba(46,204,113,0.16)", borderColor: "rgba(46,204,113,0.45)" },
+    numChipText: { color: "rgba(255,255,255,0.86)", fontWeight: "900", fontSize: 16 },
+    numChipTextOn: { color: WHITE },
+
+    numHint: { marginTop: 4, color: "rgba(255,255,255,0.60)", fontWeight: "800", fontSize: 11, letterSpacing: 0.2, textAlign: "center" },
 });

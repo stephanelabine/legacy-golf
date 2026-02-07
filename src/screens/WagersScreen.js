@@ -1,3 +1,4 @@
+// src/screens/WagersScreen.js
 import React, { useMemo, useState } from "react";
 import {
   View,
@@ -44,7 +45,6 @@ function moneyLabel(n) {
 
 export default function WagersScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
-
   const seed = route?.params?.wagers || null;
 
   const [skinsOn, setSkinsOn] = useState(!!seed?.skins?.enabled);
@@ -52,6 +52,25 @@ export default function WagersScreen({ navigation, route }) {
 
   const [kpsOn, setKpsOn] = useState(!!seed?.kps?.enabled);
   const [kpsAmt, setKpsAmt] = useState(seed?.kps?.amount ? String(seed.kps.amount) : "");
+
+  const [longDriveOn, setLongDriveOn] = useState(!!seed?.longDrive?.enabled);
+  const [longDriveAmt, setLongDriveAmt] = useState(seed?.longDrive?.amount ? String(seed.longDrive.amount) : "");
+
+  const [secondShotKpOn, setSecondShotKpOn] = useState(!!seed?.secondShotKp?.enabled);
+  const [secondShotKpAmt, setSecondShotKpAmt] = useState(
+    seed?.secondShotKp?.amount ? String(seed.secondShotKp.amount) : ""
+  );
+
+  const [puttingOn, setPuttingOn] = useState(!!seed?.putting?.enabled);
+  const [puttingAmt, setPuttingAmt] = useState(seed?.putting?.amount ? String(seed.putting.amount) : "");
+
+  const [teamVsTeamOn, setTeamVsTeamOn] = useState(!!seed?.teamVsTeam?.enabled);
+  const [teamVsTeamAmt, setTeamVsTeamAmt] = useState(seed?.teamVsTeam?.amount ? String(seed.teamVsTeam.amount) : "");
+
+  const [birdieBucketOn, setBirdieBucketOn] = useState(!!seed?.birdieBucket?.enabled);
+  const [birdieBucketAmt, setBirdieBucketAmt] = useState(
+    seed?.birdieBucket?.amount ? String(seed.birdieBucket.amount) : ""
+  );
 
   const [nassauOn, setNassauOn] = useState(!!seed?.nassau?.enabled);
   const [nassauFront, setNassauFront] = useState(seed?.nassau?.front ? String(seed.nassau.front) : "");
@@ -66,37 +85,81 @@ export default function WagersScreen({ navigation, route }) {
   const exposure = useMemo(() => {
     const skins = skinsOn ? toMoneyNumber(skinsAmt) : 0;
     const kps = kpsOn ? toMoneyNumber(kpsAmt) : 0;
+    const ld = longDriveOn ? toMoneyNumber(longDriveAmt) : 0;
+    const ss = secondShotKpOn ? toMoneyNumber(secondShotKpAmt) : 0;
+    const putt = puttingOn ? toMoneyNumber(puttingAmt) : 0;
+    const tvt = teamVsTeamOn ? toMoneyNumber(teamVsTeamAmt) : 0;
+    const bb = birdieBucketOn ? toMoneyNumber(birdieBucketAmt) : 0;
     const nas = nassauOn
       ? toMoneyNumber(nassauFront) + toMoneyNumber(nassauBack) + toMoneyNumber(nassauTotal)
       : 0;
-    return skins + kps + nas;
-  }, [skinsOn, skinsAmt, kpsOn, kpsAmt, nassauOn, nassauFront, nassauBack, nassauTotal]);
 
-  const anyOn = skinsOn || kpsOn || nassauOn || perStrokeOn;
+    return skins + kps + ld + ss + putt + tvt + bb + nas;
+  }, [
+    skinsOn,
+    skinsAmt,
+    kpsOn,
+    kpsAmt,
+    longDriveOn,
+    longDriveAmt,
+    secondShotKpOn,
+    secondShotKpAmt,
+    puttingOn,
+    puttingAmt,
+    teamVsTeamOn,
+    teamVsTeamAmt,
+    birdieBucketOn,
+    birdieBucketAmt,
+    nassauOn,
+    nassauFront,
+    nassauBack,
+    nassauTotal,
+  ]);
+
+  const anyOn =
+    skinsOn ||
+    kpsOn ||
+    longDriveOn ||
+    secondShotKpOn ||
+    puttingOn ||
+    teamVsTeamOn ||
+    birdieBucketOn ||
+    nassauOn ||
+    perStrokeOn;
 
   async function onDone() {
     const payload = {
       enabled: anyOn,
+
       skins: { enabled: skinsOn, amount: toMoneyNumber(skinsAmt) },
       kps: { enabled: kpsOn, amount: toMoneyNumber(kpsAmt) },
+
+      longDrive: { enabled: longDriveOn, amount: toMoneyNumber(longDriveAmt) },
+      secondShotKp: { enabled: secondShotKpOn, amount: toMoneyNumber(secondShotKpAmt) },
+
+      putting: { enabled: puttingOn, amount: toMoneyNumber(puttingAmt) },
+
+      teamVsTeam: { enabled: teamVsTeamOn, amount: toMoneyNumber(teamVsTeamAmt) },
+
+      birdieBucket: { enabled: birdieBucketOn, amount: toMoneyNumber(birdieBucketAmt) },
+
       nassau: {
         enabled: nassauOn,
         front: toMoneyNumber(nassauFront),
         back: toMoneyNumber(nassauBack),
         total: toMoneyNumber(nassauTotal),
       },
+
       perStroke: { enabled: perStrokeOn, amount: toMoneyNumber(perStrokeAmt) },
+
       notes: String(notes || "").trim(),
     };
 
-    // Persist (no crashes if storage fails)
     if (payload.enabled) await saveWagers(payload);
     else await clearWagers();
 
-    // 1) Return to previous screen (GameSetup)
     if (navigation.canGoBack?.()) navigation.goBack();
 
-    // 2) Merge the payload into GameSetup params (reliable)
     requestAnimationFrame(() => {
       navigation.dispatch(
         CommonActions.navigate({
@@ -112,6 +175,49 @@ export default function WagersScreen({ navigation, route }) {
     navigation.goBack();
   }
 
+  function ToggleCard({
+    title,
+    sub,
+    on,
+    setOn,
+    amount,
+    setAmount,
+    amountLabel = "Amount",
+    showAmount = true,
+  }) {
+    return (
+      <View style={styles.card}>
+        <Pressable
+          onPress={() => setOn((v) => !v)}
+          style={({ pressed }) => [styles.toggleRow, pressed && styles.pressed]}
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={styles.toggleTitle}>{title}</Text>
+            <Text style={styles.toggleSub}>{sub}</Text>
+          </View>
+
+          <View style={[styles.switchOuter, on && styles.switchOuterOn]}>
+            <View style={[styles.switchKnob, on && styles.switchKnobOn]} />
+          </View>
+        </Pressable>
+
+        {on && showAmount ? (
+          <View style={styles.fieldRow}>
+            <Text style={styles.fieldLabel}>{amountLabel}</Text>
+            <TextInput
+              value={amount}
+              onChangeText={(t) => setAmount(cleanMoneyInput(t))}
+              placeholder="0.00"
+              placeholderTextColor="rgba(255,255,255,0.35)"
+              keyboardType="decimal-pad"
+              style={styles.moneyInput}
+            />
+          </View>
+        ) : null}
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
       <View style={styles.headerWrap}>
@@ -119,7 +225,11 @@ export default function WagersScreen({ navigation, route }) {
         <View style={styles.topGlowB} pointerEvents="none" />
 
         <View style={styles.headerRow}>
-          <Pressable onPress={onBack} hitSlop={12} style={({ pressed }) => [styles.headerPill, pressed && styles.pressed]}>
+          <Pressable
+            onPress={onBack}
+            hitSlop={12}
+            style={({ pressed }) => [styles.headerPill, pressed && styles.pressed]}
+          >
             <Text style={styles.headerPillText}>Back</Text>
           </Pressable>
 
@@ -155,63 +265,23 @@ export default function WagersScreen({ navigation, route }) {
             </View>
 
             <Text style={styles.summaryHint}>
-              Exposure is a simple setup total. Live wins/losses come later when payouts and rules are built.
+              Setup totals only. Live wins/losses and advanced payout rules come later as each wager format is fully built.
             </Text>
           </View>
 
-          <View style={styles.card}>
-            <Pressable onPress={() => setSkinsOn((v) => !v)} style={({ pressed }) => [styles.toggleRow, pressed && styles.pressed]}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.toggleTitle}>Skins</Text>
-                <Text style={styles.toggleSub}>Win a hole outright</Text>
-              </View>
+          <ToggleCard title="Skins" sub="Win a hole outright" on={skinsOn} setOn={setSkinsOn} amount={skinsAmt} setAmount={setSkinsAmt} />
 
-              <View style={[styles.switchOuter, skinsOn && styles.switchOuterOn]}>
-                <View style={[styles.switchKnob, skinsOn && styles.switchKnobOn]} />
-              </View>
-            </Pressable>
+          <ToggleCard title="KPs (Closest to the Pin)" sub="Closest on selected par 3s" on={kpsOn} setOn={setKpsOn} amount={kpsAmt} setAmount={setKpsAmt} />
 
-            {skinsOn ? (
-              <View style={styles.fieldRow}>
-                <Text style={styles.fieldLabel}>Amount</Text>
-                <TextInput
-                  value={skinsAmt}
-                  onChangeText={(t) => setSkinsAmt(cleanMoneyInput(t))}
-                  placeholder="0.00"
-                  placeholderTextColor="rgba(255,255,255,0.35)"
-                  keyboardType="decimal-pad"
-                  style={styles.moneyInput}
-                />
-              </View>
-            ) : null}
-          </View>
+          <ToggleCard title="Long Drive" sub="Longest drive on selected holes" on={longDriveOn} setOn={setLongDriveOn} amount={longDriveAmt} setAmount={setLongDriveAmt} />
 
-          <View style={styles.card}>
-            <Pressable onPress={() => setKpsOn((v) => !v)} style={({ pressed }) => [styles.toggleRow, pressed && styles.pressed]}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.toggleTitle}>KPs (Closest to the Pin)</Text>
-                <Text style={styles.toggleSub}>Closest on selected par 3s</Text>
-              </View>
+          <ToggleCard title="Second Shot KP" sub="Closest after the second shot on selected holes" on={secondShotKpOn} setOn={setSecondShotKpOn} amount={secondShotKpAmt} setAmount={setSecondShotKpAmt} />
 
-              <View style={[styles.switchOuter, kpsOn && styles.switchOuterOn]}>
-                <View style={[styles.switchKnob, kpsOn && styles.switchKnobOn]} />
-              </View>
-            </Pressable>
+          <ToggleCard title="Putting Contest" sub="Low total putts (or best putting score)" on={puttingOn} setOn={setPuttingOn} amount={puttingAmt} setAmount={setPuttingAmt} />
 
-            {kpsOn ? (
-              <View style={styles.fieldRow}>
-                <Text style={styles.fieldLabel}>Amount</Text>
-                <TextInput
-                  value={kpsAmt}
-                  onChangeText={(t) => setKpsAmt(cleanMoneyInput(t))}
-                  placeholder="0.00"
-                  placeholderTextColor="rgba(255,255,255,0.35)"
-                  keyboardType="decimal-pad"
-                  style={styles.moneyInput}
-                />
-              </View>
-            ) : null}
-          </View>
+          <ToggleCard title="Team vs Team" sub="Two teams compete (pairings/rules to be refined)" on={teamVsTeamOn} setOn={setTeamVsTeamOn} amount={teamVsTeamAmt} setAmount={setTeamVsTeamAmt} amountLabel="Buy-in (per player)" />
+
+          <ToggleCard title="Birdie Bucket" sub="Birdies pay into a shared bucket" on={birdieBucketOn} setOn={setBirdieBucketOn} amount={birdieBucketAmt} setAmount={setBirdieBucketAmt} amountLabel="Amount (per birdie)" />
 
           <View style={styles.card}>
             <Pressable onPress={() => setNassauOn((v) => !v)} style={({ pressed }) => [styles.toggleRow, pressed && styles.pressed]}>
@@ -293,6 +363,11 @@ export default function WagersScreen({ navigation, route }) {
                 />
               </View>
             ) : null}
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>More to come</Text>
+            <Text style={styles.toggleSub}>Deuce Pot, presses, snake, greenies, and more formats will be added as Legacy Golf expands.</Text>
           </View>
 
           <View style={styles.card}>
@@ -416,7 +491,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   switchOuterOn: { borderColor: "rgba(46,125,255,0.55)", backgroundColor: "rgba(46,125,255,0.18)" },
-  switchKnob: { width: 28, height: 28, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.70)", transform: [{ translateX: 0 }] },
+  switchKnob: {
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.70)",
+    transform: [{ translateX: 0 }],
+  },
   switchKnobOn: { backgroundColor: "rgba(255,255,255,0.92)", transform: [{ translateX: 20 }] },
 
   fieldRow: { marginTop: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },

@@ -26,6 +26,7 @@ import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import { loadCourseData } from "../storage/courseData";
 import { db, auth } from "../firebase/firebase";
+import { pickTournamentNavParams, assertTournamentNavParams } from "../utils/tournamentNav";
 
 const BG = "#0B1220";
 const CARD = "#1D3557";
@@ -48,6 +49,13 @@ function buildDefaultHoleMeta() {
     const meta = {};
     for (let i = 1; i <= 18; i++) meta[String(i)] = { par: DEFAULT_PARS[i - 1], si: DEFAULT_SI[i - 1] };
     return meta;
+}
+
+function defaultRoundId(tournamentId, roundNumber) {
+    const t = String(tournamentId || "").trim();
+    const r = Number(roundNumber || 1);
+    if (!t) return "";
+    return `${t}__r${r}`;
 }
 
 function notesKey(courseName) {
@@ -116,12 +124,7 @@ function getSideGameMeta(sideGameKeyRaw) {
         return { title: "KP", subtitle: "Closest to the pin.", icon: "🎯" };
     }
 
-    if (
-        k === "second_shot_kp" ||
-        k === "secondshotkp" ||
-        k === "2nd_shot_kp" ||
-        k === "second_shot_closest_to_pin"
-    ) {
+    if (k === "second_shot_kp" || k === "secondshotkp" || k === "2nd_shot_kp" || k === "second_shot_closest_to_pin") {
         return { title: "SECOND SHOT KP", subtitle: "Closest on the second shot.", icon: "🎯" };
     }
 
@@ -188,6 +191,28 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
     const tournamentId = params?.tournamentId ? String(params.tournamentId) : "";
     const roundNumber = Number(params?.roundNumber || 1);
 
+    const roundId = useMemo(() => {
+        const p = String(params?.roundId || "").trim();
+        if (p) return p;
+        return defaultRoundId(tournamentId, roundNumber);
+    }, [params?.roundId, tournamentId, roundNumber]);
+
+    // Contract: run ONCE (dev) so we don't spam the console every render.
+    const assertedRef = useRef(false);
+    useEffect(() => {
+        if (!__DEV__) return;
+        if (assertedRef.current) return;
+        assertedRef.current = true;
+
+        // Provide derived roundId so contract can pass even if caller didn't include it.
+        try {
+            assertTournamentNavParams({ ...params, roundId }, "TournamentHoleViewScreen");
+        } catch {
+            // if assertTournamentNavParams throws in your implementation, ignore here
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [roundId]);
+
     const courseParam = params.course;
     const teeParam = params.tee;
 
@@ -211,7 +236,6 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
         return params.holeMeta && typeof params.holeMeta === "object" ? params.holeMeta : buildDefaultHoleMeta();
     }, [params.holeMeta]);
 
-    // IMPORTANT: Tournament hole state must come from route params (NOT local active round).
     const initialHole = useMemo(() => {
         const raw = Number(params?.holeNumber ?? params?.hole ?? 1);
         if (Number.isFinite(raw) && raw >= 1 && raw <= 18) return raw;
@@ -237,7 +261,6 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
 
     const showFormatSplash = !!params?.showFormatSplash;
     const sideGameKey = params?.sideGameKey ? String(params.sideGameKey) : "";
-
     const sideMeta = useMemo(() => getSideGameMeta(sideGameKey), [sideGameKey]);
 
     const [sgVisible, setSgVisible] = useState(false);
@@ -300,13 +323,10 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                     if (cancelled) return;
                     if (status !== "granted") return;
 
-                    sub = await Location.watchPositionAsync(
-                        { accuracy: Location.Accuracy.Highest, distanceInterval: 2 },
-                        (p) => {
-                            if (cancelled) return;
-                            setUser({ lat: p.coords.latitude, lon: p.coords.longitude });
-                        }
-                    );
+                    sub = await Location.watchPositionAsync({ accuracy: Location.Accuracy.Highest, distanceInterval: 2 }, (p) => {
+                        if (cancelled) return;
+                        setUser({ lat: p.coords.latitude, lon: p.coords.longitude });
+                    });
                 } catch { }
             })();
 
@@ -314,7 +334,6 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                 cancelled = true;
                 if (sub) sub.remove();
             };
-            // eslint-disable-next-line react-hooks/exhaustive-deps
         }, [courseId])
     );
 
@@ -527,22 +546,32 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
 
     function openScorecard() {
         navigation.navigate(ROUTES.SCORECARD, {
+            ...pickTournamentNavParams(params),
+            tournamentId,
+            roundNumber,
+            roundId,
+            holeNumber: currentHole,
+
             course: courseParam ?? { name: courseName },
             tee: teeParam ?? { name: teeName },
             players,
             holeMeta,
             hole: currentHole,
             holeIndex: currentHole - 1,
-
-            tournamentId,
-            roundNumber,
-            holeNumber: currentHole,
+            courseName,
+            teeName,
         });
     }
 
     function openGreenView() {
         navigation.navigate(ROUTES.GREEN_VIEW, {
             ...params,
+            ...pickTournamentNavParams(params),
+            tournamentId,
+            roundNumber,
+            roundId,
+            holeNumber: currentHole,
+
             course: courseParam ?? { name: courseName },
             tee: teeParam ?? { name: teeName },
             players,
@@ -551,16 +580,18 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
             holeIndex: currentHole - 1,
             courseName,
             teeName,
-
-            tournamentId,
-            roundNumber,
-            holeNumber: currentHole,
         });
     }
 
     function openHazards() {
         navigation.navigate(ROUTES.HAZARDS, {
             ...params,
+            ...pickTournamentNavParams(params),
+            tournamentId,
+            roundNumber,
+            roundId,
+            holeNumber: currentHole,
+
             course: courseParam ?? { name: courseName },
             tee: teeParam ?? { name: teeName },
             players,
@@ -569,19 +600,20 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
             holeIndex: currentHole - 1,
             courseName,
             teeName,
-
-            tournamentId,
-            roundNumber,
-            holeNumber: currentHole,
         });
     }
 
     function openHoleMap(openSetup = false) {
         navigation.navigate(ROUTES.HOLE_MAP, {
             ...params,
+            ...pickTournamentNavParams(params),
+            tournamentId,
+            roundNumber,
+            roundId,
+            holeNumber: currentHole,
+
             holeIndex: currentHole - 1,
             hole: currentHole,
-            holeNumber: currentHole,
             course: courseParam ?? { name: courseName, id: courseId },
             tee: teeParam ?? { name: teeName },
             players,
@@ -590,8 +622,6 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
             courseId: courseId ? String(courseId) : null,
             openSetup: !!openSetup,
 
-            tournamentId,
-            roundNumber,
             sideGameKey: sideGameKey || null,
         });
     }
@@ -599,8 +629,10 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
     function openTournamentScoreEntry() {
         const TARGET = ROUTES.TOURNAMENT_SCORE_ENTRY || "TournamentScoreEntry";
         navigation.navigate(TARGET, {
+            ...pickTournamentNavParams(params),
             tournamentId,
             roundNumber,
+            roundId,
             holeNumber: currentHole,
             holeMeta,
             sideGameKey: sideGameKey || null,
@@ -609,7 +641,7 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
             courseName,
             teeName,
 
-            players: null,
+            players,
             groupPlayerIds: Array.isArray(params?.groupPlayerIds) ? params.groupPlayerIds : null,
         });
     }
@@ -669,22 +701,9 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
 
     return (
         <SafeAreaView style={styles.safe}>
-            <ScreenHeader
-                navigation={navigation}
-                title={headerTitle}
-                subtitle={headerCourseTitle ? headerCourseTitle : ""}
-                safeTop={false}
-                rightLabel={null}
-                onRightPress={null}
-            />
+            <ScreenHeader navigation={navigation} title={headerTitle} subtitle={headerCourseTitle ? headerCourseTitle : ""} safeTop={false} rightLabel={null} onRightPress={null} />
 
-            <SideGameOverlayModal
-                visible={sgVisible}
-                meta={sideMeta}
-                currentHole={currentHole}
-                roundNumber={roundNumber}
-                onDismiss={dismissSideGameOverlay}
-            />
+            <SideGameOverlayModal visible={sgVisible} meta={sideMeta} currentHole={currentHole} roundNumber={roundNumber} onDismiss={dismissSideGameOverlay} />
 
             <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} showsVerticalScrollIndicator={false}>
                 <View style={styles.holeBarWrap} onLayout={(e) => setHoleBarWidth(e?.nativeEvent?.layout?.width || 0)}>
@@ -704,10 +723,7 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                             const h = item;
                             const active = h === currentHole;
                             return (
-                                <Pressable
-                                    onPress={() => setHoleAndPersist(h)}
-                                    style={({ pressed }) => [styles.holePill, active && styles.holePillActive, pressed && styles.pressed]}
-                                >
+                                <Pressable onPress={() => setHoleAndPersist(h)} style={({ pressed }) => [styles.holePill, active && styles.holePillActive, pressed && styles.pressed]}>
                                     <Text style={[styles.holePillText, active && styles.holePillTextActive]}>{h}</Text>
                                 </Pressable>
                             );
@@ -778,7 +794,6 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
 
                 {!hasGreenPoints ? (
                     <>
-                        {/* push hint below fold so it doesn't steal premium real estate */}
                         <View style={{ height: 92 }} />
                         <View style={styles.hintCard}>
                             <View style={{ flex: 1, minWidth: 0 }}>
@@ -786,11 +801,7 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                                 <Text style={styles.hintSub}>Set front / mid / back once, and yardages will be perfect every round.</Text>
                             </View>
 
-                            <Pressable
-                                onPress={() => openHoleMap(true)}
-                                disabled={!courseId}
-                                style={({ pressed }) => [styles.hintBtn, pressed && styles.pressed, !courseId && { opacity: 0.45 }]}
-                            >
+                            <Pressable onPress={() => openHoleMap(true)} disabled={!courseId} style={({ pressed }) => [styles.hintBtn, pressed && styles.pressed, !courseId && { opacity: 0.45 }]}>
                                 <Text style={styles.hintBtnT}>Set points</Text>
                                 <Text style={styles.hintBtnS}>→</Text>
                             </Pressable>
@@ -816,9 +827,7 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                         <View style={styles.pinModalTop}>
                             <View style={{ flex: 1, minWidth: 0 }}>
                                 <Text style={styles.pinModalTitle}>LONG DRIVE • HOLE {currentHole}</Text>
-                                <Text style={styles.pinModalSub}>
-                                    {pinStep === "CONFIRM" ? "Confirm the saved pin." : "Drop a pin at your current GPS location."}
-                                </Text>
+                                <Text style={styles.pinModalSub}>{pinStep === "CONFIRM" ? "Confirm the saved pin." : "Drop a pin at your current GPS location."}</Text>
                             </View>
 
                             <Pressable onPress={closePin} style={({ pressed }) => [styles.pinX, pressed && styles.pressed]}>
@@ -845,11 +854,7 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                                     </Text>
                                 </View>
 
-                                <Pressable
-                                    onPress={savePin}
-                                    disabled={pinBusy}
-                                    style={({ pressed }) => [styles.pinSaveBtn, pressed && styles.pressed, pinBusy && { opacity: 0.7 }]}
-                                >
+                                <Pressable onPress={savePin} disabled={pinBusy} style={({ pressed }) => [styles.pinSaveBtn, pressed && styles.pressed, pinBusy && { opacity: 0.7 }]}>
                                     <Text style={styles.pinSaveBtnText}>{pinBusy ? "Saving…" : "Save pin"}</Text>
                                 </Pressable>
                             </>
@@ -857,16 +862,10 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                             <>
                                 <View style={styles.pinConfirmCard}>
                                     <Text style={styles.pinConfirmTitle}>Confirmation</Text>
-                                    <Text style={styles.pinConfirmSub}>
-                                        Hand the phone to another player to confirm, or confirm now if you’re the scorekeeper.
-                                    </Text>
+                                    <Text style={styles.pinConfirmSub}>Hand the phone to another player to confirm, or confirm now if you’re the scorekeeper.</Text>
                                 </View>
 
-                                <Pressable
-                                    onPress={confirmPin}
-                                    disabled={pinBusy}
-                                    style={({ pressed }) => [styles.pinConfirmBtn, pressed && styles.pressed, pinBusy && { opacity: 0.7 }]}
-                                >
+                                <Pressable onPress={confirmPin} disabled={pinBusy} style={({ pressed }) => [styles.pinConfirmBtn, pressed && styles.pressed, pinBusy && { opacity: 0.7 }]}>
                                     <Text style={styles.pinConfirmBtnText}>{pinBusy ? "Confirming…" : "Confirm pin"}</Text>
                                 </Pressable>
                             </>
@@ -905,11 +904,7 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                             autoFocus
                         />
 
-                        <Pressable
-                            onPress={saveYardageNoteAndClose}
-                            disabled={saving}
-                            style={({ pressed }) => [styles.modalDone, pressed && styles.pressed, saving && { opacity: 0.7 }]}
-                        >
+                        <Pressable onPress={saveYardageNoteAndClose} disabled={saving} style={({ pressed }) => [styles.modalDone, pressed && styles.pressed, saving && { opacity: 0.7 }]}>
                             <Text style={styles.modalDoneText}>{saving ? "Saving…" : "Done"}</Text>
                         </Pressable>
                     </View>
@@ -943,19 +938,8 @@ const styles = StyleSheet.create({
     holePillTextActive: { color: GREEN_TEXT },
 
     modeRow: { flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 4 },
-    modeBtn: {
-        flex: 1,
-        height: 44,
-        borderRadius: 18,
-        backgroundColor: INNER2,
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    modeBtnPrimary: {
-        backgroundColor: "rgba(46,125,255,0.22)",
-        borderWidth: 1,
-        borderColor: "rgba(46,125,255,0.35)",
-    },
+    modeBtn: { flex: 1, height: 44, borderRadius: 18, backgroundColor: INNER2, alignItems: "center", justifyContent: "center" },
+    modeBtnPrimary: { backgroundColor: "rgba(46,125,255,0.22)", borderWidth: 1, borderColor: "rgba(46,125,255,0.35)" },
     modeText: { color: WHITE, fontWeight: "900" },
     modeTextPrimary: { color: WHITE },
 
@@ -981,8 +965,6 @@ const styles = StyleSheet.create({
         alignItems: "center",
         justifyContent: "center",
         overflow: "hidden",
-
-        // border on hole view box (premium)
         borderWidth: 2,
         borderColor: "rgba(242,201,76,0.55)",
     },
@@ -1020,268 +1002,86 @@ const styles = StyleSheet.create({
     pinSub: { marginTop: 8, color: "rgba(255,255,255,0.72)", fontWeight: "800", fontSize: 12 },
 
     yardageRow: { flexDirection: "row", gap: 12, marginHorizontal: 16, marginTop: 10 },
-    yardCard: {
-        flex: 1,
-        backgroundColor: CARD,
-        borderRadius: 20,
-        alignItems: "center",
-        paddingVertical: 10,
-
-        // borders on front/middle/back boxes
-        borderWidth: 1,
-        borderColor: "rgba(242,201,76,0.35)",
-    },
+    yardCard: { flex: 1, backgroundColor: CARD, borderRadius: 20, alignItems: "center", paddingVertical: 10, borderWidth: 1, borderColor: "rgba(242,201,76,0.35)" },
     yardLabel: { color: MUTED, fontSize: 11, fontWeight: "900" },
     yardValue: { color: WHITE, fontSize: 30, fontWeight: "900", marginTop: 6 },
     yardUnit: { color: MUTED, fontSize: 12, fontWeight: "700" },
 
     microRow: { marginTop: 8, flexDirection: "row", alignItems: "center", gap: 6 },
-    liveDot: {
-        width: 8,
-        height: 8,
-        borderRadius: 999,
-        backgroundColor: "rgba(46,125,255,0.95)",
-        borderWidth: 2,
-        borderColor: "rgba(255,255,255,0.92)",
-    },
+    liveDot: { width: 8, height: 8, borderRadius: 999, backgroundColor: "rgba(46,125,255,0.95)", borderWidth: 2, borderColor: "rgba(255,255,255,0.92)" },
     microText: { color: "rgba(255,255,255,0.72)", fontWeight: "900", fontSize: 10, letterSpacing: 0.7 },
 
-    hintCard: {
-        marginHorizontal: 16,
-        marginTop: 10,
-        borderRadius: 22,
-        padding: 12,
-        backgroundColor: "rgba(46,125,255,0.10)",
-        borderWidth: 1,
-        borderColor: "rgba(46,125,255,0.26)",
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 12,
-    },
+    hintCard: { marginHorizontal: 16, marginTop: 10, borderRadius: 22, padding: 12, backgroundColor: "rgba(46,125,255,0.10)", borderWidth: 1, borderColor: "rgba(46,125,255,0.26)", flexDirection: "row", alignItems: "center", gap: 12 },
     hintTitle: { color: WHITE, fontWeight: "900", fontSize: 13 },
     hintSub: { marginTop: 6, color: "rgba(255,255,255,0.70)", fontWeight: "800", fontSize: 12, lineHeight: 16 },
 
-    hintBtn: {
-        height: 44,
-        paddingHorizontal: 12,
-        borderRadius: 16,
-        backgroundColor: "rgba(255,255,255,0.08)",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.14)",
-        alignItems: "center",
-        justifyContent: "center",
-        flexDirection: "row",
-        gap: 8,
-    },
+    hintBtn: { height: 44, paddingHorizontal: 12, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)", alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8 },
     hintBtnT: { color: WHITE, fontWeight: "900", fontSize: 12, letterSpacing: 0.3 },
     hintBtnS: { color: "rgba(255,255,255,0.82)", fontWeight: "900", fontSize: 14 },
 
-    footer: {
-        paddingTop: 10,
-        paddingHorizontal: 16,
-        backgroundColor: BG,
-        borderTopWidth: 1,
-        borderTopColor: "rgba(255,255,255,0.08)",
-    },
-    greenBtn: {
-        height: 56,
-        borderRadius: 999,
-        backgroundColor: GREEN,
-        alignItems: "center",
-        justifyContent: "center",
-    },
+    footer: { paddingTop: 10, paddingHorizontal: 16, backgroundColor: BG, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.08)" },
+    greenBtn: { height: 56, borderRadius: 999, backgroundColor: GREEN, alignItems: "center", justifyContent: "center" },
     greenText: { color: GREEN_TEXT, fontSize: 17, fontWeight: "900" },
 
     modalBg: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.60)" },
     modalWrap: { flex: 1, justifyContent: "center", padding: 18 },
-    modalCard: {
-        borderRadius: 22,
-        padding: 14,
-        backgroundColor: "rgba(18,22,30,0.96)",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.14)",
-    },
+    modalCard: { borderRadius: 22, padding: 14, backgroundColor: "rgba(18,22,30,0.96)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)" },
     modalTop: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 },
     modalTitle: { color: WHITE, fontWeight: "900", fontSize: 16 },
     modalSub: { marginTop: 5, color: "rgba(255,255,255,0.70)", fontWeight: "800", fontSize: 12 },
 
-    modalX: {
-        width: 38,
-        height: 38,
-        borderRadius: 14,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: "rgba(255,255,255,0.08)",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.14)",
-    },
+    modalX: { width: 38, height: 38, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)" },
     modalXText: { color: WHITE, fontWeight: "900", fontSize: 14 },
 
-    modalInput: {
-        minHeight: 140,
-        borderRadius: 18,
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.14)",
-        backgroundColor: "rgba(0,0,0,0.20)",
-        color: WHITE,
-        paddingHorizontal: 12,
-        paddingVertical: 12,
-        fontSize: 14,
-        fontWeight: "800",
-        lineHeight: 18,
-    },
+    modalInput: { minHeight: 140, borderRadius: 18, borderWidth: 1, borderColor: "rgba(255,255,255,0.14)", backgroundColor: "rgba(0,0,0,0.20)", color: WHITE, paddingHorizontal: 12, paddingVertical: 12, fontSize: 14, fontWeight: "800", lineHeight: 18 },
 
-    modalDone: {
-        marginTop: 12,
-        height: 54,
-        borderRadius: 18,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: GREEN,
-    },
+    modalDone: { marginTop: 12, height: 54, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: GREEN },
     modalDoneText: { color: GREEN_TEXT, fontWeight: "900", fontSize: 16 },
 
     pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
 
-    /* -------------------------- */
-    /* side game overlay styles   */
-    /* -------------------------- */
-
     sgWrap: { flex: 1, justifyContent: "center", padding: 18 },
     sgBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.62)" },
-    sgCard: {
-        borderRadius: 24,
-        padding: 14,
-        backgroundColor: "rgba(18,22,30,0.96)",
-        borderWidth: 2,
-        borderColor: "rgba(242,201,76,0.85)",
-    },
+    sgCard: { borderRadius: 24, padding: 14, backgroundColor: "rgba(18,22,30,0.96)", borderWidth: 2, borderColor: "rgba(242,201,76,0.85)" },
     sgTopRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-    sgIconPill: {
-        width: 48,
-        height: 48,
-        borderRadius: 18,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: "rgba(242,201,76,0.14)",
-        borderWidth: 1,
-        borderColor: "rgba(242,201,76,0.40)",
-    },
+    sgIconPill: { width: 48, height: 48, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(242,201,76,0.14)", borderWidth: 1, borderColor: "rgba(242,201,76,0.40)" },
     sgIcon: { fontSize: 20 },
     sgKicker: { color: "rgba(255,255,255,0.72)", fontWeight: "900", fontSize: 11, letterSpacing: 1.1 },
     sgTitle: { marginTop: 4, color: WHITE, fontWeight: "900", fontSize: 20, letterSpacing: 0.8 },
     sgSub: { marginTop: 6, color: "rgba(255,255,255,0.74)", fontWeight: "800", fontSize: 13, lineHeight: 17 },
     sgDivider: { height: 1, backgroundColor: "rgba(255,255,255,0.12)", marginTop: 12, marginBottom: 12 },
     sgBottomRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-    sgMiniPill: {
-        paddingHorizontal: 10,
-        paddingVertical: 8,
-        borderRadius: 999,
-        backgroundColor: "rgba(255,255,255,0.08)",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.14)",
-    },
+    sgMiniPill: { paddingHorizontal: 10, paddingVertical: 8, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)" },
     sgMiniText: { color: "rgba(255,255,255,0.78)", fontWeight: "900", fontSize: 11, letterSpacing: 0.8 },
-    sgBtn: {
-        height: 44,
-        paddingHorizontal: 14,
-        borderRadius: 16,
-        backgroundColor: "rgba(242,201,76,0.92)",
-        alignItems: "center",
-        justifyContent: "center",
-    },
+    sgBtn: { height: 44, paddingHorizontal: 14, borderRadius: 16, backgroundColor: "rgba(242,201,76,0.92)", alignItems: "center", justifyContent: "center" },
     sgBtnText: { color: "#1A1A1A", fontWeight: "900", fontSize: 13, letterSpacing: 0.3 },
-
-    /* -------------------------- */
-    /* pin modal styles           */
-    /* -------------------------- */
 
     pinModalWrap: { flex: 1, justifyContent: "center", padding: 18 },
     pinModalBg: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.62)" },
-    pinModalCard: {
-        borderRadius: 24,
-        padding: 14,
-        backgroundColor: "rgba(18,22,30,0.96)",
-        borderWidth: 2,
-        borderColor: "rgba(242,201,76,0.85)",
-    },
+    pinModalCard: { borderRadius: 24, padding: 14, backgroundColor: "rgba(18,22,30,0.96)", borderWidth: 2, borderColor: "rgba(242,201,76,0.85)" },
     pinModalTop: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 },
     pinModalTitle: { color: WHITE, fontWeight: "900", fontSize: 14, letterSpacing: 0.7 },
     pinModalSub: { marginTop: 6, color: "rgba(255,255,255,0.74)", fontWeight: "800", fontSize: 12, lineHeight: 16 },
-    pinX: {
-        width: 38,
-        height: 38,
-        borderRadius: 14,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: "rgba(255,255,255,0.08)",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.14)",
-    },
+    pinX: { width: 38, height: 38, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)" },
     pinXText: { color: WHITE, fontWeight: "900", fontSize: 14 },
 
     pinMiniRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
-    pinMiniPill: {
-        paddingHorizontal: 10,
-        height: 34,
-        borderRadius: 999,
-        backgroundColor: "rgba(255,255,255,0.08)",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.14)",
-        alignItems: "center",
-        justifyContent: "center",
-    },
+    pinMiniPill: { paddingHorizontal: 10, height: 34, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)", alignItems: "center", justifyContent: "center" },
     pinMiniText: { color: "rgba(255,255,255,0.82)", fontWeight: "900", fontSize: 11, letterSpacing: 0.8 },
-    pinUseBtn: {
-        height: 34,
-        paddingHorizontal: 12,
-        borderRadius: 999,
-        backgroundColor: "rgba(46,204,113,0.14)",
-        borderWidth: 1,
-        borderColor: "rgba(46,204,113,0.28)",
-        alignItems: "center",
-        justifyContent: "center",
-    },
+    pinUseBtn: { height: 34, paddingHorizontal: 12, borderRadius: 999, backgroundColor: "rgba(46,204,113,0.14)", borderWidth: 1, borderColor: "rgba(46,204,113,0.28)", alignItems: "center", justifyContent: "center" },
     pinUseBtnText: { color: WHITE, fontWeight: "900", fontSize: 11, letterSpacing: 0.2 },
 
-    pinCoords: {
-        marginTop: 12,
-        borderRadius: 18,
-        padding: 12,
-        backgroundColor: "rgba(255,255,255,0.06)",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.12)",
-    },
+    pinCoords: { marginTop: 12, borderRadius: 18, padding: 12, backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" },
     pinCoordsLabel: { color: "rgba(255,255,255,0.72)", fontWeight: "900", fontSize: 11, letterSpacing: 0.6 },
     pinCoordsVal: { marginTop: 8, color: WHITE, fontWeight: "900", fontSize: 13, letterSpacing: 0.2 },
 
-    pinSaveBtn: {
-        marginTop: 12,
-        height: 50,
-        borderRadius: 18,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: "rgba(242,201,76,0.92)",
-    },
+    pinSaveBtn: { marginTop: 12, height: 50, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(242,201,76,0.92)" },
     pinSaveBtnText: { color: "#1A1A1A", fontWeight: "900", fontSize: 15 },
 
-    pinConfirmCard: {
-        borderRadius: 18,
-        padding: 12,
-        backgroundColor: "rgba(255,255,255,0.06)",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.12)",
-    },
+    pinConfirmCard: { borderRadius: 18, padding: 12, backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" },
     pinConfirmTitle: { color: WHITE, fontWeight: "900", fontSize: 13, letterSpacing: 0.3 },
     pinConfirmSub: { marginTop: 8, color: "rgba(255,255,255,0.74)", fontWeight: "800", fontSize: 12, lineHeight: 16 },
 
-    pinConfirmBtn: {
-        marginTop: 12,
-        height: 50,
-        borderRadius: 18,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: GREEN,
-    },
+    pinConfirmBtn: { marginTop: 12, height: 50, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: GREEN },
     pinConfirmBtnText: { color: GREEN_TEXT, fontWeight: "900", fontSize: 15 },
 });

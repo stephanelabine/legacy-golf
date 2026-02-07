@@ -6,6 +6,7 @@ import { collection, onSnapshot, query, orderBy, doc } from "firebase/firestore"
 
 import { db, auth } from "../firebase/firebase";
 import ScreenHeader from "../components/ScreenHeader";
+import { pickTournamentNavParams, assertTournamentNavParams } from "../utils/tournamentNav";
 
 const BG = "#0B1220";
 const CARD = "#1D3557";
@@ -36,6 +37,13 @@ function uniqIds(list) {
     out.push(s);
   });
   return out;
+}
+
+function defaultRoundId(tournamentId, roundNumber) {
+  const t = String(tournamentId || "").trim();
+  const r = Number(roundNumber || 1);
+  if (!t) return "";
+  return `${t}__r${r}`;
 }
 
 function strokeFor(scoresByPid, pid, hole) {
@@ -148,14 +156,22 @@ export default function ScorecardScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const params = route?.params || {};
 
+  // contract (throws in dev if missing)
+  assertTournamentNavParams(params, "ScorecardScreen");
+
   const tournamentId = params?.tournamentId ? String(params.tournamentId) : "";
   const roundNumber = Number(params?.roundNumber || 1);
 
-  const roundId = String(params?.roundId || "").trim();
   const isTournament = !!tournamentId;
 
   const meUid = String(auth?.currentUser?.uid || "");
   const courseName = safeStr(params?.courseName || params?.course?.name, "");
+
+  const roundId = useMemo(() => {
+    const p = String(params?.roundId || "").trim();
+    if (p) return p;
+    return defaultRoundId(tournamentId, roundNumber);
+  }, [params?.roundId, tournamentId, roundNumber]);
 
   const [loading, setLoading] = useState(isTournament);
   const [players, setPlayers] = useState(() => (Array.isArray(params?.players) ? params.players : []));
@@ -410,14 +426,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: BG },
   body: { flex: 1, paddingHorizontal: 16, paddingTop: 10 },
 
-  topPills: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 6,
-  },
+  topPills: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 6 },
 
   pillBtn: {
     height: 34,
@@ -429,10 +438,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  pillBtnActive: {
-    backgroundColor: "rgba(242,201,76,0.18)",
-    borderColor: "rgba(242,201,76,0.45)",
-  },
+  pillBtnActive: { backgroundColor: "rgba(242,201,76,0.18)", borderColor: "rgba(242,201,76,0.45)" },
   pillBtnText: { color: "rgba(255,255,255,0.84)", fontWeight: "900", fontSize: 12, letterSpacing: 0.4 },
   pillBtnTextActive: { color: WHITE },
 
@@ -449,81 +455,31 @@ const styles = StyleSheet.create({
   },
   countText: { color: "rgba(255,255,255,0.88)", fontWeight: "900", fontSize: 12, letterSpacing: 0.2 },
 
-  sectionCard: {
-    backgroundColor: CARD,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: "rgba(242,201,76,0.22)",
-    overflow: "hidden",
-    marginBottom: 12,
-  },
-  sectionHeader: {
-    paddingHorizontal: 14,
-    paddingTop: 14,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(0,0,0,0.12)",
-  },
+  sectionCard: { backgroundColor: CARD, borderRadius: 22, borderWidth: 1, borderColor: "rgba(242,201,76,0.22)", overflow: "hidden", marginBottom: 12 },
+  sectionHeader: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.08)", backgroundColor: "rgba(0,0,0,0.12)" },
   sectionTitle: { color: WHITE, fontWeight: "900", fontSize: 14, letterSpacing: 0.6 },
 
   gridWrap: { flexDirection: "row" },
 
-  leftCol: {
-    width: 132,
-    backgroundColor: "rgba(0,0,0,0.10)",
-    borderRightWidth: 1,
-    borderRightColor: "rgba(255,255,255,0.08)",
-  },
+  leftCol: { width: 132, backgroundColor: "rgba(0,0,0,0.10)", borderRightWidth: 1, borderRightColor: "rgba(255,255,255,0.08)" },
 
   rightScroll: { paddingRight: 8 },
 
   row: { flexDirection: "row" },
 
-  nameCell: {
-    height: 42,
-    paddingHorizontal: 12,
-    alignItems: "flex-start",
-    justifyContent: "center",
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.08)",
-  },
+  nameCell: { height: 42, paddingHorizontal: 12, alignItems: "flex-start", justifyContent: "center", borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.08)" },
   nameText: { color: WHITE, fontWeight: "900", fontSize: 12 },
 
-  cell: {
-    width: 44,
-    height: 42,
-    alignItems: "center",
-    justifyContent: "center",
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.08)",
-    borderRightWidth: 1,
-    borderRightColor: "rgba(255,255,255,0.06)",
-    backgroundColor: "rgba(255,255,255,0.03)",
-  },
+  cell: { width: 44, height: 42, alignItems: "center", justifyContent: "center", borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.08)", borderRightWidth: 1, borderRightColor: "rgba(255,255,255,0.06)", backgroundColor: "rgba(255,255,255,0.03)" },
 
   headerCell: { backgroundColor: "rgba(0,0,0,0.14)" },
   headerText: { color: "rgba(255,255,255,0.80)", fontWeight: "900", fontSize: 11, letterSpacing: 0.4 },
 
   cellText: { color: WHITE, fontWeight: "900", fontSize: 12 },
-  totalCell: {
-    width: 54,
-    backgroundColor: "rgba(242,201,76,0.10)",
-    borderRightColor: "rgba(242,201,76,0.20)",
-  },
+  totalCell: { width: 54, backgroundColor: "rgba(242,201,76,0.10)", borderRightColor: "rgba(242,201,76,0.20)" },
   totalText: { color: WHITE },
 
-  loadingCard: {
-    marginTop: 8,
-    backgroundColor: INNER,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    padding: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
+  loadingCard: { marginTop: 8, backgroundColor: INNER, borderRadius: 22, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", padding: 14, flexDirection: "row", alignItems: "center", gap: 10 },
   loadingText: { color: "rgba(255,255,255,0.78)", fontWeight: "800", fontSize: 12 },
 
   pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },

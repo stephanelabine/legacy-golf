@@ -55,6 +55,12 @@ function buildWagerTypeChips(w) {
   if (w?.skins?.enabled) chips.push({ key: "skins", label: `Skins ${formatMoney(w?.skins?.amount)}` });
   if (w?.kps?.enabled) chips.push({ key: "kps", label: `KPs ${formatMoney(w?.kps?.amount)}` });
 
+  if (w?.longDrive?.enabled) chips.push({ key: "longDrive", label: `Long Drive ${formatMoney(w?.longDrive?.amount)}` });
+  if (w?.secondShotKp?.enabled) chips.push({ key: "secondShotKp", label: `2nd Shot KP ${formatMoney(w?.secondShotKp?.amount)}` });
+  if (w?.putting?.enabled) chips.push({ key: "putting", label: `Putting Contest ${formatMoney(w?.putting?.amount)}` });
+  if (w?.teamVsTeam?.enabled) chips.push({ key: "teamVsTeam", label: `Team vs Team ${formatMoney(w?.teamVsTeam?.amount)}` });
+  if (w?.birdieBucket?.enabled) chips.push({ key: "birdieBucket", label: `Birdie Bucket ${formatMoney(w?.birdieBucket?.amount)}` });
+
   if (w?.nassau?.enabled) {
     const f = formatMoney(w?.nassau?.front);
     const b = formatMoney(w?.nassau?.back);
@@ -87,9 +93,6 @@ export default function GameSetupScreen({ navigation, route }) {
   const [wagers, setWagers] = useState(null);
   const wagersEnabled = !!wagers?.enabled;
 
-  // KEY CHANGE:
-  // Always default Wagers OFF when you arrive on this screen (no “sticky on”).
-  // This runs once per mount, so returning from the Wagers screen won't wipe your selection.
   const didInit = useRef(false);
   useEffect(() => {
     if (didInit.current) return;
@@ -101,7 +104,6 @@ export default function GameSetupScreen({ navigation, route }) {
     })();
   }, []);
 
-  // Sync route param wagers into state + persist
   useEffect(() => {
     const incoming = route?.params?.wagers;
     if (incoming === undefined) return;
@@ -122,14 +124,23 @@ export default function GameSetupScreen({ navigation, route }) {
       wagers ||
       ({
         enabled: true,
+
         skins: { enabled: false, amount: 0 },
         kps: { enabled: false, amount: 0 },
+
+        longDrive: { enabled: false, amount: 0 },
+        secondShotKp: { enabled: false, amount: 0 },
+        putting: { enabled: false, amount: 0 },
+        teamVsTeam: { enabled: false, amount: 0 },
+        birdieBucket: { enabled: false, amount: 0 },
+
         nassau: { enabled: false, front: 0, back: 0, total: 0 },
         perStroke: { enabled: false, amount: 0 },
+
         notes: "",
       });
 
-    navigation.navigate(ROUTES.WAGERS, { wagers: seed });
+    navigation.navigate(ROUTES.WAGERS, { wagers: seed, returnKey: route?.key });
   }
 
   function toggleWagers() {
@@ -162,12 +173,10 @@ export default function GameSetupScreen({ navigation, route }) {
 
   const wagerTypeChips = buildWagerTypeChips(wagers);
 
-  // Scrollable list box height inside the wagers card
   const chipsBoxHeight = wagersEnabled ? 190 : 0;
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: BG }]}>
-      {/* TOP (unchanged) */}
       <View style={[styles.topWrap, isLegacy && styles.topWrapLegacy]}>
         <View style={styles.topGlowA} pointerEvents="none" />
         <View style={styles.topGlowB} pointerEvents="none" />
@@ -210,14 +219,12 @@ export default function GameSetupScreen({ navigation, route }) {
         </View>
       </View>
 
-      {/* MAIN CONTENT */}
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={[styles.mainContent, { paddingBottom: footerPad + 96 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* SCORING CARD */}
         <View style={styles.heroCard}>
           <View style={[styles.accentRing, { borderColor: scoringAccent }]} pointerEvents="none" />
           <View style={[styles.glowA, { backgroundColor: scoringAccent }]} pointerEvents="none" />
@@ -275,7 +282,6 @@ export default function GameSetupScreen({ navigation, route }) {
           </View>
         </View>
 
-        {/* WAGERS CARD */}
         <View style={styles.heroCard}>
           <View style={[styles.accentRing, { borderColor: wagersAccent }]} pointerEvents="none" />
 
@@ -287,7 +293,6 @@ export default function GameSetupScreen({ navigation, route }) {
 
             <View style={{ paddingTop: 14 }}>
               <View style={styles.wagersPanel}>
-                {/* LEFT */}
                 <View style={{ flex: 1 }}>
                   <Text style={styles.wagersTitle}>{wagersEnabled ? "Wagers enabled" : "No wagers yet"}</Text>
                   <Text style={styles.wagersSub}>
@@ -330,7 +335,6 @@ export default function GameSetupScreen({ navigation, route }) {
                   ) : null}
                 </View>
 
-                {/* RIGHT */}
                 <View style={styles.wagersRight}>
                   <View style={[styles.statusPill, wagersEnabled ? styles.statusPillOnGreen : styles.statusPillOff]}>
                     <Text style={styles.statusText}>{wagersEnabled ? "ON" : "OFF"}</Text>
@@ -375,7 +379,6 @@ export default function GameSetupScreen({ navigation, route }) {
         </View>
       </ScrollView>
 
-      {/* Footer CTA */}
       <View style={[styles.footer, { paddingBottom: footerPad, backgroundColor: BG }]}>
         <Pressable onPress={goNext} style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}>
           <Text style={styles.primaryText}>Next: Course Selection</Text>
