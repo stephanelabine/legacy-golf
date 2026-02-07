@@ -770,7 +770,10 @@ export default function HoleViewScreen({ navigation, route }) {
     ]);
   }
 
-  const showFinish = currentHole === 18 && holeHasAllStrokes(activeSnap || {}, 18, players);
+  const showFinish =
+    currentHole === 18 &&
+    getMissingHolesFromState((activeSnap || {}).activeRound || activeSnap || {}, players).length === 0;
+
 
   const holeListRef = useRef(null);
   const [holeBarWidth, setHoleBarWidth] = useState(0);

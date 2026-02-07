@@ -18,6 +18,11 @@ export default function ScreenHeader({
 
   // New API (optional): pass a custom React element for the right side
   right,
+
+  // NEW: title controls (optional)
+  titleNumberOfLines = 1,
+  titleAutoShrink = false,
+  titleMinFontScale = 0.78,
 }) {
   const insets = useSafeAreaInsets();
   const rawTop = insets?.top || 0;
@@ -40,9 +45,15 @@ export default function ScreenHeader({
         </Pressable>
 
         <View style={styles.center}>
-          <Text style={styles.title} numberOfLines={1}>
+          <Text
+            style={styles.title}
+            numberOfLines={titleNumberOfLines}
+            adjustsFontSizeToFit={!!titleAutoShrink}
+            minimumFontScale={titleMinFontScale}
+          >
             {title || ""}
           </Text>
+
           {!!subtitle ? (
             <Text style={styles.sub} numberOfLines={1}>
               {subtitle}

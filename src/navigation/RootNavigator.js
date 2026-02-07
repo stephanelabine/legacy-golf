@@ -79,9 +79,12 @@ import TournamentPlayerBriefingScreen from "../screens/TournamentPlayerBriefingS
 import TournamentRoundStartSplashScreen from "../screens/TournamentRoundStartSplashScreen";
 import TournamentSideGameSplashScreen from "../screens/TournamentSideGameSplashScreen";
 
-// NEW: tournament play screens
+// tournament play screens
 import TournamentHoleViewScreen from "../screens/TournamentHoleViewScreen";
 import TournamentScoreEntryScreen from "../screens/TournamentScoreEntryScreen";
+
+// tournament round results (Finish Round destination)
+import TournamentRoundFinalResultsScreen from "../screens/TournamentRoundFinalResultsScreen";
 
 /* ---------------- results/payouts ---------------- */
 
@@ -187,7 +190,7 @@ export default function RootNavigator() {
           <Stack.Screen name={ROUTES.TOURNAMENT_ROUND_START_SPLASH} component={TournamentRoundStartSplashScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_SIDEGAME_SPLASH} component={TournamentSideGameSplashScreen} />
 
-          {/* NEW: tournament play screens */}
+          {/* tournament play screens */}
           <Stack.Screen name={ROUTES.TOURNAMENT_HOLE_VIEW} component={TournamentHoleViewScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_SCORE_ENTRY} component={TournamentScoreEntryScreen} />
 
@@ -205,6 +208,13 @@ export default function RootNavigator() {
             <Stack.Screen name={ROUTES.SCORECARD} component={ScorecardScreen} />
             <Stack.Screen name={ROUTES.HAZARDS} component={HazardsScreen} />
             <Stack.Screen name={ROUTES.FINAL_RESULTS} component={FinalResultsScreen} />
+
+            {/* round-only tournament results */}
+            <Stack.Screen
+              name={ROUTES.TOURNAMENT_ROUND_FINAL_RESULTS}
+              component={TournamentRoundFinalResultsScreen}
+            />
+
             <Stack.Screen name={ROUTES.PAYOUTS} component={PayoutsScreen} />
           </Stack.Group>
         </>

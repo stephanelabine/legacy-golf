@@ -18,9 +18,9 @@ import {
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, CommonActions } from "@react-navigation/native";
 import * as Location from "expo-location";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, setDoc, serverTimestamp, collection, onSnapshot } from "firebase/firestore";
 
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
@@ -100,6 +100,53 @@ function haversineMeters(a, b) {
 function yds(m) {
     if (!Number.isFinite(m)) return "—";
     return String(Math.round(m * 1.09361));
+}
+
+function toInt(v) {
+    const n = parseInt(String(v ?? ""), 10);
+    return Number.isFinite(n) ? n : 0;
+}
+
+function getPlayerId(p) {
+    if (!p) return "";
+    const id = p?.id ?? p?._pid ?? p?.playerId ?? p?.uid ?? p?._id;
+    return String(id || "");
+}
+
+function holeHasAllStrokes(scoresByPid, holeNumber, playersList) {
+    const ids = (playersList || []).map(getPlayerId).filter(Boolean);
+    if (!ids.length) return false;
+
+    for (const pid of ids) {
+        const docData = scoresByPid?.[String(pid)] || {};
+        const holes = docData?.holes || {};
+        const h = holes?.[String(holeNumber)] || {};
+        const strokes = toInt(h?.strokes);
+        if (strokes <= 0) return false;
+    }
+    return true;
+}
+
+function getMissingHolesFromScores(scoresByPid, playersList, totalHoles) {
+    const ids = (playersList || []).map(getPlayerId).filter(Boolean);
+    const missing = [];
+
+    for (let h = 1; h <= Number(totalHoles || 18); h++) {
+        let ok = true;
+        for (const pid of ids) {
+            const docData = scoresByPid?.[String(pid)] || {};
+            const holes = docData?.holes || {};
+            const hv = holes?.[String(h)] || {};
+            const strokes = toInt(hv?.strokes);
+            if (strokes <= 0) {
+                ok = false;
+                break;
+            }
+        }
+        if (!ok) missing.push(h);
+    }
+
+    return missing;
 }
 
 /* -------------------------- */
@@ -190,6 +237,13 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
 
     const tournamentId = params?.tournamentId ? String(params.tournamentId) : "";
     const roundNumber = Number(params?.roundNumber || 1);
+    const totalHoles = Number(params?.totalHoles || 18);
+
+    /* -------------------------- */
+    /* TOURNAMENT SCORES SNAPSHOT */
+    /* -------------------------- */
+
+    const [scoresByPid, setScoresByPid] = useState({});
 
     const roundId = useMemo(() => {
         const p = String(params?.roundId || "").trim();
@@ -204,11 +258,10 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
         if (assertedRef.current) return;
         assertedRef.current = true;
 
-        // Provide derived roundId so contract can pass even if caller didn't include it.
         try {
             assertTournamentNavParams({ ...params, roundId }, "TournamentHoleViewScreen");
         } catch {
-            // if assertTournamentNavParams throws in your implementation, ignore here
+            // ignore
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [roundId]);
@@ -230,7 +283,38 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
 
     const teeName = teeParam?.name ?? (typeof teeParam === "string" ? teeParam : "Tees");
 
-    const players = Array.isArray(params.players) ? params.players : [];
+    const playersParam = Array.isArray(params?.players) ? params.players : [];
+
+    const playersFromScores = useMemo(() => {
+        const ids = Object.keys(scoresByPid || {});
+        return ids.map((pid) => {
+            const d = scoresByPid?.[pid] || {};
+            return {
+                id: String(pid),
+                name: String(d?.playerName || d?.name || pid),
+            };
+        });
+    }, [scoresByPid]);
+
+    const players = useMemo(() => {
+        if ((playersParam || []).length) return playersParam;
+        return playersFromScores;
+    }, [playersParam, playersFromScores]);
+
+    const effectivePlayers = useMemo(() => {
+        const base = (players && players.length) ? players : playersFromScores;
+
+        const gp = Array.isArray(params?.groupPlayerIds) ? params.groupPlayerIds.map(String) : null;
+
+        // Only apply the filter if it actually matches something.
+        if (gp && gp.length) {
+            const filtered = base.filter((p) => gp.includes(String(getPlayerId(p))));
+            if (filtered.length) return filtered;
+            return base;
+        }
+
+        return base;
+    }, [players, playersFromScores, params?.groupPlayerIds]);
 
     const holeMeta = useMemo(() => {
         return params.holeMeta && typeof params.holeMeta === "object" ? params.holeMeta : buildDefaultHoleMeta();
@@ -254,6 +338,35 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
     }, [params?.holeNumber, params?.hole]);
 
     const par = holeMeta?.[String(currentHole)]?.par ?? 4;
+
+    useFocusEffect(
+        useCallback(() => {
+            if (!tournamentId) return undefined;
+
+            const scoresRef = collection(db, "tournaments", String(tournamentId), "rounds", `r${String(roundNumber)}`, "scores");
+
+            const unsub = onSnapshot(
+                scoresRef,
+                (snap) => {
+                    const next = {};
+                    snap.forEach((d) => {
+                        next[String(d.id)] = d.data() || {};
+                    });
+                    setScoresByPid(next);
+                },
+                () => {
+                    // keep last known snapshot
+                }
+            );
+
+            return () => unsub();
+        }, [tournamentId, roundNumber])
+    );
+
+    const showFinish = useMemo(() => {
+        if (Number(currentHole) !== Number(totalHoles || 18)) return false;
+        return holeHasAllStrokes(scoresByPid, Number(totalHoles || 18), effectivePlayers);
+    }, [currentHole, totalHoles, scoresByPid, effectivePlayers]);
 
     /* -------------------------- */
     /* side game overlay behavior */
@@ -554,7 +667,7 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
 
             course: courseParam ?? { name: courseName },
             tee: teeParam ?? { name: teeName },
-            players,
+            players: effectivePlayers,
             holeMeta,
             hole: currentHole,
             holeIndex: currentHole - 1,
@@ -574,7 +687,7 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
 
             course: courseParam ?? { name: courseName },
             tee: teeParam ?? { name: teeName },
-            players,
+            players: effectivePlayers,
             holeMeta,
             hole: currentHole,
             holeIndex: currentHole - 1,
@@ -594,7 +707,7 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
 
             course: courseParam ?? { name: courseName },
             tee: teeParam ?? { name: teeName },
-            players,
+            players: effectivePlayers,
             holeMeta,
             hole: currentHole,
             holeIndex: currentHole - 1,
@@ -616,7 +729,7 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
             hole: currentHole,
             course: courseParam ?? { name: courseName, id: courseId },
             tee: teeParam ?? { name: teeName },
-            players,
+            players: effectivePlayers,
             holeMeta,
             courseName,
             courseId: courseId ? String(courseId) : null,
@@ -626,7 +739,7 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
         });
     }
 
-    function openTournamentScoreEntry() {
+    function openTournamentScoreEntry(extra = {}) {
         const TARGET = ROUTES.TOURNAMENT_SCORE_ENTRY || "TournamentScoreEntry";
         navigation.navigate(TARGET, {
             ...pickTournamentNavParams(params),
@@ -634,6 +747,8 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
             roundNumber,
             roundId,
             holeNumber: currentHole,
+            hole: currentHole,
+            totalHoles,
             holeMeta,
             sideGameKey: sideGameKey || null,
 
@@ -641,9 +756,72 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
             courseName,
             teeName,
 
-            players,
+            players: effectivePlayers,
             groupPlayerIds: Array.isArray(params?.groupPlayerIds) ? params.groupPlayerIds : null,
+
+            ...extra,
         });
+    }
+
+    async function onPressFinishRound() {
+        try {
+            const missing = getMissingHolesFromScores(scoresByPid, effectivePlayers, totalHoles);
+
+            if (missing.length) {
+                const list = missing.join(", ");
+                Alert.alert("Missing scores", `Some holes are missing strokes.\n\nMissing holes: ${list}`, [
+                    { text: "Cancel", style: "cancel" },
+                    {
+                        text: "Fix now",
+                        onPress: () => {
+                            const first = missing[0];
+                            openTournamentScoreEntry({
+                                holeNumber: first,
+                                hole: first,
+                                fixMissing: true,
+                                missingHoles: missing,
+                                missingIndex: 0,
+                                finishReturnHole: Number(totalHoles || 18),
+                            });
+                        },
+                    },
+                ]);
+                return;
+            }
+
+            const TOURNAMENT_RESULTS = ROUTES.TOURNAMENT_ROUND_FINAL_RESULTS || "TournamentRoundFinalResults";
+
+            navigation.dispatch(
+                CommonActions.navigate({
+                    name: TOURNAMENT_RESULTS,
+                    params: {
+                        ...pickTournamentNavParams(params),
+                        tournamentId,
+                        roundNumber,
+                        roundId,
+                        totalHoles,
+                        showFormatsTab: true,
+                        teamVsTeamActive: true,
+                        team1Name: "Hackers",
+                        team2Name: "Slackers",
+
+
+                        tournamentName: params?.tournamentName ?? params?.name ?? "",
+                        courseName,
+                        teesName: teeName,
+
+                        course: courseParam ?? { name: courseName, id: courseId },
+                        tee: teeParam ?? { name: teeName },
+
+                        players: effectivePlayers,
+                        holeMeta,
+                    },
+                    merge: true,
+                })
+            );
+        } catch {
+            Alert.alert("Finish failed", "Could not finish the round. Please try again.");
+        }
     }
 
     /* -------------------------- */
@@ -701,7 +879,16 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
 
     return (
         <SafeAreaView style={styles.safe}>
-            <ScreenHeader navigation={navigation} title={headerTitle} subtitle={headerCourseTitle ? headerCourseTitle : ""} safeTop={false} rightLabel={null} onRightPress={null} />
+            <ScreenHeader
+                navigation={navigation}
+                title={headerTitle}
+                titleAutoShrink
+                titleNumberOfLines={2}
+                subtitle={headerCourseTitle ? headerCourseTitle : ""}
+                safeTop={false}
+                rightLabel={null}
+                onRightPress={null}
+            />
 
             <SideGameOverlayModal visible={sgVisible} meta={sideMeta} currentHole={currentHole} roundNumber={roundNumber} onDismiss={dismissSideGameOverlay} />
 
@@ -811,8 +998,8 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
             </ScrollView>
 
             <View style={[styles.footer, { paddingBottom: Math.max(10, (insets?.bottom || 0) + 8) }]}>
-                <Pressable style={styles.greenBtn} onPress={openTournamentScoreEntry}>
-                    <Text style={styles.greenText}>Input Scores</Text>
+                <Pressable style={styles.greenBtn} onPress={showFinish ? onPressFinishRound : openTournamentScoreEntry}>
+                    <Text style={styles.greenText}>{showFinish ? "Finish Round" : "Input Scores"}</Text>
                 </Pressable>
             </View>
 
@@ -849,9 +1036,7 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
 
                                 <View style={styles.pinCoords}>
                                     <Text style={styles.pinCoordsLabel}>Pin location</Text>
-                                    <Text style={styles.pinCoordsVal}>
-                                        {pinCoord ? `${fmtCoord(pinCoord.lat)}, ${fmtCoord(pinCoord.lon)}` : "Not set"}
-                                    </Text>
+                                    <Text style={styles.pinCoordsVal}>{pinCoord ? `${fmtCoord(pinCoord.lat)}, ${fmtCoord(pinCoord.lon)}` : "Not set"}</Text>
                                 </View>
 
                                 <Pressable onPress={savePin} disabled={pinBusy} style={({ pressed }) => [styles.pinSaveBtn, pressed && styles.pressed, pinBusy && { opacity: 0.7 }]}>

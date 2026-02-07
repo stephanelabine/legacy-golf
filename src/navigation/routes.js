@@ -71,9 +71,16 @@ const ROUTES = {
   TOURNAMENT_LIVE_HUB: "TournamentLiveHub",
   TOURNAMENT_PLAYER_BRIEFING: "TournamentPlayerBriefing",
 
-  // NEW: tournament-first play screens
+  // tournament-first play screens
   TOURNAMENT_HOLE_VIEW: "TournamentHoleView",
   TOURNAMENT_SCORE_ENTRY: "TournamentScoreEntry",
+
+  // NEW: round-only results (Finish Round goes here)
+  TOURNAMENT_ROUND_FINAL_RESULTS: "TournamentRoundFinalResults",
+
+  // TEMP alias so nothing breaks if any old code still uses it.
+  // Do not use going forward; we'll reserve "TournamentFinalResults" later for overall tournament results.
+  TOURNAMENT_FINAL_RESULTS: "TournamentRoundFinalResults",
 
   /* ---------------- Tournaments (canonical aliases) ---------------- */
 
