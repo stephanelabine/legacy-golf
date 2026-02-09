@@ -297,12 +297,17 @@ export default function ScorecardScreen({ navigation, route }) {
     return () => unsub();
   }, [isTournament, tournamentId, roundNumber, meUid]);
 
-  // Subscribe to scores (GLOBAL rounds/{roundId}/scores)
+  // Subscribe to scores
+  // Tournament scores live under:
+  // tournaments/{tournamentId}/rounds/r{roundNumber}/scores/{playerId}
+  // Non-tournament scores (legacy) can live under:
+  // rounds/{roundId}/scores
   useEffect(() => {
     if (!isTournament) return;
-    if (!roundId) return;
+    if (!tournamentId) return;
 
-    const scoresRef = collection(db, "rounds", String(roundId), "scores");
+    const roundKey = `r${String(roundNumber)}`;
+    const scoresRef = collection(db, "tournaments", String(tournamentId), "rounds", roundKey, "scores");
 
     const unsub = onSnapshot(
       scoresRef,
@@ -316,7 +321,8 @@ export default function ScorecardScreen({ navigation, route }) {
     );
 
     return () => unsub();
-  }, [isTournament, roundId]);
+  }, [isTournament, tournamentId, roundNumber]);
+
 
   const playerRows = useMemo(() => {
     const list = Array.isArray(players) ? players : [];
@@ -369,7 +375,7 @@ export default function ScorecardScreen({ navigation, route }) {
 
   const headerTitle = useMemo(() => {
     if (!isTournament) return "SCORECARD";
-    return `ROUND ${roundNumber} • SCORECARD`;
+    return `ROUND ${roundNumber} SCORECARD`;
   }, [isTournament, roundNumber]);
 
   const headerSub = useMemo(() => {
@@ -378,7 +384,8 @@ export default function ScorecardScreen({ navigation, route }) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScreenHeader navigation={navigation} title={headerTitle} subtitle={headerSub} safeTop={false} rightLabel={null} onRightPress={null} />
+      <ScreenHeader navigation={navigation} title="SCORECARD" subtitle={`ROUND ${roundNumber}`} safeTop={false} rightLabel={null} onRightPress={null} />
+
 
       {isTournament ? (
         <View style={styles.topPills}>
