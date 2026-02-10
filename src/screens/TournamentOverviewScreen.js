@@ -475,6 +475,17 @@ export default function TournamentOverviewScreen({ navigation, route }) {
           {!isLive ? <Text style={styles.helper}>When you continue, you’ll review payouts and then start the tournament.</Text> : null}
         </View>
 
+        <Text style={styles.sectionTitle}>Prize Pool</Text>
+        <View style={styles.poolCard}>
+          <View style={styles.poolTop}>
+            <Text style={styles.poolLabel}>Cost per player</Text>
+            <Text style={styles.poolValue}>{money(costPerPlayer)}</Text>
+          </View>
+          <Text style={styles.poolSub}>
+            Total pot estimate: {money(totalPot)} ({membersCount || 0} players)
+          </Text>
+        </View>
+
         <Text style={styles.sectionTitle}>Tournament Summary</Text>
 
         {cards.map((c) => (
@@ -496,16 +507,7 @@ export default function TournamentOverviewScreen({ navigation, route }) {
           </Pressable>
         ))}
 
-        <Text style={styles.sectionTitle}>Prize Pool</Text>
-        <View style={styles.poolCard}>
-          <View style={styles.poolTop}>
-            <Text style={styles.poolLabel}>Cost per player</Text>
-            <Text style={styles.poolValue}>{money(costPerPlayer)}</Text>
-          </View>
-          <Text style={styles.poolSub}>
-            Total pot estimate: {money(totalPot)} ({membersCount || 0} players)
-          </Text>
-        </View>
+
 
         {teamVsTeam ? (
           <>
