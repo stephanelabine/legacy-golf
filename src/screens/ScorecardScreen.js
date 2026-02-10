@@ -351,13 +351,24 @@ export default function ScorecardScreen({ navigation, route }) {
   const displayIds = useMemo(() => {
     if (!isTournament) return null;
 
-    if (viewMode === "GROUP") {
-      const ids = Array.isArray(groupIds) && groupIds.length ? groupIds : meUid ? [String(meUid)] : [];
-      return new Set(ids.map(String));
+    const me = meUid ? [String(meUid)] : [];
+
+    // MY = only me (always)
+    if (viewMode === "MY") {
+      return new Set(me.map(String));
     }
 
-    return new Set(mySelectionIds.map(String));
+    // GROUP = scorekeeper selection first, else pairing group, else me
+    const ids =
+      (Array.isArray(mySelectionIds) && mySelectionIds.length
+        ? mySelectionIds
+        : Array.isArray(groupIds) && groupIds.length
+          ? groupIds
+          : me);
+
+    return new Set(ids.map(String));
   }, [isTournament, viewMode, groupIds, mySelectionIds, meUid]);
+
 
   const displayedPlayers = useMemo(() => {
     if (!isTournament) return playerRows;

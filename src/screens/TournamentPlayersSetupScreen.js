@@ -107,7 +107,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
   function closeAnyOpenSwipe() {
     try {
       openSwipeRef.current?.close?.();
-    } catch (e) {}
+    } catch (e) { }
     openSwipeRef.current = null;
   }
 
@@ -162,20 +162,25 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
         snap.forEach((d) => rows.push({ id: d.id, ...d.data() }));
         setFormatDocs(rows);
       },
-      () => {}
+      () => { }
     );
 
     return () => unsub();
   }, [tournamentId]);
 
-  const ownerUid = String(t?.ownerUid || "");
+  const ownerUidFromDoc = String(t?.ownerUid || "");
+  const ownerUid = ownerUidFromDoc || String(u?.uid || "");
   const joinCode = String(t?.joinCode || t?.code || "").trim().toUpperCase();
   const tournamentName = String(t?.name || t?.tournamentName || "Tournament").trim();
 
   const isHost = useMemo(() => {
-    if (!u || !ownerUid) return false;
-    return String(u.uid || "") === ownerUid;
-  }, [u, ownerUid]);
+    if (!u) return false;
+    // Normal: ownerUid is present → host is exact match.
+    if (ownerUidFromDoc) return String(u.uid || "") === ownerUidFromDoc;
+    // Fallback: ownerUid missing (new/buggy doc) → treat signed-in user as host candidate.
+    return !!String(u.uid || "");
+  }, [u, ownerUidFromDoc]);
+
 
   // Organizer pinned first, everyone else alphabetical underneath
   const members = useMemo(() => {
@@ -216,13 +221,17 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
 
   const teamRoute = ROUTES.TOURNAMENT_TEAM_VS_TEAM_SETUP || null;
 
-  const primaryLabel = hasTeamVsTeam ? "Continue to Team vs Team setup" : "Continue";
+  const primaryLabel = hasTeamVsTeam ? "Continue to Team vs Team setup" : "Continue to groups";
 
   useEffect(() => {
-    if (!tournamentId || !ownerUid || !isHost) return;
+    const hostUid = ownerUidFromDoc || String(u?.uid || "");
+    const hostCandidate = !!u && (!!ownerUidFromDoc ? String(u.uid || "") === ownerUidFromDoc : true);
+
+    if (!tournamentId || !hostUid) return;
+    if (!hostCandidate || !isHost) return;
     if (autoHostWroteRef.current) return;
 
-    const hasHostRow = (members || []).some((m) => String(m.uid || m.id || "") === ownerUid);
+    const hasHostRow = (members || []).some((m) => String(m.uid || m.id || "") === hostUid);
     if (hasHostRow) {
       autoHostWroteRef.current = true;
       return;
@@ -230,7 +239,15 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
 
     (async () => {
       try {
-        const userSnap = await getDoc(doc(db, "users", ownerUid));
+        // If ownerUid was missing on the tournament doc, repair it once (only in this fallback case).
+        if (!ownerUidFromDoc && String(u?.uid || "")) {
+          await updateDoc(doc(db, "tournaments", tournamentId), {
+            ownerUid: String(u.uid),
+            updatedAt: serverTimestamp(),
+          });
+        }
+
+        const userSnap = await getDoc(doc(db, "users", hostUid));
         const profile = userSnap.exists() ? userSnap.data() : {};
 
         const name =
@@ -245,15 +262,15 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
           typeof h === "number"
             ? h
             : h === null || h === undefined || h === ""
-            ? NaN
-            : Number(String(h).trim());
+              ? NaN
+              : Number(String(h).trim());
 
         const hStr = Number.isFinite(hNum) ? String(Math.round(hNum * 10) / 10) : "";
 
         await setDoc(
-          doc(db, "tournaments", tournamentId, "members", ownerUid),
+          doc(db, "tournaments", tournamentId, "members", hostUid),
           {
-            uid: ownerUid,
+            uid: hostUid,
             displayName: name,
             isGuest: false,
             handicap: hStr,
@@ -264,14 +281,15 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
         );
 
         await updateDoc(doc(db, "tournaments", tournamentId), {
-          memberIds: arrayUnion(ownerUid),
+          memberIds: arrayUnion(hostUid),
           updatedAt: serverTimestamp(),
         });
 
         autoHostWroteRef.current = true;
-      } catch (e) {}
+      } catch (e) { }
     })();
-  }, [tournamentId, ownerUid, isHost, members, u?.displayName]);
+  }, [tournamentId, ownerUidFromDoc, isHost, members, u?.uid, u?.displayName]);
+
 
   const styles = useMemo(() => {
     const softBorder = isDark ? "rgba(255,255,255,0.14)" : "rgba(10,15,26,0.12)";
@@ -526,7 +544,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     safeSetTimeout(() => {
       try {
         guestNameRef.current?.focus?.();
-      } catch {}
+      } catch { }
     }, 220);
   }
 
@@ -544,7 +562,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
     safeSetTimeout(() => {
       try {
         buddySearchRef.current?.focus?.();
-      } catch {}
+      } catch { }
     }, 220);
   }
 
@@ -557,7 +575,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
       await Share.share({
         message: `You’re invited to join: ${tournamentName}\nJoin code: ${joinCode}\n\nAlready have Legacy Golf? Open the app and join with this code.\nDon’t have it? Download Legacy Golf from the App Store.`,
       });
-    } catch (e) {}
+    } catch (e) { }
   }
 
   async function addGuest() {
@@ -813,7 +831,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
         setupStep: "players",
         updatedAt: serverTimestamp(),
       });
-    } catch (e) {}
+    } catch (e) { }
 
     if (hasTeamVsTeam && teamRoute) {
       const playersParam = (members || []).map((p) => {
@@ -836,7 +854,7 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
       return;
     }
 
-    navigation.navigate(ROUTES.TOURNAMENT_SETUP, { tournamentId });
+    navigation.navigate(ROUTES.TOURNAMENT_GROUPS, { tournamentId });
   }
 
   function renderAddHeader() {

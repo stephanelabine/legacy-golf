@@ -51,6 +51,10 @@ const ROUTES = {
   TOURNAMENT_TEES: "TournamentTees",
   TOURNAMENT_PLAYERS: "TournamentPlayers",
   TOURNAMENT_PLAYERS_SETUP: "TournamentPlayersSetup",
+
+  // NEW: universal groups + tee times (format-agnostic)
+  TOURNAMENT_GROUPS: "TournamentGroups",
+
   TOURNAMENT_FORMATS: "TournamentFormats",
 
   TOURNAMENT_FORMAT_DETAILS: "TournamentFormatDetails",

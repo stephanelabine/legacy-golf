@@ -18,11 +18,13 @@ function clampInt(n, min, max) {
     return Math.max(min, Math.min(max, x));
 }
 
+function safeStr(x) {
+    return String(x ?? "").trim();
+}
+
 function toTimeLabel(v) {
-    if (!v) return "TBD";
-    const s = String(v).trim();
-    if (!s) return "TBD";
-    return s;
+    const s = safeStr(v);
+    return s ? s : "TBD";
 }
 
 function toHoleLabel(v) {
@@ -31,15 +33,25 @@ function toHoleLabel(v) {
     return String(Math.round(n));
 }
 
-function safeStr(x) {
-    return String(x ?? "").trim();
+function getPlayerId(p) {
+    return String(p?.uid || p?.id || p?._id || "").trim();
 }
 
-function getPlayerId(p) {
-    return String(p?.uid || p?.id || p?._id || "");
-}
 function getPlayerName(p) {
-    return String(p?.name || p?.displayName || p?.fullName || p?.email || "Player");
+    return String(p?.displayName || p?.name || p?.fullName || p?.email || "Player");
+}
+
+function pickUserLabelFromUserDoc(userDoc) {
+    if (!userDoc || typeof userDoc !== "object") return "";
+    const a = safeStr(userDoc.displayName);
+    if (a) return a;
+    const b = safeStr(userDoc.name);
+    if (b) return b;
+    const c = safeStr(userDoc.fullName);
+    if (c) return c;
+    const d = safeStr(userDoc.email);
+    if (d) return d;
+    return "";
 }
 
 function guessTeamNamesFromTournamentName(tournamentName) {
@@ -58,19 +70,6 @@ function pickFormatTeamNames(formatDoc) {
     return { teamAName: a, teamBName: b };
 }
 
-function pickUserLabelFromUserDoc(userDoc) {
-    if (!userDoc || typeof userDoc !== "object") return "";
-    const a = safeStr(userDoc.displayName);
-    if (a) return a;
-    const b = safeStr(userDoc.name);
-    if (b) return b;
-    const c = safeStr(userDoc.fullName);
-    if (c) return c;
-    const d = safeStr(userDoc.email);
-    if (d) return d;
-    return "";
-}
-
 /* ---------------- component ---------------- */
 
 export default function TournamentPlayerBriefingScreen({ navigation, route }) {
@@ -87,15 +86,19 @@ export default function TournamentPlayerBriefingScreen({ navigation, route }) {
     // universal groups for this round
     const [roundGroups, setRoundGroups] = useState([]);
 
+    // roster members (format-agnostic fallback)
+    const [rosterMembers, setRosterMembers] = useState([]);
+
     const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
     const u = auth.currentUser;
     const myUid = useMemo(() => String(u?.uid || "").trim(), [u]);
 
+    /* ---- subscribe tournament ---- */
     useEffect(() => {
         if (!tournamentId) return;
 
-        const ref = doc(db, "tournaments", tournamentId);
+        const ref = doc(db, "tournaments", String(tournamentId));
         const unsub = onSnapshot(
             ref,
             (snap) => setT(snap.exists() ? { id: snap.id, ...snap.data() } : null),
@@ -105,10 +108,11 @@ export default function TournamentPlayerBriefingScreen({ navigation, route }) {
         return () => unsub();
     }, [tournamentId]);
 
+    /* ---- subscribe format doc (team_vs_team) ---- */
     useEffect(() => {
         if (!tournamentId) return;
 
-        const ref = doc(db, "tournaments", tournamentId, "formats", "team_vs_team");
+        const ref = doc(db, "tournaments", String(tournamentId), "formats", "team_vs_team");
         const unsub = onSnapshot(
             ref,
             (snap) => setTeamVTeamFormat(snap.exists() ? { id: snap.id, ...snap.data() } : null),
@@ -118,10 +122,11 @@ export default function TournamentPlayerBriefingScreen({ navigation, route }) {
         return () => unsub();
     }, [tournamentId]);
 
+    /* ---- subscribe user doc ---- */
     useEffect(() => {
         if (!myUid) return;
 
-        const ref = doc(db, "users", myUid);
+        const ref = doc(db, "users", String(myUid));
         const unsub = onSnapshot(
             ref,
             (snap) => setMeDoc(snap.exists() ? { id: snap.id, ...snap.data() } : null),
@@ -131,12 +136,15 @@ export default function TournamentPlayerBriefingScreen({ navigation, route }) {
         return () => unsub();
     }, [myUid]);
 
+    const tournamentName = useMemo(() => String(t?.name || "Tournament"), [t]);
+
     const roundNum = useMemo(() => {
         const r = Number(t?.activeRound);
         if (Number.isFinite(r) && r > 0) return clampInt(r, 1, 10);
         return 1;
     }, [t]);
 
+    /* ---- subscribe universal round groups ---- */
     useEffect(() => {
         if (!tournamentId) return;
 
@@ -158,9 +166,50 @@ export default function TournamentPlayerBriefingScreen({ navigation, route }) {
         return () => unsub();
     }, [tournamentId, roundNum]);
 
-    const tournamentName = useMemo(() => String(t?.name || "Tournament"), [t]);
+    /* ---- subscribe roster members (fallback if groups missing) ---- */
+    useEffect(() => {
+        if (!tournamentId) return;
 
-    const teamVsTeam = useMemo(() => (t?.teamVsTeam && typeof t.teamVsTeam === "object" ? t.teamVsTeam : null), [t]);
+        const ref = collection(db, "tournaments", String(tournamentId), "members");
+        const unsub = onSnapshot(
+            ref,
+            (snap) => {
+                const rows = [];
+                snap.forEach((d) => rows.push({ id: d.id, ...d.data() }));
+                setRosterMembers(rows);
+            },
+            () => setRosterMembers([])
+        );
+
+        return () => unsub();
+    }, [tournamentId]);
+
+    const rosterById = useMemo(() => {
+        const m = new Map();
+        for (const r of Array.isArray(rosterMembers) ? rosterMembers : []) {
+            const uid = String(r?.uid || r?.id || "").trim();
+            if (!uid) continue;
+            m.set(uid, r);
+        }
+        return m;
+    }, [rosterMembers]);
+
+    /* ---- detect team vs team is truly active ---- */
+    const teamVsTeam = useMemo(() => {
+        return t?.teamVsTeam && typeof t.teamVsTeam === "object" ? t.teamVsTeam : null;
+    }, [t]);
+
+    const hasTeamVsTeam = useMemo(() => {
+        const a = Array.isArray(teamVsTeam?.teamA) ? teamVsTeam.teamA : [];
+        const b = Array.isArray(teamVsTeam?.teamB) ? teamVsTeam.teamB : [];
+        if (a.length || b.length) return true;
+
+        // If the format doc exists AND has meaningful config, treat it as active
+        if (teamVTeamFormat && (teamVTeamFormat?.enabled === true || teamVTeamFormat?.isSelected === true)) return true;
+
+        // otherwise not active
+        return false;
+    }, [teamVsTeam, teamVTeamFormat]);
 
     const teamNames = useMemo(() => {
         const guess = guessTeamNamesFromTournamentName(tournamentName);
@@ -178,49 +227,41 @@ export default function TournamentPlayerBriefingScreen({ navigation, route }) {
     }, [teamVsTeam, teamVTeamFormat, tournamentName]);
 
     const allPlayers = useMemo(() => {
-        const a = Array.isArray(teamVsTeam?.teamA) ? teamVsTeam.teamA : [];
-        const b = Array.isArray(teamVsTeam?.teamB) ? teamVsTeam.teamB : [];
-        return [...a, ...b];
-    }, [teamVsTeam]);
+        if (hasTeamVsTeam) {
+            const a = Array.isArray(teamVsTeam?.teamA) ? teamVsTeam.teamA : [];
+            const b = Array.isArray(teamVsTeam?.teamB) ? teamVsTeam.teamB : [];
+            return [...a, ...b];
+        }
 
-    const teamSets = useMemo(() => {
-        const aArr = Array.isArray(teamVsTeam?.teamA) ? teamVsTeam.teamA : [];
-        const bArr = Array.isArray(teamVsTeam?.teamB) ? teamVsTeam.teamB : [];
-        const A = new Set();
-        const B = new Set();
-        for (const p of aArr) {
-            const id = getPlayerId(p);
-            if (id) A.add(String(id));
-        }
-        for (const p of bArr) {
-            const id = getPlayerId(p);
-            if (id) B.add(String(id));
-        }
-        return { A, B };
-    }, [teamVsTeam]);
+        // non-team: roster members
+        return (Array.isArray(rosterMembers) ? rosterMembers : []).map((m) => ({
+            uid: String(m?.uid || m?.id || "").trim(),
+            displayName: safeStr(m?.displayName || m?.name),
+            name: safeStr(m?.name || m?.displayName),
+            email: safeStr(m?.email || ""),
+        }));
+    }, [hasTeamVsTeam, teamVsTeam, rosterMembers]);
 
     const playersById = useMemo(() => {
         const m = new Map();
+
+        if (!hasTeamVsTeam) {
+            for (const [k, v] of rosterById.entries()) m.set(String(k), v);
+            return m;
+        }
+
         for (const p of allPlayers) {
             const id = getPlayerId(p);
-            if (id) m.set(id, p);
+            if (id) m.set(String(id), p);
         }
         return m;
-    }, [allPlayers]);
+    }, [hasTeamVsTeam, allPlayers, rosterById]);
 
     const resolveName = (uid) => {
         const key = String(uid || "").trim();
         if (!key) return "TBD";
         const p = playersById.get(key);
         return p ? getPlayerName(p) : "TBD";
-    };
-
-    const resolveTeam = (uid) => {
-        const key = String(uid || "").trim();
-        if (!key) return null;
-        if (teamSets.A.has(key)) return "A";
-        if (teamSets.B.has(key)) return "B";
-        return null;
     };
 
     const myLabel = useMemo(() => {
@@ -237,50 +278,89 @@ export default function TournamentPlayerBriefingScreen({ navigation, route }) {
     }, [u, meDoc, myUid, playersById]);
 
     const myStartingHole = useMemo(() => {
+        // Prefer universal group startingHole if available later; fallback here for top tile
         const n = Number(t?.startingHole);
         if (Number.isFinite(n) && n > 0) return toHoleLabel(n);
         return "1";
     }, [t]);
 
+    const roundKey = useMemo(() => `r${roundNum}`, [roundNum]);
+
     const myGroup = useMemo(() => {
         if (!myUid) return null;
 
         const groups = Array.isArray(roundGroups) ? roundGroups : [];
+
+        // 1) Try to find my universal group
         const g = groups.find((x) => Array.isArray(x?.playerIds) && x.playerIds.map(String).includes(String(myUid)));
-        if (!g) return null;
+        if (g) {
+            const teeTime = safeStr(g?.teeTime);
+            const ids = Array.isArray(g?.playerIds) ? g.playerIds.map(String).filter(Boolean) : [];
+            const startingHole = Number(g?.startingHole) || Number(t?.startingHole) || 1;
 
-        const teeTime = safeStr(g?.teeTime);
-        const ids = Array.isArray(g?.playerIds) ? g.playerIds.map(String).filter(Boolean) : [];
+            const matchups = Array.isArray(g?.matchups) ? g.matchups : null;
 
-        // if matchups exist, use them; else create 2 lines max from ids
-        const matchups = Array.isArray(g?.matchups) ? g.matchups : null;
+            let rows = [];
+            if (matchups && matchups.length) {
+                rows = matchups.slice(0, 2).map((m) => ({
+                    aUid: String(m?.aUid || ""),
+                    bUid: String(m?.bUid || ""),
+                }));
+            } else {
+                // Non-team (or no matchups): show first 4 players as 2 lines
+                const a = ids[0] || "";
+                const b = ids[1] || "";
+                const c = ids[2] || "";
+                const d = ids[3] || "";
+                rows = [
+                    { aUid: a, bUid: b },
+                    { aUid: c, bUid: d },
+                ].filter((m0) => String(m0.aUid || m0.bUid).trim());
+            }
 
-        let rows = [];
-        if (matchups && matchups.length) {
-            rows = matchups.slice(0, 2).map((m) => ({
-                aUid: String(m?.aUid || ""),
-                bUid: String(m?.bUid || ""),
-            }));
-        } else {
-            const a = ids[0] || "";
-            const b = ids[1] || "";
-            const c = ids[2] || "";
-            const d = ids[3] || "";
-            rows = [
-                { aUid: a, bUid: b },
-                { aUid: c, bUid: d },
-            ].filter((m) => String(m.aUid || m.bUid).trim());
+            return {
+                teeTime: teeTime || "",
+                startingHole,
+                playerIds: ids,
+                rows,
+            };
         }
+
+        // 2) Fallback if groups are missing: build implicit group from roster/team arrays
+        const idsFallback = (Array.isArray(allPlayers) ? allPlayers : [])
+            .map((p) => getPlayerId(p))
+            .map(String)
+            .filter(Boolean);
+
+        if (!idsFallback.length) return null;
+
+        const teeTime = safeStr(t?.teeTime);
+        const startingHole = Number(t?.startingHole) || 1;
+
+        const a = idsFallback[0] || "";
+        const b = idsFallback[1] || "";
+        const c = idsFallback[2] || "";
+        const d = idsFallback[3] || "";
+        const rows = [
+            { aUid: a, bUid: b },
+            { aUid: c, bUid: d },
+        ].filter((m0) => String(m0.aUid || m0.bUid).trim());
 
         return {
             teeTime: teeTime || "",
-            playerIds: ids,
+            startingHole,
+            playerIds: idsFallback,
             rows,
+            _implicit: true,
         };
-    }, [roundGroups, myUid]);
+    }, [myUid, roundGroups, allPlayers, t]);
 
     const myTeeTime = useMemo(() => {
         return toTimeLabel(myGroup?.teeTime || t?.teeTime);
+    }, [myGroup, t]);
+
+    const effectiveStartingHole = useMemo(() => {
+        return toHoleLabel(myGroup?.startingHole || t?.startingHole || 1);
     }, [myGroup, t]);
 
     const styles = useMemo(() => {
@@ -316,7 +396,15 @@ export default function TournamentPlayerBriefingScreen({ navigation, route }) {
                 textAlign: "center",
             },
             title: { marginTop: 10, color: theme.text, fontSize: 20, fontWeight: "900", textAlign: "center" },
-            sub: { marginTop: 8, color: theme.text, opacity: 0.74, fontSize: 13, fontWeight: "700", lineHeight: 19, textAlign: "center" },
+            sub: {
+                marginTop: 8,
+                color: theme.text,
+                opacity: 0.74,
+                fontSize: 13,
+                fontWeight: "700",
+                lineHeight: 19,
+                textAlign: "center",
+            },
 
             tilesRow: { marginTop: 14, flexDirection: "row", gap: 12, alignSelf: "stretch" },
             tile: {
@@ -440,17 +528,17 @@ export default function TournamentPlayerBriefingScreen({ navigation, route }) {
         );
     }
 
+    const groupCount = Array.isArray(myGroup?.playerIds) ? myGroup.playerIds.length : 0;
+
     return (
         <View style={styles.screen}>
-            <ScreenHeader navigation={navigation} title="Player Briefing" subtitle="Welcome, tee time, start hole, and your matchup." />
+            <ScreenHeader navigation={navigation} title="Player Briefing" subtitle="Welcome, tee time, start hole, and your group." />
 
             <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
                 <View style={styles.hero}>
                     <Text style={styles.kicker}>{tournamentName}</Text>
                     <Text style={styles.title}>Welcome, {myLabel}</Text>
-                    <Text style={styles.sub}>
-                        You’re about to begin Round {roundNum}. Play well. Good luck.
-                    </Text>
+                    <Text style={styles.sub}>You’re about to begin Round {roundNum}. Play well. Good luck.</Text>
 
                     <View style={styles.tilesRow}>
                         <View style={styles.tile}>
@@ -461,8 +549,8 @@ export default function TournamentPlayerBriefingScreen({ navigation, route }) {
 
                         <View style={styles.tile}>
                             <Text style={styles.tileLabel}>Starting hole</Text>
-                            <Text style={styles.tileValue}>#{myStartingHole}</Text>
-                            <Text style={styles.tileSub}>Hole {myStartingHole} to begin.</Text>
+                            <Text style={styles.tileValue}>#{effectiveStartingHole}</Text>
+                            <Text style={styles.tileSub}>Hole {effectiveStartingHole} to begin.</Text>
                         </View>
                     </View>
                 </View>
@@ -470,41 +558,48 @@ export default function TournamentPlayerBriefingScreen({ navigation, route }) {
                 <Text style={styles.sectionTitle}>Your group</Text>
 
                 <View style={styles.groupCard}>
-                    <View style={styles.groupHeaderRow}>
-                        <Text style={styles.groupHeaderA} numberOfLines={1}>{teamNames.teamAName}</Text>
-                        <Text style={styles.groupHeaderVs}>{" "}vs{" "}</Text>
-                        <Text style={styles.groupHeaderB} numberOfLines={1}>{teamNames.teamBName}</Text>
-                    </View>
+                    {hasTeamVsTeam ? (
+                        <View style={styles.groupHeaderRow}>
+                            <Text style={styles.groupHeaderA} numberOfLines={1}>{teamNames.teamAName}</Text>
+                            <Text style={styles.groupHeaderVs}>{" "}vs{" "}</Text>
+                            <Text style={styles.groupHeaderB} numberOfLines={1}>{teamNames.teamBName}</Text>
+                        </View>
+                    ) : (
+                        <View style={styles.groupHeaderRow}>
+                            <Text style={styles.groupHeaderVs} numberOfLines={1}>{`Group • ${groupCount} players`}</Text>
+                        </View>
+                    )}
 
-                    <Text style={styles.groupHeaderSub}>Round {roundNum} • Tee time {myTeeTime} • Start hole {myStartingHole}</Text>
+                    <Text style={styles.groupHeaderSub}>{`Round ${roundNum} • Tee time ${myTeeTime} • Start hole ${effectiveStartingHole}`}</Text>
 
                     <View style={styles.line} />
 
-                    {myGroup?.rows?.length ? (
-                        myGroup.rows.map((m, idx) => {
-                            const aName = resolveName(m.aUid);
-                            const bName = resolveName(m.bUid);
-                            const aTeam = resolveTeam(m.aUid);
-                            const bTeam = resolveTeam(m.bUid);
-
-                            const aStyle = aTeam === "A" ? styles.nameA : aTeam === "B" ? styles.nameB : null;
-                            const bStyle = bTeam === "A" ? styles.nameA : bTeam === "B" ? styles.nameB : null;
-
-                            return (
-                                <View key={`m-${idx}`} style={styles.matchupLine}>
-                                    <Text style={styles.matchupText} numberOfLines={1}>
-                                        <Text style={aStyle}>{aName}</Text>
-                                        <Text style={styles.vsText}> vs </Text>
-                                        <Text style={bStyle}>{bName}</Text>
-                                    </Text>
+                    {myGroup?.playerIds?.length ? (
+                        // Non-team: show the list of names (and also works for team if no matchups written)
+                        (hasTeamVsTeam && myGroup?.rows?.length ? (
+                            myGroup.rows.map((m0, idx) => {
+                                const aName = resolveName(m0.aUid);
+                                const bName = resolveName(m0.bUid);
+                                return (
+                                    <View key={`m-${idx}`} style={styles.matchupLine}>
+                                        <Text style={styles.matchupText} numberOfLines={1}>
+                                            <Text style={styles.nameA}>{aName}</Text>
+                                            <Text style={styles.vsText}> vs </Text>
+                                            <Text style={styles.nameB}>{bName}</Text>
+                                        </Text>
+                                    </View>
+                                );
+                            })
+                        ) : (
+                            myGroup.playerIds.map((pid, idx) => (
+                                <View key={`p-${pid}-${idx}`} style={styles.matchupLine}>
+                                    <Text style={styles.matchupText} numberOfLines={1}>{resolveName(pid)}</Text>
                                 </View>
-                            );
-                        })
+                            ))
+                        ))
                     ) : (
                         <View style={{ marginTop: 12 }}>
-                            <Text style={styles.sub}>
-                                Group not found yet for this player. (This will populate once your pairing group is saved for the round.)
-                            </Text>
+                            <Text style={styles.sub}>Group not found yet for this player.</Text>
                         </View>
                     )}
                 </View>

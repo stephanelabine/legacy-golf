@@ -940,9 +940,19 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                 titleNumberOfLines={2}
                 subtitle={headerCourseTitle ? headerCourseTitle : ""}
                 safeTop={false}
-                rightLabel={null}
-                onRightPress={null}
+                rightLabel="Exit"
+                onRightPress={() => {
+                    Alert.alert(
+                        "Exit round?",
+                        "Your progress is saved. Return to Home?",
+                        [
+                            { text: "Cancel", style: "cancel" },
+                            { text: "Exit", style: "destructive", onPress: () => navigation.navigate(ROUTES.HOME) },
+                        ]
+                    );
+                }}
             />
+
 
             <SideGameOverlayModal
                 visible={sgVisible}

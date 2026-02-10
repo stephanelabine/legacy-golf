@@ -64,6 +64,10 @@ import TournamentFormatPoolsScreen from "../screens/TournamentFormatPoolsScreen"
 
 import TournamentPlayersSetupScreen from "../screens/TournamentPlayersSetupScreen";
 import TournamentPlayersScreen from "../screens/TournamentPlayersScreen";
+
+// NEW: format-agnostic Groups + tee times
+import TournamentGroupsScreen from "../screens/TournamentGroupsScreen";
+
 import TournamentOverviewScreen from "../screens/TournamentOverviewScreen";
 
 import TournamentTeamVsTeamSetupScreen from "../screens/TournamentTeamVsTeamSetupScreen";
@@ -172,6 +176,9 @@ export default function RootNavigator() {
 
           <Stack.Screen name={ROUTES.TOURNAMENT_PLAYERS_SETUP} component={TournamentPlayersSetupScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_PLAYERS} component={TournamentPlayersScreen} />
+
+          {/* NEW: Groups (tee times) - always available, format-agnostic */}
+          <Stack.Screen name={ROUTES.TOURNAMENT_GROUPS} component={TournamentGroupsScreen} />
 
           <Stack.Screen name={ROUTES.TOURNAMENT_TEAM_VS_TEAM_SETUP} component={TournamentTeamVsTeamSetupScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_TEAM_VS_TEAM_PAIRINGS} component={TournamentTeamVsTeamPairingsScreen} />

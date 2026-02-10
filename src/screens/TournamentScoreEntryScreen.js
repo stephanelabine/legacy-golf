@@ -179,33 +179,59 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
         };
     }, [tournamentId, params?.players]);
 
-    // Resolve group ids from universal groups if not provided
+    // Resolve group ids from universal groups.
+    // If groups aren't written yet, fall back to ALL tournament members (so one scorekeeper can score everyone).
+    // IMPORTANT: allow upgrading from [meUid] -> all players once players load.
     useEffect(() => {
         if (!tournamentId) return;
-        if (Array.isArray(groupIds) && groupIds.length) return;
         if (!meUid) return;
 
-        const qy = query(collection(db, "tournaments", String(tournamentId), "rounds", roundKey, "groups"), orderBy("orderIndex", "asc"));
+        const me = String(meUid);
+
+        const list = Array.isArray(players) ? players : [];
+        const allMemberIds = uniqIds(list.map((p, idx) => safePlayerId(p, String(idx)))).map(String);
+        const allIdsFallback = allMemberIds.length ? allMemberIds : [me];
+
+        const current = uniqIds(Array.isArray(groupIds) ? groupIds : []).map(String);
+        const isOnlyMeSelected = current.length === 1 && current[0] === me;
+
+        // If we currently only have "me" but now we have more members loaded, allow upgrading to allIdsFallback.
+        // If we already have multiple ids, keep them unless groups tell us otherwise.
+        const shouldListenEvenIfGroupIdsSet = current.length === 0 || isOnlyMeSelected;
+
+        if (!shouldListenEvenIfGroupIdsSet) return;
+
+        const qy = query(
+            collection(db, "tournaments", String(tournamentId), "rounds", roundKey, "groups"),
+            orderBy("orderIndex", "asc")
+        );
 
         const unsub = onSnapshot(
             qy,
             (snap) => {
                 const docs = snap?.docs || [];
+
+                // If any group contains me, use that group's ids.
                 for (const d of docs) {
                     const data = d.data ? d.data() : null;
                     const ids = uniqIds(Array.isArray(data?.playerIds) ? data.playerIds.map(String) : []);
-                    if (ids.includes(String(meUid))) {
+                    if (ids.includes(me)) {
                         setGroupIds(ids);
                         return;
                     }
                 }
-                setGroupIds([String(meUid)]);
+
+                // No groups (or none include me) -> show everyone
+                setGroupIds(allIdsFallback);
             },
-            () => setGroupIds([String(meUid)])
+            () => setGroupIds(allIdsFallback)
         );
 
         return () => unsub();
-    }, [tournamentId, roundKey, meUid, groupIds]);
+    }, [tournamentId, roundKey, meUid, players, groupIds]);
+
+
+
 
     const playerRows = useMemo(() => {
         const list = Array.isArray(players) ? players : [];
@@ -501,8 +527,10 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
                     holeNumber: Math.min(totalHoles, holeNumber),
                     hole: Math.min(totalHoles, holeNumber),
                     totalHoles,
+                    groupPlayerIds: Array.from(displayedIds || []),
                     showFormatSplash: false,
                 });
+
                 return;
             }
 
@@ -515,8 +543,10 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
                 holeNumber: nextHole,
                 hole: nextHole,
                 totalHoles,
+                groupPlayerIds: Array.from(displayedIds || []),
                 showFormatSplash: false,
             });
+
         } catch (e) {
             // eslint-disable-next-line no-console
             console.error("[LegacyGolf] TournamentScoreEntry save failed:", e);
@@ -525,7 +555,8 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
         } finally {
             setSaving(false);
         }
-    }, [roundId, tournamentId, roundNumber, holeNumber, totalHoles, inputs, displayedRows, navigation, params, meUid]);
+    }, [roundId, tournamentId, roundNumber, holeNumber, totalHoles, inputs, displayedRows, displayedIds, navigation, params, meUid]);
+
 
     const selectCountLabel = useMemo(() => {
         if (!selectionReady) return "Loading…";
@@ -538,7 +569,23 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
 
     return (
         <SafeAreaView style={styles.safe}>
-            <ScreenHeader navigation={navigation} title={title} subtitle={"Tap a box to pick a value."} safeTop={false} rightLabel={null} onRightPress={null} />
+            <ScreenHeader
+                navigation={navigation}
+                title={title}
+                subtitle={"Tap a box to pick a value."}
+                safeTop={false}
+                rightLabel="Exit"
+                onRightPress={() => {
+                    Alert.alert(
+                        "Exit round?",
+                        "Your progress is saved. Return to Home?",
+                        [
+                            { text: "Cancel", style: "cancel" },
+                            { text: "Exit", style: "destructive", onPress: () => navigation.navigate(ROUTES.HOME) },
+                        ]
+                    );
+                }}
+            />
 
             <View style={styles.body}>
                 <View style={styles.topBar}>
@@ -605,7 +652,8 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
             </View>
 
             <Modal visible={selectOpen} animationType="slide" transparent onRequestClose={() => setSelectOpen(false)}>
-                <View style={styles.modalBackdrop}>
+                <View style={[styles.modalBackdrop, { paddingBottom: Math.max(14, (insets?.bottom || 0) + 10) }]}>
+
                     <View style={styles.selCard}>
                         <View style={styles.selHeader}>
                             <Text style={styles.selTitle}>Who are you scoring for?</Text>

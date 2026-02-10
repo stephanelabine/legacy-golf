@@ -108,7 +108,7 @@ export default function TournamentPlayersScreen({ navigation, route }) {
   function closeAnyOpenSwipe() {
     try {
       if (openSwipeRef.current && openSwipeRef.current.close) openSwipeRef.current.close();
-    } catch (e) {}
+    } catch (e) { }
     openSwipeRef.current = null;
   }
 
@@ -991,8 +991,8 @@ export default function TournamentPlayersScreen({ navigation, route }) {
         typeof h === "number"
           ? h
           : h === null || h === undefined || h === ""
-          ? NaN
-          : Number(String(h).trim());
+            ? NaN
+            : Number(String(h).trim());
       if (!Number.isFinite(num)) n += 1;
     });
     return n;
@@ -1017,10 +1017,10 @@ export default function TournamentPlayersScreen({ navigation, route }) {
         playersReady: true,
         updatedAt: serverTimestamp(),
       };
-      if (!fromOverview) patch.setupStep = "formats";
+      if (!fromOverview) patch.setupStep = "groups";
 
       await updateDoc(doc(db, "tournaments", tournamentId), patch);
-    } catch (e) {}
+    } catch (e) { }
 
     if (fromOverview) {
       if (navigation.canGoBack()) navigation.goBack();
@@ -1028,7 +1028,9 @@ export default function TournamentPlayersScreen({ navigation, route }) {
       return;
     }
 
-    navigation.navigate(ROUTES.TOURNAMENT_FORMATS, { tournamentId });
+    // NEW: go to Groups (tee times / pairings) before Formats
+    navigation.navigate(ROUTES.TOURNAMENT_GROUPS, { tournamentId });
+
   }
 
   async function toggleRosterLock() {
@@ -1089,8 +1091,8 @@ export default function TournamentPlayersScreen({ navigation, route }) {
       typeof hcpRaw === "number"
         ? hcpRaw
         : hcpRaw === null || hcpRaw === undefined || hcpRaw === ""
-        ? NaN
-        : Number(String(hcpRaw).trim());
+          ? NaN
+          : Number(String(hcpRaw).trim());
     const hasHcp = Number.isFinite(hNum);
 
     const isAlt = pnum ? pnum % 2 === 0 : false;
@@ -1212,7 +1214,7 @@ export default function TournamentPlayersScreen({ navigation, route }) {
     );
   }
 
-  const primaryLabel = fromOverview ? "Save and return to overview" : "Continue";
+  const primaryLabel = fromOverview ? "Save and return to overview" : "Continue to groups";
 
   return (
     <View style={styles.screen}>
@@ -1337,18 +1339,6 @@ export default function TournamentPlayersScreen({ navigation, route }) {
 
       <View style={styles.footer}>
         <View style={styles.footerRow}>
-          {isHost ? (
-            <Pressable
-              onPress={toggleRosterLock}
-              style={({ pressed }) => [styles.footerBtn, styles.secondaryBtn, pressed && styles.pressed, saving && { opacity: 0.7 }]}
-              disabled={saving}
-            >
-              <Text style={styles.secondaryText}>{rosterLocked ? "Unlock Roster" : "Lock Roster"}</Text>
-            </Pressable>
-          ) : (
-            <View style={{ flex: 1 }} />
-          )}
-
           <Pressable
             onPress={handleContinue}
             style={({ pressed }) => [
@@ -1364,6 +1354,7 @@ export default function TournamentPlayersScreen({ navigation, route }) {
         </View>
       </View>
 
+
       {/* Setup modal */}
       <Modal visible={setupOpen} transparent animationType="fade" onRequestClose={() => setSetupOpen(false)}>
         <Pressable
@@ -1374,7 +1365,7 @@ export default function TournamentPlayersScreen({ navigation, route }) {
           }}
         >
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
-            <Pressable style={styles.modalCard} onPress={() => {}}>
+            <Pressable style={styles.modalCard} onPress={() => { }}>
               <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
                 <Text style={styles.modalTitle}>Tournament Setup</Text>
                 <Text style={styles.modalSub}>Jump back to any setup step.</Text>
@@ -1453,7 +1444,7 @@ export default function TournamentPlayersScreen({ navigation, route }) {
           }}
         >
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
-            <Pressable style={styles.modalCard} onPress={() => {}}>
+            <Pressable style={styles.modalCard} onPress={() => { }}>
               <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
                 <Text style={styles.modalTitle}>Add Players</Text>
                 <Text style={styles.modalSub}>Choose how you want to add players.</Text>
@@ -1523,7 +1514,7 @@ export default function TournamentPlayersScreen({ navigation, route }) {
           }}
         >
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
-            <Pressable style={styles.modalCard} onPress={() => {}}>
+            <Pressable style={styles.modalCard} onPress={() => { }}>
               <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
                 <Text style={styles.modalTitle}>Select Buddies</Text>
                 <Text style={styles.modalSub}>Choose one or more buddies to add to the roster (saved to the cloud).</Text>
@@ -1589,7 +1580,7 @@ export default function TournamentPlayersScreen({ navigation, route }) {
           }}
         >
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
-            <Pressable style={styles.modalCard} onPress={() => {}}>
+            <Pressable style={styles.modalCard} onPress={() => { }}>
               <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
                 <Text style={styles.modalTitle}>Tournament Organizer</Text>
                 <Text style={styles.modalSub}>Player 1 details (saved to the cloud).</Text>
@@ -1660,7 +1651,7 @@ export default function TournamentPlayersScreen({ navigation, route }) {
           }}
         >
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
-            <Pressable style={styles.modalCard} onPress={() => {}}>
+            <Pressable style={styles.modalCard} onPress={() => { }}>
               <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
                 <Text style={styles.modalTitle}>Add Guest</Text>
                 <Text style={styles.modalSub}>Name + handicap are required. Phone/email optional.</Text>
@@ -1731,7 +1722,7 @@ export default function TournamentPlayersScreen({ navigation, route }) {
           }}
         >
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: "100%" }}>
-            <Pressable style={styles.modalCard} onPress={() => {}}>
+            <Pressable style={styles.modalCard} onPress={() => { }}>
               <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
                 <Text style={styles.modalTitle}>{editIsGuest ? "Edit Guest" : "Edit Player"}</Text>
                 <Text style={styles.modalSub}>Update name, handicap, and optional contact details.</Text>
