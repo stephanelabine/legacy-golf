@@ -87,6 +87,9 @@ import TournamentSideGameSplashScreen from "../screens/TournamentSideGameSplashS
 import TournamentHoleViewScreen from "../screens/TournamentHoleViewScreen";
 import TournamentScoreEntryScreen from "../screens/TournamentScoreEntryScreen";
 
+// NEW: tournament green view
+import TournamentGreenViewScreen from "../screens/TournamentGreenViewScreen";
+
 // tournament round results (Finish Round destination)
 import TournamentRoundFinalResultsScreen from "../screens/TournamentRoundFinalResultsScreen";
 
@@ -200,6 +203,9 @@ export default function RootNavigator() {
           {/* tournament play screens */}
           <Stack.Screen name={ROUTES.TOURNAMENT_HOLE_VIEW} component={TournamentHoleViewScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_SCORE_ENTRY} component={TournamentScoreEntryScreen} />
+
+          {/* NEW: tournament green view */}
+          <Stack.Screen name={ROUTES.TOURNAMENT_GREEN_VIEW} component={TournamentGreenViewScreen} />
 
           <Stack.Screen name={ROUTES.TOURNAMENT_LIVE_HUB} component={TournamentLiveHubScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_PLAYER_BRIEFING} component={TournamentPlayerBriefingScreen} />

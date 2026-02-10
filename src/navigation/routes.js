@@ -79,6 +79,9 @@ const ROUTES = {
   TOURNAMENT_HOLE_VIEW: "TournamentHoleView",
   TOURNAMENT_SCORE_ENTRY: "TournamentScoreEntry",
 
+  // NEW: tournament-only Green View
+  TOURNAMENT_GREEN_VIEW: "TournamentGreenView",
+
   // NEW: round-only results (Finish Round goes here)
   TOURNAMENT_ROUND_FINAL_RESULTS: "TournamentRoundFinalResults",
 
