@@ -112,7 +112,9 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
         return Array.isArray(p) ? p : [];
     });
 
-    const [groupIds, setGroupIds] = useState(() => {
+    // This is the "default group" we infer from Firestore groups (the group that contains me).
+    // IMPORTANT: this does NOT limit who you can select; selection list should include ALL members.
+    const [myGroupIds, setMyGroupIds] = useState(() => {
         const fromParams = Array.isArray(params?.groupPlayerIds) ? params.groupPlayerIds.map(String) : null;
         return fromParams && fromParams.length ? uniqIds(fromParams) : [];
     });
@@ -132,6 +134,41 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
     const PUTTS = useMemo(() => Array.from({ length: 11 }, (_, i) => i), []);
 
     const [selectOpen, setSelectOpen] = useState(false);
+
+    const playerRows = useMemo(() => {
+        const list = Array.isArray(players) ? players : [];
+        return list
+            .map((p, idx) => {
+                const pid = safePlayerId(p, String(idx));
+                return { ...p, _pid: pid, _name: safePlayerName(p) };
+            })
+            .filter((p) => !!p._pid);
+    }, [players]);
+
+    const sortMeFirst = useCallback(
+        (rows) => {
+            const list = Array.isArray(rows) ? [...rows] : [];
+            list.sort((a, b) => {
+                const aMe = String(a?._pid) === String(meUid);
+                const bMe = String(b?._pid) === String(meUid);
+                if (aMe && !bMe) return -1;
+                if (!aMe && bMe) return 1;
+                return String(a?._name || "").localeCompare(String(b?._name || ""));
+            });
+            return list;
+        },
+        [meUid]
+    );
+
+    const allRowsSorted = useMemo(() => sortMeFirst(playerRows), [playerRows, sortMeFirst]);
+
+    // All eligible ids = ALL tournament members we know about (this fixes “only 2 of 4 selectable”).
+    const eligibleIds = useMemo(() => {
+        const ids = uniqIds(allRowsSorted.map((p) => String(p._pid)));
+        return ids;
+    }, [allRowsSorted]);
+
+    const eligibleSet = useMemo(() => new Set(eligibleIds.map(String)), [eligibleIds]);
 
     // If players weren't passed, load from Firestore: prefer /members, fallback /roster
     useEffect(() => {
@@ -179,27 +216,13 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
         };
     }, [tournamentId, params?.players]);
 
-    // Resolve group ids from universal groups.
-    // If groups aren't written yet, fall back to ALL tournament members (so one scorekeeper can score everyone).
-    // IMPORTANT: allow upgrading from [meUid] -> all players once players load.
+    // Subscribe to universal groups for this round and compute "my default group".
+    // NOTE: this does NOT restrict selection list; it only influences the default selection.
     useEffect(() => {
         if (!tournamentId) return;
         if (!meUid) return;
 
         const me = String(meUid);
-
-        const list = Array.isArray(players) ? players : [];
-        const allMemberIds = uniqIds(list.map((p, idx) => safePlayerId(p, String(idx)))).map(String);
-        const allIdsFallback = allMemberIds.length ? allMemberIds : [me];
-
-        const current = uniqIds(Array.isArray(groupIds) ? groupIds : []).map(String);
-        const isOnlyMeSelected = current.length === 1 && current[0] === me;
-
-        // If we currently only have "me" but now we have more members loaded, allow upgrading to allIdsFallback.
-        // If we already have multiple ids, keep them unless groups tell us otherwise.
-        const shouldListenEvenIfGroupIdsSet = current.length === 0 || isOnlyMeSelected;
-
-        if (!shouldListenEvenIfGroupIdsSet) return;
 
         const qy = query(
             collection(db, "tournaments", String(tournamentId), "rounds", roundKey, "groups"),
@@ -211,152 +234,141 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
             (snap) => {
                 const docs = snap?.docs || [];
 
-                // If any group contains me, use that group's ids.
+                // If any group contains me, use that group's ids as "myGroupIds".
                 for (const d of docs) {
                     const data = d.data ? d.data() : null;
                     const ids = uniqIds(Array.isArray(data?.playerIds) ? data.playerIds.map(String) : []);
                     if (ids.includes(me)) {
-                        setGroupIds(ids);
+                        setMyGroupIds((prev) => {
+                            const prevIds = uniqIds(Array.isArray(prev) ? prev : []).map(String);
+                            const nextIds = uniqIds(ids).map(String);
+                            if (prevIds.length === nextIds.length && prevIds.every((x, i) => x === nextIds[i])) return prev;
+                            return nextIds;
+                        });
                         return;
                     }
                 }
 
-                // No groups (or none include me) -> show everyone
-                setGroupIds(allIdsFallback);
+                // No group includes me -> keep whatever we had (or empty)
+                setMyGroupIds((prev) => {
+                    const prevIds = uniqIds(Array.isArray(prev) ? prev : []).map(String);
+                    if (!prevIds.length) return [];
+                    return prevIds;
+                });
             },
-            () => setGroupIds(allIdsFallback)
+            () => { }
         );
 
         return () => unsub();
-    }, [tournamentId, roundKey, meUid, players, groupIds]);
-
-
-
-
-    const playerRows = useMemo(() => {
-        const list = Array.isArray(players) ? players : [];
-        return list
-            .map((p, idx) => {
-                const pid = safePlayerId(p, String(idx));
-                return { ...p, _pid: pid, _name: safePlayerName(p) };
-            })
-            .filter((p) => !!p._pid);
-    }, [players]);
-
-    const groupRows = useMemo(() => {
-        if (!playerRows.length) return [];
-        const set = new Set((Array.isArray(groupIds) ? groupIds : []).map(String));
-        return playerRows.filter((p) => set.has(String(p._pid)));
-    }, [playerRows, groupIds]);
-
-    const sortMeFirst = useCallback(
-        (rows) => {
-            const list = Array.isArray(rows) ? [...rows] : [];
-            list.sort((a, b) => {
-                const aMe = String(a?._pid) === String(meUid);
-                const bMe = String(b?._pid) === String(meUid);
-                if (aMe && !bMe) return -1;
-                if (!aMe && bMe) return 1;
-                return String(a?._name || "").localeCompare(String(b?._name || ""));
-            });
-            return list;
-        },
-        [meUid]
-    );
-
-    const groupRowsSorted = useMemo(() => sortMeFirst(groupRows), [groupRows, sortMeFirst]);
+    }, [tournamentId, roundKey, meUid]);
 
     const selectionRef = useMemo(() => {
         if (!tournamentId || !meUid) return null;
         return doc(db, "tournaments", String(tournamentId), "rounds", roundKey, "scorekeepers", String(meUid));
     }, [tournamentId, roundKey, meUid]);
 
+    // Load / persist who this scorekeeper is scoring for.
+    // Clamp to eligibleIds (ALL members), not a smaller group.
     useEffect(() => {
         if (!selectionRef) return;
-        if (!Array.isArray(groupIds) || !groupIds.length) return;
+        if (!meUid) return;
+        if (!eligibleIds.length) return;
 
         setSelectionReady(false);
+
+        const defaultIds = (() => {
+            const clampedGroup = uniqIds(myGroupIds).map(String).filter((id) => eligibleSet.has(String(id)));
+            if (clampedGroup.length) return clampedGroup;
+            return [String(meUid)];
+        })();
 
         const unsub = onSnapshot(
             selectionRef,
             async (snap) => {
                 try {
-                    const groupSet = new Set(groupIds.map(String));
                     if (snap?.exists()) {
                         const data = snap.data ? snap.data() : {};
-                        const raw = uniqIds(Array.isArray(data?.selectedPlayerIds) ? data.selectedPlayerIds : []);
-                        const clamped = raw.filter((id) => groupSet.has(String(id)));
-                        const next = clamped.length ? clamped : [String(meUid)];
+                        const raw = uniqIds(Array.isArray(data?.selectedPlayerIds) ? data.selectedPlayerIds : []).map(String);
+                        const clamped = raw.filter((id) => eligibleSet.has(String(id)));
+                        const next = clamped.length ? clamped : defaultIds;
                         setSelectedIds(next);
                         setSelectionReady(true);
                         return;
                     }
 
-                    const next = [String(meUid)];
-                    setSelectedIds(next);
+                    setSelectedIds(defaultIds);
                     setSelectionReady(true);
 
-                    await setDoc(selectionRef, { scorekeeperUid: String(meUid), selectedPlayerIds: next, updatedAt: serverTimestamp() }, { merge: true });
+                    await setDoc(
+                        selectionRef,
+                        { scorekeeperUid: String(meUid), selectedPlayerIds: defaultIds, updatedAt: serverTimestamp() },
+                        { merge: true }
+                    );
                 } catch {
-                    setSelectedIds([String(meUid)]);
+                    setSelectedIds(defaultIds);
                     setSelectionReady(true);
                 }
             },
             () => {
-                setSelectedIds([String(meUid)]);
+                setSelectedIds(defaultIds);
                 setSelectionReady(true);
             }
         );
 
         return () => unsub();
-    }, [selectionRef, groupIds, meUid]);
+    }, [selectionRef, meUid, eligibleIds, eligibleSet, myGroupIds]);
 
     const displayedIds = useMemo(() => {
-        const groupSet = new Set((Array.isArray(groupIds) ? groupIds : []).map(String));
-        const base = uniqIds(Array.isArray(selectedIds) ? selectedIds : []);
-        const clamped = base.filter((id) => groupSet.has(String(id)));
+        const base = uniqIds(Array.isArray(selectedIds) ? selectedIds : []).map(String);
+        const clamped = base.filter((id) => eligibleSet.has(String(id)));
 
         if (clamped.length) return new Set(clamped.map(String));
+
+        const fallbackGroup = uniqIds(myGroupIds).map(String).filter((id) => eligibleSet.has(String(id)));
+        if (fallbackGroup.length) return new Set(fallbackGroup.map(String));
+
         if (meUid) return new Set([String(meUid)]);
         return new Set();
-    }, [selectedIds, groupIds, meUid]);
+    }, [selectedIds, eligibleSet, myGroupIds, meUid]);
 
     const displayedRows = useMemo(() => {
-        if (!groupRowsSorted.length) return [];
+        if (!allRowsSorted.length) return [];
         const set = displayedIds;
-        return groupRowsSorted.filter((p) => set.has(String(p._pid)));
-    }, [groupRowsSorted, displayedIds]);
+        return allRowsSorted.filter((p) => set.has(String(p._pid)));
+    }, [allRowsSorted, displayedIds]);
 
     const toggleSelected = useCallback(
         async (pid) => {
             const id = String(pid);
-            const groupSet = new Set((Array.isArray(groupIds) ? groupIds : []).map(String));
-            if (!groupSet.has(id)) return;
+            if (!eligibleSet.has(id)) return;
 
+            // optimistic UI
             setSelectedIds((prev) => {
-                const cur = uniqIds(Array.isArray(prev) ? prev : []);
-                const set = new Set(cur.map(String));
+                const cur = uniqIds(Array.isArray(prev) ? prev : []).map(String).filter((x) => eligibleSet.has(String(x)));
+                const set = new Set(cur);
                 if (set.has(id)) set.delete(id);
                 else set.add(id);
-                const next = Array.from(set);
-                if (!next.length && meUid) return [String(meUid)];
+
+                let next = Array.from(set);
+                if (!next.length && meUid) next = [String(meUid)];
                 return next;
             });
 
             if (!selectionRef) return;
+
             try {
-                const cur = uniqIds(Array.isArray(selectedIds) ? selectedIds : []);
-                const set = new Set(cur.map(String));
+                const cur = uniqIds(Array.isArray(selectedIds) ? selectedIds : []).map(String).filter((x) => eligibleSet.has(String(x)));
+                const set = new Set(cur);
                 if (set.has(id)) set.delete(id);
                 else set.add(id);
 
-                let next = Array.from(set).filter((x) => groupSet.has(String(x)));
+                let next = Array.from(set);
                 if (!next.length && meUid) next = [String(meUid)];
 
                 await setDoc(selectionRef, { scorekeeperUid: String(meUid), selectedPlayerIds: next, updatedAt: serverTimestamp() }, { merge: true });
             } catch { }
         },
-        [groupIds, meUid, selectionRef, selectedIds]
+        [eligibleSet, selectionRef, selectedIds, meUid]
     );
 
     // Subscribe to all scores for this round (tournaments/.../rounds/.../scores)
@@ -457,7 +469,7 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
         }
 
         if (!displayedRows.length) {
-            Alert.alert("No players loaded", "No group players found yet.");
+            Alert.alert("No players loaded", "No players selected yet.");
             return;
         }
 
@@ -530,7 +542,6 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
                     groupPlayerIds: Array.from(displayedIds || []),
                     showFormatSplash: false,
                 });
-
                 return;
             }
 
@@ -546,7 +557,6 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
                 groupPlayerIds: Array.from(displayedIds || []),
                 showFormatSplash: false,
             });
-
         } catch (e) {
             // eslint-disable-next-line no-console
             console.error("[LegacyGolf] TournamentScoreEntry save failed:", e);
@@ -556,7 +566,6 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
             setSaving(false);
         }
     }, [roundId, tournamentId, roundNumber, holeNumber, totalHoles, inputs, displayedRows, displayedIds, navigation, params, meUid]);
-
 
     const selectCountLabel = useMemo(() => {
         if (!selectionReady) return "Loading…";
@@ -636,7 +645,7 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
                     ListEmptyComponent={
                         <View style={styles.emptyCard}>
                             <Text style={styles.emptyTitle}>Loading…</Text>
-                            <Text style={styles.emptySub}>Waiting for your round group and your selection to load.</Text>
+                            <Text style={styles.emptySub}>Waiting for players and your selection to load.</Text>
                         </View>
                     }
                 />
@@ -653,7 +662,6 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
 
             <Modal visible={selectOpen} animationType="slide" transparent onRequestClose={() => setSelectOpen(false)}>
                 <View style={[styles.modalBackdrop, { paddingBottom: Math.max(14, (insets?.bottom || 0) + 10) }]}>
-
                     <View style={styles.selCard}>
                         <View style={styles.selHeader}>
                             <Text style={styles.selTitle}>Who are you scoring for?</Text>
@@ -665,8 +673,8 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
                         <Text style={styles.selSub}>This selection carries forward hole-to-hole for this round.</Text>
 
                         <ScrollView contentContainerStyle={{ paddingBottom: 18 }}>
-                            {groupRowsSorted.length ? (
-                                groupRowsSorted.map((p) => {
+                            {allRowsSorted.length ? (
+                                allRowsSorted.map((p) => {
                                     const pid = String(p._pid);
                                     const isOn = displayedIds.has(pid);
                                     const isMe = pid === String(meUid);
@@ -688,7 +696,7 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
                                 })
                             ) : (
                                 <View style={styles.modalEmpty}>
-                                    <Text style={styles.modalEmptyText}>No group players found yet.</Text>
+                                    <Text style={styles.modalEmptyText}>No players found yet.</Text>
                                 </View>
                             )}
                         </ScrollView>

@@ -187,7 +187,6 @@ function pickSideGameKeyForHole(formatDocs, roundNumber, holeNumber) {
     const hn = Number(holeNumber || 0);
     if (!hn || !Array.isArray(formatDocs) || !formatDocs.length) return "";
 
-    // Hole-based formats (foundation list)
     const HOLE_KEYS = new Set(["kp", "long_drive", "second_shot_kp"]);
 
     for (const f of formatDocs) {
@@ -316,19 +315,79 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
     const courseParam = params.course;
     const teeParam = params.tee;
 
-    const courseId =
-        params.courseId ??
-        courseParam?.id ??
-        courseParam?.courseId ??
-        (typeof courseParam === "string" ? courseParam : null);
+    // Initial course identity from params (may be null in tournament flows)
+    const initialCourseId = useMemo(() => {
+        const cid =
+            params.courseId ??
+            courseParam?.id ??
+            courseParam?.courseId ??
+            (typeof courseParam === "string" ? courseParam : null);
+        const s = cid != null ? String(cid).trim() : "";
+        return s ? s : null;
+    }, [params.courseId, courseParam]);
 
-    const courseName =
-        params.courseName ??
-        courseParam?.name ??
-        courseParam?.courseName ??
-        (typeof courseParam === "string" ? courseParam : "Course");
+    const initialCourseName = useMemo(() => {
+        const cn =
+            params.courseName ??
+            courseParam?.name ??
+            courseParam?.courseName ??
+            (typeof courseParam === "string" ? courseParam : "");
+        const s = cn != null ? String(cn).trim() : "";
+        return s ? s : null;
+    }, [params.courseName, courseParam]);
 
-    const teeName = teeParam?.name ?? (typeof teeParam === "string" ? teeParam : "Tees");
+    const initialTeeName = useMemo(() => {
+        const tn = teeParam?.name ?? (typeof teeParam === "string" ? teeParam : "");
+        const s = tn != null ? String(tn).trim() : "";
+        return s ? s : "Tees";
+    }, [teeParam]);
+
+    // Resolved course identity (fixes yardages: loadCourseData needs a real courseId)
+    const [resolvedCourseId, setResolvedCourseId] = useState(initialCourseId);
+    const [resolvedCourseName, setResolvedCourseName] = useState(initialCourseName);
+
+    // If courseId not supplied via params, pull it from the tournament round doc
+    useEffect(() => {
+        if (!tournamentId) return undefined;
+        if (resolvedCourseId) return undefined;
+
+        const roundRef = doc(db, "tournaments", String(tournamentId), "rounds", `r${String(roundNumber || 1)}`);
+
+        const unsub = onSnapshot(
+            roundRef,
+            (snap) => {
+                const d = snap?.data ? snap.data() : {};
+
+                const cid =
+                    d?.courseId ??
+                    d?.selectedCourseId ??
+                    d?.course?.id ??
+                    d?.course?.courseId ??
+                    d?.courseRefId ??
+                    null;
+
+                const cname =
+                    d?.courseName ??
+                    d?.course?.name ??
+                    d?.course?.courseName ??
+                    d?.courseTitle ??
+                    null;
+
+                const cidS = cid != null ? String(cid).trim() : "";
+                const cnameS = cname != null ? String(cname).trim() : "";
+
+                if (cidS) setResolvedCourseId(cidS);
+                if (cnameS) setResolvedCourseName(cnameS);
+            },
+            () => { }
+        );
+
+        return () => unsub();
+    }, [tournamentId, roundNumber, resolvedCourseId]);
+
+    const courseId = resolvedCourseId;
+    const courseName = resolvedCourseName || initialCourseName || "Course";
+    const teeName = initialTeeName;
 
     const playersParam = Array.isArray(params?.players) ? params.players : [];
 
@@ -353,7 +412,6 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
 
         const gp = Array.isArray(params?.groupPlayerIds) ? params.groupPlayerIds.map(String) : null;
 
-        // Only apply the filter if it actually matches something.
         if (gp && gp.length) {
             const filtered = base.filter((p) => gp.includes(String(getPlayerId(p))));
             if (filtered.length) return filtered;
@@ -512,24 +570,58 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
     }, [courseData, currentHole]);
 
     const green = savedGpsHole?.green || null;
-    const hasGreenPoints = !!(green?.front || green?.middle || green?.back);
-    const gpsLive = !!user;
+
+    useEffect(() => {
+        if (!__DEV__) return;
+        // eslint-disable-next-line no-console
+        console.log("[TournamentHoleView] courseId:", courseId, "courseName:", courseName, "hole:", currentHole);
+        // eslint-disable-next-line no-console
+        console.log("[TournamentHoleView] savedGpsHole?", !!savedGpsHole, "green keys:", green ? Object.keys(green) : null);
+        // eslint-disable-next-line no-console
+        console.log("[TournamentHoleView] green.front:", green?.front, "green.middle:", green?.middle, "green.back:", green?.back);
+    }, [courseId, courseName, currentHole, savedGpsHole, green]);
+
+    function normPoint(pt) {
+        if (!pt) return null;
+
+        const lat =
+            pt.lat ??
+            pt.latitude ??
+            pt?.coords?.latitude ??
+            (Array.isArray(pt) ? pt[0] : undefined);
+
+        const lon =
+            pt.lon ??
+            pt.lng ??
+            pt.longitude ??
+            pt?.coords?.longitude ??
+            (Array.isArray(pt) ? pt[1] : undefined);
+
+        const latN = Number(lat);
+        const lonN = Number(lon);
+
+        if (!Number.isFinite(latN) || !Number.isFinite(lonN)) return null;
+        return { lat: latN, lon: lonN };
+    }
+
+    const gFront = normPoint(green?.front);
+    const gMiddle = normPoint(green?.middle);
+    const gBack = normPoint(green?.back);
+
+    const hasGreenPoints = !!(gFront || gMiddle || gBack);
+
+    const userPt = useMemo(() => normPoint(user), [user]);
+    const gpsLive = !!userPt;
 
     const yardages = useMemo(() => {
-        if (!user || !green) return { front: "—", middle: "—", back: "—" };
+        if (!userPt) return { front: "—", middle: "—", back: "—" };
 
         const out = { front: "—", middle: "—", back: "—" };
-        if (green.front && Number.isFinite(green.front.lat) && Number.isFinite(green.front.lon)) {
-            out.front = yds(haversineMeters(user, green.front));
-        }
-        if (green.middle && Number.isFinite(green.middle.lat) && Number.isFinite(green.middle.lon)) {
-            out.middle = yds(haversineMeters(user, green.middle));
-        }
-        if (green.back && Number.isFinite(green.back.lat) && Number.isFinite(green.back.lon)) {
-            out.back = yds(haversineMeters(user, green.back));
-        }
+        if (gFront) out.front = yds(haversineMeters(userPt, gFront));
+        if (gMiddle) out.middle = yds(haversineMeters(userPt, gMiddle));
+        if (gBack) out.back = yds(haversineMeters(userPt, gBack));
         return out;
-    }, [user, green]);
+    }, [userPt, gFront, gMiddle, gBack]);
 
     /* -------------------------- */
     /* yardage book (local for now) */
@@ -720,13 +812,14 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
             roundId,
             holeNumber: currentHole,
 
-            course: courseParam ?? { name: courseName },
+            course: courseParam ?? { name: courseName, id: courseId || null },
             tee: teeParam ?? { name: teeName },
             players: effectivePlayers,
             holeMeta,
             hole: currentHole,
             holeIndex: currentHole - 1,
             courseName,
+            courseId: courseId || null,
             teeName,
         });
     }
@@ -740,13 +833,14 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
             roundId,
             holeNumber: currentHole,
 
-            course: courseParam ?? { name: courseName },
+            course: courseParam ?? { name: courseName, id: courseId || null },
             tee: teeParam ?? { name: teeName },
             players: effectivePlayers,
             holeMeta,
             hole: currentHole,
             holeIndex: currentHole - 1,
             courseName,
+            courseId: courseId || null,
             teeName,
         });
     }
@@ -760,13 +854,14 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
             roundId,
             holeNumber: currentHole,
 
-            course: courseParam ?? { name: courseName },
+            course: courseParam ?? { name: courseName, id: courseId || null },
             tee: teeParam ?? { name: teeName },
             players: effectivePlayers,
             holeMeta,
             hole: currentHole,
             holeIndex: currentHole - 1,
             courseName,
+            courseId: courseId || null,
             teeName,
         });
     }
@@ -782,7 +877,7 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
 
             holeIndex: currentHole - 1,
             hole: currentHole,
-            course: courseParam ?? { name: courseName, id: courseId },
+            course: courseParam ?? { name: courseName, id: courseId || null },
             tee: teeParam ?? { name: teeName },
             players: effectivePlayers,
             holeMeta,
@@ -864,7 +959,7 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                         courseName,
                         teesName: teeName,
 
-                        course: courseParam ?? { name: courseName, id: courseId },
+                        course: courseParam ?? { name: courseName, id: courseId || null },
                         tee: teeParam ?? { name: teeName },
 
                         players: effectivePlayers,
@@ -952,7 +1047,6 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                     );
                 }}
             />
-
 
             <SideGameOverlayModal
                 visible={sgVisible}
