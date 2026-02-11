@@ -57,7 +57,6 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const params = route?.params || {};
 
-  const BUILD_STAMP = "GREENVIEW_NEW_2026-02-11_A";
 
   const hole = Number(params?.holeNumber ?? params?.hole ?? 1);
   const courseId = params?.courseId ? String(params.courseId) : null;
@@ -229,7 +228,6 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
         contentContainerStyle={[styles.wrap, { paddingBottom: 18 + insets.bottom }]}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.buildStamp}>{BUILD_STAMP}</Text>
 
         <View style={styles.topRow}>
           <Pressable
@@ -364,12 +362,6 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   wrap: { padding: 16, gap: 12 },
 
-  buildStamp: {
-    color: "rgba(255,255,255,0.30)",
-    fontSize: 11,
-    fontWeight: "800",
-    marginBottom: 2,
-  },
 
   topRow: { flexDirection: "row", gap: 10 },
   pinCard: {
