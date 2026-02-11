@@ -839,7 +839,7 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
     }
 
     function openGreenView() {
-        navigation.navigate(ROUTES.GREEN_VIEW, {
+        navigation.navigate(ROUTES.TOURNAMENT_GREEN_VIEW, {
             ...params,
             ...pickTournamentNavParams(params),
             tournamentId,
