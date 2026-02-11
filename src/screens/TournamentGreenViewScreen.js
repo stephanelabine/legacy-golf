@@ -1,100 +1,314 @@
-import React, { useMemo } from "react";
-import { View, Text, StyleSheet, Pressable } from "react-native";
+// src/screens/TournamentGreenViewScreen.js
+import React, { useCallback, useMemo, useState } from "react";
+import { View, Text, StyleSheet, Pressable, ScrollView, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
+import * as Location from "expo-location";
 
 import theme from "../theme";
 import ScreenHeader from "../components/ScreenHeader";
+import ROUTES from "../navigation/routes";
+import { loadCourseData } from "../storage/courseData";
+import { pickTournamentNavParams } from "../utils/tournamentNav";
+
+function toRad(v) {
+    return (v * Math.PI) / 180;
+}
+
+function haversineMeters(a, b) {
+    const R = 6371000;
+    const dLat = toRad(b.lat - a.lat);
+    const dLon = toRad(b.lon - a.lon);
+    const s1 = Math.sin(dLat / 2);
+    const s2 = Math.sin(dLon / 2);
+    const x = s1 * s1 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * s2 * s2;
+    return 2 * R * Math.asin(Math.sqrt(x));
+}
+
+function yds(m) {
+    if (!Number.isFinite(m)) return "—";
+    return String(Math.round(m * 1.09361));
+}
+
+function normPoint(pt) {
+    if (!pt) return null;
+
+    const lat =
+        pt.lat ??
+        pt.latitude ??
+        pt?.coords?.latitude ??
+        (Array.isArray(pt) ? pt[0] : undefined);
+
+    const lon =
+        pt.lon ??
+        pt.lng ??
+        pt.longitude ??
+        pt?.coords?.longitude ??
+        (Array.isArray(pt) ? pt[1] : undefined);
+
+    const latN = Number(lat);
+    const lonN = Number(lon);
+
+    if (!Number.isFinite(latN) || !Number.isFinite(lonN)) return null;
+    return { lat: latN, lon: lonN };
+}
 
 export default function TournamentGreenViewScreen({ navigation, route }) {
     const insets = useSafeAreaInsets();
+    const params = route?.params || {};
 
-    const hole = route?.params?.hole ?? route?.params?.holeNumber ?? 1;
+    const hole = Number(params?.holeNumber ?? params?.hole ?? 1);
+    const courseId = params?.courseId ? String(params.courseId) : null;
+    const courseName = String(params?.courseName || params?.course?.name || "Course");
+    const teeName = String(params?.teeName || params?.tee?.name || "Tees");
 
-    // We keep this simple + bulletproof:
-    // TournamentHoleViewScreen should pass these yardages in params when navigating here.
-    const yardages = useMemo(() => {
-        const y = route?.params?.yardages || route?.params?.greenYardages || null;
-        if (!y) return { front: null, middle: null, back: null };
+    const tournamentId = params?.tournamentId ? String(params.tournamentId) : "";
+    const roundNumber = Number(params?.roundNumber || 1);
+    const roundId = String(params?.roundId || "");
 
-        return {
-            front: typeof y.front === "number" ? y.front : null,
-            middle: typeof y.middle === "number" ? y.middle : null,
-            back: typeof y.back === "number" ? y.back : null,
-        };
-    }, [route?.params?.yardages, route?.params?.greenYardages]);
+    const [selectedPin, setSelectedPin] = useState("middle"); // front | middle | back
+    const [courseData, setCourseData] = useState(null);
+    const [userPt, setUserPt] = useState(null);
 
     const greenInfo = useMemo(() => {
         return (
-            route?.params?.greenInfo ||
+            params?.greenInfo ||
             "Front pin • Slight back-to-front slope • Safer miss: short-left"
         );
-    }, [route?.params?.greenInfo]);
+    }, [params?.greenInfo]);
 
-    const goBackToScoreEntry = () => {
-        // Prefer explicit route if provided
-        const scoreRoute =
-            route?.params?.scoreEntryRouteName ||
-            route?.params?.scoreRouteName ||
-            null;
+    // Load course gps data (contains green front/middle/back points)
+    useFocusEffect(
+        useCallback(() => {
+            let cancelled = false;
 
-        const params = { ...(route?.params || {}) };
+            (async () => {
+                try {
+                    if (!courseId) {
+                        if (!cancelled) setCourseData(null);
+                        return;
+                    }
+                    const saved = await loadCourseData(String(courseId));
+                    if (!cancelled) setCourseData(saved || null);
+                } catch {
+                    if (!cancelled) setCourseData(null);
+                }
+            })();
 
-        if (scoreRoute) {
-            navigation.navigate(scoreRoute, params);
+            return () => {
+                cancelled = true;
+            };
+        }, [courseId])
+    );
+
+    // Live GPS
+    useFocusEffect(
+        useCallback(() => {
+            let cancelled = false;
+            let sub = null;
+
+            (async () => {
+                try {
+                    const { status } = await Location.requestForegroundPermissionsAsync();
+                    if (cancelled) return;
+                    if (status !== "granted") return;
+
+                    sub = await Location.watchPositionAsync(
+                        { accuracy: Location.Accuracy.Highest, distanceInterval: 2 },
+                        (p) => {
+                            if (cancelled) return;
+                            setUserPt({ lat: p.coords.latitude, lon: p.coords.longitude });
+                        }
+                    );
+                } catch {
+                    // ignore
+                }
+            })();
+
+            return () => {
+                cancelled = true;
+                if (sub) sub.remove();
+            };
+        }, [])
+    );
+
+    const savedGpsHole = useMemo(() => {
+        const gps = courseData?.gps;
+        const h = gps?.holes?.[String(hole)] || null;
+        return h;
+    }, [courseData, hole]);
+
+    const green = savedGpsHole?.green || null;
+
+    const gFront = useMemo(() => normPoint(green?.front), [green?.front]);
+    const gMiddle = useMemo(() => normPoint(green?.middle), [green?.middle]);
+    const gBack = useMemo(() => normPoint(green?.back), [green?.back]);
+
+    const hasGreenPoints = !!(gFront || gMiddle || gBack);
+
+    // If TournamentHoleView passed yardages, use them as a fast path
+    const passedYardages =
+        params?.yardages && typeof params.yardages === "object" ? params.yardages : null;
+
+    const computedYardages = useMemo(() => {
+        if (!userPt) return { front: "—", middle: "—", back: "—" };
+
+        const out = { front: "—", middle: "—", back: "—" };
+        if (gFront) out.front = yds(haversineMeters(userPt, gFront));
+        if (gMiddle) out.middle = yds(haversineMeters(userPt, gMiddle));
+        if (gBack) out.back = yds(haversineMeters(userPt, gBack));
+        return out;
+    }, [userPt, gFront, gMiddle, gBack]);
+
+    const yardages = useMemo(() => {
+        const pf = passedYardages?.front;
+        const pm = passedYardages?.middle;
+        const pb = passedYardages?.back;
+
+        const looksOk = (pf && pf !== "—") || (pm && pm !== "—") || (pb && pb !== "—");
+
+        if (looksOk) {
+            return {
+                front: String(pf ?? "—"),
+                middle: String(pm ?? "—"),
+                back: String(pb ?? "—"),
+            };
+        }
+
+        return computedYardages;
+    }, [passedYardages, computedYardages]);
+
+    const toPin = useMemo(() => {
+        if (selectedPin === "front") return yardages.front;
+        if (selectedPin === "back") return yardages.back;
+        return yardages.middle;
+    }, [selectedPin, yardages]);
+
+    function goBackToScoreEntry() {
+        const TARGET = ROUTES.TOURNAMENT_SCORE_ENTRY || "TournamentScoreEntry";
+        navigation.navigate(TARGET, {
+            ...pickTournamentNavParams(params),
+            tournamentId,
+            roundNumber,
+            roundId,
+            holeNumber: hole,
+            hole,
+            courseId: courseId || null,
+            courseName,
+            teeName,
+        });
+    }
+
+    function setGreenPoints() {
+        if (!courseId) {
+            Alert.alert("Missing course", "This tournament round doesn’t have a courseId yet.");
             return;
         }
 
-        // Try common names (keeps us moving even if your route name differs slightly)
-        const tryNames = [
-            "TournamentScoreEntry",
-            "TournamentScoreEntryScreen",
-            "TournamentScores",
-            "TournamentScoresScreen",
-        ];
-
-        for (const name of tryNames) {
-            try {
-                navigation.navigate(name, params);
-                return;
-            } catch (e) { }
-        }
-
-        // Final fallback
-        navigation.goBack();
-    };
-
-    const fmt = (v) => (typeof v === "number" ? `${v} yd` : "—");
+        navigation.navigate(ROUTES.HOLE_MAP, {
+            ...params,
+            ...pickTournamentNavParams(params),
+            tournamentId,
+            roundNumber,
+            roundId,
+            holeNumber: hole,
+            hole,
+            holeIndex: hole - 1,
+            courseId,
+            courseName,
+            teeName,
+            openSetup: true,
+        });
+    }
 
     return (
         <View style={styles.screen}>
-            <ScreenHeader
-                navigation={navigation}
-                title="Green View"
-                subtitle={`Hole ${hole}`}
-            />
+            <ScreenHeader navigation={navigation} title="Green View" subtitle={`Hole ${hole}`} />
 
-            <View style={[styles.wrap, { paddingBottom: 18 + insets.bottom }]}>
-                <View style={styles.yardageRow}>
-                    <View style={styles.yCard}>
-                        <Text style={styles.yLabel}>Front</Text>
-                        <Text style={styles.yValue}>{fmt(yardages.front)}</Text>
-                    </View>
+            <ScrollView
+                style={styles.scroll}
+                contentContainerStyle={[styles.wrap, { paddingBottom: 18 + insets.bottom }]}
+                showsVerticalScrollIndicator={false}
+            >
+                <View style={styles.topRow}>
+                    <Pressable
+                        onPress={() => setSelectedPin("front")}
+                        style={({ pressed }) => [
+                            styles.pinCard,
+                            selectedPin === "front" && styles.pinCardActive,
+                            pressed && styles.pressed,
+                        ]}
+                    >
+                        <Text style={styles.pinLabel}>Front</Text>
+                        <Text style={styles.pinValue}>{yardages.front}</Text>
+                    </Pressable>
 
-                    <View style={styles.yCardCenter}>
-                        <Text style={styles.yLabel}>Middle</Text>
-                        <Text style={styles.yValue}>{fmt(yardages.middle)}</Text>
-                    </View>
+                    <Pressable
+                        onPress={() => setSelectedPin("middle")}
+                        style={({ pressed }) => [
+                            styles.pinCard,
+                            selectedPin === "middle" && styles.pinCardActive,
+                            pressed && styles.pressed,
+                        ]}
+                    >
+                        <Text style={styles.pinLabel}>Middle</Text>
+                        <Text style={styles.pinValue}>{yardages.middle}</Text>
+                    </Pressable>
 
-                    <View style={styles.yCard}>
-                        <Text style={styles.yLabel}>Back</Text>
-                        <Text style={styles.yValue}>{fmt(yardages.back)}</Text>
-                    </View>
+                    <Pressable
+                        onPress={() => setSelectedPin("back")}
+                        style={({ pressed }) => [
+                            styles.pinCard,
+                            selectedPin === "back" && styles.pinCardActive,
+                            pressed && styles.pressed,
+                        ]}
+                    >
+                        <Text style={styles.pinLabel}>Back</Text>
+                        <Text style={styles.pinValue}>{yardages.back}</Text>
+                    </Pressable>
                 </View>
+
+                {!hasGreenPoints ? (
+                    <View style={styles.hintCard}>
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text style={styles.hintTitle}>Green points not set yet</Text>
+                            <Text style={styles.hintSub}>
+                                Set front / middle / back once. Then Green View shows real numbers every
+                                round.
+                            </Text>
+                        </View>
+
+                        <Pressable
+                            onPress={setGreenPoints}
+                            style={({ pressed }) => [styles.hintBtn, pressed && styles.pressed]}
+                        >
+                            <Text style={styles.hintBtnT}>Set points</Text>
+                            <Text style={styles.hintBtnS}>→</Text>
+                        </Pressable>
+                    </View>
+                ) : (
+                    <View style={styles.miniBar}>
+                        <View style={styles.miniRow}>
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                                <Text style={styles.miniText}>To {selectedPin} pin: {toPin} yds</Text>
+                                <Text style={styles.miniSub}>Tap Front / Middle / Back to change pin target</Text>
+                            </View>
+
+                            <Pressable
+                                onPress={setGreenPoints}
+                                style={({ pressed }) => [styles.hintBtn, pressed && styles.pressed]}
+                            >
+                                <Text style={styles.hintBtnT}>Edit points</Text>
+                                <Text style={styles.hintBtnS}>→</Text>
+                            </Pressable>
+                        </View>
+                    </View>
+                )}
 
                 <View style={styles.heroCard}>
                     <Text style={styles.heroTitle}>Putting Surface</Text>
                     <Text style={styles.heroSub}>
-                        Visual preview placeholder (we’ll swap in real green shapes when we wire course data)
+                        Visual preview placeholder (next: pin position + green points visualization)
                     </Text>
 
                     <View style={styles.greenStage}>
@@ -125,47 +339,93 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
                 <View style={styles.card}>
                     <Text style={styles.cardTitle}>Aim point</Text>
                     <Text style={styles.cardBody}>
-                        Default: play to center-green. We’ll calculate “safe side” and misses from hazards + wind later.
+                        Default: play to center-green. Later we’ll use hazards + wind + misses.
                     </Text>
                 </View>
 
-                <Pressable onPress={goBackToScoreEntry} style={styles.primaryBtn}>
-                    <Text style={styles.primaryBtnText}>Back to Score Entry</Text>
+                <Pressable
+                    onPress={goBackToScoreEntry}
+                    style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}
+                >
+                    <Text style={styles.backBtnText}>Back to Score Entry</Text>
                 </Pressable>
-            </View>
+
+                <Text style={styles.footerMeta}>
+                    {courseName} • {teeName}
+                </Text>
+            </ScrollView>
         </View>
     );
 }
 
 const styles = StyleSheet.create({
     screen: { flex: 1, backgroundColor: theme?.colors?.bg || "#0B1220" },
-    wrap: { flex: 1, padding: 16, gap: 12 },
+    scroll: { flex: 1 },
+    wrap: { padding: 16, gap: 12 },
 
-    yardageRow: { flexDirection: "row", gap: 10 },
-    yCard: {
+    topRow: { flexDirection: "row", gap: 10 },
+    pinCard: {
         flex: 1,
         borderRadius: 18,
-        paddingVertical: 12,
-        paddingHorizontal: 12,
+        paddingVertical: 14,
         borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.12)",
+        borderColor: "rgba(255,255,255,0.10)",
         backgroundColor: "rgba(255,255,255,0.04)",
         alignItems: "center",
         justifyContent: "center",
     },
-    yCardCenter: {
-        flex: 1,
+    pinCardActive: { borderColor: "rgba(242,201,76,0.55)" },
+    pinLabel: { color: "rgba(255,255,255,0.70)", fontSize: 12, fontWeight: "900" },
+    pinValue: { marginTop: 8, color: "#fff", fontSize: 18, fontWeight: "900" },
+
+    miniBar: {
         borderRadius: 18,
-        paddingVertical: 12,
-        paddingHorizontal: 12,
+        padding: 12,
         borderWidth: 1,
-        borderColor: "rgba(212,175,55,0.35)",
-        backgroundColor: "rgba(212,175,55,0.10)",
+        borderColor: "rgba(255,255,255,0.10)",
+        backgroundColor: "rgba(255,255,255,0.04)",
+    },
+    miniRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+    },
+    miniText: { color: "rgba(255,255,255,0.82)", fontSize: 13, fontWeight: "900" },
+    miniSub: { marginTop: 4, color: "rgba(255,255,255,0.70)", fontWeight: "800", fontSize: 12 },
+
+    hintCard: {
+        borderRadius: 22,
+        padding: 12,
+        backgroundColor: "rgba(46,125,255,0.10)",
+        borderWidth: 1,
+        borderColor: "rgba(46,125,255,0.26)",
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+    },
+    hintTitle: { color: "#fff", fontWeight: "900", fontSize: 13 },
+    hintSub: {
+        marginTop: 6,
+        color: "rgba(255,255,255,0.70)",
+        fontWeight: "800",
+        fontSize: 12,
+        lineHeight: 16,
+    },
+    hintBtn: {
+        height: 44,
+        paddingHorizontal: 12,
+        borderRadius: 16,
+        backgroundColor: "rgba(255,255,255,0.08)",
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.14)",
         alignItems: "center",
         justifyContent: "center",
+        flexDirection: "row",
+        gap: 8,
     },
-    yLabel: { color: "rgba(255,255,255,0.70)", fontSize: 12, fontWeight: "900" },
-    yValue: { marginTop: 6, color: "#fff", fontSize: 16, fontWeight: "900" },
+    hintBtnT: { color: "#fff", fontWeight: "900", fontSize: 12, letterSpacing: 0.3 },
+    hintBtnS: { color: "rgba(255,255,255,0.82)", fontWeight: "900", fontSize: 14 },
 
     heroCard: {
         borderRadius: 22,
@@ -191,7 +451,6 @@ const styles = StyleSheet.create({
         backgroundColor: "rgba(0,0,0,0.18)",
         padding: 14,
     },
-
     greenShape: {
         height: 180,
         borderRadius: 999,
@@ -202,7 +461,6 @@ const styles = StyleSheet.create({
         justifyContent: "center",
         overflow: "hidden",
     },
-
     pinDot: {
         width: 10,
         height: 10,
@@ -214,7 +472,6 @@ const styles = StyleSheet.create({
         top: 58,
         left: "52%",
     },
-
     slopeArrow: {
         width: 90,
         height: 4,
@@ -240,12 +497,7 @@ const styles = StyleSheet.create({
     },
     legendItem: { flexDirection: "row", alignItems: "center", gap: 8 },
     legendDot: { width: 8, height: 8, borderRadius: 999, backgroundColor: "#fff" },
-    legendLine: {
-        width: 18,
-        height: 3,
-        borderRadius: 999,
-        backgroundColor: "rgba(255,255,255,0.70)",
-    },
+    legendLine: { width: 18, height: 3, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.70)" },
     legendText: { color: "rgba(255,255,255,0.70)", fontSize: 12, fontWeight: "800" },
 
     card: {
@@ -264,15 +516,25 @@ const styles = StyleSheet.create({
         lineHeight: 18,
     },
 
-    primaryBtn: {
-        marginTop: 6,
-        borderRadius: 18,
-        paddingVertical: 14,
+    backBtn: {
+        marginTop: 8,
+        borderRadius: 999,
+        height: 54,
         alignItems: "center",
         justifyContent: "center",
-        backgroundColor: "rgba(212,175,55,0.20)",
         borderWidth: 1,
-        borderColor: "rgba(212,175,55,0.35)",
+        borderColor: "rgba(242,201,76,0.55)",
+        backgroundColor: "rgba(242,201,76,0.16)",
     },
-    primaryBtnText: { color: "#fff", fontSize: 14, fontWeight: "900" },
+    backBtnText: { color: "#fff", fontSize: 16, fontWeight: "900" },
+
+    footerMeta: {
+        textAlign: "center",
+        color: "rgba(255,255,255,0.45)",
+        fontSize: 12,
+        fontWeight: "800",
+        marginTop: 2,
+    },
+
+    pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
 });

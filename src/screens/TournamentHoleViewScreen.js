@@ -825,7 +825,7 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
     }
 
     function openGreenView() {
-        navigation.navigate(ROUTES.GREEN_VIEW, {
+        navigation.navigate(ROUTES.TOURNAMENT_GREEN_VIEW, {
             ...params,
             ...pickTournamentNavParams(params),
             tournamentId,
@@ -842,8 +842,12 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
             courseName,
             courseId: courseId || null,
             teeName,
+
+            // optional: gives Green View real numbers instantly (if that screen reads it)
+            yardages,
         });
     }
+
 
     function openHazards() {
         navigation.navigate(ROUTES.HAZARDS, {
