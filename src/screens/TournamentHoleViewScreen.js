@@ -1,7 +1,6 @@
 // src/screens/TournamentHoleViewScreen.js
 import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import {
-    SafeAreaView,
     View,
     Text,
     StyleSheet,
@@ -17,7 +16,7 @@ import {
     Alert,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, CommonActions } from "@react-navigation/native";
 import * as Location from "expo-location";
 import { doc, setDoc, serverTimestamp, collection, onSnapshot } from "firebase/firestore";
@@ -252,6 +251,60 @@ function fmtCoord(v) {
     return n.toFixed(6);
 }
 
+function normPoint(pt) {
+    if (!pt) return null;
+
+    const lat =
+        pt.lat ??
+        pt.latitude ??
+        pt?.coords?.latitude ??
+        (Array.isArray(pt) ? pt[0] : undefined);
+
+    const lon =
+        pt.lon ??
+        pt.lng ??
+        pt.longitude ??
+        pt?.coords?.longitude ??
+        (Array.isArray(pt) ? pt[1] : undefined);
+
+    const latN = Number(lat);
+    const lonN = Number(lon);
+
+    if (!Number.isFinite(latN) || !Number.isFinite(lonN)) return null;
+    return { lat: latN, lon: lonN };
+}
+
+function deriveCourseFromRound(roundDoc) {
+    const d = roundDoc && typeof roundDoc === "object" ? roundDoc : {};
+
+    const courseId =
+        d?.courseId ??
+        d?.course?.id ??
+        d?.course?.courseId ??
+        d?.courseRefId ??
+        null;
+
+    const courseName =
+        d?.courseName ??
+        d?.course?.name ??
+        d?.course?.courseName ??
+        d?.courseTitle ??
+        null;
+
+    const teeName =
+        d?.teeName ??
+        d?.teesName ??
+        d?.tee?.name ??
+        d?.tees?.name ??
+        null;
+
+    return {
+        courseId: courseId != null ? String(courseId) : null,
+        courseName: courseName != null ? String(courseName) : null,
+        teeName: teeName != null ? String(teeName) : null,
+    };
+}
+
 export default function TournamentHoleViewScreen({ navigation, route }) {
     const insets = useSafeAreaInsets();
     const params = route?.params || {};
@@ -259,6 +312,29 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
     const tournamentId = params?.tournamentId ? String(params.tournamentId) : "";
     const roundNumber = Number(params?.roundNumber || 1);
     const totalHoles = Number(params?.totalHoles || 18);
+
+    /* -------------------------- */
+    /* round doc snapshot (for course/tee fallbacks) */
+    /* -------------------------- */
+
+    const [roundDoc, setRoundDoc] = useState(null);
+
+    useFocusEffect(
+        useCallback(() => {
+            if (!tournamentId) return undefined;
+
+            const ref = doc(db, "tournaments", String(tournamentId), "rounds", `r${String(roundNumber)}`);
+            const unsub = onSnapshot(
+                ref,
+                (snap) => setRoundDoc(snap?.exists?.() ? (snap.data() || null) : null),
+                () => setRoundDoc(null)
+            );
+
+            return () => unsub();
+        }, [tournamentId, roundNumber])
+    );
+
+    const derived = useMemo(() => deriveCourseFromRound(roundDoc), [roundDoc]);
 
     /* -------------------------- */
     /* TOURNAMENT SCORES SNAPSHOT */
@@ -297,7 +373,6 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
         return defaultRoundId(tournamentId, roundNumber);
     }, [params?.roundId, tournamentId, roundNumber]);
 
-    // Contract: run ONCE (dev) so we don't spam the console every render.
     const assertedRef = useRef(false);
     useEffect(() => {
         if (!__DEV__) return;
@@ -306,88 +381,46 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
 
         try {
             assertTournamentNavParams({ ...params, roundId }, "TournamentHoleViewScreen");
-        } catch {
-            // ignore
-        }
+        } catch { }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [roundId]);
 
     const courseParam = params.course;
     const teeParam = params.tee;
 
-    // Initial course identity from params (may be null in tournament flows)
-    const initialCourseId = useMemo(() => {
-        const cid =
-            params.courseId ??
-            courseParam?.id ??
-            courseParam?.courseId ??
-            (typeof courseParam === "string" ? courseParam : null);
-        const s = cid != null ? String(cid).trim() : "";
-        return s ? s : null;
-    }, [params.courseId, courseParam]);
+    const courseIdRaw =
+        params.courseId ??
+        courseParam?.id ??
+        courseParam?.courseId ??
+        (typeof courseParam === "string" ? courseParam : null);
 
-    const initialCourseName = useMemo(() => {
-        const cn =
-            params.courseName ??
-            courseParam?.name ??
-            courseParam?.courseName ??
-            (typeof courseParam === "string" ? courseParam : "");
-        const s = cn != null ? String(cn).trim() : "";
-        return s ? s : null;
-    }, [params.courseName, courseParam]);
+    const courseNameRaw =
+        params.courseName ??
+        courseParam?.name ??
+        courseParam?.courseName ??
+        (typeof courseParam === "string" ? courseParam : null);
 
-    const initialTeeName = useMemo(() => {
-        const tn = teeParam?.name ?? (typeof teeParam === "string" ? teeParam : "");
-        const s = tn != null ? String(tn).trim() : "";
-        return s ? s : "Tees";
-    }, [teeParam]);
+    const teeNameRaw = teeParam?.name ?? (typeof teeParam === "string" ? teeParam : null);
 
-    // Resolved course identity (fixes yardages: loadCourseData needs a real courseId)
-    const [resolvedCourseId, setResolvedCourseId] = useState(initialCourseId);
-    const [resolvedCourseName, setResolvedCourseName] = useState(initialCourseName);
+    const courseId = courseIdRaw != null ? String(courseIdRaw) : null;
+    const courseName = courseNameRaw != null ? String(courseNameRaw) : null;
+    const teeName = teeNameRaw != null ? String(teeNameRaw) : null;
 
-    // If courseId not supplied via params, pull it from the tournament round doc
+    const effectiveCourseId = courseId || derived?.courseId || null;
+    const effectiveCourseName = courseName || derived?.courseName || "Course";
+    const effectiveTeeName = teeName || derived?.teeName || "Tees";
+
+    // Persist recovered course/tee back into nav params (so subsequent renders/screens have them)
     useEffect(() => {
-        if (!tournamentId) return undefined;
-        if (resolvedCourseId) return undefined;
-
-        const roundRef = doc(db, "tournaments", String(tournamentId), "rounds", `r${String(roundNumber || 1)}`);
-
-        const unsub = onSnapshot(
-            roundRef,
-            (snap) => {
-                const d = snap?.data ? snap.data() : {};
-
-                const cid =
-                    d?.courseId ??
-                    d?.selectedCourseId ??
-                    d?.course?.id ??
-                    d?.course?.courseId ??
-                    d?.courseRefId ??
-                    null;
-
-                const cname =
-                    d?.courseName ??
-                    d?.course?.name ??
-                    d?.course?.courseName ??
-                    d?.courseTitle ??
-                    null;
-
-                const cidS = cid != null ? String(cid).trim() : "";
-                const cnameS = cname != null ? String(cname).trim() : "";
-
-                if (cidS) setResolvedCourseId(cidS);
-                if (cnameS) setResolvedCourseName(cnameS);
-            },
-            () => { }
-        );
-
-        return () => unsub();
-    }, [tournamentId, roundNumber, resolvedCourseId]);
-
-    const courseId = resolvedCourseId;
-    const courseName = resolvedCourseName || initialCourseName || "Course";
-    const teeName = initialTeeName;
+        try {
+            const patch = {};
+            if (!params?.courseId && effectiveCourseId) patch.courseId = String(effectiveCourseId);
+            if ((!params?.courseName || params?.courseName === "Course") && effectiveCourseName) patch.courseName = String(effectiveCourseName);
+            if (!params?.teeName && effectiveTeeName) patch.teeName = String(effectiveTeeName);
+            if (Object.keys(patch).length) navigation.setParams(patch);
+        } catch { }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [effectiveCourseId, effectiveCourseName, effectiveTeeName]);
 
     const playersParam = Array.isArray(params?.players) ? params.players : [];
 
@@ -466,9 +499,7 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                     });
                     setScoresByPid(next);
                 },
-                () => {
-                    // keep last known snapshot
-                }
+                () => { }
             );
 
             return () => unsub();
@@ -531,8 +562,8 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
 
             (async () => {
                 try {
-                    if (courseId) {
-                        const saved = await loadCourseData(String(courseId));
+                    if (effectiveCourseId) {
+                        const saved = await loadCourseData(String(effectiveCourseId));
                         if (!cancelled) setCourseData(saved || null);
                     } else {
                         if (!cancelled) setCourseData(null);
@@ -560,7 +591,7 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                 cancelled = true;
                 if (sub) sub.remove();
             };
-        }, [courseId])
+        }, [effectiveCourseId])
     );
 
     const savedGpsHole = useMemo(() => {
@@ -570,39 +601,6 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
     }, [courseData, currentHole]);
 
     const green = savedGpsHole?.green || null;
-
-    useEffect(() => {
-        if (!__DEV__) return;
-        // eslint-disable-next-line no-console
-        console.log("[TournamentHoleView] courseId:", courseId, "courseName:", courseName, "hole:", currentHole);
-        // eslint-disable-next-line no-console
-        console.log("[TournamentHoleView] savedGpsHole?", !!savedGpsHole, "green keys:", green ? Object.keys(green) : null);
-        // eslint-disable-next-line no-console
-        console.log("[TournamentHoleView] green.front:", green?.front, "green.middle:", green?.middle, "green.back:", green?.back);
-    }, [courseId, courseName, currentHole, savedGpsHole, green]);
-
-    function normPoint(pt) {
-        if (!pt) return null;
-
-        const lat =
-            pt.lat ??
-            pt.latitude ??
-            pt?.coords?.latitude ??
-            (Array.isArray(pt) ? pt[0] : undefined);
-
-        const lon =
-            pt.lon ??
-            pt.lng ??
-            pt.longitude ??
-            pt?.coords?.longitude ??
-            (Array.isArray(pt) ? pt[1] : undefined);
-
-        const latN = Number(lat);
-        const lonN = Number(lon);
-
-        if (!Number.isFinite(latN) || !Number.isFinite(lonN)) return null;
-        return { lat: latN, lon: lonN };
-    }
 
     const gFront = normPoint(green?.front);
     const gMiddle = normPoint(green?.middle);
@@ -623,6 +621,22 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
         return out;
     }, [userPt, gFront, gMiddle, gBack]);
 
+    if (__DEV__) {
+        // eslint-disable-next-line no-console
+        console.log(
+            "[TournamentHoleView] effectiveCourseId:",
+            effectiveCourseId,
+            "effectiveCourseName:",
+            effectiveCourseName,
+            "hole:",
+            currentHole
+        );
+        // eslint-disable-next-line no-console
+        console.log("[TournamentHoleView] savedGpsHole?", !!savedGpsHole, "green keys:", green ? Object.keys(green) : null);
+        // eslint-disable-next-line no-console
+        console.log("[TournamentHoleView] green.front:", green?.front, "green.middle:", green?.middle, "green.back:", green?.back);
+    }
+
     /* -------------------------- */
     /* yardage book (local for now) */
     /* -------------------------- */
@@ -635,7 +649,7 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
         let live = true;
         (async () => {
             try {
-                const raw = await AsyncStorage.getItem(notesKey(courseName));
+                const raw = await AsyncStorage.getItem(notesKey(effectiveCourseName));
                 if (!live) return;
                 const obj = raw ? JSON.parse(raw) : {};
                 const note = obj?.[String(currentHole)] || "";
@@ -648,12 +662,12 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
         return () => {
             live = false;
         };
-    }, [courseName, currentHole]);
+    }, [effectiveCourseName, currentHole]);
 
     async function saveYardageNoteAndClose() {
         setSaving(true);
         try {
-            const key = notesKey(courseName);
+            const key = notesKey(effectiveCourseName);
             const raw = await AsyncStorage.getItem(key);
             const obj = raw ? JSON.parse(raw) : {};
             obj[String(currentHole)] = String(yardageText || "").trim();
@@ -812,20 +826,20 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
             roundId,
             holeNumber: currentHole,
 
-            course: courseParam ?? { name: courseName, id: courseId || null },
-            tee: teeParam ?? { name: teeName },
+            course: courseParam ?? { name: effectiveCourseName, id: effectiveCourseId },
+            tee: teeParam ?? { name: effectiveTeeName },
             players: effectivePlayers,
             holeMeta,
             hole: currentHole,
             holeIndex: currentHole - 1,
-            courseName,
-            courseId: courseId || null,
-            teeName,
+            courseName: effectiveCourseName,
+            courseId: effectiveCourseId,
+            teeName: effectiveTeeName,
         });
     }
 
     function openGreenView() {
-        navigation.navigate(ROUTES.TOURNAMENT_GREEN_VIEW, {
+        navigation.navigate(ROUTES.GREEN_VIEW, {
             ...params,
             ...pickTournamentNavParams(params),
             tournamentId,
@@ -833,21 +847,17 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
             roundId,
             holeNumber: currentHole,
 
-            course: courseParam ?? { name: courseName, id: courseId || null },
-            tee: teeParam ?? { name: teeName },
+            course: courseParam ?? { name: effectiveCourseName, id: effectiveCourseId },
+            tee: teeParam ?? { name: effectiveTeeName },
             players: effectivePlayers,
             holeMeta,
             hole: currentHole,
             holeIndex: currentHole - 1,
-            courseName,
-            courseId: courseId || null,
-            teeName,
-
-            // optional: gives Green View real numbers instantly (if that screen reads it)
-            yardages,
+            courseName: effectiveCourseName,
+            courseId: effectiveCourseId,
+            teeName: effectiveTeeName,
         });
     }
-
 
     function openHazards() {
         navigation.navigate(ROUTES.HAZARDS, {
@@ -858,15 +868,15 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
             roundId,
             holeNumber: currentHole,
 
-            course: courseParam ?? { name: courseName, id: courseId || null },
-            tee: teeParam ?? { name: teeName },
+            course: courseParam ?? { name: effectiveCourseName, id: effectiveCourseId },
+            tee: teeParam ?? { name: effectiveTeeName },
             players: effectivePlayers,
             holeMeta,
             hole: currentHole,
             holeIndex: currentHole - 1,
-            courseName,
-            courseId: courseId || null,
-            teeName,
+            courseName: effectiveCourseName,
+            courseId: effectiveCourseId,
+            teeName: effectiveTeeName,
         });
     }
 
@@ -881,12 +891,12 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
 
             holeIndex: currentHole - 1,
             hole: currentHole,
-            course: courseParam ?? { name: courseName, id: courseId || null },
-            tee: teeParam ?? { name: teeName },
+            course: courseParam ?? { name: effectiveCourseName, id: effectiveCourseId },
+            tee: teeParam ?? { name: effectiveTeeName },
             players: effectivePlayers,
             holeMeta,
-            courseName,
-            courseId: courseId ? String(courseId) : null,
+            courseName: effectiveCourseName,
+            courseId: effectiveCourseId ? String(effectiveCourseId) : null,
             openSetup: !!openSetup,
 
             sideGameKey: computedSideGameKey || null,
@@ -906,9 +916,9 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
             holeMeta,
             sideGameKey: computedSideGameKey || null,
 
-            courseId: courseId ? String(courseId) : null,
-            courseName,
-            teeName,
+            courseId: effectiveCourseId ? String(effectiveCourseId) : null,
+            courseName: effectiveCourseName,
+            teeName: effectiveTeeName,
 
             players: effectivePlayers,
             groupPlayerIds: Array.isArray(params?.groupPlayerIds) ? params.groupPlayerIds : null,
@@ -960,11 +970,11 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                         team2Name: "Slackers",
 
                         tournamentName: params?.tournamentName ?? params?.name ?? "",
-                        courseName,
-                        teesName: teeName,
+                        courseName: effectiveCourseName,
+                        teesName: effectiveTeeName,
 
-                        course: courseParam ?? { name: courseName, id: courseId || null },
-                        tee: teeParam ?? { name: teeName },
+                        course: courseParam ?? { name: effectiveCourseName, id: effectiveCourseId },
+                        tee: teeParam ?? { name: effectiveTeeName },
 
                         players: effectivePlayers,
                         holeMeta,
@@ -1028,10 +1038,10 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
         }, [currentHole, holeBarWidth, scrollHoleToCenter])
     );
 
-    const headerCourseTitle = useMemo(() => shortCourseTitle(courseName), [courseName]);
+    const headerCourseTitle = useMemo(() => shortCourseTitle(effectiveCourseName), [effectiveCourseName]);
 
     return (
-        <SafeAreaView style={styles.safe}>
+        <SafeAreaView style={styles.safe} edges={["left", "right", "bottom"]}>
             <ScreenHeader
                 navigation={navigation}
                 title={headerTitle}
@@ -1165,11 +1175,11 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
 
                             <Pressable
                                 onPress={() => openHoleMap(true)}
-                                disabled={!courseId}
+                                disabled={!effectiveCourseId}
                                 style={({ pressed }) => [
                                     styles.hintBtn,
                                     pressed && styles.pressed,
-                                    !courseId && { opacity: 0.45 },
+                                    !effectiveCourseId && { opacity: 0.45 },
                                 ]}
                             >
                                 <Text style={styles.hintBtnT}>Set points</Text>
@@ -1267,7 +1277,7 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                             <View style={{ flex: 1 }}>
                                 <Text style={styles.modalTitle}>Yardage Book</Text>
                                 <Text style={styles.modalSub}>
-                                    {courseName} • Hole {currentHole}
+                                    {effectiveCourseName} • Hole {currentHole}
                                 </Text>
                             </View>
 
