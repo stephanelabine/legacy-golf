@@ -7,7 +7,6 @@ import {
   Pressable,
   ScrollView,
   Alert,
-  PanResponder,
   Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -19,9 +18,6 @@ import ScreenHeader from "../components/ScreenHeader";
 import ROUTES from "../navigation/routes";
 import { loadCourseData } from "../storage/courseData";
 import { pickTournamentNavParams } from "../utils/tournamentNav";
-
-// Put your PNG here: src/assets/greens/GreenShape1.png
-import GreenShape1 from "../assets/greens/GreenShape1.png";
 
 function toRad(v) {
   return (v * Math.PI) / 180;
@@ -103,15 +99,23 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
   const [courseData, setCourseData] = useState(null);
   const [userPt, setUserPt] = useState(null);
 
-  const [scrollEnabled, setScrollEnabled] = useState(true);
-
-  // UI highlight only (does NOT move the pin)
   const [activeTab, setActiveTab] = useState("pin"); // front | pin | back
 
-  // green layout + pin position in pixels (local only)
   const [greenBox, setGreenBox] = useState({ w: 0, h: 0 });
   const [pinPx, setPinPx] = useState({ x: 0, y: 0 });
   const didInitPin = useRef(false);
+
+  const scrollRef = useRef(null);
+  const greenRef = useRef(null);
+
+  const draggingRef = useRef(false);
+
+  // absolute rect of greenBox (window coordinates)
+  const greenRectRef = useRef({ x: 0, y: 0, w: 0, h: 0 });
+  const hasRectRef = useRef(false);
+
+  // Use this asset: /assets/GreenShape3.png
+  const GreenShape = useMemo(() => require("../../assets/GreenShape3.png"), []);
 
   const greenInfo = useMemo(() => {
     return params?.greenInfo || "Green notes can be added later (optional).";
@@ -204,7 +208,6 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
     return computedEdgeYardages;
   }, [passedYardages, computedEdgeYardages]);
 
-  // pin world point from green edge points + local pixel position (simple A->B axis + lateral)
   const pinWorld = useMemo(() => {
     if (!hasGreenPoints) return null;
 
@@ -217,7 +220,7 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
     if (!w || !h) return gMiddle || A;
 
     const t = clamp(pinPx.y / h, 0, 1);
-    const s = clamp((pinPx.x / w - 0.5) * 2, -1, 1); // -1..1 lateral
+    const s = clamp((pinPx.x / w - 0.5) * 2, -1, 1);
 
     const d = latLonToMetersDelta(A, B);
     const len = Math.hypot(d.dNorth, d.dEast) || 1;
@@ -229,7 +232,7 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
     const pE = uN;
 
     const along = t * len;
-    const lateralMeters = 10 * s; // +/- ~10m across green
+    const lateralMeters = 10 * s;
 
     const north = uN * along + pN * lateralMeters;
     const east = uE * along + pE * lateralMeters;
@@ -242,75 +245,122 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
     return yds(haversineMeters(userPt, pinWorld));
   }, [userPt, pinWorld]);
 
-  const initOrClampPin = useCallback((w, h) => {
-    if (!w || !h) return;
+  // Pin icon sizing + clamping
+  const FLAG_W = 34;
+  const FLAG_H = 48;
+  const INNER_PAD = 14;
 
-    // padding so the flag never gets clipped
-    const PAD_X = 22;
-    const PAD_Y = 34;
+  const clampPinCenter = useCallback(
+    (x, y, w, h) => {
+      const minX = INNER_PAD + FLAG_W / 2;
+      const maxX = w - INNER_PAD - FLAG_W / 2;
+      const minY = INNER_PAD + FLAG_H / 2;
+      const maxY = h - INNER_PAD - FLAG_H / 2;
 
-    if (!didInitPin.current) {
-      didInitPin.current = true;
-      setPinPx({
-        x: Math.round(w * 0.5),
-        y: Math.round(h * 0.5),
+      return {
+        x: clamp(x, minX, maxX),
+        y: clamp(y, minY, maxY),
+      };
+    },
+    [FLAG_W, FLAG_H]
+  );
+
+  const initOrClampPin = useCallback(
+    (w, h) => {
+      if (!w || !h) return;
+
+      if (!didInitPin.current) {
+        didInitPin.current = true;
+        setPinPx(clampPinCenter(Math.round(w * 0.5), Math.round(h * 0.5), w, h));
+        return;
+      }
+
+      setPinPx((p) => clampPinCenter(p.x, p.y, w, h));
+    },
+    [clampPinCenter]
+  );
+
+  const refreshGreenRect = useCallback(() => {
+    try {
+      if (!greenRef.current || !greenRef.current.measureInWindow) return;
+
+      greenRef.current.measureInWindow((x, y, w, h) => {
+        if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h))
+          return;
+
+        greenRectRef.current = { x, y, w, h };
+        hasRectRef.current = !!(w && h);
       });
-      return;
+    } catch {
+      // ignore
     }
-
-    setPinPx((p) => ({
-      x: clamp(p.x, PAD_X, w - PAD_X),
-      y: clamp(p.y, PAD_Y, h - PAD_Y),
-    }));
   }, []);
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => hasGreenPoints,
-      onMoveShouldSetPanResponder: (_, g) =>
-        hasGreenPoints && (Math.abs(g.dx) > 1 || Math.abs(g.dy) > 1),
+  const lockScroll = useCallback(() => {
+    draggingRef.current = true;
+    if (scrollRef.current && scrollRef.current.setNativeProps) {
+      scrollRef.current.setNativeProps({ scrollEnabled: false });
+    }
+  }, []);
 
-      onStartShouldSetPanResponderCapture: () => hasGreenPoints,
-      onMoveShouldSetPanResponderCapture: () => hasGreenPoints,
+  const unlockScroll = useCallback(() => {
+    draggingRef.current = false;
+    if (scrollRef.current && scrollRef.current.setNativeProps) {
+      scrollRef.current.setNativeProps({ scrollEnabled: true });
+    }
+  }, []);
 
-      onPanResponderGrant: (evt) => {
-        if (!hasGreenPoints) return;
+  const updatePinFromPageXY = useCallback(
+    (pageX, pageY) => {
+      const rect = greenRectRef.current;
+      const w = Number(greenBox?.w || 0);
+      const h = Number(greenBox?.h || 0);
+      if (!hasRectRef.current || !w || !h) return;
 
-        setScrollEnabled(false);
-        setActiveTab("pin");
+      const localX = pageX - rect.x;
+      const localY = pageY - rect.y;
 
-        const w = Number(greenBox?.w || 0);
-        const h = Number(greenBox?.h || 0);
-        if (!w || !h) return;
+      if (!Number.isFinite(localX) || !Number.isFinite(localY)) return;
 
-        const PAD_X = 22;
-        const PAD_Y = 34;
+      setPinPx(clampPinCenter(localX, localY, w, h));
+    },
+    [greenBox, clampPinCenter]
+  );
 
-        const x = clamp(evt.nativeEvent.locationX, PAD_X, w - PAD_X);
-        const y = clamp(evt.nativeEvent.locationY, PAD_Y, h - PAD_Y);
-        setPinPx({ x, y });
-      },
+  const handleGrant = useCallback(
+    (e) => {
+      if (!hasGreenPoints) return;
 
-      onPanResponderMove: (evt) => {
-        if (!hasGreenPoints) return;
+      refreshGreenRect();
+      lockScroll();
+      setActiveTab("pin");
 
-        const w = Number(greenBox?.w || 0);
-        const h = Number(greenBox?.h || 0);
-        if (!w || !h) return;
+      const px = e?.nativeEvent?.pageX;
+      const py = e?.nativeEvent?.pageY;
+      if (Number.isFinite(px) && Number.isFinite(py)) {
+        updatePinFromPageXY(px, py); // tap places immediately
+      }
+    },
+    [hasGreenPoints, refreshGreenRect, lockScroll, updatePinFromPageXY]
+  );
 
-        const PAD_X = 22;
-        const PAD_Y = 34;
+  const handleMove = useCallback(
+    (e) => {
+      if (!hasGreenPoints) return;
 
-        const x = clamp(evt.nativeEvent.locationX, PAD_X, w - PAD_X);
-        const y = clamp(evt.nativeEvent.locationY, PAD_Y, h - PAD_Y);
-        setPinPx({ x, y });
-      },
+      if (!draggingRef.current) {
+        refreshGreenRect();
+        lockScroll();
+      }
 
-      onPanResponderTerminationRequest: () => false,
-      onPanResponderRelease: () => setScrollEnabled(true),
-      onPanResponderTerminate: () => setScrollEnabled(true),
-    })
-  ).current;
+      const px = e?.nativeEvent?.pageX;
+      const py = e?.nativeEvent?.pageY;
+      if (Number.isFinite(px) && Number.isFinite(py)) {
+        updatePinFromPageXY(px, py); // drag follows thumb
+      }
+    },
+    [hasGreenPoints, refreshGreenRect, lockScroll, updatePinFromPageXY]
+  );
 
   function goBackToScoreEntry() {
     const TARGET = ROUTES.TOURNAMENT_SCORE_ENTRY || "TournamentScoreEntry";
@@ -340,6 +390,7 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
       roundNumber,
       roundId,
       holeNumber: hole,
+      hookup: "green",
       hole,
       holeIndex: hole - 1,
       courseId,
@@ -352,30 +403,29 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
   function showGreenHelp() {
     Alert.alert(
       "Putting Surface",
-      "Drag the flag on the green to set your own pin distance (local only). Front/Back are from saved green edge points."
+      "Tap or drag the flag on the green to set your pin distance (local only). Front/Back are from saved green edge points."
     );
   }
-
-  // flag sizing + safe positioning (prevents clipping)
-  const FLAG_W = 32;
-  const FLAG_H = 46;
 
   return (
     <View style={styles.screen}>
       <ScreenHeader navigation={navigation} title="Green View" subtitle={`Hole ${hole}`} />
 
       <ScrollView
+        ref={scrollRef}
         style={styles.scroll}
-        scrollEnabled={scrollEnabled}
+        scrollEnabled={!draggingRef.current}
         contentContainerStyle={[styles.wrap, { paddingBottom: 18 + insets.bottom }]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         <View style={styles.topRow}>
           <Pressable
             onPress={() => setActiveTab("front")}
             style={({ pressed }) => [
               styles.topCard,
-              activeTab === "front" && styles.topCardActiveSoft,
+              styles.goldBorderCard,
+              activeTab === "front" && styles.topCardActive,
               pressed && styles.pressed,
             ]}
           >
@@ -387,6 +437,7 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
             onPress={() => setActiveTab("pin")}
             style={({ pressed }) => [
               styles.topCard,
+              styles.goldBorderCard,
               activeTab === "pin" && styles.topCardActiveGold,
               pressed && styles.pressed,
             ]}
@@ -399,7 +450,8 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
             onPress={() => setActiveTab("back")}
             style={({ pressed }) => [
               styles.topCard,
-              activeTab === "back" && styles.topCardActiveSoft,
+              styles.goldBorderCard,
+              activeTab === "back" && styles.topCardActive,
               pressed && styles.pressed,
             ]}
           >
@@ -409,11 +461,11 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
         </View>
 
         {!hasGreenPoints ? (
-          <View style={styles.hintCard}>
+          <View style={[styles.hintCard, styles.goldBorder]}>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.hintTitle}>Green points not set yet</Text>
               <Text style={styles.hintSub}>
-                Set front / middle / back once. Then you can drag the pin for your own yardage.
+                Set front / middle / back once. Then you can tap/drag the pin for your own yardage.
               </Text>
             </View>
 
@@ -426,11 +478,11 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
             </Pressable>
           </View>
         ) : (
-          <View style={styles.infoCard}>
+          <View style={[styles.infoCard, styles.goldBorder]}>
             <View style={styles.infoRow}>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={styles.infoTitle}>Pin distance is adjustable</Text>
-                <Text style={styles.infoSub}>Drag inside the green. Page won’t scroll while dragging.</Text>
+                <Text style={styles.infoSub}>Tap or drag inside the green. Page won’t scroll while your finger is down.</Text>
               </View>
 
               <Pressable
@@ -444,7 +496,7 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
           </View>
         )}
 
-        <View style={styles.card}>
+        <View style={[styles.card, styles.goldBorderBig]}>
           <View style={styles.cardHeaderRow}>
             <Text style={styles.cardTitle}>Putting Surface</Text>
             <Pressable
@@ -457,6 +509,7 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
 
           <View style={styles.greenStage}>
             <View
+              ref={greenRef}
               style={styles.greenBox}
               onLayout={(e) => {
                 const w = e?.nativeEvent?.layout?.width || 0;
@@ -465,33 +518,29 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
 
                 setGreenBox({ w, h });
                 initOrClampPin(w, h);
+
+                requestAnimationFrame(() => refreshGreenRect());
               }}
-              {...panResponder.panHandlers}
+              // HARD CAPTURE touches so ScrollView can't steal them
+              onStartShouldSetResponderCapture={() => hasGreenPoints}
+              onMoveShouldSetResponderCapture={() => hasGreenPoints}
+              onResponderGrant={handleGrant}
+              onResponderMove={handleMove}
+              onResponderRelease={unlockScroll}
+              onResponderTerminate={unlockScroll}
+              onTouchEnd={unlockScroll}
+              onTouchCancel={unlockScroll}
             >
-              {/* Use your PNG as the green shape */}
-              <Image
-                source={GreenShape1}
-                style={styles.greenImage}
-                resizeMode="contain"
-                pointerEvents="none"
-              />
+              <Image source={GreenShape} style={styles.greenImage} resizeMode="cover" pointerEvents="none" />
 
-              <Text style={styles.edgeLabelTop} pointerEvents="none">
-                BACK
-              </Text>
-              <Text style={styles.edgeLabelBot} pointerEvents="none">
-                FRONT
-              </Text>
-
-              {/* flag */}
               <View
                 style={[
                   styles.flagWrap,
                   {
                     width: FLAG_W,
                     height: FLAG_H,
-                    left: clamp(pinPx.x - FLAG_W / 2, 0, Math.max(0, greenBox.w - FLAG_W)),
-                    top: clamp(pinPx.y - FLAG_H * 0.78, 0, Math.max(0, greenBox.h - FLAG_H)),
+                    left: pinPx.x - FLAG_W / 2,
+                    top: pinPx.y - FLAG_H / 2,
                   },
                 ]}
                 pointerEvents="none"
@@ -500,21 +549,12 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
                 <Text style={styles.flagIcon}>⛳</Text>
               </View>
             </View>
-
-            <View style={styles.pinReadoutRow}>
-              <Text style={styles.pinReadoutText}>Pin: {pinYardage} yds</Text>
-            </View>
           </View>
         </View>
 
-        <View style={styles.card}>
+        <View style={[styles.card, styles.goldBorder]}>
           <Text style={styles.cardTitle}>Green notes</Text>
           <Text style={styles.cardBody}>{greenInfo}</Text>
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Aim point</Text>
-          <Text style={styles.cardBody}>Default: play to center-green.</Text>
         </View>
 
         <Pressable
@@ -532,6 +572,9 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
   );
 }
 
+const GOLD = "rgba(242,201,76,0.85)";
+const GOLD_SOFT = "rgba(242,201,76,0.60)";
+
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: theme?.colors?.bg || "#0B1220" },
   scroll: { flex: 1 },
@@ -542,29 +585,40 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 18,
     paddingVertical: 14,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.18)",
     backgroundColor: "rgba(255,255,255,0.040)",
     alignItems: "center",
     justifyContent: "center",
   },
-  topCardActiveSoft: {
-    borderColor: "rgba(255,255,255,0.30)",
-    backgroundColor: "rgba(255,255,255,0.065)",
+  goldBorderCard: {
+    borderWidth: 2,
+    borderColor: GOLD_SOFT,
+  },
+  topCardActive: {
+    borderColor: GOLD,
+    borderWidth: 2.5,
+    backgroundColor: "rgba(255,255,255,0.055)",
   },
   topCardActiveGold: {
-    borderColor: "rgba(242,201,76,0.75)",
+    borderColor: GOLD,
+    borderWidth: 3,
     backgroundColor: "rgba(242,201,76,0.14)",
   },
   topLabel: { color: "rgba(255,255,255,0.70)", fontSize: 12, fontWeight: "900" },
   topValue: { marginTop: 8, color: "#fff", fontSize: 18, fontWeight: "900" },
 
+  goldBorder: {
+    borderWidth: 2,
+    borderColor: GOLD_SOFT,
+  },
+  goldBorderBig: {
+    borderWidth: 3,
+    borderColor: GOLD,
+  },
+
   hintCard: {
     borderRadius: 22,
     padding: 12,
     backgroundColor: "rgba(46,125,255,0.10)",
-    borderWidth: 1,
-    borderColor: "rgba(46,125,255,0.26)",
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
@@ -595,8 +649,6 @@ const styles = StyleSheet.create({
   infoCard: {
     borderRadius: 22,
     padding: 12,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
     backgroundColor: "rgba(255,255,255,0.04)",
   },
   infoRow: {
@@ -626,8 +678,6 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: 22,
     padding: 16,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
     backgroundColor: "rgba(255,255,255,0.04)",
   },
   cardHeaderRow: {
@@ -648,10 +698,10 @@ const styles = StyleSheet.create({
   infoIconBtn: {
     width: 34,
     height: 34,
-    borderRadius: 999,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.14)",
     backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -662,16 +712,16 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.10)",
-    backgroundColor: "rgba(0,0,0,0.18)",
-    padding: 12,
+    backgroundColor: "#0B1411",
+    padding: 0,
   },
   greenBox: {
-    height: 320,
+    height: 440,
     borderRadius: 18,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.10)",
-    backgroundColor: "rgba(0,0,0,0.14)",
+    backgroundColor: "#0E1A14",
     position: "relative",
   },
   greenImage: {
@@ -682,30 +732,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: "100%",
     height: "100%",
-    opacity: 0.95,
-  },
-
-  edgeLabelTop: {
-    position: "absolute",
-    top: 10,
-    left: 0,
-    right: 0,
-    textAlign: "center",
-    color: "rgba(255,255,255,0.58)",
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 1.2,
-  },
-  edgeLabelBot: {
-    position: "absolute",
-    bottom: 10,
-    left: 0,
-    right: 0,
-    textAlign: "center",
-    color: "rgba(255,255,255,0.58)",
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 1.2,
+    opacity: 0.98,
   },
 
   flagWrap: {
@@ -723,22 +750,14 @@ const styles = StyleSheet.create({
   },
   flagIcon: { fontSize: 26, lineHeight: 28 },
 
-  pinReadoutRow: { marginTop: 12, alignItems: "center" },
-  pinReadoutText: {
-    color: "rgba(255,255,255,0.85)",
-    fontWeight: "900",
-    fontSize: 12,
-    letterSpacing: 0.2,
-  },
-
   primaryBtn: {
     marginTop: 4,
     borderRadius: 999,
     height: 54,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(242,201,76,0.55)",
+    borderWidth: 2,
+    borderColor: GOLD,
     backgroundColor: "rgba(242,201,76,0.16)",
   },
   primaryBtnText: { color: "#fff", fontSize: 16, fontWeight: "900" },
