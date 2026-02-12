@@ -552,52 +552,20 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
 
     const [sgVisible, setSgVisible] = useState(false);
 
-    const sgOnceKey = useMemo(() => {
-        const t = String(tournamentId || "t");
-        const r = String(roundNumber || "r");
-        const h = String(currentHole || "h");
-        const s = String(computedSideGameKey || "none");
-        return `${t}__${r}__${h}__${s}`;
-    }, [tournamentId, roundNumber, currentHole, computedSideGameKey]);
-
-    const sgSeenStorageKey = useMemo(() => {
-        const t = String(tournamentId || "t");
-        const r = String(roundNumber || "r");
-        return `LEGACY_SG_SEEN__${t}__${r}__${sgOnceKey}`;
-    }, [tournamentId, roundNumber, sgOnceKey]);
 
     const dismissSideGameOverlay = useCallback(() => {
         setSgVisible(false);
     }, []);
 
-    useFocusEffect(
-        useCallback(() => {
-            if (!computedSideGameKey) return undefined;
+    React.useEffect(() => {
+        if (!computedSideGameKey) {
+            setSgVisible(false);
+            return;
+        }
 
-            let cancelled = false;
-
-            (async () => {
-                try {
-                    const already = await AsyncStorage.getItem(sgSeenStorageKey);
-                    if (cancelled) return;
-
-                    if (already === "1") return;
-
-                    await AsyncStorage.setItem(sgSeenStorageKey, "1");
-                    if (cancelled) return;
-
-                    setSgVisible(true);
-                } catch {
-                    // If storage fails, still show once for this focus
-                    if (!cancelled) setSgVisible(true);
-                }
-            })();
-
-            return () => {
-                cancelled = true;
-            };
-        }, [computedSideGameKey, sgSeenStorageKey])
-    );
+        // Show every time we arrive on a format hole (hole change or side-game change)
+        setSgVisible(true);
+    }, [computedSideGameKey, currentHole]);
 
 
     /* -------------------------- */

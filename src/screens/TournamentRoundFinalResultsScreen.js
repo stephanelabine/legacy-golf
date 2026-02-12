@@ -19,9 +19,10 @@ import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import { db } from "../firebase/firebase";
 import { pickTournamentNavParams, assertTournamentNavParams } from "../utils/tournamentNav";
+import * as BuddiesStore from "../storage/buddies";
 
-const BG = "#06150F"; // deep course green
-const CARD = "rgba(18,22,30,0.92)"; // premium dark glass
+const BG = "#06150F";
+const CARD = "rgba(18,22,30,0.92)";
 const ROW = "#1D3557";
 const INNER = "#243E63";
 const MUTED = "#AFC3DA";
@@ -50,9 +51,21 @@ function uniqInts(arr) {
 }
 
 function normKey(x) {
-    return String(x || "")
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, "");
+    return String(x || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function parseHcp(v) {
+    if (v == null) return null;
+    if (typeof v === "number") return Number.isFinite(v) ? Math.round(v) : null;
+
+    const s = String(v).trim();
+    if (!s) return null;
+
+    const m = s.match(/-?\d+(\.\d+)?/);
+    if (!m) return null;
+
+    const n = Number(m[0]);
+    return Number.isFinite(n) ? Math.round(n) : null;
 }
 
 // IMPORTANT: detect “second shot kp” before “kp”
@@ -99,15 +112,29 @@ function sumPlayerPutts(scoreDoc, totalHoles) {
     return total;
 }
 
-// v1 net: use explicit net if present; otherwise gross - handicap-strokes if present.
-// IMPORTANT: do NOT fall back to gross; if handicap is missing, return null.
-function getNetTotal(scoreDoc, grossTotal) {
+// Net rules:
+// 1) If explicit net exists AND not placeholder, use it.
+// 2) Else if doc handicap exists, use gross - doc handicap (unless 0 placeholder and we have a real player handicap).
+// 3) Else fallback: gross - (player handicap prorated).
+function getNetTotal(scoreDoc, grossTotal, playerHandicap, totalHoles) {
     const d = scoreDoc || {};
+    const gross = Number(grossTotal);
 
-    const explicit = d?.netTotal ?? d?.net ?? d?.roundNet ?? null;
-    if (Number.isFinite(Number(explicit))) return Number(explicit);
+    const explicitRaw = d?.netTotal ?? d?.net ?? d?.roundNet ?? null;
+    const explicit = Number(explicitRaw);
 
-    const hdcp =
+    if (Number.isFinite(explicit)) {
+        const ph = playerHandicap;
+        const hasPlayerHcp = Number.isFinite(ph) && ph > 0;
+
+        const looksPlaceholder =
+            (explicit === 0 && Number.isFinite(gross) && gross > 0) ||
+            (Number.isFinite(gross) && gross > 0 && hasPlayerHcp && explicit === gross);
+
+        if (!looksPlaceholder) return explicit;
+    }
+
+    const hdcpRaw =
         d?.handicapStrokes ??
         d?.courseHandicap ??
         d?.handicap ??
@@ -117,7 +144,23 @@ function getNetTotal(scoreDoc, grossTotal) {
         d?.handicapShotsTotal ??
         null;
 
-    if (Number.isFinite(Number(hdcp))) return Number(grossTotal) - Number(hdcp);
+    const hdcp = Number(hdcpRaw);
+
+    if (Number.isFinite(hdcp) && Number.isFinite(gross)) {
+        const ph = playerHandicap;
+        const hasPlayerHcp = Number.isFinite(ph) && ph > 0;
+        if (!(hdcp === 0 && gross > 0 && hasPlayerHcp)) {
+            return gross - hdcp;
+        }
+    }
+
+    const h = playerHandicap;
+    const holes = Number(totalHoles || 18);
+
+    if (Number.isFinite(h) && holes > 0 && Number.isFinite(gross)) {
+        const roundHcp = Math.round(h * (holes / 18));
+        return gross - roundHcp;
+    }
 
     return null;
 }
@@ -170,25 +213,12 @@ function formatDisplayTitle(type, rawName) {
 }
 
 function formatTheme(type) {
-    // subtle premium tints + bright icon accents
-    if (type === "kp") {
-        return { accent: "#5AD7FF", bg: "rgba(90,215,255,0.10)", border: "rgba(90,215,255,0.28)" };
-    }
-    if (type === "longdrive") {
-        return { accent: "#B8F37A", bg: "rgba(184,243,122,0.10)", border: "rgba(184,243,122,0.28)" };
-    }
-    if (type === "secondshotkp") {
-        return { accent: "#9D7BFF", bg: "rgba(157,123,255,0.10)", border: "rgba(157,123,255,0.28)" };
-    }
-    if (type === "deucepot") {
-        return { accent: "#FFCF5A", bg: "rgba(255,207,90,0.10)", border: "rgba(255,207,90,0.30)" };
-    }
-    if (type === "puttingcontest") {
-        return { accent: "#FF7AC8", bg: "rgba(255,122,200,0.10)", border: "rgba(255,122,200,0.28)" };
-    }
-    if (type === "teamvsteam") {
-        return { accent: "#69E6B4", bg: "rgba(105,230,180,0.10)", border: "rgba(105,230,180,0.28)" };
-    }
+    if (type === "kp") return { accent: "#5AD7FF", bg: "rgba(90,215,255,0.10)", border: "rgba(90,215,255,0.28)" };
+    if (type === "longdrive") return { accent: "#B8F37A", bg: "rgba(184,243,122,0.10)", border: "rgba(184,243,122,0.28)" };
+    if (type === "secondshotkp") return { accent: "#9D7BFF", bg: "rgba(157,123,255,0.10)", border: "rgba(157,123,255,0.28)" };
+    if (type === "deucepot") return { accent: "#FFCF5A", bg: "rgba(255,207,90,0.10)", border: "rgba(255,207,90,0.30)" };
+    if (type === "puttingcontest") return { accent: "#FF7AC8", bg: "rgba(255,122,200,0.10)", border: "rgba(255,122,200,0.28)" };
+    if (type === "teamvsteam") return { accent: "#69E6B4", bg: "rgba(105,230,180,0.10)", border: "rgba(105,230,180,0.28)" };
     return { accent: YELLOW, bg: "rgba(242,201,76,0.08)", border: "rgba(242,201,76,0.22)" };
 }
 
@@ -199,7 +229,6 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
     const roundNumber = Number(params?.roundNumber || 1);
     const totalHoles = Number(params?.totalHoles || 18);
 
-    // Best-effort “how many rounds is this tournament”
     const totalRounds = Number(params?.totalRounds ?? params?.roundsCount ?? params?.numRounds ?? params?.roundCount ?? 1);
     const isFinalRound = Number.isFinite(totalRounds) ? roundNumber >= totalRounds : true;
 
@@ -215,21 +244,69 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
     const [scoresByPid, setScoresByPid] = useState({});
     const [loading, setLoading] = useState(true);
 
-    const [showFull, setShowFull] = useState(false);
-    const [showAllFormats, setShowAllFormats] = useState(false);
+    const [formatDocs, setFormatDocs] = useState([]);
+    const [winnerModalOpen, setWinnerModalOpen] = useState(false);
+    const [selectedFormat, setSelectedFormat] = useState(null);
 
-    // Tabs
+    const [buddyHcpById, setBuddyHcpById] = useState({});
+    const [tournamentHcpById, setTournamentHcpById] = useState({});
+
+    const [showFull, setShowFull] = useState(true);
+    const [showAllFormats, setShowAllFormats] = useState(true);
+
     const TAB_LEADERBOARD = "leaderboard";
     const TAB_TEAM = "team";
     const TAB_FORMATS = "formats";
 
-    // Formats snapshot (source of truth for payouts + holesByRound config)
-    const [formatDocs, setFormatDocs] = useState([]);
+    const [activeTab, setActiveTab] = useState(TAB_LEADERBOARD);
 
-    // Winner modal
-    const [winnerModalOpen, setWinnerModalOpen] = useState(false);
-    const [selectedFormat, setSelectedFormat] = useState(null);
+    // Load buddies once (this is what gives us handicaps for buddy_* ids)
+    React.useEffect(() => {
+        let alive = true;
 
+        (async () => {
+            try {
+                const list = await BuddiesStore.getBuddies();
+                const map = {};
+
+                (Array.isArray(list) ? list : []).forEach((b) => {
+                    const rawId = b?.id ? String(b.id) : "";
+                    if (!rawId) return;
+
+                    const raw =
+                        b?.handicap ??
+                        b?.hcp ??
+                        b?.courseHandicap ??
+                        b?.handicapIndex ??
+                        b?.index ??
+                        null;
+
+                    const n = parseHcp(raw);
+                    if (n == null) return;
+
+                    // store BOTH key styles:
+                    //  - "17698..."
+                    //  - "buddy_17698..."
+                    map[rawId] = n;
+                    if (!rawId.startsWith("buddy_")) {
+                        map[`buddy_${rawId}`] = n;
+                    } else {
+                        map[rawId.replace(/^buddy_/, "")] = n;
+                    }
+                });
+
+                if (alive) setBuddyHcpById(map);
+            } catch {
+                if (alive) setBuddyHcpById({});
+            }
+        })();
+
+        return () => {
+            alive = false;
+        };
+    }, []);
+
+    // Formats snapshot
     useFocusEffect(
         useCallback(() => {
             if (!tournamentId) return undefined;
@@ -249,7 +326,141 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
         }, [tournamentId])
     );
 
-    // Formats source (passed from TournamentHoleViewScreen) - used as fallback for basic display
+    // Scores snapshot
+    useFocusEffect(
+        useCallback(() => {
+            if (!tournamentId) return undefined;
+
+            setLoading(true);
+
+            const scoresRef = collection(db, "tournaments", String(tournamentId), "rounds", `r${String(roundNumber)}`, "scores");
+            const unsub = onSnapshot(
+                scoresRef,
+                (snap) => {
+                    const next = {};
+                    snap.forEach((d) => {
+                        next[String(d.id)] = d.data() || {};
+                    });
+                    setScoresByPid(next);
+                    setLoading(false);
+                },
+                () => setLoading(false)
+            );
+
+            return () => unsub();
+        }, [tournamentId, roundNumber])
+    );
+
+    // Roster + Members snapshot (handicap source for BOTH buddy_* and uid players)
+    useFocusEffect(
+        useCallback(() => {
+            if (!tournamentId) return undefined;
+
+            let rosterSnap = null;
+            let membersSnap = null;
+
+            const rebuild = () => {
+                const map = {};
+
+                const ingest = (docId, data) => {
+                    const d = data || {};
+
+                    const rawH =
+                        d?.handicap ??
+                        d?.hcp ??
+                        d?.courseHandicap ??
+                        d?.handicapIndex ??
+                        d?.index ??
+                        d?.strokesHdcp ??
+                        d?.handicapStrokes ??
+                        null;
+
+                    const h = parseHcp(rawH);
+                    if (h == null) return;
+
+                    const ids = [
+                        docId,
+                        d?.id,
+                        d?.pid,
+                        d?.playerId,
+                        d?.buddyId,
+                        d?.memberId,
+                        d?.uid,
+                        d?.userId,
+                    ]
+                        .filter(Boolean)
+                        .map((x) => String(x));
+
+                    const name = String(d?.name || d?.playerName || "").trim();
+                    const nk = normKey(name);
+
+                    // Store by name (fallback only)
+                    if (nk) map[`name:${nk}`] = h;
+
+                    // Store by id in BOTH forms
+                    for (const k of ids) {
+                        map[k] = h;
+                        if (k.startsWith("buddy_")) {
+                            map[k.replace(/^buddy_/, "")] = h;
+                        } else {
+                            map[`buddy_${k}`] = h;
+                        }
+                    }
+                };
+
+                // roster
+                if (rosterSnap) {
+                    rosterSnap.forEach((docSnap) => ingest(docSnap.id, docSnap.data()));
+                }
+
+                // members
+                if (membersSnap) {
+                    membersSnap.forEach((docSnap) => ingest(docSnap.id, docSnap.data()));
+                }
+
+                setTournamentHcpById(map);
+
+                if (__DEV__) {
+                    console.log("TRFR tournamentHcpById count:", Object.keys(map || {}).length);
+                    console.log("TRFR tournamentHcpById sample:", Object.entries(map || {}).slice(0, 8));
+                }
+            };
+
+            const rosterRef = collection(db, "tournaments", String(tournamentId), "roster");
+            const membersRef = collection(db, "tournaments", String(tournamentId), "members");
+
+            const unsubRoster = onSnapshot(
+                rosterRef,
+                (snap) => {
+                    rosterSnap = snap;
+                    rebuild();
+                },
+                () => {
+                    rosterSnap = null;
+                    rebuild();
+                }
+            );
+
+            const unsubMembers = onSnapshot(
+                membersRef,
+                (snap) => {
+                    membersSnap = snap;
+                    rebuild();
+                },
+                () => {
+                    membersSnap = null;
+                    rebuild();
+                }
+            );
+
+            return () => {
+                unsubRoster();
+                unsubMembers();
+            };
+        }, [tournamentId])
+    );
+
+
     const formatsFromParams = useMemo(() => {
         return Array.isArray(params?.formats) ? params.formats : [];
     }, [params?.formats]);
@@ -278,8 +489,6 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
         return out;
     }, [hasTeam, hasFormats]);
 
-    const [activeTab, setActiveTab] = useState(TAB_LEADERBOARD);
-
     React.useEffect(() => {
         const keys = tabs.map((t) => t.key);
         if (!keys.includes(activeTab)) setActiveTab(TAB_LEADERBOARD);
@@ -292,51 +501,165 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
         return "LEADERBOARD";
     }, [activeTab]);
 
-    useFocusEffect(
-        useCallback(() => {
-            if (!tournamentId) return undefined;
-
-            setLoading(true);
-
-            const scoresRef = collection(db, "tournaments", String(tournamentId), "rounds", `r${String(roundNumber)}`, "scores");
-
-            const unsub = onSnapshot(
-                scoresRef,
-                (snap) => {
-                    const next = {};
-                    snap.forEach((d) => {
-                        next[String(d.id)] = d.data() || {};
-                    });
-                    setScoresByPid(next);
-                    setLoading(false);
-                },
-                () => setLoading(false)
-            );
-
-            return () => unsub();
-        }, [tournamentId, roundNumber])
-    );
-
     const rows = useMemo(() => {
         const ids = Object.keys(scoresByPid || {});
+
+        const playersFromParams =
+            Array.isArray(params?.players) ? params.players :
+                Array.isArray(params?.members) ? params.members :
+                    Array.isArray(params?.roster) ? params.roster :
+                        [];
+
+        // Build lookup tables from any roster objects that actually contain handicaps (if present)
+        const hcpById = {};
+        const hcpByName = {};
+
+        for (const pl of playersFromParams) {
+            const possibleIds = [
+                pl?.id,
+                pl?.pid,
+                pl?.playerId,
+                pl?.memberId,
+                pl?.uid,
+                pl?.userId,
+            ].filter(Boolean).map((x) => String(x));
+
+            const rawH =
+                pl?.handicap ??
+                pl?.hcp ??
+                pl?.courseHandicap ??
+                pl?.handicapIndex ??
+                pl?.index ??
+                null;
+
+            const h = parseHcp(rawH);
+            if (h != null && possibleIds.length) {
+                for (const k of possibleIds) hcpById[k] = h;
+            }
+
+            const nm = String(pl?.name || pl?.playerName || "").trim();
+            if (nm && h != null) hcpByName[normKey(nm)] = h;
+        }
+
+        const getTournamentHcp = (pid, name) => {
+            const p = String(pid || "");
+            const nk = normKey(String(name || ""));
+
+            const direct = tournamentHcpById[p];
+            if (direct != null) return direct;
+
+            if (p.startsWith("buddy_")) {
+                const stripped = p.replace(/^buddy_/, "");
+                const v = tournamentHcpById[stripped];
+                if (v != null) return v;
+            } else {
+                const prefixed = `buddy_${p}`;
+                const v = tournamentHcpById[prefixed];
+                if (v != null) return v;
+            }
+
+            if (nk) {
+                const v = tournamentHcpById[`name:${nk}`];
+                if (v != null) return v;
+            }
+
+            return null;
+        };
+
+        const getBuddyHcp = (pid) => {
+            const p = String(pid || "");
+            const n1 = buddyHcpById[p];
+            if (n1 != null) return n1;
+
+            if (p.startsWith("buddy_")) {
+                const stripped = p.replace(/^buddy_/, "");
+                const n2 = buddyHcpById[stripped];
+                if (n2 != null) return n2;
+            } else {
+                const prefixed = `buddy_${p}`;
+                const n3 = buddyHcpById[prefixed];
+                if (n3 != null) return n3;
+            }
+
+            return null;
+        };
+
+
+        if (__DEV__) {
+            console.log("TRFR playersFromParams len:", Array.isArray(playersFromParams) ? playersFromParams.length : "not array");
+            console.log("TRFR sample player:", Array.isArray(playersFromParams) && playersFromParams[0] ? playersFromParams[0] : null);
+            console.log("TRFR score ids:", Object.keys(scoresByPid || {}));
+            const firstPid = Object.keys(scoresByPid || {})[0];
+            console.log("TRFR sample score doc:", firstPid ? { pid: firstPid, doc: scoresByPid[firstPid] } : null);
+            console.log("TRFR buddyHcpById count:", Object.keys(buddyHcpById || {}).length);
+            console.log("TRFR buddyHcpById sample:", Object.entries(buddyHcpById || {}).slice(0, 5));
+        }
+
         return ids.map((pid) => {
             const d = scoresByPid?.[pid] || {};
+
             const gross = sumPlayerStrokes(d, totalHoles);
             const putts = sumPlayerPutts(d, totalHoles);
-            const net = getNetTotal(d, gross);
+
+            const playerName = String(d?.playerName || d?.name || "");
+
+            // roster handicap (if provided in params) OR buddy store handicap (most important for buddy_* ids)
+            const rosterHRaw =
+                getTournamentHcp(String(pid), playerName) ??
+                getTournamentHcp(String(d?.playerId ?? ""), playerName) ??
+                getTournamentHcp(String(d?.uid ?? ""), playerName) ??
+                hcpById[String(pid)] ??
+                hcpById[String(d?.playerId ?? "")] ??
+                hcpById[String(d?.uid ?? "")] ??
+                hcpById[String(d?.id ?? "")] ??
+                hcpByName[normKey(playerName)] ??
+                getBuddyHcp(String(pid)) ??
+                null;
+
+
+            const rosterH = parseHcp(rosterHRaw);
+            const hasRosterH = rosterH != null;
+
+            // score-doc handicap (often absent or 0 placeholder)
+            const scoreHRaw =
+                d?.handicapStrokes ??
+                d?.courseHandicap ??
+                d?.handicap ??
+                d?.hcp ??
+                d?.handicapIndex ??
+                d?.index ??
+                null;
+
+            const scoreH = parseHcp(scoreHRaw);
+            const hasScoreH = scoreH != null;
+
+            const effectiveH =
+                hasScoreH && !(scoreH === 0 && hasRosterH)
+                    ? scoreH
+                    : hasRosterH
+                        ? rosterH
+                        : null;
+
+            const net = getNetTotal(d, gross, effectiveH, totalHoles);
 
             return {
                 pid: String(pid),
-                name: String(d?.playerName || d?.name || "Player"),
+                name: String(playerName || "Player"),
                 gross,
                 putts,
                 net,
+                hcpUsed: effectiveH,
             };
         });
-    }, [scoresByPid, totalHoles]);
+    }, [scoresByPid, totalHoles, params?.players, params?.members, params?.roster, buddyHcpById, tournamentHcpById]);
+
 
     const rosterCount = useMemo(() => rows.length, [rows]);
-    const hasNet = useMemo(() => rows.some((r) => Number.isFinite(Number(r.net))), [rows]);
+    const hasNet = useMemo(() => {
+        return rows.some((r) => r.hcpUsed != null || Number.isFinite(Number(r.net)));
+    }, [rows]);
+
+
 
     const sortedRows = useMemo(() => {
         const list = [...rows];
@@ -353,7 +676,7 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
     }, [rows, hasNet]);
 
     const dataToRender = useMemo(() => {
-        return showFull ? sortedRows : sortedRows.slice(0, 3);
+        return showFull ? sortedRows : sortedRows.slice(0, 5);
     }, [sortedRows, showFull]);
 
     const roundKeys = useMemo(() => {
@@ -363,7 +686,6 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
         return out;
     }, [totalRounds]);
 
-    // Ordered formats (prefer live snapshot; fallback to params)
     const orderedFormats = useMemo(() => {
         const src = (Array.isArray(formatDocs) && formatDocs.length ? formatDocs : formatsFromParams) || [];
 
@@ -379,7 +701,7 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
 
     const formatsToRender = useMemo(() => {
         if (showAllFormats) return orderedFormats;
-        return orderedFormats.slice(0, 2);
+        return orderedFormats.slice(0, 3);
     }, [orderedFormats, showAllFormats]);
 
     const teamData = useMemo(() => {
@@ -405,19 +727,11 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
 
     const primaryAction = useCallback(() => {
         if (isFinalRound || totalRounds === 1) {
-            Alert.alert(
-                "Next step",
-                "Save tournament results, then show Winner’s Circle / Trophy screen next.",
-                [{ text: "OK" }]
-            );
+            Alert.alert("Next step", "Save tournament results, then show Winner’s Circle / Trophy screen next.", [{ text: "OK" }]);
             return;
         }
 
-        Alert.alert(
-            "Next step",
-            "Save round results, then take you to Round 2 start flow.",
-            [{ text: "OK" }]
-        );
+        Alert.alert("Next step", "Save round results, then take you to Round 2 start flow.", [{ text: "OK" }]);
     }, [isFinalRound, totalRounds]);
 
     const goHome = useCallback(() => {
@@ -473,7 +787,6 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
         );
     };
 
-    // Header row that matches the data row exactly
     const renderColumnHeader = () => {
         return (
             <View style={styles.headerRow}>
@@ -510,19 +823,19 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                         style={({ pressed }) => [styles.leaderToggle, pressed && styles.pressed]}
                     >
                         <Text style={styles.leaderToggleText}>
-                            {showFull ? "Show top 3" : "View full leaderboard"}
+                            {showFull ? "View Top 5" : "View full leaderboard"}
                         </Text>
                     </Pressable>
                 </View>
 
                 {renderColumnHeader()}
-
                 <View style={styles.divider} />
 
                 <View>
                     {dataToRender.map((item, index) => {
                         const rank = index + 1;
                         const netLabel = Number.isFinite(Number(item.net)) ? String(item.net) : "—";
+                        const debugHcp = item?.hcpUsed == null ? "—" : String(item.hcpUsed);
 
                         return (
                             <View key={item.pid} style={[styles.rowCard, index > 0 && { marginTop: 10 }]}>
@@ -550,9 +863,9 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                                     <View style={styles.numCol}>
                                         <Text style={styles.numBig3}>{netLabel}</Text>
                                         <Text style={styles.numSub}>net</Text>
+
                                     </View>
                                 ) : null}
-
                             </View>
                         );
                     })}
@@ -561,7 +874,7 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                 {!hasNet ? (
                     <View style={{ marginTop: 12 }}>
                         <Text style={styles.noteText}>
-                            Net scoring is not available yet for this round (handicap strokes not found in score docs).
+                            Net scoring is not available yet (no handicap found for these players).
                         </Text>
                     </View>
                 ) : null}
@@ -622,7 +935,7 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                     <View style={styles.placeholderBox}>
                         <Text style={styles.placeholderTitle}>Matches coming next</Text>
                         <Text style={styles.placeholderSub}>
-                            This panel will show team names, who’s leading, and a scrollable match list once team scoring is connected.
+                            This panel will show match results once team scoring is connected.
                         </Text>
                     </View>
                 )}
@@ -658,7 +971,7 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
             return {
                 headline: "To be determined",
                 lines: [
-                    "This pot is split among all players who make a deuce. Exact payout is calculated after scores are entered.",
+                    "This pot is split among all players who make a deuce.",
                     `Entry fee: ${money(fee)}`,
                     `Roster: ${rosterCount}`,
                     `Pot total: ${money(totalPool)}`,
@@ -687,7 +1000,7 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
             return {
                 headline: rosterCount > 0 ? `${money(perPlayer)} per player` : "Roster needed",
                 lines: [
-                    "Winning team payout shown per player, using total pool divided by tournament roster.",
+                    "Winning team payout shown per player.",
                     `Entry fee: ${money(fee)}`,
                     `Roster: ${rosterCount}`,
                     `Pool total: ${money(totalPool)}`,
@@ -720,8 +1033,6 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
 
         const payout = renderFormatPayout(f);
 
-        // Claims (pending) are stored on the format doc:
-        // claimsByRound.r{roundNumber}.{holeNumber} = { playerName, claimedByUid, ... }
         const rnKeyNow = `r${String(roundNumber)}`;
 
         const cfg = f?.config && typeof f.config === "object" ? f.config : {};
@@ -757,7 +1068,6 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                     ? "No winners claimed yet"
                     : "Round winners (pending)";
 
-
         return (
             <Modal visible={winnerModalOpen} transparent animationType="fade" onRequestClose={closeWinnerModal}>
                 <View style={styles.modalOverlay}>
@@ -789,8 +1099,10 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                                     <Text style={styles.statusPillText}>{statusPill}</Text>
                                 </View>
                             </View>
+
                             <View style={[styles.winnerBox, { alignItems: "stretch" }]}>
                                 <Text style={styles.winnerBig}>{winnerLine}</Text>
+
                                 {officialHoles.length ? (
                                     <View style={{ marginTop: 10, gap: 8 }}>
                                         {officialHoles.map((h) => {
@@ -814,9 +1126,7 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                                                         paddingHorizontal: 12,
                                                     }}
                                                 >
-                                                    <Text style={{ color: WHITE, fontWeight: "900", fontSize: 13 }}>
-                                                        Hole {h}
-                                                    </Text>
+                                                    <Text style={{ color: WHITE, fontWeight: "900", fontSize: 13 }}>Hole {h}</Text>
 
                                                     <Text
                                                         style={{ flex: 1, color: WHITE, fontWeight: "900", fontSize: 13, textAlign: "center" }}
@@ -826,9 +1136,7 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                                                     </Text>
 
                                                     <View style={styles.matchPill}>
-                                                        <Text style={styles.matchPillText}>
-                                                            {perWin > 0 ? money(perWin) : "—"}
-                                                        </Text>
+                                                        <Text style={styles.matchPillText}>{perWin > 0 ? money(perWin) : "—"}</Text>
                                                     </View>
                                                 </View>
                                             );
@@ -840,7 +1148,6 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                                     Claims are shown as pending until organizer confirmation/override is added.
                                 </Text>
                             </View>
-
                         </View>
 
                         <View style={styles.modalDivider} />
@@ -903,8 +1210,6 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                             const theme = formatTheme(type);
                             const icon = formatIconName(type);
 
-                            const sub = "Tap to view details";
-
                             return (
                                 <Pressable
                                     key={key}
@@ -929,7 +1234,7 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                                             {display} WINNER
                                         </Text>
                                         <Text style={styles.winnerTileSub} numberOfLines={1}>
-                                            {sub}
+                                            Tap to view details
                                         </Text>
                                     </View>
                                 </Pressable>
@@ -1224,7 +1529,6 @@ const styles = StyleSheet.create({
     placeholderTitle: { color: WHITE, fontWeight: "900", fontSize: 14 },
     placeholderSub: { marginTop: 8, color: MUTED, fontWeight: "800", fontSize: 12, lineHeight: 16 },
 
-    // Winner tiles
     winnerTile: {
         borderRadius: 22,
         borderWidth: 2,
@@ -1261,7 +1565,6 @@ const styles = StyleSheet.create({
     },
     formatPillText: { color: "rgba(242,201,76,0.98)", fontWeight: "900", fontSize: 11, letterSpacing: 0.3 },
 
-    // Footer (opaque + separates from scroll)
     footerWrap: {
         position: "absolute",
         left: 0,
@@ -1297,7 +1600,6 @@ const styles = StyleSheet.create({
 
     pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
 
-    // Modal
     modalOverlay: {
         flex: 1,
         backgroundColor: "rgba(0,0,0,0.55)",

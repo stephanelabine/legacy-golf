@@ -14,10 +14,13 @@ const SAFE_KEY = "LG_BUDDIES_SAFE_V1";
 function clampHandicap(n) {
   const v = Number(n);
   if (!Number.isFinite(v)) return 0;
-  return Math.max(0, Math.min(36, Math.round(v)));
+  const clamped = Math.max(0, Math.min(36, v));
+  // keep 1 decimal (so 12.4 stays 12.4 if the UI ever allows it)
+  return Math.round(clamped * 10) / 10;
 }
 
 function cleanPhone(s) {
+  // Store digits only (UI can format for display)
   return String(s || "").replace(/[^\d]/g, "");
 }
 
@@ -78,8 +81,8 @@ async function readLocal() {
 export function subscribeBuddies(onChange) {
   const user = auth.currentUser;
   if (!user?.uid) {
-    readLocal().then(onChange).catch(() => {});
-    return () => {};
+    readLocal().then(onChange).catch(() => { });
+    return () => { };
   }
 
   const unsub = onSnapshot(
@@ -103,7 +106,6 @@ export function subscribeBuddies(onChange) {
       onChange(cleaned);
     },
     async () => {
-      // fallback to local if snapshot fails
       const local = await readLocal();
       onChange(local);
     }

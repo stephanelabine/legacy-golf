@@ -25,11 +25,14 @@ function makeId() {
 }
 
 function clampHandicap(n) {
-  if (!Number.isFinite(n)) return 0;
-  return Math.max(0, Math.min(36, n));
+  const x = Number(n);
+  if (!Number.isFinite(x)) return 0;
+  const rounded = Math.round(x); // Option B: whole number
+  return Math.max(0, Math.min(36, rounded));
 }
 
 function cleanPhone(s) {
+  // store digits only; display formatting happens elsewhere
   return String(s || "").replace(/[^\d]/g, "");
 }
 
@@ -561,7 +564,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.04)",
     padding: 14,
     ...Platform.select({
-      ios: { shadowColor: GREEN, shadowOpacity: 0.20, shadowRadius: 16, shadowOffset: { width: 0, height: 10 } },
+      ios: { shadowColor: GREEN, shadowOpacity: 0.2, shadowRadius: 16, shadowOffset: { width: 0, height: 10 } },
       android: { elevation: 4 },
     }),
   },
@@ -737,7 +740,7 @@ const styles = StyleSheet.create({
     padding: 14,
     paddingTop: 10,
     borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.10)",
+    borderTopColor: "rgba(255,255,255,0.1)",
     backgroundColor: "#0B1220",
   },
   modalBtn: {
