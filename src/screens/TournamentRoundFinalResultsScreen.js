@@ -720,9 +720,43 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
 
         const payout = renderFormatPayout(f);
 
-        // Placeholder (next pass: read pending/confirmed claims)
-        const winnerLine = "Winner not set yet";
-        const statusPill = "NEEDS CONFIRMATION";
+        // Claims (pending) are stored on the format doc:
+        // claimsByRound.r{roundNumber}.{holeNumber} = { playerName, claimedByUid, ... }
+        const rnKeyNow = `r${String(roundNumber)}`;
+
+        const cfg = f?.config && typeof f.config === "object" ? f.config : {};
+        const hbr = cfg?.holesByRound && typeof cfg.holesByRound === "object" ? cfg.holesByRound : {};
+        const officialHoles = uniqInts(hbr?.[rnKeyNow] || []);
+
+        const allClaims = f?.claimsByRound && typeof f.claimsByRound === "object" ? f.claimsByRound : {};
+        const roundClaims = allClaims?.[rnKeyNow] && typeof allClaims[rnKeyNow] === "object" ? allClaims[rnKeyNow] : {};
+
+        const feeLocal = extractEntryFee(f);
+        const poolLocal = feeLocal > 0 ? feeLocal * Math.max(0, rosterCount) : 0;
+        const eventsThisRound = officialHoles.length;
+        const perWin = eventsThisRound > 0 ? poolLocal / eventsThisRound : 0;
+
+        const claimedCount = officialHoles.reduce((acc, h) => {
+            const c = roundClaims?.[String(h)] || null;
+            return acc + (c && (c.playerName || c.name || c.claimedByUid) ? 1 : 0);
+        }, 0);
+
+        const statusPill =
+            eventsThisRound === 0
+                ? "NO HOLES SET"
+                : claimedCount === 0
+                    ? "NO CLAIMS YET"
+                    : claimedCount < eventsThisRound
+                        ? "INCOMPLETE"
+                        : "PENDING CONFIRM";
+
+        const winnerLine =
+            eventsThisRound === 0
+                ? "No official holes selected yet"
+                : claimedCount === 0
+                    ? "No winners claimed yet"
+                    : "Round winners (pending)";
+
 
         return (
             <Modal visible={winnerModalOpen} transparent animationType="fade" onRequestClose={closeWinnerModal}>
@@ -755,10 +789,58 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                                     <Text style={styles.statusPillText}>{statusPill}</Text>
                                 </View>
                             </View>
-                            <View style={styles.winnerBox}>
+                            <View style={[styles.winnerBox, { alignItems: "stretch" }]}>
                                 <Text style={styles.winnerBig}>{winnerLine}</Text>
-                                <Text style={styles.winnerSmall}>Tap-to-set winners will be added next (organizer confirms final).</Text>
+                                {officialHoles.length ? (
+                                    <View style={{ marginTop: 10, gap: 8 }}>
+                                        {officialHoles.map((h) => {
+                                            const c = roundClaims?.[String(h)] || null;
+                                            const nm = String(c?.playerName || c?.name || "—");
+                                            const has = !!(c && (c.playerName || c.name || c.claimedByUid));
+
+                                            return (
+                                                <View
+                                                    key={`hole-${h}`}
+                                                    style={{
+                                                        flexDirection: "row",
+                                                        alignItems: "center",
+                                                        justifyContent: "space-between",
+                                                        gap: 10,
+                                                        borderRadius: 14,
+                                                        backgroundColor: "rgba(255,255,255,0.04)",
+                                                        borderWidth: 1,
+                                                        borderColor: "rgba(255,255,255,0.10)",
+                                                        paddingVertical: 10,
+                                                        paddingHorizontal: 12,
+                                                    }}
+                                                >
+                                                    <Text style={{ color: WHITE, fontWeight: "900", fontSize: 13 }}>
+                                                        Hole {h}
+                                                    </Text>
+
+                                                    <Text
+                                                        style={{ flex: 1, color: WHITE, fontWeight: "900", fontSize: 13, textAlign: "center" }}
+                                                        numberOfLines={1}
+                                                    >
+                                                        {has ? nm : "Unclaimed"}
+                                                    </Text>
+
+                                                    <View style={styles.matchPill}>
+                                                        <Text style={styles.matchPillText}>
+                                                            {perWin > 0 ? money(perWin) : "—"}
+                                                        </Text>
+                                                    </View>
+                                                </View>
+                                            );
+                                        })}
+                                    </View>
+                                ) : null}
+
+                                <Text style={styles.winnerSmall}>
+                                    Claims are shown as pending until organizer confirmation/override is added.
+                                </Text>
                             </View>
+
                         </View>
 
                         <View style={styles.modalDivider} />

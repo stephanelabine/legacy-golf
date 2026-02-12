@@ -551,7 +551,6 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
     }, [activeFormatDoc, rnKey, currentHole]);
 
     const [sgVisible, setSgVisible] = useState(false);
-    const sgShownKeyRef = useRef(null);
 
     const sgOnceKey = useMemo(() => {
         const t = String(tournamentId || "t");
@@ -561,6 +560,12 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
         return `${t}__${r}__${h}__${s}`;
     }, [tournamentId, roundNumber, currentHole, computedSideGameKey]);
 
+    const sgSeenStorageKey = useMemo(() => {
+        const t = String(tournamentId || "t");
+        const r = String(roundNumber || "r");
+        return `LEGACY_SG_SEEN__${t}__${r}__${sgOnceKey}`;
+    }, [tournamentId, roundNumber, sgOnceKey]);
+
     const dismissSideGameOverlay = useCallback(() => {
         setSgVisible(false);
     }, []);
@@ -569,13 +574,31 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
         useCallback(() => {
             if (!computedSideGameKey) return undefined;
 
-            if (sgShownKeyRef.current === sgOnceKey) return undefined;
-            sgShownKeyRef.current = sgOnceKey;
+            let cancelled = false;
 
-            setSgVisible(true);
-            return undefined;
-        }, [computedSideGameKey, sgOnceKey])
+            (async () => {
+                try {
+                    const already = await AsyncStorage.getItem(sgSeenStorageKey);
+                    if (cancelled) return;
+
+                    if (already === "1") return;
+
+                    await AsyncStorage.setItem(sgSeenStorageKey, "1");
+                    if (cancelled) return;
+
+                    setSgVisible(true);
+                } catch {
+                    // If storage fails, still show once for this focus
+                    if (!cancelled) setSgVisible(true);
+                }
+            })();
+
+            return () => {
+                cancelled = true;
+            };
+        }, [computedSideGameKey, sgSeenStorageKey])
     );
+
 
     /* -------------------------- */
     /* claim format winner (pending) */
@@ -1323,93 +1346,30 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
 
             <View style={[styles.footer, { paddingBottom: Math.max(10, (insets?.bottom || 0) + 8) }]}>
                 <View style={styles.footerRow}>
-                    <Pressable style={styles.greenBtn} onPress={showFinish ? onPressFinishRound : openTournamentScoreEntry}>
-                        <Text style={styles.greenText}>{showFinish ? "Finish Round" : "Input Scores"}</Text>
-                    </Pressable>
+                    {showFinish ? (
+                        <>
+                            <Pressable style={styles.greenBtn} onPress={openTournamentScoreEntry}>
+                                <Text style={styles.greenText}>Input Scores</Text>
+                            </Pressable>
 
-                    {!!computedSideGameKey ? (
-                        <Pressable onPress={openClaim} style={({ pressed }) => [styles.claimBtn, pressed && styles.pressed]}>
-                            <Text style={styles.claimBtnText} numberOfLines={1}>
-                                {claimPillText}
-                            </Text>
+                            <Pressable style={[styles.greenBtn, { backgroundColor: YELLOW }]} onPress={onPressFinishRound}>
+                                <Text style={[styles.greenText, { color: "#1A1A1A" }]}>Finish Round</Text>
+                            </Pressable>
+                        </>
+                    ) : (
+                        <Pressable style={styles.greenBtn} onPress={openTournamentScoreEntry}>
+                            <Text style={styles.greenText}>Input Scores</Text>
                         </Pressable>
-                    ) : null}
+                    )}
+
+                    {null}
+
                 </View>
+
             </View>
 
-            {/* Claim modal */}
-            <Modal visible={claimOpen} transparent animationType="fade" onRequestClose={closeClaim}>
-                <View style={styles.claimWrap}>
-                    <Pressable style={styles.claimBg} onPress={closeClaim}>
-                        <View />
-                    </Pressable>
+            {null}
 
-                    <View style={styles.claimCard}>
-                        <View style={styles.claimTop}>
-                            <View style={{ flex: 1, minWidth: 0 }}>
-                                <Text style={styles.claimTitle} numberOfLines={1}>{claimTitle}</Text>
-                                <Text style={styles.claimSub}>
-                                    Set a pending claim now. Organizer confirms later.
-                                </Text>
-
-                                {!!currentHolderName ? (
-                                    <View style={styles.claimHolderPill}>
-                                        <Text style={styles.claimHolderText} numberOfLines={1}>
-                                            Current holder: {currentHolderName}
-                                        </Text>
-                                    </View>
-                                ) : (
-                                    <View style={styles.claimHolderPillIdle}>
-                                        <Text style={styles.claimHolderTextIdle}>No current holder yet</Text>
-                                    </View>
-                                )}
-                            </View>
-
-                            <Pressable onPress={closeClaim} style={({ pressed }) => [styles.claimX, pressed && styles.pressed]}>
-                                <Text style={styles.claimXText}>✕</Text>
-                            </Pressable>
-                        </View>
-
-                        <View style={styles.claimDivider} />
-
-                        <View style={styles.claimList}>
-                            {(effectivePlayers || []).map((p) => {
-                                const pid = String(getPlayerId(p));
-                                const nm = String(p?.name || "Player");
-                                if (!pid) return null;
-
-                                return (
-                                    <Pressable
-                                        key={pid}
-                                        disabled={claimBusy}
-                                        onPress={() => setPendingClaim(p)}
-                                        style={({ pressed }) => [
-                                            styles.claimRow,
-                                            pressed && styles.pressed,
-                                            claimBusy && { opacity: 0.7 },
-                                        ]}
-                                    >
-                                        <Text style={styles.claimRowName} numberOfLines={1}>{nm}</Text>
-                                        <View style={styles.claimRowPill}>
-                                            <Text style={styles.claimRowPillText}>CLAIM</Text>
-                                        </View>
-                                    </Pressable>
-                                );
-                            })}
-                        </View>
-
-                        {!!currentHolderName ? (
-                            <Pressable
-                                onPress={clearClaim}
-                                disabled={claimBusy}
-                                style={({ pressed }) => [styles.claimClearBtn, pressed && styles.pressed, claimBusy && { opacity: 0.7 }]}
-                            >
-                                <Text style={styles.claimClearText}>Clear claim for this hole</Text>
-                            </Pressable>
-                        ) : null}
-                    </View>
-                </View>
-            </Modal>
 
             {/* Pin modal */}
             <Modal visible={pinOpen} transparent animationType="fade" onRequestClose={closePin}>
