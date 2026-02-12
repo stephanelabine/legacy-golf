@@ -9,9 +9,11 @@ import {
     ActivityIndicator,
     Alert,
     ScrollView,
+    Modal,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { collection, onSnapshot } from "firebase/firestore";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
@@ -29,6 +31,54 @@ const YELLOW = "#F2C94C";
 function toInt(v) {
     const n = parseInt(String(v ?? ""), 10);
     return Number.isFinite(n) ? n : 0;
+}
+
+function money(n) {
+    const v = Number(n);
+    if (!Number.isFinite(v) || v <= 0) return "$0";
+    const fixed = Math.round(v * 100) / 100;
+    return fixed % 1 === 0 ? `$${fixed.toFixed(0)}` : `$${fixed.toFixed(2)}`;
+}
+
+function uniqInts(arr) {
+    const s = new Set();
+    (arr || []).forEach((x) => {
+        const v = Number(x);
+        if (Number.isFinite(v)) s.add(Math.round(v));
+    });
+    return Array.from(s).sort((a, b) => a - b);
+}
+
+function normKey(x) {
+    return String(x || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "");
+}
+
+// IMPORTANT: detect “second shot kp” before “kp”
+function detectFormatType(f) {
+    const k = normKey(f?.key || f?.id || f?.formatKey);
+    const n = normKey(f?.name || f?.title);
+    const s = `${k} ${n}`.trim();
+
+    const isSecondShot =
+        s.includes("secondshotkp") ||
+        s.includes("secondshot") ||
+        (s.includes("second") && s.includes("shot") && s.includes("kp")) ||
+        s.includes("2ndshotkp") ||
+        (s.includes("2nd") && s.includes("shot") && s.includes("kp"));
+
+    if (isSecondShot) return "secondshotkp";
+    if (s.includes("longdrive") || (s.includes("long") && s.includes("drive"))) return "longdrive";
+    if (s.includes("deucepot") || (s.includes("deuce") && s.includes("pot"))) return "deucepot";
+    if (s.includes("puttingcontest") || (s.includes("putting") && s.includes("contest"))) return "puttingcontest";
+    if (s.includes("teamvsteam") || (s.includes("team") && s.includes("vs") && s.includes("team"))) return "teamvsteam";
+    if (s.includes("kp")) return "kp";
+    return "unknown";
+}
+
+function getKey(f) {
+    return String(f?.key || f?.id || f?.formatKey || "").trim();
 }
 
 function sumPlayerStrokes(scoreDoc, totalHoles) {
@@ -49,17 +99,97 @@ function sumPlayerPutts(scoreDoc, totalHoles) {
     return total;
 }
 
-// v1 net: use explicit net if present; otherwise gross - handicap-ish if present.
-// (Later we compute properly from course handicap + stroke index allocation.)
+// v1 net: use explicit net if present; otherwise gross - handicap-strokes if present.
+// IMPORTANT: do NOT fall back to gross; if handicap is missing, return null.
 function getNetTotal(scoreDoc, grossTotal) {
     const d = scoreDoc || {};
+
     const explicit = d?.netTotal ?? d?.net ?? d?.roundNet ?? null;
     if (Number.isFinite(Number(explicit))) return Number(explicit);
 
-    const hdcp = d?.handicapStrokes ?? d?.courseHandicap ?? d?.handicap ?? null;
+    const hdcp =
+        d?.handicapStrokes ??
+        d?.courseHandicap ??
+        d?.handicap ??
+        d?.hcp ??
+        d?.strokesHdcp ??
+        d?.handicapShots ??
+        d?.handicapShotsTotal ??
+        null;
+
     if (Number.isFinite(Number(hdcp))) return Number(grossTotal) - Number(hdcp);
 
     return null;
+}
+
+function extractEntryFee(f) {
+    const fee =
+        f?.entryFee != null
+            ? Number(f.entryFee)
+            : f?.buyIn != null
+                ? Number(f.buyIn)
+                : f?.buyInAmount != null
+                    ? Number(f.buyInAmount)
+                    : f?.amount != null
+                        ? Number(f.amount)
+                        : null;
+
+    return Number.isFinite(Number(fee)) && Number(fee) > 0 ? Number(fee) : 0;
+}
+
+function countEventsForHoleFormat(f, roundKeys) {
+    const cfg = f?.config && typeof f.config === "object" ? f.config : {};
+    const hbr = cfg?.holesByRound && typeof cfg.holesByRound === "object" ? cfg.holesByRound : {};
+
+    let count = 0;
+    for (const rk of roundKeys) {
+        const list = uniqInts(hbr?.[rk] || []);
+        count += list.length;
+    }
+    return count;
+}
+
+function formatIconName(type) {
+    if (type === "kp") return "target";
+    if (type === "secondshotkp") return "target-variant";
+    if (type === "longdrive") return "golf";
+    if (type === "puttingcontest") return "golf";
+    if (type === "deucepot") return "cash";
+    if (type === "teamvsteam") return "account-group";
+    return "star-four-points";
+}
+
+function formatDisplayTitle(type, rawName) {
+    if (type === "kp") return "KP";
+    if (type === "longdrive") return "LONG DRIVE";
+    if (type === "secondshotkp") return "SECOND SHOT KP";
+    if (type === "deucepot") return "DEUCE POT";
+    if (type === "puttingcontest") return "PUTTING CONTEST";
+    if (type === "teamvsteam") return "TEAM VS TEAM";
+    return String(rawName || "FORMAT").toUpperCase();
+}
+
+function formatTheme(type) {
+    // subtle premium tints + bright icon accents
+    if (type === "kp") {
+        return { accent: "#5AD7FF", bg: "rgba(90,215,255,0.10)", border: "rgba(90,215,255,0.28)" };
+    }
+    if (type === "longdrive") {
+        return { accent: "#B8F37A", bg: "rgba(184,243,122,0.10)", border: "rgba(184,243,122,0.28)" };
+    }
+    if (type === "secondshotkp") {
+        return { accent: "#9D7BFF", bg: "rgba(157,123,255,0.10)", border: "rgba(157,123,255,0.28)" };
+    }
+    if (type === "deucepot") {
+        return { accent: "#FFCF5A", bg: "rgba(255,207,90,0.10)", border: "rgba(255,207,90,0.30)" };
+    }
+    if (type === "puttingcontest") {
+        return { accent: "#FF7AC8", bg: "rgba(255,122,200,0.10)", border: "rgba(255,122,200,0.28)" };
+    }
+    if (type === "teamvsteam") {
+        return { accent: "#69E6B4", bg: "rgba(105,230,180,0.10)", border: "rgba(105,230,180,0.28)" };
+    }
+    return { accent: YELLOW, bg: "rgba(242,201,76,0.08)", border: "rgba(242,201,76,0.22)" };
 }
 
 export default function TournamentRoundFinalResultsScreen({ navigation, route }) {
@@ -68,6 +198,10 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
     const tournamentId = params?.tournamentId ? String(params.tournamentId) : "";
     const roundNumber = Number(params?.roundNumber || 1);
     const totalHoles = Number(params?.totalHoles || 18);
+
+    // Best-effort “how many rounds is this tournament”
+    const totalRounds = Number(params?.totalRounds ?? params?.roundsCount ?? params?.numRounds ?? params?.roundCount ?? 1);
+    const isFinalRound = Number.isFinite(totalRounds) ? roundNumber >= totalRounds : true;
 
     React.useEffect(() => {
         if (!__DEV__) return;
@@ -84,22 +218,49 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
     const [showFull, setShowFull] = useState(false);
     const [showAllFormats, setShowAllFormats] = useState(false);
 
-    // Tabs: single screen hub (no navigation between tabs)
+    // Tabs
     const TAB_LEADERBOARD = "leaderboard";
     const TAB_TEAM = "team";
     const TAB_FORMATS = "formats";
 
-    // Formats source (v1 placeholder list only if formats tab exists)
+    // Formats snapshot (source of truth for payouts + holesByRound config)
+    const [formatDocs, setFormatDocs] = useState([]);
+
+    // Winner modal
+    const [winnerModalOpen, setWinnerModalOpen] = useState(false);
+    const [selectedFormat, setSelectedFormat] = useState(null);
+
+    useFocusEffect(
+        useCallback(() => {
+            if (!tournamentId) return undefined;
+
+            const ref = collection(db, "tournaments", String(tournamentId), "formats");
+            const unsub = onSnapshot(
+                ref,
+                (snap) => {
+                    const out = [];
+                    snap.forEach((d) => out.push({ id: d.id, ...(d.data() || {}) }));
+                    setFormatDocs(out);
+                },
+                () => setFormatDocs([])
+            );
+
+            return () => unsub();
+        }, [tournamentId])
+    );
+
+    // Formats source (passed from TournamentHoleViewScreen) - used as fallback for basic display
     const formatsFromParams = useMemo(() => {
-        return Array.isArray(params?.formats) ? params.formats : null;
+        return Array.isArray(params?.formats) ? params.formats : [];
     }, [params?.formats]);
 
     const hasFormats = useMemo(() => {
+        if (Array.isArray(formatDocs) && formatDocs.length) return true;
         if (formatsFromParams && formatsFromParams.length) return true;
         if (params?.hasFormats === true) return true;
         if (params?.showFormatsTab === true) return true;
         return false;
-    }, [formatsFromParams, params?.hasFormats, params?.showFormatsTab]);
+    }, [formatDocs, formatsFromParams, params?.hasFormats, params?.showFormatsTab]);
 
     const hasTeam = useMemo(() => {
         if (params?.teamVsTeamActive === true) return true;
@@ -111,28 +272,23 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
     }, [params]);
 
     const tabs = useMemo(() => {
-        const out = [
-            { key: TAB_LEADERBOARD, label: "Leaderboard" },
-        ];
-        if (hasTeam) out.push({ key: TAB_TEAM, label: "Team vs Team" });
+        const out = [{ key: TAB_LEADERBOARD, label: "Leaderboard" }];
         if (hasFormats) out.push({ key: TAB_FORMATS, label: "Formats" });
+        if (hasTeam) out.push({ key: TAB_TEAM, label: "Team vs Team" });
         return out;
     }, [hasTeam, hasFormats]);
 
     const [activeTab, setActiveTab] = useState(TAB_LEADERBOARD);
 
     React.useEffect(() => {
-        // Keep activeTab valid if tab availability changes
         const keys = tabs.map((t) => t.key);
-        if (!keys.includes(activeTab)) {
-            setActiveTab(TAB_LEADERBOARD);
-        }
+        if (!keys.includes(activeTab)) setActiveTab(TAB_LEADERBOARD);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tabs.length, hasTeam, hasFormats]);
 
     const headerSubtitle = useMemo(() => {
         if (activeTab === TAB_TEAM) return "TEAM VS TEAM";
-        if (activeTab === TAB_FORMATS) return "FORMATS / MONEY GAMES";
+        if (activeTab === TAB_FORMATS) return "FORMATS / WINNERS";
         return "LEADERBOARD";
     }, [activeTab]);
 
@@ -142,14 +298,7 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
 
             setLoading(true);
 
-            const scoresRef = collection(
-                db,
-                "tournaments",
-                String(tournamentId),
-                "rounds",
-                `r${String(roundNumber)}`,
-                "scores"
-            );
+            const scoresRef = collection(db, "tournaments", String(tournamentId), "rounds", `r${String(roundNumber)}`, "scores");
 
             const unsub = onSnapshot(
                 scoresRef,
@@ -170,7 +319,7 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
 
     const rows = useMemo(() => {
         const ids = Object.keys(scoresByPid || {});
-        const out = ids.map((pid) => {
+        return ids.map((pid) => {
             const d = scoresByPid?.[pid] || {};
             const gross = sumPlayerStrokes(d, totalHoles);
             const putts = sumPlayerPutts(d, totalHoles);
@@ -184,61 +333,55 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                 net,
             };
         });
-
-        const netCount = out.filter((x) => Number.isFinite(Number(x.net))).length;
-        const sortByNet = netCount >= Math.max(1, Math.floor(out.length / 2));
-
-        out.sort((a, b) => {
-            if (sortByNet) {
-                const an = Number.isFinite(Number(a.net)) ? Number(a.net) : 9999;
-                const bn = Number.isFinite(Number(b.net)) ? Number(b.net) : 9999;
-                return (
-                    an - bn ||
-                    a.gross - b.gross ||
-                    a.putts - b.putts ||
-                    a.name.localeCompare(b.name)
-                );
-            }
-            return (
-                a.gross - b.gross ||
-                a.putts - b.putts ||
-                a.name.localeCompare(b.name)
-            );
-        });
-
-        return out;
     }, [scoresByPid, totalHoles]);
 
-    const top3 = useMemo(() => rows.slice(0, 3), [rows]);
-    const dataToRender = useMemo(() => (showFull ? rows : top3), [rows, top3, showFull]);
-
+    const rosterCount = useMemo(() => rows.length, [rows]);
     const hasNet = useMemo(() => rows.some((r) => Number.isFinite(Number(r.net))), [rows]);
 
-    // Formats v1 (only used if formats tab exists)
-    const formats = useMemo(() => {
-        if (formatsFromParams && formatsFromParams.length) {
-            return formatsFromParams.map((f, i) => ({
-                key: String(f?.id ?? f?.key ?? i),
-                title: String(f?.name ?? f?.title ?? `Format ${i + 1}`),
-                status: String(f?.status ?? "COMING SOON"),
-                summary: String(f?.summary ?? "Winners will appear here after format calculations are added."),
-            }));
-        }
+    const sortedRows = useMemo(() => {
+        const list = [...rows];
+        list.sort((a, b) => {
+            if (hasNet) {
+                const an = Number.isFinite(Number(a.net)) ? Number(a.net) : 9999;
+                const bn = Number.isFinite(Number(b.net)) ? Number(b.net) : 9999;
+                if (an !== bn) return an - bn;
+                return a.gross - b.gross;
+            }
+            return a.gross - b.gross;
+        });
+        return list;
+    }, [rows, hasNet]);
 
-        return [
-            { key: "net", title: "Net Stroke Play", status: "LEADERS", summary: "Leaders shown in the leaderboard tab. Winners later." },
-            { key: "kp", title: "KP (Closest to Pin)", status: "COMING SOON", summary: "KP winners will be summarized here." },
-            { key: "ld", title: "Long Drive", status: "COMING SOON", summary: "Long Drive winners will be summarized here." },
-            { key: "pools", title: "Pools / Flights", status: "COMING SOON", summary: "Pools/flights winners will be summarized here." },
-        ];
-    }, [formatsFromParams]);
+    const dataToRender = useMemo(() => {
+        return showFull ? sortedRows : sortedRows.slice(0, 3);
+    }, [sortedRows, showFull]);
+
+    const roundKeys = useMemo(() => {
+        const tr = Number.isFinite(totalRounds) ? totalRounds : 1;
+        const out = [];
+        for (let i = 1; i <= Math.max(1, tr); i++) out.push(`r${i}`);
+        return out;
+    }, [totalRounds]);
+
+    // Ordered formats (prefer live snapshot; fallback to params)
+    const orderedFormats = useMemo(() => {
+        const src = (Array.isArray(formatDocs) && formatDocs.length ? formatDocs : formatsFromParams) || [];
+
+        const FORMAT_ORDER = ["kp", "longdrive", "secondshotkp", "deucepot", "puttingcontest", "teamvsteam"];
+        const rank = (f) => {
+            const type = detectFormatType(f);
+            const idx = FORMAT_ORDER.indexOf(type);
+            return idx === -1 ? 999 : idx;
+        };
+
+        return [...src].filter((f) => !!getKey(f)).sort((a, b) => rank(a) - rank(b));
+    }, [formatDocs, formatsFromParams]);
 
     const formatsToRender = useMemo(() => {
-        if (showAllFormats) return formats;
-        return formats.slice(0, 2);
-    }, [formats, showAllFormats]);
+        if (showAllFormats) return orderedFormats;
+        return orderedFormats.slice(0, 2);
+    }, [orderedFormats, showAllFormats]);
 
-    // Team vs Team v1 (placeholder UI; later driven by tournament format data)
     const teamData = useMemo(() => {
         const t1 = String(params?.team1Name || "Team A");
         const t2 = String(params?.team2Name || "Team B");
@@ -260,20 +403,48 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
         navigation.navigate(target, pickTournamentNavParams(params));
     }, [navigation, params]);
 
-    const startNextRound = useCallback(() => {
+    const primaryAction = useCallback(() => {
+        if (isFinalRound || totalRounds === 1) {
+            Alert.alert(
+                "Next step",
+                "Save tournament results, then show Winner’s Circle / Trophy screen next.",
+                [{ text: "OK" }]
+            );
+            return;
+        }
+
         Alert.alert(
-            "Start Next Round",
-            "Round 2 splash + next-round start flow is next. For now, this is a placeholder."
+            "Next step",
+            "Save round results, then take you to Round 2 start flow.",
+            [{ text: "OK" }]
         );
-    }, []);
+    }, [isFinalRound, totalRounds]);
 
     const goHome = useCallback(() => {
         navigation.navigate(ROUTES.HOME);
     }, [navigation]);
 
-    const title = useMemo(() => `ROUND ${roundNumber} RESULTS`, [roundNumber]);
+    const title = useMemo(() => {
+        if (totalRounds === 1 || isFinalRound) return "TOURNAMENT FINAL RESULTS";
+        return `ROUND ${roundNumber} RESULTS`;
+    }, [roundNumber, totalRounds, isFinalRound]);
 
-    const FOOTER_H = 132;
+    const primaryLabel = useMemo(() => {
+        if (totalRounds === 1 || isFinalRound) return "Save & Publish Tournament";
+        return "Save & Publish Round";
+    }, [totalRounds, isFinalRound]);
+
+    const FOOTER_H = 142;
+
+    const openWinnerModal = useCallback((f) => {
+        setSelectedFormat(f || null);
+        setWinnerModalOpen(true);
+    }, []);
+
+    const closeWinnerModal = useCallback(() => {
+        setWinnerModalOpen(false);
+        setSelectedFormat(null);
+    }, []);
 
     const renderTabs = () => {
         if (!tabs || tabs.length <= 1) return null;
@@ -302,6 +473,32 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
         );
     };
 
+    // Header row that matches the data row exactly
+    const renderColumnHeader = () => {
+        return (
+            <View style={styles.headerRow}>
+                <View style={styles.rankPillSpacer} />
+                <View style={styles.rowMid}>
+                    <Text style={[styles.colText, styles.colPlayer]}>PLAYER</Text>
+                </View>
+
+                <View style={styles.numCol}>
+                    <Text style={[styles.colText, styles.colNum]}>GROSS</Text>
+                </View>
+
+                <View style={styles.numCol}>
+                    <Text style={[styles.colText, styles.colNum]}>PUTTS</Text>
+                </View>
+
+                {hasNet ? (
+                    <View style={styles.numCol}>
+                        <Text style={[styles.colText, styles.colNum]}>NET</Text>
+                    </View>
+                ) : null}
+            </View>
+        );
+    };
+
     const renderLeaderboardCard = () => {
         return (
             <View style={styles.leaderWrap}>
@@ -318,12 +515,7 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                     </Pressable>
                 </View>
 
-                <View style={styles.colHeader}>
-                    <Text style={[styles.colText, styles.colPlayer]}>PLAYER</Text>
-                    <Text style={[styles.colText, styles.colNum]}>GROSS</Text>
-                    <Text style={[styles.colText, styles.colNum]}>PUTTS</Text>
-                    {hasNet ? <Text style={[styles.colText, styles.colNum]}>NET</Text> : null}
-                </View>
+                {renderColumnHeader()}
 
                 <View style={styles.divider} />
 
@@ -331,6 +523,7 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                     {dataToRender.map((item, index) => {
                         const rank = index + 1;
                         const netLabel = Number.isFinite(Number(item.net)) ? String(item.net) : "—";
+
                         return (
                             <View key={item.pid} style={[styles.rowCard, index > 0 && { marginTop: 10 }]}>
                                 <View style={styles.rankPill}>
@@ -359,10 +552,19 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                                         <Text style={styles.numSub}>net</Text>
                                     </View>
                                 ) : null}
+
                             </View>
                         );
                     })}
                 </View>
+
+                {!hasNet ? (
+                    <View style={{ marginTop: 12 }}>
+                        <Text style={styles.noteText}>
+                            Net scoring is not available yet for this round (handicap strokes not found in score docs).
+                        </Text>
+                    </View>
+                ) : null}
             </View>
         );
     };
@@ -428,6 +630,161 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
         );
     };
 
+    function renderFormatPayout(f) {
+        const type = detectFormatType(f);
+        const fee = extractEntryFee(f);
+        const totalPool = fee > 0 ? fee * Math.max(0, rosterCount) : 0;
+
+        if (fee <= 0) {
+            return { headline: "No buy-in", lines: ["Set a buy-in in Formats / Money Pools to compute payouts."] };
+        }
+
+        if (type === "kp" || type === "longdrive" || type === "secondshotkp") {
+            const events = countEventsForHoleFormat(f, roundKeys);
+            const perEvent = events > 0 ? totalPool / events : 0;
+
+            return {
+                headline: events > 0 ? `${money(perEvent)} per win` : "Needs holes",
+                lines: [
+                    `Entry fee: ${money(fee)}`,
+                    `Roster: ${rosterCount}`,
+                    `Pool total: ${money(totalPool)}`,
+                    `Official holes selected: ${events > 0 ? String(events) : "0 (select holes in Format Details)"}`,
+                ],
+            };
+        }
+
+        if (type === "deucepot") {
+            return {
+                headline: "To be determined",
+                lines: [
+                    "This pot is split among all players who make a deuce. Exact payout is calculated after scores are entered.",
+                    `Entry fee: ${money(fee)}`,
+                    `Roster: ${rosterCount}`,
+                    `Pot total: ${money(totalPool)}`,
+                ],
+            };
+        }
+
+        if (type === "puttingcontest") {
+            const first = totalPool * 0.75;
+            const second = totalPool * 0.25;
+
+            return {
+                headline: `${money(first)} / ${money(second)}`,
+                lines: [
+                    "Split: 1st place 75% and 2nd place 25% of the total pool.",
+                    `Entry fee: ${money(fee)}`,
+                    `Roster: ${rosterCount}`,
+                    `Pool total: ${money(totalPool)}`,
+                ],
+            };
+        }
+
+        if (type === "teamvsteam") {
+            const perPlayer = rosterCount > 0 ? totalPool / rosterCount : 0;
+
+            return {
+                headline: rosterCount > 0 ? `${money(perPlayer)} per player` : "Roster needed",
+                lines: [
+                    "Winning team payout shown per player, using total pool divided by tournament roster.",
+                    `Entry fee: ${money(fee)}`,
+                    `Roster: ${rosterCount}`,
+                    `Pool total: ${money(totalPool)}`,
+                ],
+            };
+        }
+
+        return {
+            headline: `${money(totalPool)} (winner)`,
+            lines: [
+                "Default payout: a single winner takes the full pool.",
+                `Entry fee: ${money(fee)}`,
+                `Roster: ${rosterCount}`,
+                `Pool total: ${money(totalPool)}`,
+            ],
+        };
+    }
+
+    const renderWinnerModal = () => {
+        if (!winnerModalOpen || !selectedFormat) return null;
+
+        const f = selectedFormat;
+        const key = getKey(f) || String(f?.id || f?.formatKey || f?.key || "format");
+        const rawName = String(f?.name || f?.title || key);
+
+        const type = detectFormatType(f);
+        const display = formatDisplayTitle(type, rawName);
+        const theme = formatTheme(type);
+        const icon = formatIconName(type);
+
+        const payout = renderFormatPayout(f);
+
+        // Placeholder (next pass: read pending/confirmed claims)
+        const winnerLine = "Winner not set yet";
+        const statusPill = "NEEDS CONFIRMATION";
+
+        return (
+            <Modal visible={winnerModalOpen} transparent animationType="fade" onRequestClose={closeWinnerModal}>
+                <View style={styles.modalOverlay}>
+                    <View style={[styles.modalCard, { borderColor: theme.border }]}>
+                        <View style={styles.modalTop}>
+                            <View style={[styles.modalIconWrap, { backgroundColor: theme.bg, borderColor: theme.border }]}>
+                                <MaterialCommunityIcons name={icon} size={18} color={theme.accent} />
+                            </View>
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                                <Text style={styles.modalTitle} numberOfLines={1}>
+                                    {display} WINNER
+                                </Text>
+                                <Text style={styles.modalSub} numberOfLines={1}>
+                                    {rawName}
+                                </Text>
+                            </View>
+
+                            <Pressable onPress={closeWinnerModal} style={({ pressed }) => [styles.modalClose, pressed && styles.pressed]}>
+                                <Text style={styles.modalCloseText}>Close</Text>
+                            </Pressable>
+                        </View>
+
+                        <View style={styles.modalDivider} />
+
+                        <View style={styles.modalSection}>
+                            <View style={styles.modalSectionRow}>
+                                <Text style={styles.modalSectionTitle}>Winner</Text>
+                                <View style={styles.statusPill}>
+                                    <Text style={styles.statusPillText}>{statusPill}</Text>
+                                </View>
+                            </View>
+                            <View style={styles.winnerBox}>
+                                <Text style={styles.winnerBig}>{winnerLine}</Text>
+                                <Text style={styles.winnerSmall}>Tap-to-set winners will be added next (organizer confirms final).</Text>
+                            </View>
+                        </View>
+
+                        <View style={styles.modalDivider} />
+
+                        <View style={styles.modalSection}>
+                            <View style={styles.modalSectionRow}>
+                                <Text style={styles.modalSectionTitle}>Payout</Text>
+                                <View style={styles.formatPill}>
+                                    <Text style={styles.formatPillText}>PAYOUT</Text>
+                                </View>
+                            </View>
+
+                            <Text style={styles.payoutHeadline}>{payout.headline}</Text>
+
+                            {payout.lines.map((line, idx) => (
+                                <Text key={`${key}-p-${idx}`} style={styles.modalLine}>
+                                    {line}
+                                </Text>
+                            ))}
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+        );
+    };
+
     const renderFormatsCard = () => {
         return (
             <View style={styles.leaderWrap}>
@@ -446,23 +803,60 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
 
                 <View style={styles.divider} />
 
-                {formatsToRender.map((f) => (
-                    <View key={f.key} style={styles.formatCard}>
-                        <View style={styles.formatTop}>
-                            <Text style={styles.formatTitle} numberOfLines={1}>
-                                {f.title}
-                            </Text>
-                            <View style={styles.formatPill}>
-                                <Text style={styles.formatPillText} numberOfLines={1}>
-                                    {f.status}
-                                </Text>
-                            </View>
-                        </View>
-                        <Text style={styles.formatSub}>{f.summary}</Text>
+                {!formatsToRender.length ? (
+                    <View style={styles.placeholderBox}>
+                        <Text style={styles.placeholderTitle}>No formats to show</Text>
+                        <Text style={styles.placeholderSub}>
+                            Select formats in tournament setup, then they will appear here.
+                        </Text>
                     </View>
-                ))}
+                ) : (
+                    <>
+                        {formatsToRender.map((f) => {
+                            const key = getKey(f) || String(f?.id || f?.formatKey || f?.key || "format");
+                            const rawName = String(f?.name || f?.title || key);
 
-                <View style={{ height: 2 }} />
+                            const type = detectFormatType(f);
+                            const display = formatDisplayTitle(type, rawName);
+                            const theme = formatTheme(type);
+                            const icon = formatIconName(type);
+
+                            const sub = "Tap to view details";
+
+                            return (
+                                <Pressable
+                                    key={key}
+                                    onPress={() => openWinnerModal(f)}
+                                    style={({ pressed }) => [
+                                        styles.winnerTile,
+                                        { backgroundColor: theme.bg, borderColor: theme.border },
+                                        pressed && styles.pressed,
+                                    ]}
+                                >
+                                    <View style={styles.winnerTileTop}>
+                                        <View style={[styles.winnerIcon, { backgroundColor: "rgba(0,0,0,0.18)", borderColor: theme.border }]}>
+                                            <MaterialCommunityIcons name={icon} size={18} color={theme.accent} />
+                                        </View>
+                                        <View style={styles.formatPill}>
+                                            <Text style={styles.formatPillText}>WINNER</Text>
+                                        </View>
+                                    </View>
+
+                                    <View style={styles.winnerTileCenter}>
+                                        <Text style={styles.winnerTileTitle} numberOfLines={2}>
+                                            {display} WINNER
+                                        </Text>
+                                        <Text style={styles.winnerTileSub} numberOfLines={1}>
+                                            {sub}
+                                        </Text>
+                                    </View>
+                                </Pressable>
+                            );
+                        })}
+                        <View style={{ height: 2 }} />
+                        {renderWinnerModal()}
+                    </>
+                )}
             </View>
         );
     };
@@ -494,10 +888,7 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                     <View style={styles.card}>
                         <Text style={styles.titleText}>Round not found</Text>
                         <Text style={styles.subText}>Missing tournamentId.</Text>
-                        <Pressable
-                            onPress={goHome}
-                            style={({ pressed }) => [styles.btnPrimary, pressed && styles.pressed]}
-                        >
+                        <Pressable onPress={goHome} style={({ pressed }) => [styles.btnPrimary, pressed && styles.pressed]}>
                             <Text style={styles.btnPrimaryText}>Go Home</Text>
                         </Pressable>
                     </View>
@@ -512,30 +903,28 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
 
                         <ScrollView
                             style={{ flex: 1 }}
-                            contentContainerStyle={{ paddingBottom: FOOTER_H + 24, paddingTop: tabs.length > 1 ? 6 : 10 }}
+                            contentContainerStyle={{
+                                paddingBottom: FOOTER_H + 24,
+                                paddingTop: tabs.length > 1 ? 6 : 10,
+                            }}
                             showsVerticalScrollIndicator={false}
                         >
                             {renderActiveContent()}
                             <View style={{ height: 10 }} />
                         </ScrollView>
 
-                        {/* Fixed action bar */}
-                        <View style={styles.footer}>
-                            <Pressable
-                                onPress={startNextRound}
-                                style={({ pressed }) => [styles.btnPrimary, pressed && styles.pressed]}
-                            >
-                                <Text style={styles.btnPrimaryText}>Start Next Round</Text>
-                            </Pressable>
+                        <View style={styles.footerWrap}>
+                            <View style={styles.footer}>
+                                <Pressable onPress={primaryAction} style={({ pressed }) => [styles.btnPrimary, pressed && styles.pressed]}>
+                                    <Text style={styles.btnPrimaryText}>{primaryLabel}</Text>
+                                </Pressable>
 
-                            <View style={{ height: 10 }} />
+                                <View style={{ height: 10 }} />
 
-                            <Pressable
-                                onPress={goTournamentHub}
-                                style={({ pressed }) => [styles.btnOutline, pressed && styles.pressed]}
-                            >
-                                <Text style={styles.btnOutlineText}>Back to Tournament Hub</Text>
-                            </Pressable>
+                                <Pressable onPress={goTournamentHub} style={({ pressed }) => [styles.btnOutline, pressed && styles.pressed]}>
+                                    <Text style={styles.btnOutlineText}>Back to Tournament Hub</Text>
+                                </Pressable>
+                            </View>
                         </View>
                     </>
                 )}
@@ -641,10 +1030,16 @@ const styles = StyleSheet.create({
     },
     leaderToggleText: { color: WHITE, fontWeight: "900", fontSize: 12, letterSpacing: 0.2 },
 
-    colHeader: { flexDirection: "row", alignItems: "center", paddingHorizontal: 4 },
+    headerRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 10,
+        paddingHorizontal: 10,
+    },
+
     colText: { color: "rgba(255,255,255,0.68)", fontWeight: "900", fontSize: 11, letterSpacing: 0.7 },
     colPlayer: { flex: 1 },
-    colNum: { width: 64, textAlign: "center" },
+    colNum: { textAlign: "center" },
 
     divider: {
         height: 1,
@@ -663,6 +1058,8 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: "rgba(242,201,76,0.28)",
     },
+
+    rankPillSpacer: { width: 34, height: 34, borderRadius: 14 },
 
     rankPill: {
         width: 34,
@@ -683,6 +1080,8 @@ const styles = StyleSheet.create({
     numBig3: { color: "rgba(242,201,76,0.96)", fontWeight: "900", fontSize: 17 },
     numSub: { marginTop: 2, color: MUTED, fontWeight: "900", fontSize: 10, letterSpacing: 0.4 },
 
+    noteText: { color: "rgba(255,255,255,0.70)", fontWeight: "800", fontSize: 12, lineHeight: 16 },
+
     teamPill: {
         height: 34,
         paddingHorizontal: 12,
@@ -696,10 +1095,7 @@ const styles = StyleSheet.create({
     },
     teamPillText: { color: WHITE, fontWeight: "900", fontSize: 11, letterSpacing: 0.2 },
 
-    teamNamesRow: {
-        flexDirection: "row",
-        gap: 10,
-    },
+    teamNamesRow: { flexDirection: "row", gap: 10 },
     teamNameCard: {
         flex: 1,
         borderRadius: 18,
@@ -746,16 +1142,31 @@ const styles = StyleSheet.create({
     placeholderTitle: { color: WHITE, fontWeight: "900", fontSize: 14 },
     placeholderSub: { marginTop: 8, color: MUTED, fontWeight: "800", fontSize: 12, lineHeight: 16 },
 
-    formatCard: {
-        borderRadius: 18,
-        backgroundColor: "rgba(255,255,255,0.04)",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.10)",
+    // Winner tiles
+    winnerTile: {
+        borderRadius: 22,
+        borderWidth: 2,
         padding: 12,
         marginBottom: 10,
     },
-    formatTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
-    formatTitle: { flex: 1, color: WHITE, fontWeight: "900", fontSize: 14 },
+    winnerTileTop: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 10,
+    },
+    winnerIcon: {
+        width: 34,
+        height: 34,
+        borderRadius: 14,
+        borderWidth: 1,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    winnerTileCenter: { marginTop: 12, alignItems: "center", justifyContent: "center" },
+    winnerTileTitle: { color: WHITE, fontWeight: "900", fontSize: 18, textAlign: "center", letterSpacing: 0.4 },
+    winnerTileSub: { marginTop: 8, color: MUTED, fontWeight: "800", fontSize: 12 },
+
     formatPill: {
         height: 28,
         paddingHorizontal: 10,
@@ -767,14 +1178,20 @@ const styles = StyleSheet.create({
         justifyContent: "center",
     },
     formatPillText: { color: "rgba(242,201,76,0.98)", fontWeight: "900", fontSize: 11, letterSpacing: 0.3 },
-    formatSub: { marginTop: 8, color: MUTED, fontWeight: "800", fontSize: 12, lineHeight: 16 },
 
-    footer: {
+    // Footer (opaque + separates from scroll)
+    footerWrap: {
         position: "absolute",
-        left: 16,
-        right: 16,
-        bottom: 16,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        paddingHorizontal: 16,
+        paddingBottom: 16,
+        backgroundColor: "rgba(6,21,15,0.88)",
+        borderTopWidth: 1,
+        borderTopColor: "rgba(255,255,255,0.08)",
     },
+    footer: { paddingTop: 12 },
 
     btnPrimary: {
         height: 54,
@@ -797,4 +1214,84 @@ const styles = StyleSheet.create({
     btnOutlineText: { color: WHITE, fontWeight: "900", fontSize: 15 },
 
     pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
+
+    // Modal
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: "rgba(0,0,0,0.55)",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+    },
+    modalCard: {
+        width: "100%",
+        maxWidth: 520,
+        borderRadius: 24,
+        backgroundColor: "rgba(18,22,30,0.97)",
+        borderWidth: 2,
+        padding: 14,
+    },
+    modalTop: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 10,
+    },
+    modalIconWrap: {
+        width: 34,
+        height: 34,
+        borderRadius: 14,
+        borderWidth: 1,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    modalTitle: { color: WHITE, fontWeight: "900", fontSize: 16 },
+    modalSub: { marginTop: 2, color: MUTED, fontWeight: "800", fontSize: 12 },
+    modalClose: {
+        height: 34,
+        paddingHorizontal: 12,
+        borderRadius: 999,
+        backgroundColor: "rgba(255,255,255,0.06)",
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.14)",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    modalCloseText: { color: WHITE, fontWeight: "900", fontSize: 12 },
+    modalDivider: {
+        height: 1,
+        backgroundColor: "rgba(255,255,255,0.10)",
+        marginTop: 12,
+        marginBottom: 12,
+    },
+    modalSection: { marginBottom: 2 },
+    modalSectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+    modalSectionTitle: { color: WHITE, fontWeight: "900", fontSize: 14 },
+
+    statusPill: {
+        height: 26,
+        paddingHorizontal: 10,
+        borderRadius: 999,
+        backgroundColor: "rgba(255,255,255,0.06)",
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.14)",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    statusPillText: { color: WHITE, fontWeight: "900", fontSize: 11, letterSpacing: 0.2 },
+
+    winnerBox: {
+        marginTop: 10,
+        borderRadius: 18,
+        backgroundColor: "rgba(255,255,255,0.04)",
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.10)",
+        padding: 12,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    winnerBig: { color: WHITE, fontWeight: "900", fontSize: 18, textAlign: "center" },
+    winnerSmall: { marginTop: 8, color: MUTED, fontWeight: "800", fontSize: 12, textAlign: "center", lineHeight: 16 },
+
+    payoutHeadline: { marginTop: 10, color: WHITE, fontWeight: "900", fontSize: 15 },
+    modalLine: { marginTop: 8, color: MUTED, fontWeight: "800", fontSize: 12, lineHeight: 16 },
 });

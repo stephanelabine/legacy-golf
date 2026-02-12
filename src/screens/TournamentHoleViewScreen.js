@@ -19,7 +19,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, CommonActions } from "@react-navigation/native";
 import * as Location from "expo-location";
-import { doc, setDoc, serverTimestamp, collection, onSnapshot } from "firebase/firestore";
+import { doc, setDoc, updateDoc, serverTimestamp, collection, onSnapshot } from "firebase/firestore";
 
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
@@ -202,7 +202,7 @@ function pickSideGameKeyForHole(formatDocs, roundNumber, holeNumber) {
     return "";
 }
 
-function SideGameOverlayModal({ visible, meta, currentHole, roundNumber, onDismiss }) {
+function SideGameOverlayModal({ visible, meta, currentHole, roundNumber, currentHolderName, onDismiss }) {
     return (
         <Modal visible={visible} transparent animationType="fade" onRequestClose={onDismiss} statusBarTranslucent>
             <View style={styles.sgWrap}>
@@ -221,6 +221,18 @@ function SideGameOverlayModal({ visible, meta, currentHole, roundNumber, onDismi
                             </Text>
                             <Text style={styles.sgTitle}>{meta?.title || "FORMAT HOLE"}</Text>
                             {!!meta?.subtitle ? <Text style={styles.sgSub}>{meta.subtitle}</Text> : null}
+
+                            {!!currentHolderName ? (
+                                <View style={styles.sgHolderPill}>
+                                    <Text style={styles.sgHolderText} numberOfLines={1}>
+                                        Current holder: {currentHolderName}
+                                    </Text>
+                                </View>
+                            ) : (
+                                <View style={styles.sgHolderPillIdle}>
+                                    <Text style={styles.sgHolderTextIdle}>No current holder yet</Text>
+                                </View>
+                            )}
                         </View>
                     </View>
 
@@ -521,6 +533,23 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
 
     const sideMeta = useMemo(() => getSideGameMeta(computedSideGameKey), [computedSideGameKey]);
 
+    const rnKey = useMemo(() => `r${String(Number(roundNumber || 1))}`, [roundNumber]);
+
+    const activeFormatDoc = useMemo(() => {
+        if (!computedSideGameKey) return null;
+        const k = String(computedSideGameKey).trim();
+        return (formatDocs || []).find((f) => String(f?.key || f?.id || "").trim() === k) || null;
+    }, [formatDocs, computedSideGameKey]);
+
+    const currentHolderName = useMemo(() => {
+        if (!activeFormatDoc) return "";
+        const claims = activeFormatDoc?.claimsByRound && typeof activeFormatDoc.claimsByRound === "object" ? activeFormatDoc.claimsByRound : {};
+        const roundClaims = claims?.[rnKey] && typeof claims[rnKey] === "object" ? claims[rnKey] : {};
+        const holeClaim = roundClaims?.[String(currentHole)] || null;
+        const nm = holeClaim?.playerName || holeClaim?.name || "";
+        return nm ? String(nm) : "";
+    }, [activeFormatDoc, rnKey, currentHole]);
+
     const [sgVisible, setSgVisible] = useState(false);
     const sgShownKeyRef = useRef(null);
 
@@ -547,6 +576,106 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
             return undefined;
         }, [computedSideGameKey, sgOnceKey])
     );
+
+    /* -------------------------- */
+    /* claim format winner (pending) */
+    /* -------------------------- */
+
+    const meUid = String(auth?.currentUser?.uid || "");
+
+    const [claimOpen, setClaimOpen] = useState(false);
+    const [claimBusy, setClaimBusy] = useState(false);
+
+    const claimTitle = useMemo(() => {
+        const t = sideMeta?.title || "FORMAT";
+        return `${t} • HOLE ${currentHole}`;
+    }, [sideMeta, currentHole]);
+
+    const claimPillText = useMemo(() => {
+        const k = normalizeSideKey(computedSideGameKey);
+        if (k === "long_drive" || k === "longdrive" || k === "ld") return "Claim 🏌️‍♂️";
+        if (k === "kp" || k === "closest_to_pin" || k === "closest-to-pin") return "Claim 🎯";
+        if (k === "second_shot_kp" || k === "secondshotkp" || k === "2nd_shot_kp" || k === "second_shot_closest_to_pin") return "Claim 🎯";
+        return "Claim ⭐";
+    }, [computedSideGameKey]);
+
+    const openClaim = useCallback(() => {
+        if (!computedSideGameKey) return;
+        setClaimOpen(true);
+    }, [computedSideGameKey]);
+
+    const closeClaim = useCallback(() => {
+        setClaimOpen(false);
+        setClaimBusy(false);
+    }, []);
+
+    const setPendingClaim = useCallback(
+        async (player) => {
+            if (!tournamentId) return;
+            if (!computedSideGameKey) return;
+            if (!activeFormatDoc) {
+                Alert.alert("Format missing", "Could not find this format doc in Firestore.");
+                return;
+            }
+
+            const pid = String(getPlayerId(player));
+            const pname = String(player?.name || "Player");
+
+            if (!pid) {
+                Alert.alert("Missing player", "Player id not found.");
+                return;
+            }
+
+            setClaimBusy(true);
+            try {
+                const formatId = String(activeFormatDoc?.id || computedSideGameKey);
+                const ref = doc(db, "tournaments", String(tournamentId), "formats", formatId);
+
+                const fieldPath = `claimsByRound.${rnKey}.${String(currentHole)}`;
+                const payload = {
+                    playerId: pid,
+                    playerName: pname,
+                    status: "pending",
+                    holeNumber: Number(currentHole),
+                    roundKey: String(rnKey),
+                    updatedAt: serverTimestamp(),
+                    claimedByUid: meUid || null,
+                };
+
+                await updateDoc(ref, { [fieldPath]: payload, updatedAt: serverTimestamp() });
+
+                closeClaim();
+                Alert.alert("Saved", `${pname} claimed ${sideMeta?.title || "format"} (pending confirmation).`);
+            } catch {
+                Alert.alert("Save failed", "Could not save the claim. Please try again.");
+            } finally {
+                setClaimBusy(false);
+            }
+        },
+        [tournamentId, computedSideGameKey, activeFormatDoc, rnKey, currentHole, meUid, sideMeta, closeClaim]
+    );
+
+    const clearClaim = useCallback(async () => {
+        if (!tournamentId) return;
+        if (!computedSideGameKey) return;
+        if (!activeFormatDoc) return;
+
+        setClaimBusy(true);
+        try {
+            const formatId = String(activeFormatDoc?.id || computedSideGameKey);
+            const ref = doc(db, "tournaments", String(tournamentId), "formats", formatId);
+
+            const fieldPath = `claimsByRound.${rnKey}.${String(currentHole)}`;
+            await updateDoc(ref, { [fieldPath]: null, updatedAt: serverTimestamp() });
+
+            closeClaim();
+            Alert.alert("Cleared", "Claim cleared for this hole.");
+        } catch {
+            Alert.alert("Clear failed", "Could not clear the claim. Please try again.");
+        } finally {
+            setClaimBusy(false);
+        }
+    }, [tournamentId, computedSideGameKey, activeFormatDoc, rnKey, currentHole, closeClaim]);
 
     /* -------------------------- */
     /* course + gps + yardages    */
@@ -682,7 +811,6 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
     /* long drive pin flow        */
     /* -------------------------- */
 
-    const meUid = String(auth?.currentUser?.uid || "");
     const isLongDrive = useMemo(() => {
         const k = normalizeSideKey(computedSideGameKey);
         return k === "long_drive" || k === "longdrive" || k === "ld";
@@ -1066,6 +1194,7 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                 meta={sideMeta}
                 currentHole={currentHole}
                 roundNumber={roundNumber}
+                currentHolderName={currentHolderName}
                 onDismiss={dismissSideGameOverlay}
             />
 
@@ -1125,7 +1254,10 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                 <Pressable onPress={() => openHoleMap(false)} style={({ pressed }) => [styles.mapCard, pressed && styles.pressed]}>
                     {!!computedSideGameKey ? (
                         <View style={styles.formatBanner}>
-                            <Text style={styles.formatBannerText}>FORMAT HOLE: {sideMeta?.title || "FORMAT"}</Text>
+                            <Text style={styles.formatBannerText} numberOfLines={1}>
+                                FORMAT HOLE: {sideMeta?.title || "FORMAT"}
+                                {!!currentHolderName ? `  •  HOLDER: ${currentHolderName}` : ""}
+                            </Text>
                         </View>
                     ) : null}
 
@@ -1190,10 +1322,94 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
             </ScrollView>
 
             <View style={[styles.footer, { paddingBottom: Math.max(10, (insets?.bottom || 0) + 8) }]}>
-                <Pressable style={styles.greenBtn} onPress={showFinish ? onPressFinishRound : openTournamentScoreEntry}>
-                    <Text style={styles.greenText}>{showFinish ? "Finish Round" : "Input Scores"}</Text>
-                </Pressable>
+                <View style={styles.footerRow}>
+                    <Pressable style={styles.greenBtn} onPress={showFinish ? onPressFinishRound : openTournamentScoreEntry}>
+                        <Text style={styles.greenText}>{showFinish ? "Finish Round" : "Input Scores"}</Text>
+                    </Pressable>
+
+                    {!!computedSideGameKey ? (
+                        <Pressable onPress={openClaim} style={({ pressed }) => [styles.claimBtn, pressed && styles.pressed]}>
+                            <Text style={styles.claimBtnText} numberOfLines={1}>
+                                {claimPillText}
+                            </Text>
+                        </Pressable>
+                    ) : null}
+                </View>
             </View>
+
+            {/* Claim modal */}
+            <Modal visible={claimOpen} transparent animationType="fade" onRequestClose={closeClaim}>
+                <View style={styles.claimWrap}>
+                    <Pressable style={styles.claimBg} onPress={closeClaim}>
+                        <View />
+                    </Pressable>
+
+                    <View style={styles.claimCard}>
+                        <View style={styles.claimTop}>
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                                <Text style={styles.claimTitle} numberOfLines={1}>{claimTitle}</Text>
+                                <Text style={styles.claimSub}>
+                                    Set a pending claim now. Organizer confirms later.
+                                </Text>
+
+                                {!!currentHolderName ? (
+                                    <View style={styles.claimHolderPill}>
+                                        <Text style={styles.claimHolderText} numberOfLines={1}>
+                                            Current holder: {currentHolderName}
+                                        </Text>
+                                    </View>
+                                ) : (
+                                    <View style={styles.claimHolderPillIdle}>
+                                        <Text style={styles.claimHolderTextIdle}>No current holder yet</Text>
+                                    </View>
+                                )}
+                            </View>
+
+                            <Pressable onPress={closeClaim} style={({ pressed }) => [styles.claimX, pressed && styles.pressed]}>
+                                <Text style={styles.claimXText}>✕</Text>
+                            </Pressable>
+                        </View>
+
+                        <View style={styles.claimDivider} />
+
+                        <View style={styles.claimList}>
+                            {(effectivePlayers || []).map((p) => {
+                                const pid = String(getPlayerId(p));
+                                const nm = String(p?.name || "Player");
+                                if (!pid) return null;
+
+                                return (
+                                    <Pressable
+                                        key={pid}
+                                        disabled={claimBusy}
+                                        onPress={() => setPendingClaim(p)}
+                                        style={({ pressed }) => [
+                                            styles.claimRow,
+                                            pressed && styles.pressed,
+                                            claimBusy && { opacity: 0.7 },
+                                        ]}
+                                    >
+                                        <Text style={styles.claimRowName} numberOfLines={1}>{nm}</Text>
+                                        <View style={styles.claimRowPill}>
+                                            <Text style={styles.claimRowPillText}>CLAIM</Text>
+                                        </View>
+                                    </Pressable>
+                                );
+                            })}
+                        </View>
+
+                        {!!currentHolderName ? (
+                            <Pressable
+                                onPress={clearClaim}
+                                disabled={claimBusy}
+                                style={({ pressed }) => [styles.claimClearBtn, pressed && styles.pressed, claimBusy && { opacity: 0.7 }]}
+                            >
+                                <Text style={styles.claimClearText}>Clear claim for this hole</Text>
+                            </Pressable>
+                        ) : null}
+                    </View>
+                </View>
+            </Modal>
 
             {/* Pin modal */}
             <Modal visible={pinOpen} transparent animationType="fade" onRequestClose={closePin}>
@@ -1458,8 +1674,112 @@ const styles = StyleSheet.create({
         borderTopWidth: 1,
         borderTopColor: "rgba(255,255,255,0.08)",
     },
-    greenBtn: { height: 56, borderRadius: 999, backgroundColor: GREEN, alignItems: "center", justifyContent: "center" },
+    footerRow: { flexDirection: "row", gap: 10, alignItems: "center" },
+
+    greenBtn: { flex: 1, height: 56, borderRadius: 999, backgroundColor: GREEN, alignItems: "center", justifyContent: "center" },
     greenText: { color: GREEN_TEXT, fontSize: 17, fontWeight: "900" },
+
+    claimBtn: {
+        height: 56,
+        paddingHorizontal: 14,
+        borderRadius: 999,
+        backgroundColor: "rgba(242,201,76,0.16)",
+        borderWidth: 1,
+        borderColor: "rgba(242,201,76,0.45)",
+        alignItems: "center",
+        justifyContent: "center",
+        minWidth: 112,
+    },
+    claimBtnText: { color: WHITE, fontWeight: "900", fontSize: 13, letterSpacing: 0.2 },
+
+    claimWrap: { flex: 1, justifyContent: "center", padding: 18 },
+    claimBg: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.62)" },
+    claimCard: {
+        borderRadius: 24,
+        padding: 14,
+        backgroundColor: "rgba(18,22,30,0.96)",
+        borderWidth: 2,
+        borderColor: "rgba(242,201,76,0.85)",
+    },
+    claimTop: { flexDirection: "row", alignItems: "center", gap: 10 },
+    claimTitle: { color: WHITE, fontWeight: "900", fontSize: 14, letterSpacing: 0.6 },
+    claimSub: { marginTop: 6, color: "rgba(255,255,255,0.74)", fontWeight: "800", fontSize: 12, lineHeight: 16 },
+
+    claimHolderPill: {
+        marginTop: 10,
+        alignSelf: "flex-start",
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+        borderRadius: 999,
+        backgroundColor: "rgba(46,204,113,0.14)",
+        borderWidth: 1,
+        borderColor: "rgba(46,204,113,0.28)",
+    },
+    claimHolderText: { color: WHITE, fontWeight: "900", fontSize: 11, letterSpacing: 0.2 },
+
+    claimHolderPillIdle: {
+        marginTop: 10,
+        alignSelf: "flex-start",
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+        borderRadius: 999,
+        backgroundColor: "rgba(255,255,255,0.08)",
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.14)",
+    },
+    claimHolderTextIdle: { color: "rgba(255,255,255,0.78)", fontWeight: "900", fontSize: 11, letterSpacing: 0.2 },
+
+    claimX: {
+        width: 38,
+        height: 38,
+        borderRadius: 14,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "rgba(255,255,255,0.08)",
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.14)",
+    },
+    claimXText: { color: WHITE, fontWeight: "900", fontSize: 14 },
+
+    claimDivider: { height: 1, backgroundColor: "rgba(255,255,255,0.12)", marginTop: 12, marginBottom: 12 },
+
+    claimList: { gap: 10 },
+    claimRow: {
+        height: 52,
+        borderRadius: 18,
+        backgroundColor: "rgba(255,255,255,0.06)",
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.12)",
+        paddingHorizontal: 12,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 10,
+    },
+    claimRowName: { flex: 1, color: WHITE, fontWeight: "900", fontSize: 14 },
+    claimRowPill: {
+        height: 30,
+        paddingHorizontal: 10,
+        borderRadius: 999,
+        backgroundColor: "rgba(242,201,76,0.16)",
+        borderWidth: 1,
+        borderColor: "rgba(242,201,76,0.30)",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    claimRowPillText: { color: "rgba(242,201,76,0.98)", fontWeight: "900", fontSize: 11, letterSpacing: 0.3 },
+
+    claimClearBtn: {
+        marginTop: 12,
+        height: 48,
+        borderRadius: 18,
+        backgroundColor: "rgba(255,255,255,0.08)",
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.14)",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    claimClearText: { color: WHITE, fontWeight: "900", fontSize: 13, letterSpacing: 0.2 },
 
     modalBg: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.60)" },
     modalWrap: { flex: 1, justifyContent: "center", padding: 18 },
@@ -1508,6 +1828,31 @@ const styles = StyleSheet.create({
     sgKicker: { color: "rgba(255,255,255,0.72)", fontWeight: "900", fontSize: 11, letterSpacing: 1.1 },
     sgTitle: { marginTop: 4, color: WHITE, fontWeight: "900", fontSize: 20, letterSpacing: 0.8 },
     sgSub: { marginTop: 6, color: "rgba(255,255,255,0.74)", fontWeight: "800", fontSize: 13, lineHeight: 17 },
+
+    sgHolderPill: {
+        marginTop: 10,
+        alignSelf: "flex-start",
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+        borderRadius: 999,
+        backgroundColor: "rgba(46,204,113,0.14)",
+        borderWidth: 1,
+        borderColor: "rgba(46,204,113,0.28)",
+    },
+    sgHolderText: { color: WHITE, fontWeight: "900", fontSize: 11, letterSpacing: 0.2 },
+
+    sgHolderPillIdle: {
+        marginTop: 10,
+        alignSelf: "flex-start",
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+        borderRadius: 999,
+        backgroundColor: "rgba(255,255,255,0.08)",
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.14)",
+    },
+    sgHolderTextIdle: { color: "rgba(255,255,255,0.78)", fontWeight: "900", fontSize: 11, letterSpacing: 0.2 },
+
     sgDivider: { height: 1, backgroundColor: "rgba(255,255,255,0.12)", marginTop: 12, marginBottom: 12 },
     sgBottomRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
     sgMiniPill: { paddingHorizontal: 10, paddingVertical: 8, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)" },
