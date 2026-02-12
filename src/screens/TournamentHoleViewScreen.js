@@ -964,10 +964,9 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                         roundNumber,
                         roundId,
                         totalHoles,
-                        showFormatsTab: true,
-                        teamVsTeamActive: true,
-                        team1Name: "Hackers",
-                        team2Name: "Slackers",
+                        showFormatsTab: Array.isArray(formatDocs) && formatDocs.length > 0,
+                        formats: Array.isArray(formatDocs) ? formatDocs : [],
+                        teamVsTeamActive: false,
 
                         tournamentName: params?.tournamentName ?? params?.name ?? "",
                         courseName: effectiveCourseName,

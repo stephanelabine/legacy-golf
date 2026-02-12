@@ -1,5 +1,5 @@
 // src/screens/TeeSelectionScreen.js
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import {
   SafeAreaView,
   View,
@@ -12,6 +12,7 @@ import {
   Platform,
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
 
 import theme from "../theme";
 import ROUTES from "../navigation/routes";
@@ -30,6 +31,22 @@ function formatYds(y) {
   return String(Math.round(n));
 }
 
+function isHoleMetaValid(holeMeta) {
+  if (!holeMeta) return false;
+
+  const siSet = new Set();
+  for (let h = 1; h <= 18; h++) {
+    const par = Number(holeMeta[String(h)]?.par);
+    const si = Number(holeMeta[String(h)]?.si);
+
+    if (![3, 4, 5].includes(par)) return false;
+    if (!Number.isFinite(si) || si < 1 || si > 18) return false;
+    if (siSet.has(si)) return false;
+    siSet.add(si);
+  }
+  return true;
+}
+
 export default function TeeSelectionScreen({ navigation, route }) {
   const { course } = route.params;
 
@@ -38,42 +55,73 @@ export default function TeeSelectionScreen({ navigation, route }) {
   const [holeMeta, setHoleMeta] = useState(null);
   const [selectedCode, setSelectedCode] = useState(null);
 
+  const loadAll = useCallback(async () => {
+    try {
+      const courseId = String(course?.id || "").trim();
+      const isProtected = PROTECTED_LOCAL_COURSE_IDS.has(courseId);
+
+      const [teeList, saved] = await Promise.all([
+        // If protected, do NOT call API tees (prevents mismatched/overwritten tees)
+        isProtected
+          ? getTeesForCourse(courseId, { courseName: course?.name || "", forceLocalOnly: true })
+          : getTeesForCourse(courseId, { courseName: course?.name || "" }),
+
+        // If protected, do NOT allow API import
+        loadCourseData(courseId, { allowApiImport: !isProtected, publishIfAdmin: false }),
+      ]);
+
+      const list = Array.isArray(teeList) ? teeList : [];
+      setTees(list);
+
+      const hm = saved?.holeMeta || null;
+      setHoleMeta(hm);
+
+      // Keep selection stable if possible
+      setSelectedCode((prev) => {
+        if (prev && list.some((t) => t.code === prev)) return prev;
+        return list?.[0]?.code || null;
+      });
+    } catch (e) {
+      setTees([]);
+      setHoleMeta(null);
+      setSelectedCode(null);
+    }
+  }, [course?.id, course?.name]);
+
   useEffect(() => {
     let mounted = true;
 
     (async () => {
       try {
-        const courseId = String(course?.id || "").trim();
-        const isProtected = PROTECTED_LOCAL_COURSE_IDS.has(courseId);
-
-        const [teeList, saved] = await Promise.all([
-          // If protected, do NOT call API tees (prevents mismatched/overwritten tees)
-          isProtected
-            ? getTeesForCourse(courseId, { courseName: course?.name || "", forceLocalOnly: true })
-            : getTeesForCourse(courseId, { courseName: course?.name || "" }),
-
-          // If protected, do NOT allow API import
-          loadCourseData(courseId, { allowApiImport: !isProtected, publishIfAdmin: false }),
-        ]);
-
-        if (!mounted) return;
-
-        const list = Array.isArray(teeList) ? teeList : [];
-        setTees(list);
-        setHoleMeta(saved?.holeMeta || null);
-        setSelectedCode(list?.[0]?.code || null);
-      } catch (e) {
-        if (!mounted) return;
-        setTees([]);
-        setHoleMeta(null);
-        setSelectedCode(null);
+        await loadAll();
       } finally {
         if (mounted) setLoading(false);
       }
     })();
 
-    return () => (mounted = false);
-  }, [course.id, course?.name]);
+    return () => {
+      mounted = false;
+    };
+  }, [loadAll]);
+
+  // Important: when you come back from CourseDataScreen, refresh holeMeta (and tees if needed)
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+
+      (async () => {
+        try {
+          await loadAll();
+        } finally {
+          // no-op
+        }
+      })();
+
+      return () => {
+        alive = false;
+      };
+    }, [loadAll])
+  );
 
   const selectedTee = useMemo(
     () => tees.find((t) => t.code === selectedCode),
@@ -92,6 +140,33 @@ export default function TeeSelectionScreen({ navigation, route }) {
 
     const scoring = route?.params?.scoring || route?.params?.scoringType || "net";
     const playerCount = route?.params?.playerCount ?? null;
+
+    // Gate net scoring: require valid Par + SI
+    if (String(scoring).toLowerCase() === "net") {
+      if (!holeMeta) {
+        Alert.alert(
+          "Par + Stroke Index required",
+          "Net scoring needs Par and Stroke Index for all 18 holes.\n\nTap Edit to enter them.",
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Edit Course Data", onPress: openCourseData },
+          ]
+        );
+        return;
+      }
+
+      if (!isHoleMetaValid(holeMeta)) {
+        Alert.alert(
+          "Fix Course Hole Data",
+          "Pars must be 3/4/5 and Stroke Index must be 1-18 with no duplicates.\n\nTap Edit to fix it.",
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Edit Course Data", onPress: openCourseData },
+          ]
+        );
+        return;
+      }
+    }
 
     const patch = {
       tee: selectedTee,

@@ -1,3 +1,4 @@
+// src/screens/CourseDataScreen.js
 import React, { useEffect, useMemo, useState } from "react";
 import {
   SafeAreaView,
@@ -45,6 +46,7 @@ function defaultHoleMeta() {
 
 export default function CourseDataScreen({ navigation, route }) {
   const { course } = route.params;
+  const courseId = String(course?.id || "").trim();
 
   const [holeMeta, setHoleMeta] = useState(defaultHoleMeta());
   const [loading, setLoading] = useState(true);
@@ -60,7 +62,7 @@ export default function CourseDataScreen({ navigation, route }) {
   const admin = isAdminUser();
 
   async function reload() {
-    const saved = await loadCourseData(course.id);
+    const saved = await loadCourseData(courseId);
     if (saved?.holeMeta) setHoleMeta(saved.holeMeta);
     else setHoleMeta(defaultHoleMeta());
   }
@@ -68,7 +70,7 @@ export default function CourseDataScreen({ navigation, route }) {
   useEffect(() => {
     let live = true;
     (async () => {
-      const saved = await loadCourseData(course.id);
+      const saved = await loadCourseData(courseId);
       if (!live) return;
 
       if (saved?.holeMeta) setHoleMeta(saved.holeMeta);
@@ -78,7 +80,7 @@ export default function CourseDataScreen({ navigation, route }) {
     return () => {
       live = false;
     };
-  }, [course.id]);
+  }, [courseId]);
 
   const isValid = useMemo(() => {
     const siSet = new Set();
@@ -110,7 +112,7 @@ export default function CourseDataScreen({ navigation, route }) {
       Alert.alert("Fix inputs", "Pars must be 3/4/5 and Stroke Index must be 1-18 with no duplicates.");
       return;
     }
-    const ok = await saveCourseData(course.id, { holeMeta });
+    const ok = await saveCourseData(courseId, { holeMeta });
     if (!ok) {
       Alert.alert("Save failed", "Could not save course data.");
       return;
@@ -130,7 +132,7 @@ export default function CourseDataScreen({ navigation, route }) {
           text: "Wipe",
           style: "destructive",
           onPress: async () => {
-            const ok = await clearCourseData(course.id);
+            const ok = await clearCourseData(courseId);
             if (!ok) {
               Alert.alert("Wipe failed", "Could not wipe course data.");
               return;
@@ -148,7 +150,7 @@ export default function CourseDataScreen({ navigation, route }) {
 
     setPublishing(true);
     try {
-      const res = await publishLocalCourseToCloud(course.id);
+      const res = await publishLocalCourseToCloud(courseId);
       if (!res.ok) {
         Alert.alert(
           "Publish failed",
@@ -184,7 +186,7 @@ export default function CourseDataScreen({ navigation, route }) {
 
     setRecoverActing(true);
     try {
-      const ok = await copyLocalCourseData(selectedRecover.courseId, course.id);
+      const ok = await copyLocalCourseData(selectedRecover.courseId, courseId);
       if (!ok) {
         Alert.alert("Recover failed", "Could not copy that local blob into this course.");
         return;
@@ -202,7 +204,7 @@ export default function CourseDataScreen({ navigation, route }) {
 
     setRecoverActing(true);
     try {
-      const res = await publishLocalCourseIdToCloud(selectedRecover.courseId, course.id);
+      const res = await publishLocalCourseIdToCloud(selectedRecover.courseId, courseId);
       if (!res.ok) {
         Alert.alert("Publish failed", "Could not publish that recovered blob to Firestore.");
         return;
@@ -230,14 +232,11 @@ export default function CourseDataScreen({ navigation, route }) {
           <View style={styles.header}>
             <Text style={styles.title}>Course Hole Data</Text>
             <Text style={styles.sub}>{course.name}</Text>
-            <Text style={styles.sub2}>courseId: {String(course.id)}</Text>
+            <Text style={styles.sub2}>courseId: {courseId}</Text>
 
             {admin ? (
               <>
-                <Pressable
-                  onPress={openRecover}
-                  style={({ pressed }) => [styles.recoverBtn, pressed && styles.pressed]}
-                >
+                <Pressable onPress={openRecover} style={({ pressed }) => [styles.recoverBtn, pressed && styles.pressed]}>
                   <Text style={styles.recoverText}>Recover Local Data</Text>
                 </Pressable>
 
@@ -331,9 +330,7 @@ export default function CourseDataScreen({ navigation, route }) {
                   </View>
                 ) : (
                   <>
-                    <Text style={styles.modalSub}>
-                      Select the entry that has your real Green Tee values (not SI 1-18).
-                    </Text>
+                    <Text style={styles.modalSub}>Select the entry that has your real Green Tee values (not SI 1-18).</Text>
 
                     <ScrollView style={{ maxHeight: 340 }} contentContainerStyle={{ padding: 12, paddingTop: 8 }}>
                       {recoverList.length === 0 ? (
