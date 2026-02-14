@@ -769,6 +769,7 @@ export default function TournamentFormatDetailsScreen({ navigation, route }) {
 
             <Text style={styles.sectionTitle}>Team setup</Text>
             {teamFormats.map(renderTeamCard)}
+
           </>
         )}
       </ScrollView>

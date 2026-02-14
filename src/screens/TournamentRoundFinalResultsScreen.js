@@ -260,6 +260,17 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
 
     const [activeTab, setActiveTab] = useState(TAB_LEADERBOARD);
 
+    // Shared roster list from params (used in multiple places)
+    const playersFromParams = useMemo(() => {
+        return Array.isArray(params?.players)
+            ? params.players
+            : Array.isArray(params?.members)
+                ? params.members
+                : Array.isArray(params?.roster)
+                    ? params.roster
+                    : [];
+    }, [params?.players, params?.members, params?.roster]);
+
     // Load buddies once (this is what gives us handicaps for buddy_* ids)
     React.useEffect(() => {
         let alive = true;
@@ -284,9 +295,6 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                     const n = parseHcp(raw);
                     if (n == null) return;
 
-                    // store BOTH key styles:
-                    //  - "17698..."
-                    //  - "buddy_17698..."
                     map[rawId] = n;
                     if (!rawId.startsWith("buddy_")) {
                         map[`buddy_${rawId}`] = n;
@@ -394,10 +402,8 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                     const name = String(d?.name || d?.playerName || "").trim();
                     const nk = normKey(name);
 
-                    // Store by name (fallback only)
                     if (nk) map[`name:${nk}`] = h;
 
-                    // Store by id in BOTH forms
                     for (const k of ids) {
                         map[k] = h;
                         if (k.startsWith("buddy_")) {
@@ -408,12 +414,10 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                     }
                 };
 
-                // roster
                 if (rosterSnap) {
                     rosterSnap.forEach((docSnap) => ingest(docSnap.id, docSnap.data()));
                 }
 
-                // members
                 if (membersSnap) {
                     membersSnap.forEach((docSnap) => ingest(docSnap.id, docSnap.data()));
                 }
@@ -460,7 +464,6 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
         }, [tournamentId])
     );
 
-
     const formatsFromParams = useMemo(() => {
         return Array.isArray(params?.formats) ? params.formats : [];
     }, [params?.formats]);
@@ -504,13 +507,6 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
     const rows = useMemo(() => {
         const ids = Object.keys(scoresByPid || {});
 
-        const playersFromParams =
-            Array.isArray(params?.players) ? params.players :
-                Array.isArray(params?.members) ? params.members :
-                    Array.isArray(params?.roster) ? params.roster :
-                        [];
-
-        // Build lookup tables from any roster objects that actually contain handicaps (if present)
         const hcpById = {};
         const hcpByName = {};
 
@@ -522,7 +518,9 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                 pl?.memberId,
                 pl?.uid,
                 pl?.userId,
-            ].filter(Boolean).map((x) => String(x));
+            ]
+                .filter(Boolean)
+                .map((x) => String(x));
 
             const rawH =
                 pl?.handicap ??
@@ -584,13 +582,17 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
             return null;
         };
 
-
         if (__DEV__) {
             console.log("TRFR playersFromParams len:", Array.isArray(playersFromParams) ? playersFromParams.length : "not array");
             console.log("TRFR sample player:", Array.isArray(playersFromParams) && playersFromParams[0] ? playersFromParams[0] : null);
             console.log("TRFR score ids:", Object.keys(scoresByPid || {}));
+
             const firstPid = Object.keys(scoresByPid || {})[0];
             console.log("TRFR sample score doc:", firstPid ? { pid: firstPid, doc: scoresByPid[firstPid] } : null);
+
+            const sample = firstPid ? scoresByPid[firstPid] : null;
+            console.log("TRFR sample hole 1:", sample?.holes?.["1"] || null);
+
             console.log("TRFR buddyHcpById count:", Object.keys(buddyHcpById || {}).length);
             console.log("TRFR buddyHcpById sample:", Object.entries(buddyHcpById || {}).slice(0, 5));
         }
@@ -603,7 +605,6 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
 
             const playerName = String(d?.playerName || d?.name || "");
 
-            // roster handicap (if provided in params) OR buddy store handicap (most important for buddy_* ids)
             const rosterHRaw =
                 getTournamentHcp(String(pid), playerName) ??
                 getTournamentHcp(String(d?.playerId ?? ""), playerName) ??
@@ -616,11 +617,9 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                 getBuddyHcp(String(pid)) ??
                 null;
 
-
             const rosterH = parseHcp(rosterHRaw);
             const hasRosterH = rosterH != null;
 
-            // score-doc handicap (often absent or 0 placeholder)
             const scoreHRaw =
                 d?.handicapStrokes ??
                 d?.courseHandicap ??
@@ -651,15 +650,12 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                 hcpUsed: effectiveH,
             };
         });
-    }, [scoresByPid, totalHoles, params?.players, params?.members, params?.roster, buddyHcpById, tournamentHcpById]);
-
+    }, [scoresByPid, totalHoles, playersFromParams, buddyHcpById, tournamentHcpById]);
 
     const rosterCount = useMemo(() => rows.length, [rows]);
     const hasNet = useMemo(() => {
         return rows.some((r) => r.hcpUsed != null || Number.isFinite(Number(r.net)));
     }, [rows]);
-
-
 
     const sortedRows = useMemo(() => {
         const list = [...rows];
@@ -727,12 +723,40 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
 
     const primaryAction = useCallback(() => {
         if (isFinalRound || totalRounds === 1) {
-            Alert.alert("Next step", "Save tournament results, then show Winner’s Circle / Trophy screen next.", [{ text: "OK" }]);
+            const target = ROUTES.TOURNAMENT_TROPHY || "TournamentTrophy";
+
+            const championRow = Array.isArray(sortedRows) && sortedRows.length ? sortedRows[0] : null;
+            const winnerName = String(
+                championRow?.playerName ||
+                championRow?.name ||
+                params?.winnerName ||
+                params?.championName ||
+                ""
+            ).trim();
+
+            navigation.navigate(target, {
+                ...pickTournamentNavParams(params),
+                tournamentId,
+                roundNumber,
+                totalHoles,
+                tournamentName: params?.tournamentName ?? params?.name ?? "",
+                winnerName,
+                leaderboardRows: sortedRows,
+            });
             return;
         }
 
         Alert.alert("Next step", "Save round results, then take you to Round 2 start flow.", [{ text: "OK" }]);
-    }, [isFinalRound, totalRounds]);
+    }, [
+        navigation,
+        params,
+        tournamentId,
+        roundNumber,
+        totalHoles,
+        sortedRows,
+        isFinalRound,
+        totalRounds,
+    ]);
 
     const goHome = useCallback(() => {
         navigation.navigate(ROUTES.HOME);
@@ -744,8 +768,8 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
     }, [roundNumber, totalRounds, isFinalRound]);
 
     const primaryLabel = useMemo(() => {
-        if (totalRounds === 1 || isFinalRound) return "Save & Publish Tournament";
-        return "Save & Publish Round";
+        if (totalRounds === 1 || isFinalRound) return "Continue to Winner’s Circle";
+        return "Continue to Round 2";
     }, [totalRounds, isFinalRound]);
 
     const FOOTER_H = 142;
@@ -835,7 +859,6 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                     {dataToRender.map((item, index) => {
                         const rank = index + 1;
                         const netLabel = Number.isFinite(Number(item.net)) ? String(item.net) : "—";
-                        const debugHcp = item?.hcpUsed == null ? "—" : String(item.hcpUsed);
 
                         return (
                             <View key={item.pid} style={[styles.rowCard, index > 0 && { marginTop: 10 }]}>
@@ -863,7 +886,6 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                                     <View style={styles.numCol}>
                                         <Text style={styles.numBig3}>{netLabel}</Text>
                                         <Text style={styles.numSub}>net</Text>
-
                                     </View>
                                 ) : null}
                             </View>
@@ -1052,8 +1074,81 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
             return acc + (c && (c.playerName || c.name || c.claimedByUid) ? 1 : 0);
         }, 0);
 
-        const statusPill =
-            eventsThisRound === 0
+        const isAuto = type === "deucepot" || type === "puttingcontest";
+
+        const pidToName = (pid) => {
+            const fromScore = scoresByPid?.[pid]?.playerName;
+            if (fromScore) return String(fromScore);
+
+            const fromParams = Array.isArray(playersFromParams)
+                ? playersFromParams.find((p) => String(p?.id ?? p?.pid ?? p?.playerId ?? p?.uid ?? p?.userId) === String(pid))
+                : null;
+
+            return String(fromParams?.name || fromParams?.playerName || pid || "—");
+        };
+
+        const computePuttingLeaders = () => {
+            const rowsLocal = [];
+            const map = scoresByPid || {};
+            for (const pid of Object.keys(map)) {
+                const holes = map?.[pid]?.holes || {};
+                let total = 0;
+                let any = false;
+
+                for (const hk of Object.keys(holes)) {
+                    const h = holes?.[hk] || {};
+                    const p = Number(h?.putts);
+                    if (Number.isFinite(p)) {
+                        total += p;
+                        any = true;
+                    }
+                }
+
+                if (any) rowsLocal.push({ pid, name: pidToName(pid), putts: total });
+            }
+
+            rowsLocal.sort((a, b) => a.putts - b.putts || a.name.localeCompare(b.name));
+            if (!rowsLocal.length) return { first: [], second: [] };
+
+            const firstPutts = rowsLocal[0].putts;
+            const first = rowsLocal.filter((r) => r.putts === firstPutts);
+
+            const rest = rowsLocal.filter((r) => r.putts !== firstPutts);
+            if (!rest.length) return { first, second: [] };
+
+            const secondPutts = rest[0].putts;
+            const second = rest.filter((r) => r.putts === secondPutts);
+
+            return { first, second };
+        };
+
+        const computeDeuceCounts = () => {
+            const map = scoresByPid || {};
+            const rowsLocal = [];
+
+            for (const pid of Object.keys(map)) {
+                const holes = map?.[pid]?.holes || {};
+                let count = 0;
+
+                for (const hk of Object.keys(holes)) {
+                    const h = holes?.[hk] || {};
+                    const s = Number(h?.strokes);
+                    if (Number.isFinite(s) && s === 2) count += 1;
+                }
+
+                if (count > 0) rowsLocal.push({ pid, name: pidToName(pid), deuces: count });
+            }
+
+            rowsLocal.sort((a, b) => b.deuces - a.deuces || a.name.localeCompare(b.name));
+            return rowsLocal;
+        };
+
+        const puttingLeaders = isAuto && type === "puttingcontest" ? computePuttingLeaders() : null;
+        const deuceRows = isAuto && type === "deucepot" ? computeDeuceCounts() : null;
+
+        const statusPill = isAuto
+            ? "AUTO"
+            : eventsThisRound === 0
                 ? "NO HOLES SET"
                 : claimedCount === 0
                     ? "NO CLAIMS YET"
@@ -1061,8 +1156,9 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                         ? "INCOMPLETE"
                         : "PENDING CONFIRM";
 
-        const winnerLine =
-            eventsThisRound === 0
+        const winnerLine = isAuto
+            ? "Computed from round scores"
+            : eventsThisRound === 0
                 ? "No official holes selected yet"
                 : claimedCount === 0
                     ? "No winners claimed yet"
@@ -1103,7 +1199,45 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                             <View style={[styles.winnerBox, { alignItems: "stretch" }]}>
                                 <Text style={styles.winnerBig}>{winnerLine}</Text>
 
-                                {officialHoles.length ? (
+                                {isAuto ? (
+                                    <View style={{ marginTop: 10, gap: 8 }}>
+                                        {type === "puttingcontest" ? (
+                                            <>
+                                                {!puttingLeaders || (!puttingLeaders.first.length && !puttingLeaders.second.length) ? (
+                                                    <Text style={styles.modalLine}>No putts recorded yet.</Text>
+                                                ) : (
+                                                    <>
+                                                        <Text style={styles.modalLine}>
+                                                            1st: {puttingLeaders.first.map((r) => `${r.name} (${r.putts})`).join(", ")}
+                                                        </Text>
+
+                                                        {puttingLeaders.second.length ? (
+                                                            <Text style={styles.modalLine}>
+                                                                2nd: {puttingLeaders.second.map((r) => `${r.name} (${r.putts})`).join(", ")}
+                                                            </Text>
+                                                        ) : (
+                                                            <Text style={styles.modalLine}>2nd: —</Text>
+                                                        )}
+                                                    </>
+                                                )}
+                                            </>
+                                        ) : null}
+
+                                        {type === "deucepot" ? (
+                                            <>
+                                                {!deuceRows || deuceRows.length === 0 ? (
+                                                    <Text style={styles.modalLine}>No deuces recorded yet.</Text>
+                                                ) : (
+                                                    deuceRows.map((r) => (
+                                                        <Text key={`deuce-${r.pid}`} style={styles.modalLine}>
+                                                            {r.name} — {r.deuces} deuce{r.deuces === 1 ? "" : "s"}
+                                                        </Text>
+                                                    ))
+                                                )}
+                                            </>
+                                        ) : null}
+                                    </View>
+                                ) : officialHoles.length ? (
                                     <View style={{ marginTop: 10, gap: 8 }}>
                                         {officialHoles.map((h) => {
                                             const c = roundClaims?.[String(h)] || null;

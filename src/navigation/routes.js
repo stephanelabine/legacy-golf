@@ -84,6 +84,8 @@ const ROUTES = {
 
   // NEW: round-only results (Finish Round goes here)
   TOURNAMENT_ROUND_FINAL_RESULTS: "TournamentRoundFinalResults",
+  TOURNAMENT_TROPHY: "TournamentTrophy",
+  TOURNAMENT_SETTLE_PAYOUTS: "TournamentSettlePayouts",
 
   // TEMP alias so nothing breaks if any old code still uses it.
   // Do not use going forward; we'll reserve "TournamentFinalResults" later for overall tournament results.

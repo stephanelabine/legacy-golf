@@ -181,25 +181,27 @@ function getSideGameMeta(sideGameKeyRaw) {
     return { title: "FORMAT HOLE", subtitle: "Special hole", icon: "⭐" };
 }
 
-function pickSideGameKeyForHole(formatDocs, roundNumber, holeNumber) {
+function pickFormatDocForHole(formatDocs, roundNumber, holeNumber) {
     const rn = `r${String(Number(roundNumber || 1))}`;
     const hn = Number(holeNumber || 0);
-    if (!hn || !Array.isArray(formatDocs) || !formatDocs.length) return "";
+    if (!hn || !Array.isArray(formatDocs) || !formatDocs.length) return null;
 
     const HOLE_KEYS = new Set(["kp", "long_drive", "second_shot_kp"]);
 
     for (const f of formatDocs) {
-        const key = String(f?.key || f?.id || "").trim();
-        if (!key || !HOLE_KEYS.has(key)) continue;
+        const rawType = String(f?.key || "").trim();
+        const rawId = String(f?.id || "").trim();
+        const type = normalizeSideKey(rawType || rawId);
+        if (!type || !HOLE_KEYS.has(type)) continue;
 
         const cfg = f?.config && typeof f.config === "object" ? f.config : {};
         const hbr = cfg?.holesByRound && typeof cfg.holesByRound === "object" ? cfg.holesByRound : {};
         const arr = Array.isArray(hbr?.[rn]) ? hbr[rn] : [];
 
-        if (arr.map(Number).includes(hn)) return key;
+        if (arr.map(Number).includes(hn)) return f;
     }
 
-    return "";
+    return null;
 }
 
 function SideGameOverlayModal({ visible, meta, currentHole, roundNumber, currentHolderName, onDismiss }) {
@@ -325,11 +327,13 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
     const roundNumber = Number(params?.roundNumber || 1);
     const totalHoles = Number(params?.totalHoles || 18);
 
-    /* -------------------------- */
-    /* round doc snapshot (for course/tee fallbacks) */
-    /* -------------------------- */
-
     const [roundDoc, setRoundDoc] = useState(null);
+    const [scoresByPid, setScoresByPid] = useState({});
+    const [formatDocs, setFormatDocs] = useState([]);
+
+    /* -------------------------- */
+    /* round doc snapshot         */
+    /* -------------------------- */
 
     useFocusEffect(
         useCallback(() => {
@@ -349,16 +353,8 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
     const derived = useMemo(() => deriveCourseFromRound(roundDoc), [roundDoc]);
 
     /* -------------------------- */
-    /* TOURNAMENT SCORES SNAPSHOT */
+    /* formats snapshot           */
     /* -------------------------- */
-
-    const [scoresByPid, setScoresByPid] = useState({});
-
-    /* -------------------------- */
-    /* TOURNAMENT FORMATS SNAPSHOT */
-    /* -------------------------- */
-
-    const [formatDocs, setFormatDocs] = useState([]);
 
     useFocusEffect(
         useCallback(() => {
@@ -369,7 +365,10 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                 ref,
                 (snap) => {
                     const next = [];
-                    snap.forEach((d) => next.push({ id: d.id, ...(d.data() || {}) }));
+                    snap.forEach((d) => {
+                        const data = d.data() || {};
+                        next.push({ id: d.id, ...data });
+                    });
                     setFormatDocs(next);
                 },
                 () => { }
@@ -422,7 +421,6 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
     const effectiveCourseName = courseName || derived?.courseName || "Course";
     const effectiveTeeName = teeName || derived?.teeName || "Tees";
 
-    // Persist recovered course/tee back into nav params (so subsequent renders/screens have them)
     useEffect(() => {
         try {
             const patch = {};
@@ -489,6 +487,10 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
 
     const par = holeMeta?.[String(currentHole)]?.par ?? 4;
 
+    /* -------------------------- */
+    /* scores snapshot            */
+    /* -------------------------- */
+
     useFocusEffect(
         useCallback(() => {
             if (!tournamentId) return undefined;
@@ -527,49 +529,94 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
     /* side game overlay behavior */
     /* -------------------------- */
 
-    const computedSideGameKey = useMemo(() => {
-        return pickSideGameKeyForHole(formatDocs, roundNumber, currentHole) || "";
-    }, [formatDocs, roundNumber, currentHole]);
-
-    const sideMeta = useMemo(() => getSideGameMeta(computedSideGameKey), [computedSideGameKey]);
-
     const rnKey = useMemo(() => `r${String(Number(roundNumber || 1))}`, [roundNumber]);
 
     const activeFormatDoc = useMemo(() => {
-        if (!computedSideGameKey) return null;
-        const k = String(computedSideGameKey).trim();
-        return (formatDocs || []).find((f) => String(f?.key || f?.id || "").trim() === k) || null;
-    }, [formatDocs, computedSideGameKey]);
+        return pickFormatDocForHole(formatDocs, roundNumber, currentHole);
+    }, [formatDocs, roundNumber, currentHole]);
+
+    const computedSideGameKey = useMemo(() => {
+        return normalizeSideKey(activeFormatDoc?.key || activeFormatDoc?.id || "");
+    }, [activeFormatDoc]);
+
+    const sideMeta = useMemo(() => getSideGameMeta(computedSideGameKey), [computedSideGameKey]);
+
+    const [holeClaimDoc, setHoleClaimDoc] = useState(null);
+
+    useFocusEffect(
+        useCallback(() => {
+            if (!tournamentId) return undefined;
+
+            if (!computedSideGameKey) {
+                setHoleClaimDoc(null);
+                return undefined;
+            }
+
+            const claimId = `${String(computedSideGameKey)}_h${String(currentHole)}`;
+            const ref = doc(
+                db,
+                "tournaments",
+                String(tournamentId),
+                "rounds",
+                `r${String(roundNumber)}`,
+                "formatClaims",
+                claimId
+            );
+
+            const unsub = onSnapshot(
+                ref,
+                (snap) => {
+                    setHoleClaimDoc(snap?.exists?.() ? (snap.data() || null) : null);
+                },
+                () => setHoleClaimDoc(null)
+            );
+
+            return () => unsub();
+        }, [tournamentId, computedSideGameKey, currentHole, roundNumber])
+    );
 
     const currentHolderName = useMemo(() => {
-        if (!activeFormatDoc) return "";
-        const claims = activeFormatDoc?.claimsByRound && typeof activeFormatDoc.claimsByRound === "object" ? activeFormatDoc.claimsByRound : {};
+        const claims =
+            activeFormatDoc?.claimsByRound && typeof activeFormatDoc.claimsByRound === "object"
+                ? activeFormatDoc.claimsByRound
+                : {};
         const roundClaims = claims?.[rnKey] && typeof claims[rnKey] === "object" ? claims[rnKey] : {};
-        const holeClaim = roundClaims?.[String(currentHole)] || null;
-        const nm = holeClaim?.playerName || holeClaim?.name || "";
-        return nm ? String(nm) : "";
-    }, [activeFormatDoc, rnKey, currentHole]);
+        const holeClaimFromFormat = roundClaims?.[String(currentHole)] || null;
+
+        const nm1 =
+            holeClaimFromFormat?.claimedByPlayerName ||
+            holeClaimFromFormat?.playerName ||
+            holeClaimFromFormat?.name ||
+            "";
+
+        if (nm1) return String(nm1);
+
+        const nm2 =
+            holeClaimDoc?.claimedByPlayerName ||
+            holeClaimDoc?.playerName ||
+            holeClaimDoc?.name ||
+            holeClaimDoc?.holderName ||
+            "";
+
+        return nm2 ? String(nm2) : "";
+    }, [activeFormatDoc, rnKey, currentHole, holeClaimDoc]);
 
     const [sgVisible, setSgVisible] = useState(false);
-
 
     const dismissSideGameOverlay = useCallback(() => {
         setSgVisible(false);
     }, []);
 
-    React.useEffect(() => {
+    useEffect(() => {
         if (!computedSideGameKey) {
             setSgVisible(false);
             return;
         }
-
-        // Show every time we arrive on a format hole (hole change or side-game change)
         setSgVisible(true);
     }, [computedSideGameKey, currentHole]);
 
-
     /* -------------------------- */
-    /* claim format winner (pending) */
+    /* claim format winner        */
     /* -------------------------- */
 
     const meUid = String(auth?.currentUser?.uid || "");
@@ -626,6 +673,7 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                 const payload = {
                     playerId: pid,
                     playerName: pname,
+                    claimedByPlayerName: pname,
                     status: "pending",
                     holeNumber: Number(currentHole),
                     roundKey: String(rnKey),
@@ -741,24 +789,8 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
         return out;
     }, [userPt, gFront, gMiddle, gBack]);
 
-    if (__DEV__) {
-        // eslint-disable-next-line no-console
-        console.log(
-            "[TournamentHoleView] effectiveCourseId:",
-            effectiveCourseId,
-            "effectiveCourseName:",
-            effectiveCourseName,
-            "hole:",
-            currentHole
-        );
-        // eslint-disable-next-line no-console
-        console.log("[TournamentHoleView] savedGpsHole?", !!savedGpsHole, "green keys:", green ? Object.keys(green) : null);
-        // eslint-disable-next-line no-console
-        console.log("[TournamentHoleView] green.front:", green?.front, "green.middle:", green?.middle, "green.back:", green?.back);
-    }
-
     /* -------------------------- */
-    /* yardage book (local for now) */
+    /* yardage book               */
     /* -------------------------- */
 
     const [yardageOpen, setYardageOpen] = useState(false);
@@ -1331,13 +1363,10 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                     )}
 
                     {null}
-
                 </View>
-
             </View>
 
             {null}
-
 
             {/* Pin modal */}
             <Modal visible={pinOpen} transparent animationType="fade" onRequestClose={closePin}>
@@ -1606,108 +1635,6 @@ const styles = StyleSheet.create({
 
     greenBtn: { flex: 1, height: 56, borderRadius: 999, backgroundColor: GREEN, alignItems: "center", justifyContent: "center" },
     greenText: { color: GREEN_TEXT, fontSize: 17, fontWeight: "900" },
-
-    claimBtn: {
-        height: 56,
-        paddingHorizontal: 14,
-        borderRadius: 999,
-        backgroundColor: "rgba(242,201,76,0.16)",
-        borderWidth: 1,
-        borderColor: "rgba(242,201,76,0.45)",
-        alignItems: "center",
-        justifyContent: "center",
-        minWidth: 112,
-    },
-    claimBtnText: { color: WHITE, fontWeight: "900", fontSize: 13, letterSpacing: 0.2 },
-
-    claimWrap: { flex: 1, justifyContent: "center", padding: 18 },
-    claimBg: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.62)" },
-    claimCard: {
-        borderRadius: 24,
-        padding: 14,
-        backgroundColor: "rgba(18,22,30,0.96)",
-        borderWidth: 2,
-        borderColor: "rgba(242,201,76,0.85)",
-    },
-    claimTop: { flexDirection: "row", alignItems: "center", gap: 10 },
-    claimTitle: { color: WHITE, fontWeight: "900", fontSize: 14, letterSpacing: 0.6 },
-    claimSub: { marginTop: 6, color: "rgba(255,255,255,0.74)", fontWeight: "800", fontSize: 12, lineHeight: 16 },
-
-    claimHolderPill: {
-        marginTop: 10,
-        alignSelf: "flex-start",
-        paddingHorizontal: 10,
-        paddingVertical: 8,
-        borderRadius: 999,
-        backgroundColor: "rgba(46,204,113,0.14)",
-        borderWidth: 1,
-        borderColor: "rgba(46,204,113,0.28)",
-    },
-    claimHolderText: { color: WHITE, fontWeight: "900", fontSize: 11, letterSpacing: 0.2 },
-
-    claimHolderPillIdle: {
-        marginTop: 10,
-        alignSelf: "flex-start",
-        paddingHorizontal: 10,
-        paddingVertical: 8,
-        borderRadius: 999,
-        backgroundColor: "rgba(255,255,255,0.08)",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.14)",
-    },
-    claimHolderTextIdle: { color: "rgba(255,255,255,0.78)", fontWeight: "900", fontSize: 11, letterSpacing: 0.2 },
-
-    claimX: {
-        width: 38,
-        height: 38,
-        borderRadius: 14,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: "rgba(255,255,255,0.08)",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.14)",
-    },
-    claimXText: { color: WHITE, fontWeight: "900", fontSize: 14 },
-
-    claimDivider: { height: 1, backgroundColor: "rgba(255,255,255,0.12)", marginTop: 12, marginBottom: 12 },
-
-    claimList: { gap: 10 },
-    claimRow: {
-        height: 52,
-        borderRadius: 18,
-        backgroundColor: "rgba(255,255,255,0.06)",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.12)",
-        paddingHorizontal: 12,
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 10,
-    },
-    claimRowName: { flex: 1, color: WHITE, fontWeight: "900", fontSize: 14 },
-    claimRowPill: {
-        height: 30,
-        paddingHorizontal: 10,
-        borderRadius: 999,
-        backgroundColor: "rgba(242,201,76,0.16)",
-        borderWidth: 1,
-        borderColor: "rgba(242,201,76,0.30)",
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    claimRowPillText: { color: "rgba(242,201,76,0.98)", fontWeight: "900", fontSize: 11, letterSpacing: 0.3 },
-
-    claimClearBtn: {
-        marginTop: 12,
-        height: 48,
-        borderRadius: 18,
-        backgroundColor: "rgba(255,255,255,0.08)",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.14)",
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    claimClearText: { color: WHITE, fontWeight: "900", fontSize: 13, letterSpacing: 0.2 },
 
     modalBg: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.60)" },
     modalWrap: { flex: 1, justifyContent: "center", padding: 18 },

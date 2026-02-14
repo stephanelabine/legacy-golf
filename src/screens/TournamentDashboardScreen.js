@@ -57,8 +57,9 @@ export default function TournamentDashboardScreen({ navigation, route }) {
   const joinCode = (t?.joinCode || "").toUpperCase();
   const name = t?.name || "Tournament";
 
-  const statusRaw = String(t?.status || "draft");
+  const statusRaw = String(t?.status || "draft").toLowerCase();
   const isLive = statusRaw === "live";
+  const isCompleted = statusRaw === "completed" || statusRaw === "finished" || statusRaw === "done";
 
   const setupStep = String(t?.setupStep || "welcome"); // welcome | rounds | courses | players | formats | tees | review | done
   const roundsReady = !!t?.roundsReady;
@@ -69,9 +70,9 @@ export default function TournamentDashboardScreen({ navigation, route }) {
 
   const setupReady = roundsReady && rosterLocked && formatsReady && courseReady;
 
-  const inWelcome = !isLive && setupStep === "welcome";
-  const setupInProgress = !isLive && !setupReady && setupStep !== "welcome";
-  const showOverview = isLive || setupReady;
+  const inWelcome = !isLive && !isCompleted && setupStep === "welcome";
+  const setupInProgress = !isLive && !isCompleted && !setupReady && setupStep !== "welcome";
+  const showOverview = isLive || isCompleted || setupReady;
 
   const styles = useMemo(() => {
     const softBorder = isDark ? "rgba(255,255,255,0.14)" : "rgba(10,15,26,0.12)";
@@ -456,6 +457,11 @@ export default function TournamentDashboardScreen({ navigation, route }) {
     if (!t || loading) return;
     if (!isHost) return;
 
+    if (isCompleted) {
+      navigation.navigate(ROUTES.TOURNAMENT_PAYOUTS, { tournamentId });
+      return;
+    }
+
     if (isLive) {
       navigation.navigate(ROUTES.TOURNAMENT_OVERVIEW, { tournamentId });
       return;
@@ -466,14 +472,20 @@ export default function TournamentDashboardScreen({ navigation, route }) {
 
   const heroSubtitle = useMemo(() => {
     if (!isHost) return "Invite players with the code below.";
+    if (isCompleted) return "Tournament complete. Next: settle payouts and review winners.";
     if (inWelcome) return "Invite players with the code below, then continue setup.";
     if (setupInProgress) return "Invite players with the code below, then continue setup.";
     if (setupReady && !isLive) return "Invite players with the code below. Setup is complete.";
     if (isLive) return "Invite players with the code below. Tournament is live.";
     return "Invite players with the code below.";
-  }, [isHost, inWelcome, setupInProgress, setupReady, isLive]);
+  }, [isHost, inWelcome, setupInProgress, setupReady, isLive, isCompleted]);
 
-  const primaryDisabled = beginBusy || starting || adminBusy || loading || !t || !isHost || (isHost && isLive);
+  const primaryDisabled = beginBusy || starting || adminBusy || loading || !t || !isHost;
+
+  const primaryText = useMemo(() => {
+    if (isCompleted) return "Settle Payouts";
+    return "Continue";
+  }, [isCompleted]);
 
   return (
     <View style={styles.screen}>
@@ -507,9 +519,13 @@ export default function TournamentDashboardScreen({ navigation, route }) {
             <Text style={styles.sectionTitle}>Tournament Overview</Text>
 
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>Setup complete</Text>
+              <Text style={styles.cardTitle}>
+                {isCompleted ? "Tournament complete" : "Setup complete"}
+              </Text>
               <Text style={styles.cardSub}>
-                This tournament is ready. Next: start the tournament, then we’ll show live standings and side-game winners.
+                {isCompleted
+                  ? "This tournament is complete. Next: settle payouts and review winners."
+                  : "This tournament is ready. Next: start the tournament, then we’ll show live standings and side-game winners."}
               </Text>
             </View>
 
@@ -564,7 +580,7 @@ export default function TournamentDashboardScreen({ navigation, route }) {
                 primaryDisabled && { opacity: 0.7 },
               ]}
             >
-              <Text style={styles.primaryText}>Continue</Text>
+              <Text style={styles.primaryText}>{primaryText}</Text>
             </Pressable>
           </View>
         </View>

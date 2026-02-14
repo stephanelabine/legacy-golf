@@ -93,6 +93,12 @@ import TournamentGreenViewScreen from "../screens/TournamentGreenViewScreen";
 // tournament round results (Finish Round destination)
 import TournamentRoundFinalResultsScreen from "../screens/TournamentRoundFinalResultsScreen";
 
+// NEW: tournament trophy / winner's circle screen
+import TournamentTrophyScreen from "../screens/TournamentTrophyScreen";
+
+// NEW: tournament settle payouts (post-trophy step)
+import TournamentSettlePayoutsScreen from "../screens/TournamentSettlePayoutsScreen";
+
 /* ---------------- results/payouts ---------------- */
 
 import FinalResultsScreen from "../screens/FinalResultsScreen";
@@ -210,6 +216,12 @@ export default function RootNavigator() {
           <Stack.Screen name={ROUTES.TOURNAMENT_LIVE_HUB} component={TournamentLiveHubScreen} />
           <Stack.Screen name={ROUTES.TOURNAMENT_PLAYER_BRIEFING} component={TournamentPlayerBriefingScreen} />
 
+          {/* NEW: Winner's Circle / Trophy */}
+          <Stack.Screen name={ROUTES.TOURNAMENT_TROPHY} component={TournamentTrophyScreen} />
+
+          {/* NEW: Settle Payouts (post-trophy) */}
+          <Stack.Screen name={ROUTES.TOURNAMENT_SETTLE_PAYOUTS} component={TournamentSettlePayoutsScreen} />
+
           {/* Modals */}
           <Stack.Group
             screenOptions={{
@@ -223,10 +235,7 @@ export default function RootNavigator() {
             <Stack.Screen name={ROUTES.FINAL_RESULTS} component={FinalResultsScreen} />
 
             {/* round-only tournament results */}
-            <Stack.Screen
-              name={ROUTES.TOURNAMENT_ROUND_FINAL_RESULTS}
-              component={TournamentRoundFinalResultsScreen}
-            />
+            <Stack.Screen name={ROUTES.TOURNAMENT_ROUND_FINAL_RESULTS} component={TournamentRoundFinalResultsScreen} />
 
             <Stack.Screen name={ROUTES.PAYOUTS} component={PayoutsScreen} />
           </Stack.Group>
