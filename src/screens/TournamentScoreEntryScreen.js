@@ -822,10 +822,64 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
 
                                     {claimable ? (
                                         <Pressable
-                                            onPress={() => {
+                                            onPress={async () => {
+                                                // If claim is blocked because scores aren't saved yet, auto-save THIS player's hole first.
                                                 if (claimDisabled) {
-                                                    Alert.alert("Enter strokes first", "Save strokes for this player on this hole before claiming.");
-                                                    return;
+                                                    if (strokes <= 0) {
+                                                        Alert.alert("Enter strokes first", "Enter strokes for this player on this hole before claiming.");
+                                                        return;
+                                                    }
+
+                                                    if (!tournamentId) {
+                                                        Alert.alert("Missing tournament", "No tournamentId was provided.");
+                                                        return;
+                                                    }
+
+                                                    if (!meUid) {
+                                                        Alert.alert("Not signed in", "You must be signed in to save scores.");
+                                                        return;
+                                                    }
+
+                                                    try {
+                                                        setSaving(true);
+
+                                                        const scoreDocRef = doc(
+                                                            db,
+                                                            "tournaments",
+                                                            String(tournamentId),
+                                                            "rounds",
+                                                            `r${String(roundNumber)}`,
+                                                            "scores",
+                                                            String(pid)
+                                                        );
+
+                                                        const payload = {
+                                                            roundId: String(roundId || ""),
+                                                            tournamentId: String(tournamentId || ""),
+                                                            roundNumber: Number(roundNumber || 1),
+                                                            playerId: String(pid),
+                                                            playerName: item._name,
+                                                            updatedAt: serverTimestamp(),
+                                                            holes: {
+                                                                [String(holeNumber)]: {
+                                                                    holeNumber: Number(holeNumber),
+                                                                    strokes: Number(strokes),
+                                                                    putts: Number.isFinite(Number(putts)) ? Number(Math.max(0, Math.min(10, putts))) : 0,
+                                                                    updatedAt: serverTimestamp(),
+                                                                    scorekeeperUid: String(meUid || ""),
+                                                                },
+                                                            },
+                                                        };
+
+                                                        await setDoc(scoreDocRef, payload, { merge: true });
+                                                    } catch (e) {
+                                                        const msg = e?.message || e?.code || "Could not save scores. Please try again.";
+                                                        Alert.alert("Save failed", String(msg));
+                                                        return;
+                                                    } finally {
+                                                        setSaving(false);
+                                                    }
+                                                    // fall through: now allow claim flow to continue
                                                 }
 
                                                 if (hasHolder && !isHolder) {
@@ -842,6 +896,7 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
 
                                                 openClaim(pid, item._name);
                                             }}
+
                                             style={({ pressed }) => [
                                                 styles.claimBtn,
                                                 { borderColor: theme.border, backgroundColor: theme.bg },
