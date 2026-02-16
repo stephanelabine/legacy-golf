@@ -1,4 +1,4 @@
-// src/screens/TournamentRoundFinalResultsScreen.js
+// src/screens/TournamentFinalResultsScreen.js
 import React, { useCallback, useMemo, useState } from "react";
 import {
     SafeAreaView,
@@ -7,7 +7,6 @@ import {
     StyleSheet,
     Pressable,
     ActivityIndicator,
-    Alert,
     ScrollView,
     Modal,
 } from "react-native";
@@ -68,32 +67,6 @@ function parseHcp(v) {
     return Number.isFinite(n) ? Math.round(n) : null;
 }
 
-// IMPORTANT: detect “second shot kp” before “kp”
-function detectFormatType(f) {
-    const k = normKey(f?.key || f?.id || f?.formatKey);
-    const n = normKey(f?.name || f?.title);
-    const s = `${k} ${n}`.trim();
-
-    const isSecondShot =
-        s.includes("secondshotkp") ||
-        s.includes("secondshot") ||
-        (s.includes("second") && s.includes("shot") && s.includes("kp")) ||
-        s.includes("2ndshotkp") ||
-        (s.includes("2nd") && s.includes("shot") && s.includes("kp"));
-
-    if (isSecondShot) return "secondshotkp";
-    if (s.includes("longdrive") || (s.includes("long") && s.includes("drive"))) return "longdrive";
-    if (s.includes("deucepot") || (s.includes("deuce") && s.includes("pot"))) return "deucepot";
-    if (s.includes("puttingcontest") || (s.includes("putting") && s.includes("contest"))) return "puttingcontest";
-    if (s.includes("teamvsteam") || (s.includes("team") && s.includes("vs") && s.includes("team"))) return "teamvsteam";
-    if (s.includes("kp")) return "kp";
-    return "unknown";
-}
-
-function getKey(f) {
-    return String(f?.key || f?.id || f?.formatKey || "").trim();
-}
-
 function sumPlayerStrokes(scoreDoc, totalHoles) {
     const holes = scoreDoc?.holes || {};
     let total = 0;
@@ -112,7 +85,7 @@ function sumPlayerPutts(scoreDoc, totalHoles) {
     return total;
 }
 
-// Net rules:
+// Tournament net across rounds:
 // 1) If explicit net exists AND not placeholder, use it.
 // 2) Else if doc handicap exists, use gross - doc handicap (unless 0 placeholder and we have a real player handicap).
 // 3) Else fallback: gross - (player handicap prorated).
@@ -163,6 +136,32 @@ function getNetTotal(scoreDoc, grossTotal, playerHandicap, totalHoles) {
     }
 
     return null;
+}
+
+// IMPORTANT: detect “second shot kp” before “kp”
+function detectFormatType(f) {
+    const k = normKey(f?.key || f?.id || f?.formatKey);
+    const n = normKey(f?.name || f?.title);
+    const s = `${k} ${n}`.trim();
+
+    const isSecondShot =
+        s.includes("secondshotkp") ||
+        s.includes("secondshot") ||
+        (s.includes("second") && s.includes("shot") && s.includes("kp")) ||
+        s.includes("2ndshotkp") ||
+        (s.includes("2nd") && s.includes("shot") && s.includes("kp"));
+
+    if (isSecondShot) return "secondshotkp";
+    if (s.includes("longdrive") || (s.includes("long") && s.includes("drive"))) return "longdrive";
+    if (s.includes("deucepot") || (s.includes("deuce") && s.includes("pot"))) return "deucepot";
+    if (s.includes("puttingcontest") || (s.includes("putting") && s.includes("contest"))) return "puttingcontest";
+    if (s.includes("teamvsteam") || (s.includes("team") && s.includes("vs") && s.includes("team"))) return "teamvsteam";
+    if (s.includes("kp")) return "kp";
+    return "unknown";
+}
+
+function getKey(f) {
+    return String(f?.key || f?.id || f?.formatKey || "").trim();
 }
 
 function extractEntryFee(f) {
@@ -222,41 +221,25 @@ function formatTheme(type) {
     return { accent: YELLOW, bg: "rgba(242,201,76,0.08)", border: "rgba(242,201,76,0.22)" };
 }
 
-export default function TournamentRoundFinalResultsScreen({ navigation, route }) {
+export default function TournamentFinalResultsScreen({ navigation, route }) {
     const params = route?.params || {};
 
     const tournamentId = params?.tournamentId ? String(params.tournamentId) : "";
-    const roundNumber = Number(params?.roundNumber || 1);
+    const totalRounds = Number(params?.totalRounds ?? params?.roundsCount ?? params?.numRounds ?? params?.roundCount ?? 1);
     const totalHoles = Number(params?.totalHoles || 18);
 
-    React.useEffect(() => {
-        const keys = Object.keys(params || {});
-        console.log("TRFR nav params compact:", {
-            tournamentId,
-            roundNumber,
-            keys,
-            hasTournamentId: !!tournamentId,
-        });
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    const TAB_LEADERBOARD = "leaderboard";
+    const TAB_FORMATS = "formats";
+    const TAB_TEAM = "team";
 
-    const totalRounds = Number(params?.totalRounds ?? params?.roundsCount ?? params?.numRounds ?? params?.roundCount ?? 1);
-    const isFinalRound = Number.isFinite(totalRounds) ? roundNumber >= totalRounds : true;
+    const [activeTab, setActiveTab] = useState(TAB_LEADERBOARD);
 
-    React.useEffect(() => {
-        if (!__DEV__) return;
-        try {
-            assertTournamentNavParams(params, "TournamentRoundFinalResultsScreen");
-        } catch {
-            // ignore
-        }
-    }, [params]);
-
-    const [scoresByPid, setScoresByPid] = useState({});
-    const [formatClaimsByKey, setFormatClaimsByKey] = useState({});
+    const [scoresByRound, setScoresByRound] = useState({});
     const [loading, setLoading] = useState(true);
 
     const [formatDocs, setFormatDocs] = useState([]);
+    const [formatClaimsByRound, setFormatClaimsByRound] = useState({});
+
     const [winnerModalOpen, setWinnerModalOpen] = useState(false);
     const [selectedFormat, setSelectedFormat] = useState(null);
 
@@ -264,12 +247,6 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
     const [tournamentHcpById, setTournamentHcpById] = useState({});
 
     const [showAllFormats, setShowAllFormats] = useState(true);
-
-    const TAB_LEADERBOARD = "leaderboard";
-    const TAB_TEAM = "team";
-    const TAB_FORMATS = "formats";
-
-    const [activeTab, setActiveTab] = useState(TAB_LEADERBOARD);
 
     const playersFromParams = useMemo(() => {
         return Array.isArray(params?.players)
@@ -281,6 +258,16 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                     : [];
     }, [params?.players, params?.members, params?.roster]);
 
+    React.useEffect(() => {
+        if (!__DEV__) return;
+        try {
+            assertTournamentNavParams(params, "TournamentFinalResultsScreen");
+        } catch {
+            // ignore
+        }
+    }, [params]);
+
+    // buddies handicap lookup
     React.useEffect(() => {
         let alive = true;
 
@@ -323,7 +310,7 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
         };
     }, []);
 
-    // Formats snapshot (ONLY for formats + holesByRound + buy-ins)
+    // formats snapshot (single source: tournaments/{id}/formats)
     useFocusEffect(
         useCallback(() => {
             if (!tournamentId) return undefined;
@@ -343,81 +330,7 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
         }, [tournamentId])
     );
 
-    // Scores snapshot
-    useFocusEffect(
-        useCallback(() => {
-            if (!tournamentId) return undefined;
-            setLoading(true);
-
-            const pathStr = `tournaments/${String(tournamentId)}/rounds/r${String(roundNumber)}/scores`;
-            console.log("TRFR scores snapshot path:", pathStr);
-
-            const scoresRef = collection(db, "tournaments", String(tournamentId), "rounds", `r${String(roundNumber)}`, "scores");
-            const unsub = onSnapshot(
-                scoresRef,
-                (snap) => {
-                    console.log("TRFR scores snapshot docs:", snap?.size ?? "no-snap");
-                    const next = {};
-                    snap.forEach((d) => {
-                        next[String(d.id)] = d.data() || {};
-                    });
-                    setScoresByPid(next);
-                    setLoading(false);
-                },
-                (err) => {
-                    console.log("TRFR scores snapshot ERROR:", err?.message || String(err || "unknown"));
-                    setLoading(false);
-                }
-            );
-
-            return () => unsub();
-        }, [tournamentId, roundNumber])
-    );
-
-    // FormatClaims snapshot (SINGLE SOURCE OF TRUTH for format winners)
-    useFocusEffect(
-        useCallback(() => {
-            if (!tournamentId) return undefined;
-
-            const claimsRef = collection(
-                db,
-                "tournaments",
-                String(tournamentId),
-                "rounds",
-                `r${String(roundNumber)}`,
-                "formatClaims"
-            );
-
-            const unsub = onSnapshot(
-                claimsRef,
-                (snap) => {
-                    const map = {};
-                    snap.forEach((d) => {
-                        const id = String(d.id || "");
-                        const m = id.match(/^(.*)_h(\d+)$/);
-                        if (!m) return;
-
-                        const rawKey = String(m[1] || "");
-                        const hole = String(Number(m[2] || 0));
-                        if (!hole || hole === "0") return;
-
-                        const k = normKey(rawKey);
-                        if (!k) return;
-
-                        if (!map[k]) map[k] = {};
-                        map[k][hole] = d.data() || {};
-                    });
-
-                    setFormatClaimsByKey(map);
-                },
-                () => setFormatClaimsByKey({})
-            );
-
-            return () => unsub();
-        }, [tournamentId, roundNumber])
-    );
-
-    // Roster + Members snapshot (handicap source)
+    // roster + members snapshot (handicap source)
     useFocusEffect(
         useCallback(() => {
             if (!tournamentId) return undefined;
@@ -472,20 +385,10 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                     }
                 };
 
-                if (rosterSnap) {
-                    rosterSnap.forEach((docSnap) => ingest(docSnap.id, docSnap.data()));
-                }
-
-                if (membersSnap) {
-                    membersSnap.forEach((docSnap) => ingest(docSnap.id, docSnap.data()));
-                }
+                if (rosterSnap) rosterSnap.forEach((docSnap) => ingest(docSnap.id, docSnap.data()));
+                if (membersSnap) membersSnap.forEach((docSnap) => ingest(docSnap.id, docSnap.data()));
 
                 setTournamentHcpById(map);
-
-                if (__DEV__) {
-                    console.log("TRFR tournamentHcpById count:", Object.keys(map || {}).length);
-                    console.log("TRFR tournamentHcpById sample:", Object.entries(map || {}).slice(0, 8));
-                }
             };
 
             const rosterRef = collection(db, "tournaments", String(tournamentId), "roster");
@@ -522,82 +425,167 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
         }, [tournamentId])
     );
 
-    const formatsFromParams = useMemo(() => {
-        return Array.isArray(params?.formats) ? params.formats : [];
-    }, [params?.formats]);
+    // scores snapshot (one source of truth: rounds/rX/scores)
+    useFocusEffect(
+        useCallback(() => {
+            if (!tournamentId) return undefined;
 
-    const hasFormats = useMemo(() => {
-        if (Array.isArray(formatDocs) && formatDocs.length) return true;
-        if (formatsFromParams && formatsFromParams.length) return true;
-        if (params?.hasFormats === true) return true;
-        if (params?.showFormatsTab === true) return true;
-        return false;
-    }, [formatDocs, formatsFromParams, params?.hasFormats, params?.showFormatsTab]);
+            const tr = Number.isFinite(totalRounds) ? Math.max(1, totalRounds) : 1;
+            setLoading(true);
 
-    const hasTeam = useMemo(() => {
-        if (params?.teamVsTeamActive === true) return true;
-        if (Array.isArray(params?.teamMatches) && params.teamMatches.length) return true;
-        if (Array.isArray(params?.matches) && params.matches.length) return true;
-        if (Array.isArray(params?.teams) && params.teams.length) return true;
-        if (params?.team1Name && params?.team2Name) return true;
-        return false;
-    }, [params]);
+            const unsubs = [];
+            let alive = true;
 
-    const tabs = useMemo(() => {
-        const out = [{ key: TAB_LEADERBOARD, label: "Leaderboard" }];
-        if (hasFormats) out.push({ key: TAB_FORMATS, label: "Formats" });
-        if (hasTeam) out.push({ key: TAB_TEAM, label: "Team vs Team" });
-        return out;
-    }, [hasTeam, hasFormats]);
+            for (let r = 1; r <= tr; r++) {
+                const rk = `r${r}`;
+                const scoresRef = collection(db, "tournaments", String(tournamentId), "rounds", rk, "scores");
 
-    React.useEffect(() => {
-        const keys = tabs.map((t) => t.key);
-        if (!keys.includes(activeTab)) setActiveTab(TAB_LEADERBOARD);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [tabs.length, hasTeam, hasFormats]);
+                const unsub = onSnapshot(
+                    scoresRef,
+                    (snap) => {
+                        if (!alive) return;
 
-    const headerSubtitle = useMemo(() => {
-        if (activeTab === TAB_TEAM) return "TEAM VS TEAM";
-        if (activeTab === TAB_FORMATS) return "FORMATS / WINNERS";
-        return "LEADERBOARD";
-    }, [activeTab]);
+                        const roundMap = {};
+                        snap.forEach((d) => {
+                            roundMap[String(d.id)] = d.data() || {};
+                        });
 
-    const rows = useMemo(() => {
-        const ids = Object.keys(scoresByPid || {});
+                        setScoresByRound((prev) => {
+                            const next = { ...(prev || {}) };
+                            next[rk] = roundMap;
+                            return next;
+                        });
 
-        const hcpById = {};
-        const hcpByName = {};
+                        setLoading(false);
+                    },
+                    () => {
+                        if (!alive) return;
+                        setScoresByRound((prev) => {
+                            const next = { ...(prev || {}) };
+                            next[rk] = {};
+                            return next;
+                        });
+                        setLoading(false);
+                    }
+                );
 
-        for (const pl of playersFromParams) {
-            const possibleIds = [
-                pl?.id,
-                pl?.pid,
-                pl?.playerId,
-                pl?.memberId,
-                pl?.uid,
-                pl?.userId,
-            ]
-                .filter(Boolean)
-                .map((x) => String(x));
-
-            const rawH =
-                pl?.handicap ??
-                pl?.hcp ??
-                pl?.courseHandicap ??
-                pl?.handicapIndex ??
-                pl?.index ??
-                null;
-
-            const h = parseHcp(rawH);
-            if (h != null && possibleIds.length) {
-                for (const k of possibleIds) hcpById[k] = h;
+                unsubs.push(unsub);
             }
 
-            const nm = String(pl?.name || pl?.playerName || "").trim();
-            if (nm && h != null) hcpByName[normKey(nm)] = h;
-        }
+            return () => {
+                alive = false;
+                unsubs.forEach((u) => {
+                    try {
+                        u && u();
+                    } catch {
+                        // ignore
+                    }
+                });
+            };
+        }, [tournamentId, totalRounds])
+    );
 
-        const getTournamentHcp = (pid, name) => {
+    // formatClaims snapshot for ALL rounds (single source: rounds/rX/formatClaims)
+    useFocusEffect(
+        useCallback(() => {
+            if (!tournamentId) return undefined;
+
+            const tr = Number.isFinite(totalRounds) ? Math.max(1, totalRounds) : 1;
+            const unsubs = [];
+            let alive = true;
+
+            for (let r = 1; r <= tr; r++) {
+                const rk = `r${r}`;
+                const claimsRef = collection(db, "tournaments", String(tournamentId), "rounds", rk, "formatClaims");
+
+                const unsub = onSnapshot(
+                    claimsRef,
+                    (snap) => {
+                        if (!alive) return;
+
+                        const map = {};
+                        snap.forEach((d) => {
+                            const id = String(d.id || "");
+                            const m = id.match(/^(.*)_h(\d+)$/);
+                            if (!m) return;
+
+                            const rawKey = String(m[1] || "");
+                            const hole = String(Number(m[2] || 0));
+                            if (!hole || hole === "0") return;
+
+                            const k = normKey(rawKey);
+                            if (!k) return;
+
+                            if (!map[k]) map[k] = {};
+                            map[k][hole] = d.data() || {};
+                        });
+
+                        setFormatClaimsByRound((prev) => {
+                            const next = { ...(prev || {}) };
+                            next[rk] = map;
+                            return next;
+                        });
+                    },
+                    () => {
+                        if (!alive) return;
+                        setFormatClaimsByRound((prev) => {
+                            const next = { ...(prev || {}) };
+                            next[rk] = {};
+                            return next;
+                        });
+                    }
+                );
+
+                unsubs.push(unsub);
+            }
+
+            return () => {
+                alive = false;
+                unsubs.forEach((u) => {
+                    try {
+                        u && u();
+                    } catch {
+                        // ignore
+                    }
+                });
+            };
+        }, [tournamentId, totalRounds])
+    );
+
+    const totalRoundsSafe = useMemo(() => {
+        const tr = Number.isFinite(totalRounds) ? Math.max(1, totalRounds) : 1;
+        return tr;
+    }, [totalRounds]);
+
+    const roundKeys = useMemo(() => {
+        const out = [];
+        for (let i = 1; i <= totalRoundsSafe; i++) out.push(`r${i}`);
+        return out;
+    }, [totalRoundsSafe]);
+
+    const pidToName = useCallback(
+        (pid) => {
+            const p = String(pid || "");
+
+            // look for name in any round scores first
+            for (const rk of roundKeys) {
+                const d = scoresByRound?.[rk]?.[p] || {};
+                const nm = String(d?.playerName || d?.name || "").trim();
+                if (nm) return nm;
+            }
+
+            const fromParams = (playersFromParams || []).find((pl) => {
+                const id = String(pl?.id ?? pl?.pid ?? pl?.playerId ?? pl?.uid ?? pl?.userId ?? "");
+                return id && id === p;
+            });
+
+            return String(fromParams?.name || fromParams?.playerName || p || "Player");
+        },
+        [scoresByRound, playersFromParams, roundKeys]
+    );
+
+    const getPlayerTournamentHcp = useCallback(
+        (pid, name) => {
             const p = String(pid || "");
             const nk = normKey(String(name || ""));
 
@@ -619,11 +607,7 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                 if (v != null) return v;
             }
 
-            return null;
-        };
-
-        const getBuddyHcp = (pid) => {
-            const p = String(pid || "");
+            // fallback to buddy store (local)
             const n1 = buddyHcpById[p];
             if (n1 != null) return n1;
 
@@ -638,189 +622,133 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
             }
 
             return null;
-        };
+        },
+        [tournamentHcpById, buddyHcpById]
+    );
 
-        return ids.map((pid) => {
-            const d = scoresByPid?.[pid] || {};
+    const totalsRows = useMemo(() => {
+        // collect all pids seen across any round
+        const pidSet = new Set();
+        for (const rk of roundKeys) {
+            const m = scoresByRound?.[rk] || {};
+            Object.keys(m || {}).forEach((pid) => pidSet.add(String(pid)));
+        }
 
-            const gross = sumPlayerStrokes(d, totalHoles);
-            const putts = sumPlayerPutts(d, totalHoles);
+        const out = [];
 
-            const playerName = String(d?.playerName || d?.name || "");
+        pidSet.forEach((pid) => {
+            const name = pidToName(pid);
+            const hcp = getPlayerTournamentHcp(pid, name);
 
-            const rosterHRaw =
-                getTournamentHcp(String(pid), playerName) ??
-                getTournamentHcp(String(d?.playerId ?? ""), playerName) ??
-                getTournamentHcp(String(d?.uid ?? ""), playerName) ??
-                hcpById[String(pid)] ??
-                hcpById[String(d?.playerId ?? "")] ??
-                hcpById[String(d?.uid ?? "")] ??
-                hcpById[String(d?.id ?? "")] ??
-                hcpByName[normKey(playerName)] ??
-                getBuddyHcp(String(pid)) ??
-                null;
+            let grossTotal = 0;
+            let puttsTotal = 0;
+            let netTotal = 0;
+            let hasAnyNet = false;
 
-            const rosterH = parseHcp(rosterHRaw);
-            const hasRosterH = rosterH != null;
+            for (const rk of roundKeys) {
+                const d = scoresByRound?.[rk]?.[String(pid)] || null;
+                if (!d) continue;
 
-            const scoreHRaw =
-                d?.handicapStrokes ??
-                d?.courseHandicap ??
-                d?.handicap ??
-                d?.hcp ??
-                d?.handicapIndex ??
-                d?.index ??
-                null;
+                const g = sumPlayerStrokes(d, totalHoles);
+                const p = sumPlayerPutts(d, totalHoles);
 
-            const scoreH = parseHcp(scoreHRaw);
-            const hasScoreH = scoreH != null;
+                grossTotal += g;
+                puttsTotal += p;
 
-            const effectiveH =
-                hasScoreH && !(scoreH === 0 && hasRosterH)
-                    ? scoreH
-                    : hasRosterH
-                        ? rosterH
-                        : null;
+                const rn = getNetTotal(d, g, hcp, totalHoles);
+                if (Number.isFinite(Number(rn))) {
+                    netTotal += Number(rn);
+                    hasAnyNet = true;
+                }
+            }
 
-            const net = getNetTotal(d, gross, effectiveH, totalHoles);
-
-            return {
+            out.push({
                 pid: String(pid),
-                name: String(playerName || "Player"),
-                gross,
-                putts,
-                net,
-                hcpUsed: effectiveH,
-            };
+                name,
+                gross: grossTotal,
+                putts: puttsTotal,
+                net: hasAnyNet ? netTotal : null,
+                hcpUsed: hcp,
+            });
         });
-    }, [scoresByPid, totalHoles, playersFromParams, buddyHcpById, tournamentHcpById]);
 
-    const rosterCount = useMemo(() => rows.length, [rows]);
-    const hasNet = useMemo(() => {
-        return rows.some((r) => r.hcpUsed != null || Number.isFinite(Number(r.net)));
-    }, [rows]);
-
-    const sortedRows = useMemo(() => {
-        const list = [...rows];
-        list.sort((a, b) => {
-            if (hasNet) {
-                const an = Number.isFinite(Number(a.net)) ? Number(a.net) : 9999;
-                const bn = Number.isFinite(Number(b.net)) ? Number(b.net) : 9999;
+        const anyNet = out.some((r) => Number.isFinite(Number(r.net)));
+        out.sort((a, b) => {
+            if (anyNet) {
+                const an = Number.isFinite(Number(a.net)) ? Number(a.net) : 999999;
+                const bn = Number.isFinite(Number(b.net)) ? Number(b.net) : 999999;
                 if (an !== bn) return an - bn;
                 return a.gross - b.gross;
             }
             return a.gross - b.gross;
         });
-        return list;
-    }, [rows, hasNet]);
 
-    const roundKeys = useMemo(() => {
-        const tr = Number.isFinite(totalRounds) ? totalRounds : 1;
-        const out = [];
-        for (let i = 1; i <= Math.max(1, tr); i++) out.push(`r${i}`);
         return out;
-    }, [totalRounds]);
+    }, [scoresByRound, roundKeys, totalHoles, pidToName, getPlayerTournamentHcp]);
 
-    const orderedFormats = useMemo(() => {
-        const src = (Array.isArray(formatDocs) && formatDocs.length ? formatDocs : formatsFromParams) || [];
+    const hasNet = useMemo(() => totalsRows.some((r) => Number.isFinite(Number(r.net))), [totalsRows]);
+    const rosterCount = useMemo(() => (Array.isArray(totalsRows) ? totalsRows.length : 0), [totalsRows]);
 
-        const FORMAT_ORDER = ["kp", "longdrive", "secondshotkp", "deucepot", "puttingcontest", "teamvsteam"];
-        const rank = (f) => {
-            const type = detectFormatType(f);
-            const idx = FORMAT_ORDER.indexOf(type);
-            return idx === -1 ? 999 : idx;
-        };
+    const sortedRows = useMemo(() => totalsRows, [totalsRows]);
 
-        return [...src].filter((f) => !!getKey(f)).sort((a, b) => rank(a) - rank(b));
-    }, [formatDocs, formatsFromParams]);
+    const hasFormats = useMemo(() => {
+        if (Array.isArray(formatDocs) && formatDocs.length) return true;
+        if (params?.hasFormats === true) return true;
+        if (params?.showFormatsTab === true) return true;
+        return false;
+    }, [formatDocs, params?.hasFormats, params?.showFormatsTab]);
 
-    const formatsToRender = useMemo(() => {
-        if (showAllFormats) return orderedFormats;
-        return orderedFormats.slice(0, 3);
-    }, [orderedFormats, showAllFormats]);
-
-    const teamData = useMemo(() => {
-        const t1 = String(params?.team1Name || "Team A");
-        const t2 = String(params?.team2Name || "Team B");
-
-        const lead = String(params?.leadingTeam || "");
-        const leadText = lead ? `${lead} leading` : "Leader shown once scoring is connected";
-
-        const matches = Array.isArray(params?.teamMatches)
-            ? params.teamMatches
-            : Array.isArray(params?.matches)
-                ? params.matches
-                : [];
-
-        return { t1, t2, leadText, matches };
+    const hasTeam = useMemo(() => {
+        if (params?.teamVsTeamActive === true) return true;
+        if (Array.isArray(params?.teamMatches) && params.teamMatches.length) return true;
+        if (Array.isArray(params?.matches) && params.matches.length) return true;
+        if (Array.isArray(params?.teams) && params.teams.length) return true;
+        if (params?.team1Name && params?.team2Name) return true;
+        return false;
     }, [params]);
+
+    const tabs = useMemo(() => {
+        const out = [{ key: TAB_LEADERBOARD, label: "Leaderboard" }];
+        if (hasFormats) out.push({ key: TAB_FORMATS, label: "Formats" });
+        if (hasTeam) out.push({ key: TAB_TEAM, label: "Team vs Team" });
+        return out;
+    }, [hasFormats, hasTeam]);
+
+    React.useEffect(() => {
+        const keys = tabs.map((t) => t.key);
+        if (!keys.includes(activeTab)) setActiveTab(TAB_LEADERBOARD);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [tabs.length, hasFormats, hasTeam]);
+
+    const headerSubtitle = useMemo(() => {
+        if (activeTab === TAB_TEAM) return "TEAM VS TEAM (ALL ROUNDS)";
+        if (activeTab === TAB_FORMATS) return "FORMATS / WINNERS (ALL ROUNDS)";
+        return "LEADERBOARD (ALL ROUNDS)";
+    }, [activeTab]);
+
+    const title = "TOURNAMENT FINAL RESULTS";
+    const FOOTER_H = 142;
 
     const goTournamentHub = useCallback(() => {
         const target = ROUTES.TOURNAMENT_DASHBOARD || ROUTES.TOURNAMENT_LIVE_HUB || "TournamentDashboard";
         navigation.navigate(target, pickTournamentNavParams(params));
     }, [navigation, params]);
 
-    const primaryAction = useCallback(() => {
-        if (isFinalRound || totalRounds === 1) {
-            const target = ROUTES.TOURNAMENT_FINAL_RESULTS || "TournamentFinalResults";
+    const goWinnersCircle = useCallback(() => {
+        const target = ROUTES.TOURNAMENT_TROPHY || "TournamentTrophy";
 
-            navigation.navigate(target, {
-                ...pickTournamentNavParams(params),
-                tournamentId,
-                totalRounds: Number.isFinite(totalRounds) ? totalRounds : 1,
-                totalHoles,
-                players: playersFromParams,
-            });
-            return;
-        }
+        const championRow = Array.isArray(sortedRows) && sortedRows.length ? sortedRows[0] : null;
+        const winnerName = String(championRow?.name || params?.winnerName || params?.championName || "").trim();
 
-        Alert.alert("Next step", "Round saved. Next we’ll take you to the Round 2 start flow.", [{ text: "OK" }]);
-    }, [navigation, params, tournamentId, totalRounds, totalHoles, isFinalRound, playersFromParams]);
-
-    const goHome = useCallback(() => {
-        navigation.navigate(ROUTES.HOME);
-    }, [navigation]);
-
-    const title = useMemo(() => {
-        if (totalRounds === 1 || isFinalRound) return "TOURNAMENT FINAL RESULTS";
-        return `ROUND ${roundNumber} RESULTS`;
-    }, [roundNumber, totalRounds, isFinalRound]);
-
-    const primaryLabel = useMemo(() => {
-        if (totalRounds === 1 || isFinalRound) return "Continue to Winner’s Circle";
-        return "Continue to Round 2";
-    }, [totalRounds, isFinalRound]);
-
-    const FOOTER_H = 142;
-
-    const openWinnerModal = useCallback((f) => {
-        setSelectedFormat(f || null);
-        setWinnerModalOpen(true);
-    }, []);
-
-    const closeWinnerModal = useCallback(() => {
-        setWinnerModalOpen(false);
-        setSelectedFormat(null);
-    }, []);
-
-    const getClaimsForFormat = useCallback(
-        (f) => {
-            const keyRaw = getKey(f);
-            const idRaw = String(f?.id || "");
-            const fkRaw = String(f?.formatKey || "");
-            const nameRaw = String(f?.name || f?.title || "");
-
-            const candidates = [normKey(keyRaw), normKey(idRaw), normKey(fkRaw), normKey(nameRaw)].filter(Boolean);
-
-            for (const k of candidates) {
-                const hit = formatClaimsByKey?.[k];
-                if (hit && typeof hit === "object") return hit;
-            }
-
-            return null;
-        },
-        [formatClaimsByKey]
-    );
+        navigation.navigate(target, {
+            ...pickTournamentNavParams(params),
+            tournamentId,
+            winnerName,
+            leaderboardRows: sortedRows,
+            isTournamentFinal: true,
+            totalRounds: totalRoundsSafe,
+        });
+    }, [navigation, params, tournamentId, sortedRows, totalRoundsSafe]);
 
     const renderTabs = () => {
         if (!tabs || tabs.length <= 1) return null;
@@ -882,12 +810,12 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                 {renderColumnHeader()}
                 <View style={styles.divider} />
 
-                {/* Only the rows scroll — card/border stays fixed */}
+                {/* Only the player rows scroll (border/header stay fixed) */}
                 <ScrollView
                     style={styles.leaderRowsScroll}
                     contentContainerStyle={styles.leaderRowsContent}
                     showsVerticalScrollIndicator={false}
-                    keyboardShouldPersistTaps="handled"
+                    nestedScrollEnabled
                 >
                     {sortedRows.map((item, index) => {
                         const rank = index + 1;
@@ -935,10 +863,26 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
         );
     };
 
+    const teamData = useMemo(() => {
+        const t1 = String(params?.team1Name || "Team A");
+        const t2 = String(params?.team2Name || "Team B");
+
+        const lead = String(params?.leadingTeam || "");
+        const leadText = lead ? `${lead} leading` : "Leader shown once scoring is connected";
+
+        const matches = Array.isArray(params?.teamMatches)
+            ? params.teamMatches
+            : Array.isArray(params?.matches)
+                ? params.matches
+                : [];
+
+        return { t1, t2, leadText, matches };
+    }, [params]);
+
     const renderTeamCard = () => {
         return (
             <View style={styles.leaderWrap}>
-                <View style={styles.leaderTopRowWrap}>
+                <View style={styles.leaderTopRow}>
                     <Text style={styles.leaderTitle}>Team vs Team</Text>
 
                     <View style={styles.teamPill}>
@@ -994,6 +938,57 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
         );
     };
 
+    const orderedFormats = useMemo(() => {
+        const src = (Array.isArray(formatDocs) && formatDocs.length ? formatDocs : []) || [];
+        const FORMAT_ORDER = ["kp", "longdrive", "secondshotkp", "deucepot", "puttingcontest", "teamvsteam"];
+        const rank = (f) => {
+            const type = detectFormatType(f);
+            const idx = FORMAT_ORDER.indexOf(type);
+            return idx === -1 ? 999 : idx;
+        };
+        return [...src].filter((f) => !!getKey(f)).sort((a, b) => rank(a) - rank(b));
+    }, [formatDocs]);
+
+    const formatsToRender = useMemo(() => {
+        if (showAllFormats) return orderedFormats;
+        return orderedFormats.slice(0, 3);
+    }, [orderedFormats, showAllFormats]);
+
+    const openWinnerModal = useCallback((f) => {
+        setSelectedFormat(f || null);
+        setWinnerModalOpen(true);
+    }, []);
+
+    const closeWinnerModal = useCallback(() => {
+        setWinnerModalOpen(false);
+        setSelectedFormat(null);
+    }, []);
+
+    const getClaimsForFormatAcrossTournament = useCallback(
+        (f) => {
+            const keyRaw = getKey(f);
+            const idRaw = String(f?.id || "");
+            const fkRaw = String(f?.formatKey || "");
+            const nameRaw = String(f?.name || f?.title || "");
+
+            const candidates = [normKey(keyRaw), normKey(idRaw), normKey(fkRaw), normKey(nameRaw)].filter(Boolean);
+
+            const outByRound = {};
+            for (const rk of roundKeys) {
+                const byRound = formatClaimsByRound?.[rk] || {};
+                for (const c of candidates) {
+                    const hit = byRound?.[c];
+                    if (hit && typeof hit === "object") {
+                        outByRound[rk] = hit;
+                        break;
+                    }
+                }
+            }
+            return outByRound;
+        },
+        [formatClaimsByRound, roundKeys]
+    );
+
     function renderFormatPayout(f) {
         const type = detectFormatType(f);
         const fee = extractEntryFee(f);
@@ -1013,7 +1008,7 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                     `Entry fee: ${money(fee)}`,
                     `Roster: ${rosterCount}`,
                     `Pool total: ${money(totalPool)}`,
-                    `Official holes selected: ${events > 0 ? String(events) : "0 (select holes in Format Details)"}`,
+                    `Official holes selected (all rounds): ${events > 0 ? String(events) : "0 (select holes in Format Details)"}`,
                 ],
             };
         }
@@ -1084,49 +1079,50 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
 
         const payout = renderFormatPayout(f);
 
-        const rnKeyNow = `r${String(roundNumber)}`;
-
+        // tournament-wide official holes = union across rounds
         const cfg = f?.config && typeof f.config === "object" ? f.config : {};
         const hbr = cfg?.holesByRound && typeof cfg.holesByRound === "object" ? cfg.holesByRound : {};
-        const officialHoles = uniqInts(hbr?.[rnKeyNow] || []);
+
+        const officialHolesByRound = {};
+        for (const rk of roundKeys) {
+            officialHolesByRound[rk] = uniqInts(hbr?.[rk] || []);
+        }
 
         const feeLocal = extractEntryFee(f);
         const poolLocal = feeLocal > 0 ? feeLocal * Math.max(0, rosterCount) : 0;
-        const eventsThisRound = officialHoles.length;
-        const perWin = eventsThisRound > 0 ? poolLocal / eventsThisRound : 0;
 
-        const pidToName = (pid) => {
-            const fromScore = scoresByPid?.[pid]?.playerName;
-            if (fromScore) return String(fromScore);
+        const totalEvents = countEventsForHoleFormat(f, roundKeys);
+        const perWin = totalEvents > 0 ? poolLocal / totalEvents : 0;
 
-            const fromParams = Array.isArray(playersFromParams)
-                ? playersFromParams.find(
-                    (p) => String(p?.id ?? p?.pid ?? p?.playerId ?? p?.uid ?? p?.userId) === String(pid)
-                )
-                : null;
-
-            return String(fromParams?.name || fromParams?.playerName || pid || "—");
-        };
+        const claimsByRound = getClaimsForFormatAcrossTournament(f) || {};
 
         const computePuttingLeaders = () => {
             const rowsLocal = [];
-            const map = scoresByPid || {};
-            for (const pid of Object.keys(map)) {
-                const holes = map?.[pid]?.holes || {};
+            const pidSet = new Set();
+            for (const rk of roundKeys) {
+                const m = scoresByRound?.[rk] || {};
+                Object.keys(m || {}).forEach((pid) => pidSet.add(String(pid)));
+            }
+
+            pidSet.forEach((pid) => {
                 let total = 0;
                 let any = false;
 
-                for (const hk of Object.keys(holes)) {
-                    const h = holes?.[hk] || {};
-                    const p = Number(h?.putts);
-                    if (Number.isFinite(p)) {
-                        total += p;
-                        any = true;
+                for (const rk of roundKeys) {
+                    const d = scoresByRound?.[rk]?.[String(pid)] || {};
+                    const holes = d?.holes || {};
+                    for (const hk of Object.keys(holes)) {
+                        const h = holes?.[hk] || {};
+                        const p = Number(h?.putts);
+                        if (Number.isFinite(p)) {
+                            total += p;
+                            any = true;
+                        }
                     }
                 }
 
                 if (any) rowsLocal.push({ pid, name: pidToName(pid), putts: total });
-            }
+            });
 
             rowsLocal.sort((a, b) => a.putts - b.putts || a.name.localeCompare(b.name));
             if (!rowsLocal.length) return { first: [], second: [] };
@@ -1144,68 +1140,61 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
         };
 
         const computeDeuceCounts = () => {
-            const map = scoresByPid || {};
-            const rowsLocal = [];
+            const pidSet = new Set();
+            for (const rk of roundKeys) {
+                const m = scoresByRound?.[rk] || {};
+                Object.keys(m || {}).forEach((pid) => pidSet.add(String(pid)));
+            }
 
-            for (const pid of Object.keys(map)) {
-                const holes = map?.[pid]?.holes || {};
+            const rowsLocal = [];
+            pidSet.forEach((pid) => {
                 let count = 0;
 
-                for (const hk of Object.keys(holes)) {
-                    const h = holes?.[hk] || {};
-                    const s = Number(h?.strokes);
-                    if (Number.isFinite(s) && s === 2) count += 1;
+                for (const rk of roundKeys) {
+                    const d = scoresByRound?.[rk]?.[String(pid)] || {};
+                    const holes = d?.holes || {};
+                    for (const hk of Object.keys(holes)) {
+                        const h = holes?.[hk] || {};
+                        const s = Number(h?.strokes);
+                        if (Number.isFinite(s) && s === 2) count += 1;
+                    }
                 }
 
                 if (count > 0) rowsLocal.push({ pid, name: pidToName(pid), deuces: count });
-            }
+            });
 
             rowsLocal.sort((a, b) => b.deuces - a.deuces || a.name.localeCompare(b.name));
             return rowsLocal;
         };
 
         const isAuto = type === "deucepot" || type === "puttingcontest";
-        const claimsMap = isAuto ? null : getClaimsForFormat(f) || {};
 
         const claimedCount = !isAuto
-            ? officialHoles.reduce((acc, h) => {
-                const c = claimsMap?.[String(h)] || null;
-                return (
-                    acc +
-                    (c &&
-                        (c.claimedByPlayerName ||
-                            c.playerName ||
-                            c.name ||
-                            c.claimedByUid ||
-                            c.claimedByPlayerId ||
-                            c.playerId ||
-                            c.pid)
-                        ? 1
-                        : 0)
-                );
+            ? roundKeys.reduce((accR, rk) => {
+                const holes = officialHolesByRound?.[rk] || [];
+                const claimsMap = claimsByRound?.[rk] || {};
+                const count = holes.reduce((acc, h) => {
+                    const c = claimsMap?.[String(h)] || null;
+                    return acc + (c && (c.claimedByPlayerName || c.playerName || c.name || c.claimedByUid || c.claimedByPlayerId || c.playerId || c.pid) ? 1 : 0);
+                }, 0);
+                return accR + count;
             }, 0)
             : 0;
 
-        const puttingLeaders = isAuto && type === "puttingcontest" ? computePuttingLeaders() : null;
-        const deuceRows = isAuto && type === "deucepot" ? computeDeuceCounts() : null;
-
         const statusPill = isAuto
             ? "AUTO"
-            : eventsThisRound === 0
+            : totalEvents === 0
                 ? "NO HOLES SET"
                 : claimedCount === 0
                     ? "NO CLAIMS YET"
-                    : claimedCount < eventsThisRound
+                    : claimedCount < totalEvents
                         ? "INCOMPLETE"
                         : "PENDING CONFIRM";
 
-        const winnerLine = isAuto
-            ? "Computed from round scores"
-            : eventsThisRound === 0
-                ? "No official holes selected yet"
-                : claimedCount === 0
-                    ? "No winners claimed yet"
-                    : "Round winners (pending)";
+        const winnerLine = isAuto ? "Computed from tournament scores" : totalEvents === 0 ? "No official holes selected yet" : claimedCount === 0 ? "No winners claimed yet" : "Tournament winners (pending)";
+
+        const puttingLeaders = isAuto && type === "puttingcontest" ? computePuttingLeaders() : null;
+        const deuceRows = isAuto && type === "deucepot" ? computeDeuceCounts() : null;
 
         return (
             <Modal visible={winnerModalOpen} transparent animationType="fade" onRequestClose={closeWinnerModal}>
@@ -1280,47 +1269,69 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
                                             </>
                                         ) : null}
                                     </View>
-                                ) : officialHoles.length ? (
-                                    <View style={{ marginTop: 10, gap: 8 }}>
-                                        {officialHoles.map((h) => {
-                                            const c = claimsMap?.[String(h)] || null;
+                                ) : totalEvents > 0 ? (
+                                    <View style={{ marginTop: 10, gap: 10 }}>
+                                        {roundKeys.map((rk) => {
+                                            const holes = officialHolesByRound?.[rk] || [];
+                                            if (!holes.length) return null;
 
-                                            const claimedPid = c?.claimedByPlayerId || c?.claimedByUid || c?.playerId || c?.pid || null;
-
-                                            const nm = String(
-                                                c?.claimedByPlayerName || c?.playerName || c?.name || (claimedPid ? pidToName(String(claimedPid)) : "") || "—"
-                                            );
-
-                                            const has = !!c;
+                                            const claimsMap = claimsByRound?.[rk] || {};
+                                            const roundLabel = rk.toUpperCase();
 
                                             return (
-                                                <View
-                                                    key={`hole-${h}`}
-                                                    style={{
-                                                        flexDirection: "row",
-                                                        alignItems: "center",
-                                                        justifyContent: "space-between",
-                                                        gap: 10,
-                                                        borderRadius: 14,
-                                                        backgroundColor: "rgba(255,255,255,0.04)",
-                                                        borderWidth: 1,
-                                                        borderColor: "rgba(255,255,255,0.10)",
-                                                        paddingVertical: 10,
-                                                        paddingHorizontal: 12,
-                                                    }}
-                                                >
-                                                    <Text style={{ color: WHITE, fontWeight: "900", fontSize: 13 }}>Hole {h}</Text>
-
-                                                    <Text
-                                                        style={{ flex: 1, color: WHITE, fontWeight: "900", fontSize: 13, textAlign: "center" }}
-                                                        numberOfLines={1}
-                                                    >
-                                                        {has ? nm : "Unclaimed"}
+                                                <View key={`round-${rk}`} style={{ gap: 8 }}>
+                                                    <Text style={{ color: "rgba(255,255,255,0.72)", fontWeight: "900", fontSize: 11, letterSpacing: 0.8 }}>
+                                                        {roundLabel}
                                                     </Text>
 
-                                                    <View style={styles.matchPill}>
-                                                        <Text style={styles.matchPillText}>{perWin > 0 ? money(perWin) : "—"}</Text>
-                                                    </View>
+                                                    {holes.map((h) => {
+                                                        const c = claimsMap?.[String(h)] || null;
+
+                                                        const claimedPid =
+                                                            c?.claimedByPlayerId ||
+                                                            c?.claimedByUid ||
+                                                            c?.playerId ||
+                                                            c?.pid ||
+                                                            null;
+
+                                                        const nm = String(
+                                                            c?.claimedByPlayerName ||
+                                                            c?.playerName ||
+                                                            c?.name ||
+                                                            (claimedPid ? pidToName(String(claimedPid)) : "") ||
+                                                            "—"
+                                                        );
+
+                                                        const has = !!c;
+
+                                                        return (
+                                                            <View
+                                                                key={`${rk}-hole-${h}`}
+                                                                style={{
+                                                                    flexDirection: "row",
+                                                                    alignItems: "center",
+                                                                    justifyContent: "space-between",
+                                                                    gap: 10,
+                                                                    borderRadius: 14,
+                                                                    backgroundColor: "rgba(255,255,255,0.04)",
+                                                                    borderWidth: 1,
+                                                                    borderColor: "rgba(255,255,255,0.10)",
+                                                                    paddingVertical: 10,
+                                                                    paddingHorizontal: 12,
+                                                                }}
+                                                            >
+                                                                <Text style={{ color: WHITE, fontWeight: "900", fontSize: 13 }}>{rk.toUpperCase()} • Hole {h}</Text>
+
+                                                                <Text style={{ flex: 1, color: WHITE, fontWeight: "900", fontSize: 13, textAlign: "center" }} numberOfLines={1}>
+                                                                    {has ? nm : "Unclaimed"}
+                                                                </Text>
+
+                                                                <View style={styles.matchPill}>
+                                                                    <Text style={styles.matchPillText}>{perWin > 0 ? money(perWin) : "—"}</Text>
+                                                                </View>
+                                                            </View>
+                                                        );
+                                                    })}
                                                 </View>
                                             );
                                         })}
@@ -1358,13 +1369,10 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
     const renderFormatsCard = () => {
         return (
             <View style={styles.leaderWrap}>
-                <View style={styles.leaderTopRowWrap}>
+                <View style={styles.leaderTopRow}>
                     <Text style={styles.leaderTitle}>Formats</Text>
 
-                    <Pressable
-                        onPress={() => setShowAllFormats((v) => !v)}
-                        style={({ pressed }) => [styles.leaderToggle, pressed && styles.pressed]}
-                    >
+                    <Pressable onPress={() => setShowAllFormats((v) => !v)} style={({ pressed }) => [styles.leaderToggle, pressed && styles.pressed]}>
                         <Text style={styles.leaderToggleText}>{showAllFormats ? "Show less" : "View all formats"}</Text>
                     </Pressable>
                 </View>
@@ -1425,6 +1433,12 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
         );
     };
 
+    const renderActiveContent = () => {
+        if (activeTab === TAB_TEAM) return renderTeamCard();
+        if (activeTab === TAB_FORMATS) return renderFormatsCard();
+        return renderLeaderboardCard();
+    };
+
     return (
         <SafeAreaView style={styles.safe}>
             <View style={styles.bgWashA} />
@@ -1444,45 +1458,37 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
             <View style={styles.body}>
                 {!tournamentId ? (
                     <View style={styles.card}>
-                        <Text style={styles.titleText}>Round not found</Text>
+                        <Text style={styles.titleText}>Tournament not found</Text>
                         <Text style={styles.subText}>Missing tournamentId.</Text>
-                        <Pressable onPress={goHome} style={({ pressed }) => [styles.btnPrimary, pressed && styles.pressed]}>
+                        <Pressable onPress={() => navigation.navigate(ROUTES.HOME)} style={({ pressed }) => [styles.btnPrimary, pressed && styles.pressed]}>
                             <Text style={styles.btnPrimaryText}>Go Home</Text>
                         </Pressable>
                     </View>
                 ) : loading ? (
                     <View style={styles.center}>
                         <ActivityIndicator />
-                        <Text style={styles.loadingText}>Loading results…</Text>
+                        <Text style={styles.loadingText}>Loading final results…</Text>
                     </View>
                 ) : (
                     <>
                         {renderTabs()}
 
-                        {activeTab === TAB_LEADERBOARD ? (
-                            <View style={{ flex: 1, paddingBottom: FOOTER_H + 16 }}>
-                                {renderLeaderboardCard()}
-                            </View>
-                        ) : (
-                            <ScrollView
-                                style={{ flex: 1 }}
-                                contentContainerStyle={{
-                                    paddingBottom: FOOTER_H + 24,
-                                    paddingTop: tabs.length > 1 ? 6 : 10,
-                                }}
-                                showsVerticalScrollIndicator={false}
-                                scrollEnabled
-                                keyboardShouldPersistTaps="handled"
-                            >
-                                {activeTab === TAB_TEAM ? renderTeamCard() : renderFormatsCard()}
-                                <View style={{ height: 10 }} />
-                            </ScrollView>
-                        )}
+                        <ScrollView
+                            style={{ flex: 1 }}
+                            contentContainerStyle={{
+                                paddingBottom: FOOTER_H + 24,
+                                paddingTop: tabs.length > 1 ? 6 : 10,
+                            }}
+                            showsVerticalScrollIndicator={false}
+                        >
+                            {renderActiveContent()}
+                            <View style={{ height: 10 }} />
+                        </ScrollView>
 
                         <View style={styles.footerWrap}>
                             <View style={styles.footer}>
-                                <Pressable onPress={primaryAction} style={({ pressed }) => [styles.btnPrimary, pressed && styles.pressed]}>
-                                    <Text style={styles.btnPrimaryText}>{primaryLabel}</Text>
+                                <Pressable onPress={goWinnersCircle} style={({ pressed }) => [styles.btnPrimary, pressed && styles.pressed]}>
+                                    <Text style={styles.btnPrimaryText}>Continue to Winner’s Circle</Text>
                                 </Pressable>
 
                                 <View style={{ height: 10 }} />
@@ -1501,13 +1507,6 @@ export default function TournamentRoundFinalResultsScreen({ navigation, route })
 
 const styles = StyleSheet.create({
     safe: { flex: 1, backgroundColor: BG },
-
-    leaderRowsScroll: {
-        maxHeight: 420,
-    },
-    leaderRowsContent: {
-        paddingBottom: 6,
-    },
 
     bgWashA: {
         position: "absolute",
@@ -1547,20 +1546,21 @@ const styles = StyleSheet.create({
     tabsRow: {
         flexDirection: "row",
         alignItems: "center",
-        justifyContent: "center",
-        gap: 10,
+        justifyContent: "space-between",
+        gap: 12,
         paddingHorizontal: 16,
-        paddingTop: 10,
+        paddingTop: 12,
     },
     tabPill: {
         flex: 1,
-        height: 48,
-        paddingHorizontal: 14,
-        borderRadius: 18,
+        height: 46,
+        paddingHorizontal: 0,
+        borderRadius: 16,
         alignItems: "center",
         justifyContent: "center",
         borderWidth: 1,
     },
+
     tabPillIdle: {
         backgroundColor: "rgba(255,255,255,0.06)",
         borderColor: "rgba(255,255,255,0.14)",
@@ -1569,7 +1569,7 @@ const styles = StyleSheet.create({
         backgroundColor: "rgba(242,201,76,0.18)",
         borderColor: "rgba(242,201,76,0.55)",
     },
-    tabText: { fontWeight: "900", fontSize: 14, letterSpacing: 0.2 },
+    tabText: { fontWeight: "900", fontSize: 12, letterSpacing: 0.2 },
     tabTextIdle: { color: WHITE },
     tabTextActive: { color: "rgba(242,201,76,0.98)" },
 
@@ -1590,28 +1590,17 @@ const styles = StyleSheet.create({
         gap: 12,
         marginBottom: 10,
     },
-
-    leaderTopRowWrap: {
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-        marginBottom: 10,
-        flexWrap: "wrap",
-    },
-
     leaderTitle: { color: WHITE, fontWeight: "900", fontSize: 18 },
 
     leaderToggle: {
-        height: 40,
-        paddingHorizontal: 14,
-        borderRadius: 18,
+        height: 34,
+        paddingHorizontal: 12,
+        borderRadius: 999,
         backgroundColor: "rgba(255,255,255,0.06)",
         borderWidth: 1,
         borderColor: "rgba(255,255,255,0.14)",
         alignItems: "center",
         justifyContent: "center",
-        flexShrink: 0,
     },
     leaderToggleText: { color: WHITE, fontWeight: "900", fontSize: 12, letterSpacing: 0.2 },
 
@@ -1668,17 +1657,17 @@ const styles = StyleSheet.create({
     noteText: { color: "rgba(255,255,255,0.70)", fontWeight: "800", fontSize: 12, lineHeight: 16 },
 
     teamPill: {
-        height: 40,
+        height: 34,
         paddingHorizontal: 12,
-        borderRadius: 18,
+        borderRadius: 999,
         backgroundColor: "rgba(255,255,255,0.06)",
         borderWidth: 1,
         borderColor: "rgba(255,255,255,0.14)",
         alignItems: "center",
         justifyContent: "center",
-        maxWidth: 220,
+        maxWidth: 190,
     },
-    teamPillText: { color: WHITE, fontWeight: "900", fontSize: 12, letterSpacing: 0.2 },
+    teamPillText: { color: WHITE, fontWeight: "900", fontSize: 11, letterSpacing: 0.2 },
 
     teamNamesRow: { flexDirection: "row", gap: 10 },
     teamNameCard: {

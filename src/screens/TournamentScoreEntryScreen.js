@@ -74,32 +74,38 @@ function uniqIds(list) {
 }
 
 function normalizeSideKey(x) {
-    return String(x || "")
-        .trim()
-        .toLowerCase()
-        .replace(/\s+/g, "_");
+    const raw = String(x || "").trim().toLowerCase();
+    const k = raw.replace(/\s+/g, "").replace(/_/g, "");
+
+    // canonical tournament format ids (single source of truth)
+    if (k === "kp" || k === "closesttothepin") return "kp";
+    if (k === "secondshotkp" || k === "2ndshotkp" || k === "secondshot") return "secondshotkp";
+    if (k === "longdrive" || k === "ld") return "longdrive";
+
+    return k; // fallback: already canonical or unknown
 }
 
 function claimLabelForKey(k) {
     const kk = normalizeSideKey(k);
     if (kk === "kp") return "KP";
-    if (kk === "second_shot_kp") return "SECOND SHOT KP";
-    if (kk === "long_drive") return "LONG DRIVE";
+    if (kk === "secondshotkp") return "SECOND SHOT KP";
+    if (kk === "longdrive") return "LONG DRIVE";
     return "FORMAT";
 }
 
 function claimTheme(k) {
     const kk = normalizeSideKey(k);
     if (kk === "kp") return { accent: "#5AD7FF", bg: "rgba(90,215,255,0.12)", border: "rgba(90,215,255,0.34)", icon: "target" };
-    if (kk === "second_shot_kp") return { accent: "#9D7BFF", bg: "rgba(157,123,255,0.12)", border: "rgba(157,123,255,0.34)", icon: "target-variant" };
-    if (kk === "long_drive") return { accent: "#B8F37A", bg: "rgba(184,243,122,0.12)", border: "rgba(184,243,122,0.34)", icon: "golf" };
+    if (kk === "secondshotkp") return { accent: "#9D7BFF", bg: "rgba(157,123,255,0.12)", border: "rgba(157,123,255,0.34)", icon: "target-variant" };
+    if (kk === "longdrive") return { accent: "#B8F37A", bg: "rgba(184,243,122,0.12)", border: "rgba(184,243,122,0.34)", icon: "golf" };
     return { accent: YELLOW, bg: "rgba(242,201,76,0.10)", border: "rgba(242,201,76,0.28)", icon: "star-four-points" };
 }
 
 function isClaimableHoleFormat(sideKeyRaw) {
     const k = normalizeSideKey(sideKeyRaw);
-    return k === "kp" || k === "second_shot_kp" || k === "long_drive";
+    return k === "kp" || k === "secondshotkp" || k === "longdrive";
 }
+
 
 function NumberChip({ n, active, onPress }) {
     return (

@@ -97,9 +97,7 @@ function computeSettlementPairs(netByPlayer) {
         if (c.amt <= 0.009) j += 1;
     }
 
-    // stable sort: biggest amounts first, then by payer name
     lines.sort((a, b) => b.amount - a.amount || String(a.from).localeCompare(String(b.from)));
-
     return lines;
 }
 
@@ -113,22 +111,53 @@ export default function TournamentSettlePayoutsScreen({ navigation, route }) {
     const params = route?.params || {};
     const tournamentId = params?.tournamentId ? String(params.tournamentId) : "";
     const roundNumber = Number(params?.roundNumber || 1);
+    const roundKey = `r${String(roundNumber)}`;
 
     const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
     const [formats, setFormats] = useState([]);
     const [scoresByPid, setScoresByPid] = useState({});
     const [roster, setRoster] = useState([]);
+    const [members, setMembers] = useState([]);
     const [loading, setLoading] = useState(true);
+
+    React.useEffect(() => {
+        if (!__DEV__) return;
+
+        console.log("TSP DEBUG tournamentId:", tournamentId, "roundNumber:", roundNumber, "roundKey:", roundKey);
+        console.log("TSP DEBUG counts:", {
+            formats: Array.isArray(formats) ? formats.length : -1,
+            members: Array.isArray(members) ? members.length : -1,
+            roster: Array.isArray(roster) ? roster.length : -1,
+            scoresByPid: Object.keys(scoresByPid || {}).length,
+        });
+
+        const fmt = (Array.isArray(formats) ? formats : []).map((f) => ({
+            id: f?.id,
+            key: f?.key,
+            name: f?.name,
+            entryFee: f?.entryFee,
+            buyIn: f?.buyIn,
+            buyInAmount: f?.buyInAmount,
+            hasClaimsByRound: !!f?.claimsByRound,
+            claimsRounds: f?.claimsByRound ? Object.keys(f.claimsByRound) : [],
+            holesByRound: f?.config?.holesByRound || null,
+        }));
+
+        console.log("TSP DEBUG formats summary:", fmt);
+    }, [tournamentId, roundNumber, roundKey, formats, roster, members, scoresByPid]);
 
     useEffect(() => {
         if (!tournamentId) return;
 
         let alive = true;
+
         let fUnsub = null;
         let rUnsub = null;
+        let mUnsub = null;
         let sUnsub = null;
 
+        // keep it simple: first response from any snapshot drops loading
         const done = () => {
             if (!alive) return;
             setLoading(false);
@@ -152,6 +181,7 @@ export default function TournamentSettlePayoutsScreen({ navigation, route }) {
                 }
             );
 
+            // IMPORTANT: use roster (existing) — do not change schema here
             const rosterRef = collection(db, "tournaments", tournamentId, "roster");
             rUnsub = onSnapshot(
                 rosterRef,
@@ -165,6 +195,24 @@ export default function TournamentSettlePayoutsScreen({ navigation, route }) {
                 () => {
                     if (!alive) return;
                     setRoster([]);
+                    done();
+                }
+            );
+
+            // members (some tournaments use this collection)
+            const membersRef = collection(db, "tournaments", tournamentId, "members");
+            mUnsub = onSnapshot(
+                membersRef,
+                (snap) => {
+                    const out = [];
+                    snap.forEach((d) => out.push({ id: d.id, ...(d.data() || {}) }));
+                    if (!alive) return;
+                    setMembers(out);
+                    done();
+                },
+                () => {
+                    if (!alive) return;
+                    setMembers([]);
                     done();
                 }
             );
@@ -192,11 +240,10 @@ export default function TournamentSettlePayoutsScreen({ navigation, route }) {
 
         return () => {
             alive = false;
-            try {
-                if (fUnsub) fUnsub();
-                if (rUnsub) rUnsub();
-                if (sUnsub) sUnsub();
-            } catch (e) { }
+            if (fUnsub) fUnsub();
+            if (rUnsub) rUnsub();
+            if (mUnsub) mUnsub();
+            if (sUnsub) sUnsub();
         };
     }, [tournamentId, roundNumber]);
 
@@ -291,19 +338,50 @@ export default function TournamentSettlePayoutsScreen({ navigation, route }) {
     const rosterCount = useMemo(() => {
         const rc = Array.isArray(roster) ? roster.length : 0;
         if (rc > 0) return rc;
+
+        const mc = Array.isArray(members) ? members.length : 0;
+        if (mc > 0) return mc;
+
         return Object.keys(scoresByPid || {}).length;
-    }, [roster, scoresByPid]);
+    }, [roster, members, scoresByPid]);
+
+    const nameByPid = useMemo(() => {
+        const map = {};
+
+        (Array.isArray(roster) ? roster : []).forEach((r) => {
+            const pid = String(r?.uid || r?.playerId || r?.id || "").trim();
+            const nm = String(r?.name || r?.playerName || r?.displayName || "").trim();
+            if (pid && nm) map[pid] = nm;
+        });
+
+        (Array.isArray(members) ? members : []).forEach((r) => {
+            const pid = String(r?.uid || r?.playerId || r?.id || "").trim();
+            const nm = String(r?.name || r?.playerName || r?.displayName || "").trim();
+            if (pid && nm) map[pid] = nm;
+        });
+
+        Object.keys(scoresByPid || {}).forEach((pid) => {
+            const d = scoresByPid[pid] || {};
+            const nm = String(d?.playerName || d?.name || "").trim();
+            if (pid && nm && !map[pid]) map[pid] = nm;
+        });
+
+        return map;
+    }, [roster, members, scoresByPid]);
 
     const allPlayerNames = useMemo(() => {
         const s = new Set();
 
-        // prefer roster names
         (Array.isArray(roster) ? roster : []).forEach((r) => {
             const nm = String(r?.name || r?.playerName || "").trim();
             if (nm) s.add(nm);
         });
 
-        // fallback to score docs names
+        (Array.isArray(members) ? members : []).forEach((r) => {
+            const nm = String(r?.name || r?.playerName || r?.displayName || "").trim();
+            if (nm) s.add(nm);
+        });
+
         Object.keys(scoresByPid || {}).forEach((pid) => {
             const d = scoresByPid[pid] || {};
             const nm = String(d?.playerName || d?.name || "").trim();
@@ -311,8 +389,13 @@ export default function TournamentSettlePayoutsScreen({ navigation, route }) {
         });
 
         return Array.from(s).sort((a, b) => a.localeCompare(b));
-    }, [scoresByPid, roster]);
+    }, [scoresByPid, roster, members]);
 
+    // MODEL A:
+    // For per-hole formats (KP / LD / 2nd-shot KP) -> if there are ZERO winners recorded, charge $0.
+    // If there is at least one winner recorded, charge full fee per player once, and distribute full pot across winner-holes.
+    // For putting contest -> only charge if we can compute winners from scores.
+    // For deuce pot -> only charge if at least one deuce exists.
     const settlementLines = useMemo(() => {
         const net = {};
         const ensure = (nm) => {
@@ -361,16 +444,29 @@ export default function TournamentSettlePayoutsScreen({ navigation, route }) {
             return c;
         };
 
+        const resolveWinnerName = (claimObj) => {
+            if (!claimObj) return "";
+            const direct =
+                String(claimObj.playerName || claimObj.name || claimObj.holderName || "").trim() ||
+                String(claimObj.claimedByPlayerName || "").trim() ||
+                String(claimObj.claimedByName || "").trim();
+
+            if (direct) return direct;
+
+            const pid =
+                String(claimObj.playerId || claimObj.claimedByPlayerId || claimObj.holderPid || claimObj.holderPlayerId || "").trim();
+
+            if (pid && nameByPid?.[pid]) return String(nameByPid[pid]).trim();
+            return "";
+        };
+
         (Array.isArray(formats) ? formats : []).forEach((f) => {
             const fee = Math.max(0, extractEntryFee(f));
             if (!(fee > 0) || rosterCount <= 0) return;
 
-            // everyone pays into the pot
-            allPlayerNames.forEach((nm) => addPay(nm, fee));
-
-            const pot = fee * rosterCount;
             const type = detectFormatType(f);
 
+            // KP / Long Drive / Second Shot KP
             if (type === "kp" || type === "longdrive" || type === "secondshotkp") {
                 const cfg = f?.config && typeof f.config === "object" ? f.config : {};
                 const hbr = cfg?.holesByRound && typeof cfg.holesByRound === "object" ? cfg.holesByRound : {};
@@ -378,19 +474,37 @@ export default function TournamentSettlePayoutsScreen({ navigation, route }) {
                 const events = officialHoles.length;
                 if (events <= 0) return;
 
-                const perEvent = pot / events;
                 const claimsByRound = f?.claimsByRound && typeof f.claimsByRound === "object" ? f.claimsByRound : {};
                 const roundClaims = claimsByRound?.[rk] && typeof claimsByRound[rk] === "object" ? claimsByRound[rk] : {};
 
+                let winners = 0;
                 officialHoles.forEach((h) => {
                     const c = roundClaims?.[String(h)] || null;
-                    const nm = String(c?.playerName || c?.name || "").trim();
-                    if (nm) addWin(nm, perEvent);
+                    const winnerNm = resolveWinnerName(c);
+                    if (winnerNm) winners += 1;
+                });
+
+                // nobody recorded a winner -> this format contributes $0 (no settlement)
+                if (winners <= 0) return;
+
+                // everyone pays full fee once
+                allPlayerNames.forEach((nm) => addPay(nm, fee));
+
+                // distribute full pot over the winning holes
+                const pot = fee * rosterCount;
+                const perWinnerEvent = pot / winners;
+
+                officialHoles.forEach((h) => {
+                    const c = roundClaims?.[String(h)] || null;
+                    const winnerNm = resolveWinnerName(c);
+                    if (!winnerNm) return;
+                    addWin(winnerNm, perWinnerEvent);
                 });
 
                 return;
             }
 
+            // Putting contest: only if we can compute winners from scores.
             if (type === "puttingcontest") {
                 const rows = scoresList
                     .filter((x) => !!x.name)
@@ -399,26 +513,33 @@ export default function TournamentSettlePayoutsScreen({ navigation, route }) {
 
                 if (rows.length === 0) return;
 
+                allPlayerNames.forEach((nm) => addPay(nm, fee));
+                const pot = fee * rosterCount;
+
                 rows.sort((a, b) => a.putts - b.putts || a.name.localeCompare(b.name));
 
                 const firstPutts = rows[0].putts;
                 const first = rows.filter((r) => r.putts === firstPutts);
                 const rest = rows.filter((r) => r.putts !== firstPutts);
 
+                if (rest.length === 0) {
+                    first.forEach((r) => addWin(r.name, pot / first.length));
+                    return;
+                }
+
                 const firstPool = pot * 0.75;
                 const secondPool = pot * 0.25;
 
                 first.forEach((r) => addWin(r.name, firstPool / first.length));
 
-                if (rest.length > 0) {
-                    const secondPutts = rest[0].putts;
-                    const second = rest.filter((r) => r.putts === secondPutts);
-                    second.forEach((r) => addWin(r.name, secondPool / second.length));
-                }
+                const secondPutts = rest[0].putts;
+                const second = rest.filter((r) => r.putts === secondPutts);
+                second.forEach((r) => addWin(r.name, secondPool / second.length));
 
                 return;
             }
 
+            // Deuce pot: only charge if at least one deuce exists (so there is a payout)
             if (type === "deucepot") {
                 const rows = scoresList
                     .filter((x) => !!x.name)
@@ -427,16 +548,19 @@ export default function TournamentSettlePayoutsScreen({ navigation, route }) {
 
                 if (rows.length === 0) return;
 
+                allPlayerNames.forEach((nm) => addPay(nm, fee));
+                const pot = fee * rosterCount;
+
                 const share = pot / rows.length;
                 rows.forEach((r) => addWin(r.name, share));
                 return;
             }
 
-            // teamvsteam / generic: not auto-settled yet
+            // teamvsteam / generic: ignore for now (no charges, no payouts)
         });
 
         return computeSettlementPairs(net);
-    }, [formats, scoresByPid, rosterCount, roundNumber, allPlayerNames]);
+    }, [formats, scoresByPid, rosterCount, roundNumber, allPlayerNames, nameByPid]);
 
     const goHomeAndFinish = useCallback(() => {
         navigation.navigate(ROUTES.HOME);
@@ -455,9 +579,7 @@ export default function TournamentSettlePayoutsScreen({ navigation, route }) {
             <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
                 <View style={styles.hero}>
                     <Text style={styles.heroTitle}>Who pays who</Text>
-                    <Text style={styles.heroSub}>
-                        Use this list to settle the tournament. When done, return home (tournament complete).
-                    </Text>
+                    <Text style={styles.heroSub}>Use this list to settle the tournament. Pay exactly these amounts to close everything out.</Text>
 
                     {loading ? (
                         <View style={styles.loadingRow}>
@@ -470,9 +592,7 @@ export default function TournamentSettlePayoutsScreen({ navigation, route }) {
                 {!hasAnyTransfers ? (
                     <View style={styles.card}>
                         <Text style={styles.emptyTitle}>No payments detected</Text>
-                        <Text style={styles.emptySub}>
-                            This usually means there are no buy-ins set, or no winners/claims recorded yet for the formats.
-                        </Text>
+                        <Text style={styles.emptySub}>This usually means there are no buy-ins set, no winners recorded, or no players/scores loaded.</Text>
                     </View>
                 ) : (
                     settlementLines.map((x, idx) => (

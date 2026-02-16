@@ -186,10 +186,24 @@ function pickFormatDocForHole(formatDocs, roundNumber, holeNumber) {
     const hn = Number(holeNumber || 0);
     if (!hn || !Array.isArray(formatDocs) || !formatDocs.length) return null;
 
-    const HOLE_KEYS = new Set(["kp", "long_drive", "second_shot_kp"]);
+    // normalizeSideKey can output variants like: longdrive / secondshotkp
+    const HOLE_KEYS = new Set([
+        "kp",
+        "closest_to_pin",
+        "closest-to-pin",
+
+        "long_drive",
+        "longdrive",
+        "ld",
+
+        "second_shot_kp",
+        "secondshotkp",
+        "2nd_shot_kp",
+        "second_shot_closest_to_pin",
+    ]);
 
     for (const f of formatDocs) {
-        const rawType = String(f?.key || "").trim();
+        const rawType = String(f?.key || f?.formatKey || "").trim();
         const rawId = String(f?.id || "").trim();
         const type = normalizeSideKey(rawType || rawId);
         if (!type || !HOLE_KEYS.has(type)) continue;
@@ -552,7 +566,14 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                 return undefined;
             }
 
-            const claimId = `${String(computedSideGameKey)}_h${String(currentHole)}`;
+            const formatId = String(activeFormatDoc?.id || activeFormatDoc?.key || computedSideGameKey || "").trim();
+
+            if (!formatId) {
+                setHoleClaimDoc(null);
+                return undefined;
+            }
+
+            const claimId = `${formatId}_h${String(currentHole)}`;
             const ref = doc(
                 db,
                 "tournaments",
@@ -563,6 +584,7 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                 claimId
             );
 
+
             const unsub = onSnapshot(
                 ref,
                 (snap) => {
@@ -572,34 +594,23 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
             );
 
             return () => unsub();
-        }, [tournamentId, computedSideGameKey, currentHole, roundNumber])
+        }, [tournamentId, activeFormatDoc, computedSideGameKey, currentHole, roundNumber])
     );
 
     const currentHolderName = useMemo(() => {
-        const claims =
-            activeFormatDoc?.claimsByRound && typeof activeFormatDoc.claimsByRound === "object"
-                ? activeFormatDoc.claimsByRound
-                : {};
-        const roundClaims = claims?.[rnKey] && typeof claims[rnKey] === "object" ? claims[rnKey] : {};
-        const holeClaimFromFormat = roundClaims?.[String(currentHole)] || null;
+        const s = String(holeClaimDoc?.status || "").toLowerCase();
+        if (s === "cleared") return "";
 
-        const nm1 =
-            holeClaimFromFormat?.claimedByPlayerName ||
-            holeClaimFromFormat?.playerName ||
-            holeClaimFromFormat?.name ||
-            "";
-
-        if (nm1) return String(nm1);
-
-        const nm2 =
+        const nm =
             holeClaimDoc?.claimedByPlayerName ||
             holeClaimDoc?.playerName ||
             holeClaimDoc?.name ||
             holeClaimDoc?.holderName ||
             "";
 
-        return nm2 ? String(nm2) : "";
-    }, [activeFormatDoc, rnKey, currentHole, holeClaimDoc]);
+        return nm ? String(nm) : "";
+    }, [holeClaimDoc]);
+
 
     const [sgVisible, setSgVisible] = useState(false);
 
@@ -666,22 +677,39 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
 
             setClaimBusy(true);
             try {
-                const formatId = String(activeFormatDoc?.id || computedSideGameKey);
-                const ref = doc(db, "tournaments", String(tournamentId), "formats", formatId);
+                const formatId = String(activeFormatDoc?.id || activeFormatDoc?.key || computedSideGameKey || "").trim();
+                const roundKey = `r${String(roundNumber)}`;
+                const claimDocId = `${formatId}_h${String(currentHole)}`;
 
-                const fieldPath = `claimsByRound.${rnKey}.${String(currentHole)}`;
+                const claimRef = doc(
+                    db,
+                    "tournaments",
+                    String(tournamentId),
+                    "rounds",
+                    String(roundKey),
+                    "formatClaims",
+                    String(claimDocId)
+                );
+
                 const payload = {
-                    playerId: pid,
-                    playerName: pname,
-                    claimedByPlayerName: pname,
-                    status: "pending",
+                    tournamentId: String(tournamentId),
+                    roundKey: String(roundKey),
+                    roundNumber: Number(roundNumber),
                     holeNumber: Number(currentHole),
-                    roundKey: String(rnKey),
-                    updatedAt: serverTimestamp(),
+
+                    formatId: String(formatId),
+                    formatKey: String(formatId),
+
+                    claimedByPlayerId: String(pid),
+                    claimedByPlayerName: String(pname),
+
                     claimedByUid: meUid || null,
+                    status: "pending",
+                    updatedAt: serverTimestamp(),
+                    claimedAt: serverTimestamp(),
                 };
 
-                await updateDoc(ref, { [fieldPath]: payload, updatedAt: serverTimestamp() });
+                await setDoc(claimRef, payload, { merge: true });
 
                 closeClaim();
                 Alert.alert("Saved", `${pname} claimed ${sideMeta?.title || "format"} (pending confirmation).`);
@@ -691,7 +719,7 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                 setClaimBusy(false);
             }
         },
-        [tournamentId, computedSideGameKey, activeFormatDoc, rnKey, currentHole, meUid, sideMeta, closeClaim]
+        [tournamentId, computedSideGameKey, activeFormatDoc, roundNumber, currentHole, meUid, sideMeta, closeClaim]
     );
 
     const clearClaim = useCallback(async () => {
@@ -701,11 +729,41 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
 
         setClaimBusy(true);
         try {
-            const formatId = String(activeFormatDoc?.id || computedSideGameKey);
-            const ref = doc(db, "tournaments", String(tournamentId), "formats", formatId);
+            const formatId = String(activeFormatDoc?.id || activeFormatDoc?.key || computedSideGameKey || "").trim();
+            const roundKey = `r${String(roundNumber)}`;
+            const claimDocId = `${formatId}_h${String(currentHole)}`;
 
-            const fieldPath = `claimsByRound.${rnKey}.${String(currentHole)}`;
-            await updateDoc(ref, { [fieldPath]: null, updatedAt: serverTimestamp() });
+            const claimRef = doc(
+                db,
+                "tournaments",
+                String(tournamentId),
+                "rounds",
+                String(roundKey),
+                "formatClaims",
+                String(claimDocId)
+            );
+
+            await setDoc(
+                claimRef,
+                {
+                    tournamentId: String(tournamentId),
+                    roundKey: String(roundKey),
+                    roundNumber: Number(roundNumber),
+                    holeNumber: Number(currentHole),
+
+                    formatId: String(formatId),
+                    formatKey: String(formatId),
+
+                    status: "cleared",
+                    claimedByPlayerId: null,
+                    claimedByPlayerName: null,
+                    claimedByUid: null,
+
+                    clearedAt: serverTimestamp(),
+                    updatedAt: serverTimestamp(),
+                },
+                { merge: true }
+            );
 
             closeClaim();
             Alert.alert("Cleared", "Claim cleared for this hole.");
@@ -714,7 +772,8 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
         } finally {
             setClaimBusy(false);
         }
-    }, [tournamentId, computedSideGameKey, activeFormatDoc, rnKey, currentHole, closeClaim]);
+    }, [tournamentId, computedSideGameKey, activeFormatDoc, roundNumber, currentHole, closeClaim]);
+
 
     /* -------------------------- */
     /* course + gps + yardages    */
@@ -1104,7 +1163,8 @@ export default function TournamentHoleViewScreen({ navigation, route }) {
                 return;
             }
 
-            const TOURNAMENT_RESULTS = ROUTES.TOURNAMENT_ROUND_FINAL_RESULTS || "TournamentRoundFinalResults";
+            const TOURNAMENT_RESULTS = ROUTES.TOURNAMENT_FINAL_RESULTS || "TournamentFinalResults";
+
 
             navigation.dispatch(
                 CommonActions.navigate({
