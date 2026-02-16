@@ -31,8 +31,8 @@ import { auth, db } from "../firebase/firebase";
 
 const FORMAT_CATALOG = [
   { key: "kp", name: "KP", subtitle: "Closest to the pin", needsHoles: true, blurb: "Select the official KP holes per round on the next step." },
-  { key: "long_drive", name: "Long Drive", subtitle: "Longest drive on a hole", needsHoles: true, blurb: "Select the official holes per round on the next step." },
-  { key: "second_shot_kp", name: "Second Shot KP", subtitle: "Closest after second shot", needsHoles: true, blurb: "Select the official holes per round on the next step." },
+  { key: "longdrive", name: "Long Drive", subtitle: "Longest drive on a hole", needsHoles: true, blurb: "Select the official holes per round on the next step." },
+  { key: "secondshotkp", name: "Second Shot KP", subtitle: "Closest after second shot", needsHoles: true, blurb: "Select the official holes per round on the next step." },
   { key: "deuce_pot", name: "Deuce Pot", subtitle: "Split pot among all deuces", needsHoles: false, blurb: "Calculated later: every score of 2 counts, across all rounds." },
   { key: "putting_contest", name: "Putting Contest", subtitle: "Lowest total putts wins", needsHoles: false, blurb: "Calculated later from the round scoring data (fewest total putts)." },
   { key: "team_vs_team", name: "Team vs Team", subtitle: "Team points battle", needsHoles: false, blurb: "Set team names next. Team assignment and matchups come later (with handicap balancing)." },
@@ -60,7 +60,7 @@ export default function TournamentFormatsScreen({ navigation, route }) {
   function closeAnyOpenSwipe() {
     try {
       openSwipeRef.current?.close?.();
-    } catch (e) {}
+    } catch (e) { }
     openSwipeRef.current = null;
   }
 
@@ -284,7 +284,7 @@ export default function TournamentFormatsScreen({ navigation, route }) {
     try {
       const snap = await getDoc(ref);
       if (snap.exists()) return;
-    } catch (e) {}
+    } catch (e) { }
 
     await setDoc(
       ref,
