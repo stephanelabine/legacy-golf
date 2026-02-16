@@ -389,21 +389,9 @@ export default function HoleMapScreen({ navigation, route }) {
     setHoleIndex((h) => Math.min(17, h + 1));
   }
 
-  function enterScore() {
-    navigation.navigate(ROUTES.SCORE_ENTRY, {
-      course,
-      tee: teeObj,
-      players,
-      hole: holeNumber,
-      holeMeta,
-      roundId,
-      courseName,
-      courseCenter,
-      courseId,
-    });
-  }
 
   function recenter() {
+
     if (!web.current || !webReady) return;
     const payload = {
       cmd: "recenter",
@@ -572,11 +560,11 @@ export default function HoleMapScreen({ navigation, route }) {
           <Text style={styles.topBtnT}>Back</Text>
         </Pressable>
 
-        <View style={{ flex: 1, minWidth: 0 }}>
+        <View style={styles.headerCenter}>
           <Text style={styles.title} numberOfLines={1}>
             {courseName}
           </Text>
-          <Text style={styles.sub}>
+          <Text style={styles.sub} numberOfLines={1}>
             Hole {holeNumber}
             {par ? ` • Par ${par}` : ""}
             {si ? ` • SI ${si}` : ""}
@@ -589,34 +577,8 @@ export default function HoleMapScreen({ navigation, route }) {
         </Pressable>
       </View>
 
-      <View style={[styles.yardWrap, { top: insets.top + 86 }]}>
-        <View style={styles.yardPanel}>
-          <View style={styles.yRow}>
-            <Text style={styles.yLabel}>FRONT</Text>
-            <Text style={styles.yVal}>{distVals.front}</Text>
-          </View>
-
-          <View style={styles.yDivider} />
-
-          <View style={styles.yRow}>
-            <Text style={styles.yLabel}>MID</Text>
-            <Text style={styles.yVal}>{distVals.middle}</Text>
-          </View>
-
-          <View style={styles.yDivider} />
-
-          <View style={styles.yRow}>
-            <Text style={styles.yLabel}>BACK</Text>
-            <Text style={styles.yVal}>{distVals.back}</Text>
-          </View>
-
-          <Text style={styles.yUnit}>YDS</Text>
-
-          {!green?.front && !green?.middle && !green?.back ? <Text style={styles.yHint}>No green points loaded for this course.</Text> : null}
-        </View>
-      </View>
-
-      <View style={[styles.gpsChipWrap, { bottom: insets.bottom + 112 }]}>
+      {/* GPS chip (top center under header) */}
+      <View style={[styles.gpsChipWrap, { top: insets.top + 88 }]}>
         <Pressable onPress={recenter} style={({ pressed }) => [styles.gpsChip, pressed && styles.pressed]}>
           <View style={styles.gpsDot} />
           <Text style={styles.gpsChipT}>GPS Active</Text>
@@ -624,22 +586,42 @@ export default function HoleMapScreen({ navigation, route }) {
         </Pressable>
       </View>
 
+      {/* Bottom panel: yardages + back to Hole Hub */}
       <View style={[styles.bottomWrap, { paddingBottom: insets.bottom + 12 }]}>
-        <View style={styles.dock}>
-          <Pressable style={styles.square} onPress={prevHole}>
-            <Text style={styles.icon}>‹</Text>
-          </Pressable>
+        <View style={styles.yardPanel}>
+          <View style={styles.yRow3}>
+            <View style={styles.yCol}>
+              <Text style={styles.yLabelCol}>BACK</Text>
+              <Text style={styles.yValCol}>{distVals.back}</Text>
+              <Text style={styles.yUnitCol}>YDS</Text>
+            </View>
 
-          <Pressable style={styles.primary} onPress={enterScore}>
-            <Text style={styles.primaryT}>ENTER SCORE</Text>
-            <Text style={styles.primaryS}>Hole {holeNumber}</Text>
-          </Pressable>
+            <View style={styles.yCol}>
+              <Text style={styles.yLabelCol}>MID</Text>
+              <Text style={styles.yValCol}>{distVals.middle}</Text>
+              <Text style={styles.yUnitCol}>YDS</Text>
+            </View>
 
-          <Pressable style={styles.square} onPress={nextHole}>
-            <Text style={styles.icon}>›</Text>
-          </Pressable>
+            <View style={styles.yCol}>
+              <Text style={styles.yLabelCol}>FRONT</Text>
+              <Text style={styles.yValCol}>{distVals.front}</Text>
+              <Text style={styles.yUnitCol}>YDS</Text>
+            </View>
+          </View>
+
+          {!green?.front && !green?.middle && !green?.back ? (
+            <Text style={styles.yHint}>No green points loaded for this course.</Text>
+          ) : null}
         </View>
+
+        <Pressable
+          onPress={() => navigation.goBack()}
+          style={({ pressed }) => [styles.backHubBtn, pressed && styles.pressed]}
+        >
+          <Text style={styles.backHubBtnT}>Back to Hole Hub</Text>
+        </Pressable>
       </View>
+
 
       <Modal visible={setupOpen} transparent animationType="fade" onRequestClose={() => setSetupOpen(false)}>
         <View style={styles.modalBg}>
@@ -800,6 +782,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
+    justifyContent: "space-between",
+
   },
   topBtn: {
     paddingHorizontal: 12,
@@ -813,6 +797,12 @@ const styles = StyleSheet.create({
   title: { color: "#fff", fontSize: 18, fontWeight: "900" },
   sub: { marginTop: 3, color: "rgba(255,255,255,0.78)", fontWeight: "800" },
 
+  headerCenter: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: "center",
+  },
+
   setupBtn: {
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -825,36 +815,42 @@ const styles = StyleSheet.create({
 
   yardWrap: { position: "absolute", right: 12 },
   yardPanel: {
-    width: 150,
-    borderRadius: 18,
+    width: "100%",
+    borderRadius: 20,
     paddingVertical: 12,
     paddingHorizontal: 12,
     backgroundColor: "rgba(0,0,0,0.55)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.14)",
   },
-  yRow: {
-    borderRadius: 14,
+
+  yRow3: {
+    flexDirection: "row",
+    gap: 10,
+  },
+
+  yCol: {
+    flex: 1,
+    borderRadius: 16,
     backgroundColor: "rgba(255,255,255,0.10)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
     paddingVertical: 10,
     paddingHorizontal: 10,
-    flexDirection: "row",
-    alignItems: "baseline",
-    justifyContent: "space-between",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  yLabel: { color: "rgba(255,255,255,0.78)", fontWeight: "900", fontSize: 11, letterSpacing: 0.8 },
-  yVal: { color: "#fff", fontWeight: "900", fontSize: 22 },
-  yDivider: { height: 10 },
-  yUnit: {
-    marginTop: 10,
-    textAlign: "center",
+
+  yLabelCol: { color: "rgba(255,255,255,0.78)", fontWeight: "900", fontSize: 11, letterSpacing: 0.8 },
+  yValCol: { marginTop: 6, color: "#fff", fontWeight: "900", fontSize: 22 },
+  yUnitCol: {
+    marginTop: 6,
     color: "rgba(255,255,255,0.72)",
     fontWeight: "900",
     letterSpacing: 1.1,
     fontSize: 11,
   },
+
   yHint: {
     marginTop: 10,
     textAlign: "center",
