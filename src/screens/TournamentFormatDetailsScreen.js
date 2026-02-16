@@ -20,10 +20,10 @@ import ScreenHeader from "../components/ScreenHeader";
 import { useTheme } from "../theme/ThemeProvider";
 import { auth, db } from "../firebase/firebase";
 
-const HOLE_FORMAT_KEYS = new Set(["kp", "second_shot_kp", "long_drive"]);
+const HOLE_FORMAT_KEYS = new Set(["kp", "secondshotkp", "longdrive"]);
 const TEAM_KEY = "team_vs_team";
 
-const FORMAT_ORDER = ["kp", "long_drive", "second_shot_kp", "deuce_pot", "putting_contest", "team_vs_team"];
+const FORMAT_ORDER = ["kp", "longdrive", "secondshotkp", "deuce_pot", "putting_contest", "team_vs_team"];
 const HOLE_COLS = 6;
 
 function clampInt(n, min, max) {
