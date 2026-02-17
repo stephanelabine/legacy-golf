@@ -1,5 +1,5 @@
 // src/screens/BuddyListScreen.js
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -18,6 +18,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import theme from "../theme";
 import ScreenHeader from "../components/ScreenHeader";
+import PremiumSwipeRow from "../components/PremiumSwipeRow";
 import { getBuddies, saveBuddies, subscribeBuddies } from "../storage/buddies";
 
 function makeId() {
@@ -27,12 +28,11 @@ function makeId() {
 function clampHandicap(n) {
   const x = Number(n);
   if (!Number.isFinite(x)) return 0;
-  const rounded = Math.round(x); // Option B: whole number
+  const rounded = Math.round(x);
   return Math.max(0, Math.min(36, rounded));
 }
 
 function cleanPhone(s) {
-  // store digits only; display formatting happens elsewhere
   return String(s || "").replace(/[^\d]/g, "");
 }
 
@@ -72,6 +72,15 @@ export default function BuddyListScreen({ navigation }) {
   const [editEmail, setEditEmail] = useState("");
   const [editNotes, setEditNotes] = useState("");
 
+  // Only one swipe row open at a time (same standard as HistoryScreen)
+  const openSwipeRef = useRef(null);
+  function closeAnyOpenSwipe() {
+    if (openSwipeRef.current && typeof openSwipeRef.current.close === "function") {
+      openSwipeRef.current.close();
+    }
+    openSwipeRef.current = null;
+  }
+
   async function loadOnce() {
     try {
       const list = await getBuddies();
@@ -92,6 +101,7 @@ export default function BuddyListScreen({ navigation }) {
     const onBlur = () => {
       if (typeof unsub === "function") unsub();
       unsub = null;
+      closeAnyOpenSwipe();
     };
 
     const u1 = navigation?.addListener?.("focus", onFocus);
@@ -104,6 +114,7 @@ export default function BuddyListScreen({ navigation }) {
       if (typeof u1 === "function") u1();
       if (typeof u2 === "function") u2();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigation]);
 
   const sortedBuddies = useMemo(() => sortBuddies(buddies), [buddies]);
@@ -155,6 +166,8 @@ export default function BuddyListScreen({ navigation }) {
       return;
     }
 
+    closeAnyOpenSwipe();
+
     setEditing(buddy);
     setEditName(String(buddy?.name || ""));
     setEditHandicap(String(buddy?.handicap ?? 0));
@@ -204,6 +217,8 @@ export default function BuddyListScreen({ navigation }) {
   }
 
   function confirmDelete(buddy) {
+    closeAnyOpenSwipe();
+
     Alert.alert(
       "Delete buddy?",
       `Are you sure you want to delete ${buddy?.name || "this buddy"}?`,
@@ -248,8 +263,65 @@ export default function BuddyListScreen({ navigation }) {
   }
 
   function exitSelectMode() {
+    closeAnyOpenSwipe();
     setSelectMode(false);
     setSelectedIds(new Set());
+  }
+
+  const GOLD_BORDER = "rgba(212,175,55,0.55)";
+  const GOLD_BORDER_PRESSED = "rgba(212,175,55,0.75)";
+
+  function renderBuddyRow(item, pressed, selected) {
+    return (
+      <Pressable
+        onPress={() => openEdit(item)}
+        style={[
+          styles.buddyRow,
+          pressed && styles.buddyRowPressed,
+          selectMode && selected && styles.buddyRowSelected,
+        ]}
+      >
+        {selectMode ? (
+          <Pressable
+            onPress={(e) => {
+              e?.stopPropagation?.();
+              toggleSelected(item.id);
+            }}
+            style={({ pressed: p2 }) => [styles.checkboxWrap, p2 && styles.pressed]}
+          >
+            <View style={[styles.checkbox, selected && styles.checkboxOn]}>
+              {selected ? <Ionicons name="checkmark" size={16} color="#0B1220" /> : null}
+            </View>
+          </Pressable>
+        ) : null}
+
+        <View style={{ flex: 1 }}>
+          <Text style={styles.buddyName} numberOfLines={1}>
+            {item.name}
+          </Text>
+
+          <Text style={styles.buddyMeta}>
+            HCP: {item.handicap ?? 0}
+            {(item.phone || item.email) ? " • " : ""}
+            {item.phone ? formatPhoneForDisplay(item.phone) : ""}
+            {item.phone && item.email ? " • " : ""}
+            {item.email ? item.email : ""}
+          </Text>
+
+          {item.notes ? (
+            <Text style={styles.buddyMeta2} numberOfLines={1}>
+              {item.notes}
+            </Text>
+          ) : null}
+        </View>
+
+        {!selectMode ? (
+          <View style={styles.swipeHintWrap}>
+            <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.35)" />
+          </View>
+        ) : null}
+      </Pressable>
+    );
   }
 
   return (
@@ -259,6 +331,7 @@ export default function BuddyListScreen({ navigation }) {
       <View style={styles.selectBar}>
         <Pressable
           onPress={() => {
+            closeAnyOpenSwipe();
             if (selectMode) exitSelectMode();
             else {
               setSelectMode(true);
@@ -357,61 +430,33 @@ export default function BuddyListScreen({ navigation }) {
         renderItem={({ item }) => {
           const selected = selectedIds.has(item.id);
 
-          return (
-            <Pressable
-              onPress={() => openEdit(item)}
-              style={({ pressed }) => [
-                styles.buddyRow,
-                pressed && styles.buddyRowPressed,
-                selectMode && selected && styles.buddyRowSelected,
-              ]}
-            >
-              {selectMode ? (
-                <Pressable
-                  onPress={(e) => {
-                    e?.stopPropagation?.();
-                    toggleSelected(item.id);
-                  }}
-                  style={({ pressed }) => [styles.checkboxWrap, pressed && styles.pressed]}
-                >
-                  <View style={[styles.checkbox, selected && styles.checkboxOn]}>
-                    {selected ? <Ionicons name="checkmark" size={16} color="#0B1220" /> : null}
-                  </View>
-                </Pressable>
-              ) : null}
-
-              <View style={{ flex: 1 }}>
-                <Text style={styles.buddyName} numberOfLines={1}>
-                  {item.name}
-                </Text>
-
-                <Text style={styles.buddyMeta}>
-                  HCP: {item.handicap ?? 0}
-                  {(item.phone || item.email) ? " • " : ""}
-                  {item.phone ? formatPhoneForDisplay(item.phone) : ""}
-                  {item.phone && item.email ? " • " : ""}
-                  {item.email ? item.email : ""}
-                </Text>
-
-                {item.notes ? (
-                  <Text style={styles.buddyMeta2} numberOfLines={1}>
-                    {item.notes}
-                  </Text>
-                ) : null}
+          if (selectMode) {
+            return (
+              <View style={[styles.selectModeShell, { borderColor: GOLD_BORDER }]}>
+                {renderBuddyRow(item, false, selected)}
               </View>
+            );
+          }
 
-              {!selectMode ? (
-                <Pressable
-                  onPress={(e) => {
-                    e?.stopPropagation?.();
-                    confirmDelete(item);
-                  }}
-                  style={({ pressed }) => [styles.delBtn, pressed && styles.pressed]}
-                >
-                  <Text style={styles.delText}>Delete</Text>
-                </Pressable>
-              ) : null}
-            </Pressable>
+          return (
+            <PremiumSwipeRow
+              openSwipeRef={openSwipeRef}
+              closeAnyOpenSwipe={closeAnyOpenSwipe}
+              onEdit={() => openEdit(item)}
+              onDelete={() => confirmDelete(item)}
+              editLabel="Edit"
+              deleteLabel="Delete"
+              radius={18}
+              actionWidth={120}
+              borderColor={GOLD_BORDER}
+              backgroundColor="rgba(255,255,255,0.03)"
+              shellStyle={{ marginBottom: 10 }}
+              swipeableProps={{ enabled: !selectMode }}
+            >
+              <Pressable style={({ pressed }) => [{ borderColor: pressed ? GOLD_BORDER_PRESSED : GOLD_BORDER }]}>
+                {({ pressed }) => renderBuddyRow(item, pressed, selected)}
+              </Pressable>
+            </PremiumSwipeRow>
           );
         }}
         ListEmptyComponent={
@@ -627,11 +672,9 @@ const styles = StyleSheet.create({
   addBtnDisabled: { opacity: 0.5 },
   addBtnText: { color: "#fff", fontWeight: "900" },
 
+  // Inner row (PremiumSwipeRow provides the gold ring)
   buddyRow: {
-    marginBottom: 10,
     borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
     backgroundColor: "rgba(255,255,255,0.03)",
     paddingVertical: 12,
     paddingHorizontal: 14,
@@ -641,14 +684,20 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   buddyRowPressed: {
-    borderColor: "rgba(47,191,113,0.55)",
     backgroundColor: "rgba(255,255,255,0.04)",
     opacity: 0.98,
     transform: [{ scale: 0.995 }],
   },
   buddyRowSelected: {
-    borderColor: "rgba(47,191,113,0.75)",
     backgroundColor: "rgba(47,191,113,0.08)",
+  },
+
+  selectModeShell: {
+    marginBottom: 10,
+    borderRadius: 18,
+    overflow: "hidden",
+    borderWidth: 1,
+    backgroundColor: "rgba(255,255,255,0.03)",
   },
 
   checkboxWrap: {
@@ -676,17 +725,12 @@ const styles = StyleSheet.create({
   buddyMeta: { marginTop: 4, color: "rgba(255,255,255,0.65)", fontWeight: "800", fontSize: 12 },
   buddyMeta2: { marginTop: 4, color: "rgba(255,255,255,0.55)", fontWeight: "800", fontSize: 12 },
 
-  delBtn: {
-    paddingHorizontal: 12,
-    height: 36,
-    borderRadius: 12,
-    alignItems: "center",
+  swipeHintWrap: {
+    width: 22,
+    alignItems: "flex-end",
     justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.06)",
+    opacity: 0.9,
   },
-  delText: { color: "#fff", fontWeight: "900", fontSize: 12 },
 
   empty: { color: "rgba(255,255,255,0.6)", fontWeight: "800" },
 
