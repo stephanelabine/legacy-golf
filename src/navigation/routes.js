@@ -35,6 +35,7 @@ const ROUTES = {
   ROUND_DETAILS: "RoundDetails",
 
   PROFILE: "Profile",
+  PLAYER_STATS: "PlayerStats",
   BUDDIES: "Buddies",
   EQUIPMENT: "Equipment",
 

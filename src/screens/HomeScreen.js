@@ -174,9 +174,7 @@ export default function HomeScreen({ navigation }) {
           <View style={styles.brand}>
             <Text style={[styles.welcome, { color: theme.muted }]}>WELCOME TO</Text>
 
-            <Text style={[styles.title, { color: theme.text }]}>
-              {"Legacy\u2009Golf"}
-            </Text>
+            <Text style={[styles.title, { color: theme.text }]}>{"Legacy\u2009Golf"}</Text>
 
             <Text style={[styles.tagline, { color: theme.muted }]}>Start building your legacy</Text>
           </View>
@@ -212,7 +210,7 @@ export default function HomeScreen({ navigation }) {
                 </Pressable>
 
                 <Pressable
-                  onPress={() => alert("Player Stats — coming soon")}
+                  onPress={() => navigation.navigate(ROUTES.PLAYER_STATS)}
                   style={({ pressed }) => [styles.gridCard, { borderColor: theme.border }, pressed && styles.pressedCard]}
                 >
                   <View style={styles.gridIconWrap}>
@@ -244,7 +242,6 @@ export default function HomeScreen({ navigation }) {
                 </Pressable>
               </View>
             </View>
-
           </View>
         </View>
       </ImageBackground>

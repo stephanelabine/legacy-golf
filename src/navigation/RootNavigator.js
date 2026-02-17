@@ -39,6 +39,7 @@ import HistoryScreen from "../screens/HistoryScreen";
 import RoundDetailsScreen from "../screens/RoundDetailsScreen";
 
 import ProfileScreen from "../screens/ProfileScreen";
+import PlayerStatsScreen from "../screens/PlayerStatsScreen";
 import BuddyListScreen from "../screens/BuddyListScreen";
 import EquipmentScreen from "../screens/EquipmentScreen";
 
@@ -150,9 +151,6 @@ export default function RootNavigator() {
           <Stack.Screen name={ROUTES.PLAYER_ENTRY} component={PlayerEntryScreen} />
 
           <Stack.Screen name={ROUTES.HOLE_HUB} component={HoleHubScreen} />
-
-
-
           <Stack.Screen name={ROUTES.HOLE_MAP} component={HoleMapScreen} />
 
           <Stack.Screen name={ROUTES.GPS} component={GpsScreen} />
@@ -166,6 +164,7 @@ export default function RootNavigator() {
           <Stack.Screen name={ROUTES.ROUND_DETAILS} component={RoundDetailsScreen} />
 
           <Stack.Screen name={ROUTES.PROFILE} component={ProfileScreen} />
+          <Stack.Screen name={ROUTES.PLAYER_STATS} component={PlayerStatsScreen} />
           <Stack.Screen name={ROUTES.BUDDIES} component={BuddyListScreen} />
           <Stack.Screen name={ROUTES.EQUIPMENT} component={EquipmentScreen} />
           <Stack.Screen name={ROUTES.WAGERS} component={WagersScreen} />
