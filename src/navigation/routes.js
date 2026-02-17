@@ -14,8 +14,12 @@ const ROUTES = {
   PLAYER_SETUP: "PlayerSetup",
   PLAYER_ENTRY: "PlayerEntry",
 
-  HOLE_VIEW: "HoleView",
+  // NEW canonical names
+  HOLE_HUB: "HoleHub",
   HOLE_MAP: "HoleMap",
+
+  // TEMP alias so older code still works (do not use going forward)
+  HOLE_VIEW: "HoleHub",
 
   GPS: "GPS",
   GREEN_VIEW: "GreenView",
@@ -56,10 +60,9 @@ const ROUTES = {
   TOURNAMENT_GROUPS: "TournamentGroups",
 
   TOURNAMENT_FORMATS: "TournamentFormats",
-
   TOURNAMENT_FORMAT_DETAILS: "TournamentFormatDetails",
-
   TOURNAMENT_FORMAT_POOLS: "TournamentFormatPools",
+
   TOURNAMENT_ROUNDS: "TournamentRounds",
 
   TOURNAMENT_TEAM_VS_TEAM_SETUP: "TournamentTeamVsTeamSetup",
@@ -79,10 +82,10 @@ const ROUTES = {
   TOURNAMENT_HOLE_VIEW: "TournamentHoleView",
   TOURNAMENT_SCORE_ENTRY: "TournamentScoreEntry",
 
-  // NEW: tournament-only Green View
+  // tournament-only Green View
   TOURNAMENT_GREEN_VIEW: "TournamentGreenView",
 
-  // NEW: round-only results (Finish Round goes here)
+  // round-only results (Finish Round goes here)
   TOURNAMENT_ROUND_FINAL_RESULTS: "TournamentRoundFinalResults",
   TOURNAMENT_TROPHY: "TournamentTrophy",
   TOURNAMENT_SETTLE_PAYOUTS: "TournamentSettlePayouts",

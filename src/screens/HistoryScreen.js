@@ -344,7 +344,7 @@ export default function HistoryScreen({ navigation }) {
 
     const params = extractActiveRoundParams(activeState);
     if (params) {
-      navigation.navigate(ROUTES.HOLE_VIEW, params);
+      navigation.navigate(ROUTES.HOLE_HUB, params);
       return;
     }
 
@@ -384,9 +384,9 @@ export default function HistoryScreen({ navigation }) {
           lastHole: pickHoleNumberAny(r, params?.hole || 1),
         });
       }
-    } catch {}
+    } catch { }
 
-    navigation.navigate(ROUTES.HOLE_VIEW, params);
+    navigation.navigate(ROUTES.HOLE_HUB, params);
   }
 
   async function confirmDeleteSelected() {
@@ -534,10 +534,9 @@ export default function HistoryScreen({ navigation }) {
                   ? `${selectedCount} selected`
                   : "Tap items to select"
                 : hasAny
-                ? `${(hasActive ? 1 : 0) + items.length} item${
-                    (hasActive ? 1 : 0) + items.length === 1 ? "" : "s"
+                  ? `${(hasActive ? 1 : 0) + items.length} item${(hasActive ? 1 : 0) + items.length === 1 ? "" : "s"
                   }`
-                : "Your rounds, beautifully organized"}
+                  : "Your rounds, beautifully organized"}
             </Text>
           </View>
 
@@ -583,28 +582,28 @@ export default function HistoryScreen({ navigation }) {
 
             {hasActive
               ? (() => {
-                  const root = activeSummary?.root || unwrapRound(activeState) || {};
-                  const courseName = String(activeSummary?.courseName || "Current Round").trim();
-                  const dateText = formatDateAny(root);
-                  const holeNum = activeSummary?.holeNumber || pickHoleNumberAny(root, null);
+                const root = activeSummary?.root || unwrapRound(activeState) || {};
+                const courseName = String(activeSummary?.courseName || "Current Round").trim();
+                const dateText = formatDateAny(root);
+                const holeNum = activeSummary?.holeNumber || pickHoleNumberAny(root, null);
 
-                  const statusText = "In Progress";
+                const statusText = "In Progress";
 
-                  const rightPrimary = holeNum ? `Hole ${holeNum}` : "Resume";
-                  const rightSecondary = holeNum ? "Currently on" : "Tap to continue";
+                const rightPrimary = holeNum ? `Hole ${holeNum}` : "Resume";
+                const rightSecondary = holeNum ? "Currently on" : "Tap to continue";
 
-                  return renderRoundRow({
-                    id: activePinnedId,
-                    courseName,
-                    dateText,
-                    statusText,
-                    statusKind: "in_progress",
-                    rightPrimary,
-                    rightSecondary,
-                    pinned: true,
-                    onPress: onPressActivePinned,
-                  });
-                })()
+                return renderRoundRow({
+                  id: activePinnedId,
+                  courseName,
+                  dateText,
+                  statusText,
+                  statusKind: "in_progress",
+                  rightPrimary,
+                  rightSecondary,
+                  pinned: true,
+                  onPress: onPressActivePinned,
+                });
+              })()
               : null}
 
             {items.map((r) => {

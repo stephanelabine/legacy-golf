@@ -256,18 +256,18 @@ export default function PlayerEntryScreen({ navigation, route }) {
           const base = hasMe
             ? prev
             : [
-                {
-                  id: "me",
-                  uid: auth?.currentUser?.uid || null,
-                  name: "Stephane L",
-                  handicap: 0,
-                  phone: "",
-                  email: "",
-                  source: "me",
-                  trackStats: true,
-                },
-                ...prev,
-              ];
+              {
+                id: "me",
+                uid: auth?.currentUser?.uid || null,
+                name: "Stephane L",
+                handicap: 0,
+                phone: "",
+                email: "",
+                source: "me",
+                trackStats: true,
+              },
+              ...prev,
+            ];
 
           return base.map((p) => {
             if (p.id !== "me") return p;
@@ -388,7 +388,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
       await Share.share({
         message: `Legacy Golf — Join my game\nJoin Code: ${lobbyCode}\n(QR join coming soon)`,
       });
-    } catch {}
+    } catch { }
   }
 
   async function onStartRound() {
@@ -411,25 +411,22 @@ export default function PlayerEntryScreen({ navigation, route }) {
       // do not block starting the round
     }
 
-    // Go to Round Hub (Hole View screen)
-    try {
-      navigation.navigate(ROUTES.HOLE_VIEW, {
-        ...params,
-        course,
-        tee,
-        holeMeta,
-        scoring,
-        players,
-        playerCount,
-        joinCode: lobbyCode,
-        startHole: 1,
-      });
-    } catch {
-      Alert.alert("Next screen not wired", 'Wire the next route ("HoleView") in your navigator.');
-    }
+    // Go to Hole Hub
+    navigation.navigate(ROUTES.HOLE_HUB, {
+      ...params,
+      course,
+      tee,
+      holeMeta,
+      scoring,
+      players,
+      playerCount,
+      joinCode: lobbyCode,
+      startHole: 1,
+    });
   }
 
   const courseName = course?.name || "Course";
+
   const teeName = tee?.name || "Tee";
   const teeYards = tee?.yardage ? `${tee.yardage} yds` : "";
 
@@ -772,7 +769,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
       {/* Buddy Modal */}
       <Modal visible={buddyModal} transparent animationType="fade" onRequestClose={closeBuddyModal}>
         <Pressable style={styles.modalWrap} onPress={closeBuddyModal}>
-          <Pressable style={styles.modalCard} onPress={() => {}}>
+          <Pressable style={styles.modalCard} onPress={() => { }}>
             <Text style={styles.modalTitle}>Add from Buddy List</Text>
 
             <TextInput
@@ -836,7 +833,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
       {/* Guest Modal */}
       <Modal visible={guestModal} transparent animationType="fade" onRequestClose={() => setGuestModal(false)}>
         <Pressable style={styles.modalWrap} onPress={() => setGuestModal(false)}>
-          <Pressable style={styles.modalCard} onPress={() => {}}>
+          <Pressable style={styles.modalCard} onPress={() => { }}>
             <Text style={styles.modalTitle}>Add Guest</Text>
 
             <TextInput
@@ -879,7 +876,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
       {/* Invite / Lobby Modal */}
       <Modal visible={inviteModal} transparent animationType="fade" onRequestClose={() => setInviteModal(false)}>
         <Pressable style={styles.modalWrap} onPress={() => setInviteModal(false)}>
-          <Pressable style={styles.modalCard} onPress={() => {}}>
+          <Pressable style={styles.modalCard} onPress={() => { }}>
             <Text style={styles.modalTitle}>Invite Players</Text>
 
             <View style={styles.codeCard}>
@@ -955,7 +952,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
       {/* Edit Handicap Modal */}
       <Modal visible={editHcpModal} transparent animationType="fade" onRequestClose={closeEditHandicap}>
         <Pressable style={styles.modalWrap} onPress={closeEditHandicap}>
-          <Pressable style={styles.modalCardSmall} onPress={() => {}}>
+          <Pressable style={styles.modalCardSmall} onPress={() => { }}>
             <Text style={styles.modalTitle}>Edit Handicap</Text>
 
             <TextInput

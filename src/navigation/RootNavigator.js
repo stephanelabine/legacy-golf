@@ -149,7 +149,9 @@ export default function RootNavigator() {
           <Stack.Screen name={ROUTES.PLAYER_SETUP} component={PlayerSetupScreen} />
           <Stack.Screen name={ROUTES.PLAYER_ENTRY} component={PlayerEntryScreen} />
 
-          <Stack.Screen name={ROUTES.HOLE_VIEW} component={HoleViewScreen} />
+          <Stack.Screen name={ROUTES.HOLE_HUB} component={HoleViewScreen} />
+
+
           <Stack.Screen name={ROUTES.HOLE_MAP} component={HoleMapScreen} />
 
           <Stack.Screen name={ROUTES.GPS} component={GpsScreen} />

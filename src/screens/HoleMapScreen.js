@@ -588,6 +588,7 @@ export default function HoleMapScreen({ navigation, route }) {
 
       {/* Bottom panel: yardages + back to Hole Hub */}
       <View style={[styles.bottomWrap, { paddingBottom: insets.bottom + 12 }]}>
+
         <View style={styles.yardPanel}>
           <View style={styles.yRow3}>
             <View style={styles.yCol}>
@@ -882,7 +883,16 @@ const styles = StyleSheet.create({
   gpsChipT: { color: "#fff", fontWeight: "900" },
   gpsChipS: { color: "rgba(255,255,255,0.78)", fontWeight: "800" },
 
-  bottomWrap: { position: "absolute", left: 14, right: 14, bottom: 0, gap: 10 },
+  bottomWrap: {
+    position: "absolute",
+    left: 14,
+    right: 14,
+    bottom: 0,
+    gap: 10,
+    zIndex: 50,
+    elevation: 50,
+  },
+
   dock: {
     borderRadius: 22,
     flexDirection: "row",
