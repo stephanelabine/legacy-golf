@@ -1,15 +1,6 @@
 // src/screens/GamesScreen.js
 import React, { useMemo, useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  Pressable,
-  FlatList,
-  Alert,
-  ScrollView,
-  Platform,
-} from "react-native";
+import { View, Text, StyleSheet, Pressable, FlatList, Alert, ScrollView, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import ROUTES from "../navigation/routes";
@@ -24,17 +15,75 @@ const FALLBACK_INFO = {
     subtitle: "Build, run, and track full tournaments in Legacy Golf.",
     details: [
       {
-        heading: "What this will become",
+        heading: "What it is",
         body: "A full tournament engine: multi-round support, formats, leaderboards, and deep customization.",
       },
       {
         heading: "Why it matters",
-        body: "This is a long-term pillar feature. It needs clean data, flexible rules, and premium UX for fast setup.",
+        body: "This is a pillar feature. It needs clean data, flexible rules, and premium UX for fast setup.",
       },
       {
         heading: "Today’s scope",
-        body: "We are only laying the foundation: a Games tile + navigation to a dedicated Tournaments screen.",
+        body: "A premium entry point that routes into the dedicated tournament flow you’ve already built.",
       },
+    ],
+  },
+
+  birdie_buckets: {
+    title: "Birdie Buckets",
+    subtitle: "A rolling pot that resets when someone makes birdie (or better).",
+    details: [
+      {
+        heading: "How it works",
+        body: "Each time a player hits a fairway or a green, they put $1 into the pot. If they hit both on a hole, that’s $2.",
+      },
+      {
+        heading: "Par 5 note",
+        body: "Count it as fairway off the tee + green in regulation. That still equals $2 for the hole when both are achieved.",
+      },
+      {
+        heading: "Winning the pot",
+        body: "As soon as any player makes a birdie, they win the entire current pot. If someone makes an eagle, it also wins the pot (and beats a birdie). Then the pot resets and starts again.",
+      },
+    ],
+  },
+
+  team_vs_team: {
+    title: "Team vs Team",
+    subtitle: "Two teams compete head-to-head across the round.",
+    details: [
+      {
+        heading: "What it is",
+        body: "A team match where you set teams and decide the scoring style (match / best ball / total). We’ll unify the setup with the tournament-style format flow.",
+      },
+      {
+        heading: "Common options",
+        body: "Best Ball (take best score per hole) or Total (add both). Handicap adjustments can be applied for fairness.",
+      },
+      {
+        heading: "Wagers",
+        body: "Optional. We’ll standardize money/pools so it matches tournament formats and is always math-trustworthy.",
+      },
+    ],
+  },
+
+  one_v_one: {
+    title: "1v1",
+    subtitle: "A head-to-head round between two players.",
+    details: [
+      { heading: "What it is", body: "A simple two-player matchup. Pick a scoring mode and optional add-ons." },
+      { heading: "Net option", body: "If playing Net, handicaps apply to make it fair." },
+      { heading: "Add-ons", body: "Optional formats and side-games can be added after the core matchup is chosen." },
+    ],
+  },
+
+  two_v_two: {
+    title: "2v2",
+    subtitle: "Two teams of two compete.",
+    details: [
+      { heading: "What it is", body: "A team matchup between two pairs." },
+      { heading: "Common scoring", body: "Best Ball (best score per team per hole) or Total (add both)." },
+      { heading: "Add-ons", body: "Optional formats and side-games can be added after teams are set." },
     ],
   },
 };
@@ -42,38 +91,37 @@ const FALLBACK_INFO = {
 const GAMES = [
   {
     id: "tournaments",
-    title: "Tournaments",
-    subtitle: "Build and run full tournaments. A future flagship module.",
+    title: "Tournament",
+    subtitle: "Build and run full tournaments. A flagship module.",
+    supported: true,
+    premium: true,
+  },
+
+  {
+    id: "legacy_card",
+    title: "Legacy",
+    subtitle: "Your best score on each hole—built over a season or chosen rounds.",
     supported: true,
     premium: true,
   },
 
   { id: "stroke_play", title: "Stroke Play", subtitle: "Total strokes over 18 holes. The classic.", supported: true },
   { id: "match_play", title: "Match Play", subtitle: "Win holes, not strokes.", supported: true },
-  { id: "kps", title: "KPs (Closest to the Pin)", subtitle: "Track KPs + payouts.", supported: true },
-  { id: "skins", title: "Skins", subtitle: "Win holes outright for skins.", supported: true },
-  { id: "two_v_two", title: "2v2", subtitle: "Teams, presses, totals.", supported: true },
+
+  { id: "one_v_one", title: "1v1", subtitle: "Head-to-head golf. Simple and clean.", supported: true },
+  { id: "two_v_two", title: "2v2", subtitle: "Two teams compete. Best ball or total.", supported: true },
+
   { id: "nassau", title: "Nassau", subtitle: "Front 9, Back 9, and Total match.", supported: true },
   { id: "stableford", title: "Stableford", subtitle: "Points per hole based on score vs par.", supported: true },
   { id: "wolf", title: "Wolf", subtitle: "Rotating captain chooses a partner.", supported: true },
-  { id: "snake", title: "Snake", subtitle: "3-putt tracker with payouts.", supported: true },
-  { id: "legacy_points", title: "Legacy Points", subtitle: "Points-based competition, Legacy-style.", supported: true },
 
-  {
-    id: "legacy_card",
-    title: "Legacy Card",
-    subtitle: "Premium tournament format. The heart of Legacy Golf.",
-    supported: true,
-    premium: true,
-  },
+  { id: "birdie_buckets", title: "Birdie Buckets", subtitle: "Rolling pot. Birdie wins it.", supported: true },
 
-  {
-    id: "more_soon",
-    title: "More games to come…",
-    subtitle: "We’re building the full suite next.",
-    supported: false,
-    infoOnly: true,
-  },
+  { id: "team_vs_team", title: "Team vs Team", subtitle: "Set teams, then play the match.", supported: true },
+
+  { id: "skins", title: "Skins Game", subtitle: "Win holes outright for skins.", supported: true },
+
+  { id: "legacy_points", title: "Legacy Points", subtitle: "A points-based game built for the Legacy vibe.", supported: true },
 ];
 
 export default function GamesScreen({ navigation }) {
@@ -338,7 +386,14 @@ export default function GamesScreen({ navigation }) {
 
       detailBlock: { paddingVertical: 12, borderTopWidth: 1, borderTopColor: theme.divider },
       detailHeading: { color: theme.text, fontSize: 13, fontWeight: "900", letterSpacing: 0.6, opacity: 0.9 },
-      detailBody: { marginTop: 8, color: theme.text, opacity: 0.74, fontSize: 13, fontWeight: "700", lineHeight: 19 },
+      detailBody: {
+        marginTop: 8,
+        color: theme.text,
+        opacity: 0.74,
+        fontSize: 13,
+        fontWeight: "700",
+        lineHeight: 19,
+      },
 
       sheetCloseBtn: {
         marginTop: 14,
@@ -415,11 +470,7 @@ export default function GamesScreen({ navigation }) {
           <Pressable
             onPress={() => openInfo(item.id)}
             disabled={!infoable}
-            style={({ pressed }) => [
-              styles.infoBtn,
-              !infoable && styles.infoBtnDisabled,
-              pressed && infoable && styles.infoPressed,
-            ]}
+            style={({ pressed }) => [styles.infoBtn, !infoable && styles.infoBtnDisabled, pressed && infoable && styles.infoPressed]}
             hitSlop={10}
           >
             <Text style={styles.infoText}>Info</Text>
@@ -431,9 +482,7 @@ export default function GamesScreen({ navigation }) {
             <View pointerEvents="none" style={styles.selectedDim} />
             <View pointerEvents="none" style={styles.selectedPillWrap}>
               <View style={[styles.selectedPill, item.premium && styles.selectedPillPremium]}>
-                <Text style={[styles.selectedPillText, item.premium && styles.selectedPillTextPremium]}>
-                  Selected
-                </Text>
+                <Text style={[styles.selectedPillText, item.premium && styles.selectedPillTextPremium]}>Selected</Text>
               </View>
             </View>
           </>
@@ -466,11 +515,7 @@ export default function GamesScreen({ navigation }) {
           <Text style={styles.sheetSub}>{info?.subtitle || ""}</Text>
         </View>
 
-        <ScrollView
-          style={styles.sheetBody}
-          contentContainerStyle={styles.sheetBodyContent}
-          showsVerticalScrollIndicator={false}
-        >
+        <ScrollView style={styles.sheetBody} contentContainerStyle={styles.sheetBodyContent} showsVerticalScrollIndicator={false}>
           {(info?.details || []).map((block, idx) => (
             <View key={`${block.heading}-${idx}`} style={styles.detailBlock}>
               <Text style={styles.detailHeading}>{block.heading}</Text>
