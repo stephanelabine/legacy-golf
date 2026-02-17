@@ -6,7 +6,8 @@ import { collection, onSnapshot, query, orderBy, doc } from "firebase/firestore"
 
 import { db, auth } from "../firebase/firebase";
 import ScreenHeader from "../components/ScreenHeader";
-import { pickTournamentNavParams, assertTournamentNavParams } from "../utils/tournamentNav";
+import { getRoundById } from "../storage/rounds";
+import { loadActiveRound } from "../storage/roundState";
 
 const BG = "#0B1220";
 const CARD = "#1D3557";
@@ -46,7 +47,40 @@ function defaultRoundId(tournamentId, roundNumber) {
   return `${t}__r${r}`;
 }
 
-function strokeFor(scoresByPid, pid, hole) {
+function toInt(v) {
+  const n = parseInt(String(v ?? "").replace(/[^\d]/g, ""), 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function unwrapRound(state) {
+  if (!state || typeof state !== "object") return null;
+  return state?.activeRound || state?.currentRound || state?.round || state;
+}
+
+// Supports BOTH shapes:
+// A) holes["1"].players["pid"].strokes (RoundState / saved normal rounds)
+// B) holes[0].scores["pid"] (legacy array holes)
+function readStrokeAnyShape(roundRoot, holeNumber, playerId) {
+  const rid = String(playerId);
+
+  const a =
+    roundRoot?.holes?.[String(holeNumber)]?.players?.[rid]?.strokes ??
+    roundRoot?.holes?.[String(holeNumber)]?.scores?.[rid];
+  const aInt = toInt(a);
+  if (aInt > 0) return aInt;
+
+  const holesArr = Array.isArray(roundRoot?.holes) ? roundRoot.holes : null;
+  if (holesArr && holeNumber >= 1 && holeNumber <= holesArr.length) {
+    const h = holesArr[holeNumber - 1];
+    const b = h?.scores?.[rid] ?? h?.strokes?.[rid];
+    const bInt = toInt(b);
+    if (bInt > 0) return bInt;
+  }
+
+  return null;
+}
+
+function strokeForTournament(scoresByPid, pid, hole) {
   const row = scoresByPid?.[String(pid)] || {};
   const holes = row?.holes || {};
   const v = holes?.[String(hole)]?.strokes;
@@ -54,11 +88,11 @@ function strokeFor(scoresByPid, pid, hole) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-function sumHoles(scoresByPid, pid, holes) {
+function sumHoles(getStroke, pid, holes) {
   let total = 0;
   let any = false;
   for (const h of holes) {
-    const v = strokeFor(scoresByPid, pid, h);
+    const v = getStroke(pid, h);
     if (Number.isFinite(v)) {
       total += v;
       any = true;
@@ -69,13 +103,16 @@ function sumHoles(scoresByPid, pid, holes) {
 
 function Pill({ text, active, onPress }) {
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.pillBtn, active && styles.pillBtnActive, pressed && styles.pressed]}>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.pillBtn, active && styles.pillBtnActive, pressed && styles.pressed]}
+    >
       <Text style={[styles.pillBtnText, active && styles.pillBtnTextActive]}>{text}</Text>
     </Pressable>
   );
 }
 
-function ScoreGrid({ title, holes, showOutInLabel, totalsLabel, players, scoresByPid }) {
+function ScoreGrid({ title, holes, showOutInLabel, totalsLabel, players, getStroke }) {
   return (
     <View style={styles.sectionCard}>
       <View style={styles.sectionHeader}>
@@ -119,13 +156,13 @@ function ScoreGrid({ title, holes, showOutInLabel, totalsLabel, players, scoresB
 
             {players.map((p) => {
               const pid = String(p._pid);
-              const segmentTotal = sumHoles(scoresByPid, pid, holes);
-              const total18 = totalsLabel ? sumHoles(scoresByPid, pid, Array.from({ length: 18 }, (_, i) => i + 1)) : null;
+              const segmentTotal = sumHoles(getStroke, pid, holes);
+              const total18 = totalsLabel ? sumHoles(getStroke, pid, Array.from({ length: 18 }, (_, i) => i + 1)) : null;
 
               return (
                 <View key={`rw-${pid}`} style={styles.row}>
                   {holes.map((h) => {
-                    const v = strokeFor(scoresByPid, pid, h);
+                    const v = getStroke(pid, h);
                     return (
                       <View key={`c-${pid}-${h}`} style={styles.cell}>
                         <Text style={styles.cellText}>{v == null ? "—" : String(v)}</Text>
@@ -156,23 +193,20 @@ export default function ScorecardScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const params = route?.params || {};
 
-  // contract (throws in dev if missing)
-  assertTournamentNavParams(params, "ScorecardScreen");
-
   const tournamentId = params?.tournamentId ? String(params.tournamentId) : "";
   const roundNumber = Number(params?.roundNumber || 1);
-
   const isTournament = !!tournamentId;
 
   const meUid = String(auth?.currentUser?.uid || "");
-  const courseName = safeStr(params?.courseName || params?.course?.name, "");
 
   const roundId = useMemo(() => {
     const p = String(params?.roundId || "").trim();
     if (p) return p;
-    return defaultRoundId(tournamentId, roundNumber);
-  }, [params?.roundId, tournamentId, roundNumber]);
+    if (isTournament) return defaultRoundId(tournamentId, roundNumber);
+    return "";
+  }, [params?.roundId, isTournament, tournamentId, roundNumber]);
 
+  // tournament
   const [loading, setLoading] = useState(isTournament);
   const [players, setPlayers] = useState(() => (Array.isArray(params?.players) ? params.players : []));
   const [scoresByPid, setScoresByPid] = useState({});
@@ -180,14 +214,73 @@ export default function ScorecardScreen({ navigation, route }) {
     const fromParams = Array.isArray(params?.groupPlayerIds) ? params.groupPlayerIds.map(String) : null;
     return fromParams && fromParams.length ? uniqIds(fromParams) : [];
   });
-
   const [viewMode, setViewMode] = useState("MY"); // MY | GROUP
-
-  // truth for MY mode (scorekeeper selection doc)
   const [mySelectedIds, setMySelectedIds] = useState([]);
   const [mySelectionReady, setMySelectionReady] = useState(false);
 
-  // Load players (members preferred, roster fallback)
+  // normal rounds (prefer active round over history)
+  const [localRound, setLocalRound] = useState(null);
+  const [localLoading, setLocalLoading] = useState(!isTournament);
+
+  useEffect(() => {
+    if (isTournament) return;
+
+    let live = true;
+    setLocalLoading(true);
+
+    (async () => {
+      try {
+        const wantedId = String(params?.roundId || "").trim();
+
+        const activeState = await loadActiveRound();
+        const activeRoot = unwrapRound(activeState);
+
+        // 1) if we have a saved roundId in params, try history first
+        if (wantedId) {
+          const saved = await getRoundById(wantedId);
+          if (!live) return;
+
+          if (saved) {
+            setLocalRound(saved);
+            return;
+          }
+
+          // 2) fallback to active round (matches or best available)
+          const activeId = String(activeRoot?.id || activeRoot?.roundId || "");
+          if (activeRoot && (activeId === wantedId || !activeId)) {
+            setLocalRound(activeRoot);
+            return;
+          }
+
+          if (activeRoot) {
+            setLocalRound(activeRoot);
+            return;
+          }
+
+          setLocalRound(null);
+          return;
+        }
+
+        // 3) no roundId passed => always use active
+        if (activeRoot) {
+          setLocalRound(activeRoot);
+          return;
+        }
+
+        setLocalRound(null);
+      } catch {
+        if (live) setLocalRound(null);
+      } finally {
+        if (live) setLocalLoading(false);
+      }
+    })();
+
+    return () => {
+      live = false;
+    };
+  }, [isTournament, params?.roundId]);
+
+  // Tournament: Load players (members preferred, roster fallback)
   useEffect(() => {
     if (!isTournament) return;
 
@@ -240,7 +333,7 @@ export default function ScorecardScreen({ navigation, route }) {
     };
   }, [isTournament, tournamentId]);
 
-  // Resolve group ids from groups collection if not provided
+  // Tournament: Resolve group ids from groups collection if not provided
   useEffect(() => {
     if (!isTournament) return;
     if (Array.isArray(groupIds) && groupIds.length) return;
@@ -269,7 +362,7 @@ export default function ScorecardScreen({ navigation, route }) {
     return () => unsub();
   }, [isTournament, tournamentId, roundNumber, meUid, groupIds]);
 
-  // Subscribe to MY selection (tournaments/.../scorekeepers/{meUid})
+  // Tournament: Subscribe to MY selection (tournaments/.../scorekeepers/{meUid})
   useEffect(() => {
     if (!isTournament) return;
     if (!tournamentId) return;
@@ -297,11 +390,7 @@ export default function ScorecardScreen({ navigation, route }) {
     return () => unsub();
   }, [isTournament, tournamentId, roundNumber, meUid]);
 
-  // Subscribe to scores
-  // Tournament scores live under:
-  // tournaments/{tournamentId}/rounds/r{roundNumber}/scores/{playerId}
-  // Non-tournament scores (legacy) can live under:
-  // rounds/{roundId}/scores
+  // Tournament: Subscribe to scores
   useEffect(() => {
     if (!isTournament) return;
     if (!tournamentId) return;
@@ -323,6 +412,15 @@ export default function ScorecardScreen({ navigation, route }) {
     return () => unsub();
   }, [isTournament, tournamentId, roundNumber]);
 
+  const courseName = useMemo(() => {
+    if (isTournament) return safeStr(params?.courseName || params?.course?.name, "");
+    return safeStr(params?.courseName || params?.course?.name || localRound?.courseName || localRound?.course?.name, "");
+  }, [isTournament, params?.courseName, params?.course?.name, localRound]);
+
+  const teeName = useMemo(() => {
+    if (isTournament) return safeStr(params?.teeName || params?.tee?.name, "");
+    return safeStr(params?.teeName || params?.tee?.name || localRound?.teeName || localRound?.tee?.name, "");
+  }, [isTournament, params?.teeName, params?.tee?.name, localRound]);
 
   const playerRows = useMemo(() => {
     const list = Array.isArray(players) ? players : [];
@@ -334,16 +432,23 @@ export default function ScorecardScreen({ navigation, route }) {
       .filter((p) => !!p._pid);
   }, [players]);
 
-  const mySelectionIds = useMemo(() => {
-    // truth: Firestore scorekeepers selection (clamped to group)
-    const groupSet = new Set((Array.isArray(groupIds) ? groupIds : []).map(String));
+  const localPlayerRows = useMemo(() => {
+    const fromParams = Array.isArray(params?.players) ? params.players : null;
+    const list = fromParams && fromParams.length ? fromParams : Array.isArray(localRound?.players) ? localRound.players : [];
+    return (list || [])
+      .map((p, idx) => {
+        const pid = safePlayerId(p, String(idx));
+        return { ...p, _pid: pid, _name: safePlayerName(p) };
+      })
+      .filter((p) => !!p._pid);
+  }, [params?.players, localRound]);
 
+  const mySelectionIds = useMemo(() => {
+    const groupSet = new Set((Array.isArray(groupIds) ? groupIds : []).map(String));
     const raw = uniqIds(mySelectedIds);
     const clamped = raw.filter((id) => groupSet.has(String(id)));
-
     if (clamped.length) return clamped;
 
-    // fallback while loading / if missing
     if (!mySelectionReady) return meUid ? [String(meUid)] : [];
     return meUid ? [String(meUid)] : [];
   }, [mySelectedIds, groupIds, meUid, mySelectionReady]);
@@ -353,12 +458,10 @@ export default function ScorecardScreen({ navigation, route }) {
 
     const me = meUid ? [String(meUid)] : [];
 
-    // MY = only me (always)
     if (viewMode === "MY") {
       return new Set(me.map(String));
     }
 
-    // GROUP = scorekeeper selection first, else pairing group, else me
     const ids =
       (Array.isArray(mySelectionIds) && mySelectionIds.length
         ? mySelectionIds
@@ -369,9 +472,8 @@ export default function ScorecardScreen({ navigation, route }) {
     return new Set(ids.map(String));
   }, [isTournament, viewMode, groupIds, mySelectionIds, meUid]);
 
-
   const displayedPlayers = useMemo(() => {
-    if (!isTournament) return playerRows;
+    if (!isTournament) return localPlayerRows;
 
     const rows = playerRows.filter((p) => displayIds?.has(String(p._pid)));
 
@@ -379,56 +481,60 @@ export default function ScorecardScreen({ navigation, route }) {
     const mine = rows.filter((r) => String(r._pid) === String(meUid));
     const rest = rows.filter((r) => String(r._pid) !== String(meUid));
     return [...mine, ...rest];
-  }, [isTournament, playerRows, displayIds, meUid]);
+  }, [isTournament, playerRows, displayIds, meUid, localPlayerRows]);
+
+  const getStroke = useMemo(() => {
+    if (isTournament) return (pid, hole) => strokeForTournament(scoresByPid, pid, hole);
+    return (pid, hole) => readStrokeAnyShape(localRound || {}, hole, pid);
+  }, [isTournament, scoresByPid, localRound]);
 
   const front9 = useMemo(() => Array.from({ length: 9 }, (_, i) => i + 1), []);
   const back9 = useMemo(() => Array.from({ length: 9 }, (_, i) => i + 10), []);
 
-  const headerTitle = useMemo(() => {
-    if (!isTournament) return "SCORECARD";
-    return `ROUND ${roundNumber} SCORECARD`;
-  }, [isTournament, roundNumber]);
-
   const headerSub = useMemo(() => {
-    return courseName ? courseName : "";
-  }, [courseName]);
+    if (isTournament) return `ROUND ${roundNumber}`;
+    const a = courseName ? courseName : "";
+    const b = teeName ? teeName : "";
+    if (a && b) return `${a} • ${b}`;
+    return a || b || "";
+  }, [isTournament, roundNumber, courseName, teeName]);
+
+  const showLoading = isTournament ? loading : localLoading;
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScreenHeader navigation={navigation} title="SCORECARD" subtitle={`ROUND ${roundNumber}`} safeTop={false} rightLabel={null} onRightPress={null} />
-
+      <ScreenHeader navigation={navigation} title="SCORECARD" subtitle={headerSub} safeTop={false} rightLabel={null} onRightPress={null} />
 
       {isTournament ? (
         <View style={styles.topPills}>
           <Pill text="MY" active={viewMode === "MY"} onPress={() => setViewMode("MY")} />
           <Pill text="GROUP" active={viewMode === "GROUP"} onPress={() => setViewMode("GROUP")} />
-
           <View style={styles.countPill}>
             <Text style={styles.countText}>{displayedPlayers.length ? `${displayedPlayers.length} players` : "Loading…"}</Text>
           </View>
         </View>
       ) : null}
 
-      <ScrollView style={styles.body} contentContainerStyle={{ paddingBottom: Math.max(18, (insets?.bottom || 0) + 18) }} showsVerticalScrollIndicator={false}>
-        {loading ? (
+      <ScrollView
+        style={styles.body}
+        contentContainerStyle={{ paddingBottom: Math.max(18, (insets?.bottom || 0) + 18) }}
+        showsVerticalScrollIndicator={false}
+      >
+        {showLoading ? (
           <View style={styles.loadingCard}>
             <ActivityIndicator />
             <Text style={styles.loadingText}>Loading scorecard…</Text>
           </View>
         ) : null}
 
-        {!isTournament ? (
+        {!isTournament && !localRound ? (
           <View style={styles.loadingCard}>
-            <Text style={styles.loadingText}>Non-tournament scorecard is not wired here yet.</Text>
-          </View>
-        ) : !roundId ? (
-          <View style={styles.loadingCard}>
-            <Text style={styles.loadingText}>Missing roundId. Go back and re-enter from Hole View.</Text>
+            <Text style={styles.loadingText}>No active round found. Resume a round first.</Text>
           </View>
         ) : displayedPlayers.length ? (
           <>
-            <ScoreGrid title="Front 9" holes={front9} showOutInLabel="OUT" totalsLabel={null} players={displayedPlayers} scoresByPid={scoresByPid} />
-            <ScoreGrid title="Back 9" holes={back9} showOutInLabel="IN" totalsLabel="TOT" players={displayedPlayers} scoresByPid={scoresByPid} />
+            <ScoreGrid title="Front 9" holes={front9} showOutInLabel="OUT" totalsLabel={null} players={displayedPlayers} getStroke={getStroke} />
+            <ScoreGrid title="Back 9" holes={back9} showOutInLabel="IN" totalsLabel="TOT" players={displayedPlayers} getStroke={getStroke} />
           </>
         ) : (
           <View style={styles.loadingCard}>
