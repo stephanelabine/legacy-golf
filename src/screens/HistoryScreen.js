@@ -1,3 +1,6 @@
+// FEB17 NOTE: Branch = feb17-round-history-swipe-polish
+// Goal: Final polish for Round History swipe rows (borders/spacing/consistency).
+
 // src/screens/HistoryScreen.js
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, Alert, Platform } from "react-native";
