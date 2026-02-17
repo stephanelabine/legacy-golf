@@ -154,7 +154,7 @@ export default function RootNavigator() {
           <Stack.Screen name={ROUTES.HOLE_MAP} component={HoleMapScreen} />
 
           <Stack.Screen name={ROUTES.GPS} component={GpsScreen} />
-          <Stack.Screen name={ROUTES.GREEN_VIEW} component={GreenViewScreen} />
+          <Stack.Screen name={ROUTES.GREEN_VIEW} component={TournamentGreenViewScreen} />
           <Stack.Screen name={ROUTES.HOLE_STRATEGY} component={HoleStrategyScreen} />
 
           <Stack.Screen name={ROUTES.SCORE_ENTRY} component={ScoreEntryScreen} />
