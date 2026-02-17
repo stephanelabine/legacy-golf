@@ -1,5 +1,5 @@
 // src/screens/HistoryScreen.js
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, Alert, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
@@ -10,9 +10,15 @@ import { auth } from "../firebase/firebase";
 import { getRounds, deleteRound } from "../storage/rounds";
 import { loadActiveRound, clearActiveRoundEverywhere } from "../storage/roundState";
 import * as RoundState from "../storage/roundState";
+import PremiumSwipeRow from "../components/PremiumSwipeRow";
 
 const BG = "#0B1220";
 const WHITE = "#FFFFFF";
+const CARD = "rgba(255,255,255,0.05)";
+const BORDER = "rgba(255,255,255,0.14)";
+const MUTED = "rgba(255,255,255,0.65)";
+const INNER = "rgba(0,0,0,0.18)";
+const GREEN_BORDER = "rgba(46,204,113,0.70)";
 
 function pickFirstString(...vals) {
   for (const v of vals) {
@@ -63,14 +69,12 @@ function toInt(v) {
 function readStroke(roundRoot, holeNumber, playerId) {
   const rid = String(playerId);
 
-  // A) roundState shape (object keyed by hole number)
   const a =
     roundRoot?.holes?.[String(holeNumber)]?.players?.[rid]?.strokes ??
     roundRoot?.holes?.[String(holeNumber)]?.scores?.[rid];
   const aInt = toInt(a);
   if (aInt > 0) return aInt;
 
-  // B) legacy rounds shape (array of holes)
   const holesArr = Array.isArray(roundRoot?.holes) ? roundRoot.holes : null;
   if (holesArr && holeNumber >= 1 && holeNumber <= holesArr.length) {
     const h = holesArr[holeNumber - 1];
@@ -158,17 +162,14 @@ function pickUserPlayer(roundRoot) {
 
   const uid = getSignedInUserKey();
 
-  // 1) match by uid/userId
   if (uid) {
     const byUid = players.find((p) => String(p?.uid || p?.userId || p?.firebaseUid || "") === uid);
     if (byUid) return byUid;
   }
 
-  // 2) explicit flags
   const byFlag = players.find((p) => p?.isYou === true || p?.isMe === true || p?.me === true);
   if (byFlag) return byFlag;
 
-  // 3) fallback
   return players[0];
 }
 
@@ -283,13 +284,10 @@ function extractResumeParamsFromSavedRound(r) {
 
 export default function HistoryScreen({ navigation }) {
   const insets = useSafeAreaInsets();
+  const openSwipeRef = useRef(null);
 
   const [rounds, setRounds] = useState([]);
   const [activeState, setActiveState] = useState(null);
-
-  const [deleteMode, setDeleteMode] = useState(false);
-  const [selected, setSelected] = useState({});
-  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     const [all, active] = await Promise.all([getRounds(), loadActiveRound()]);
@@ -303,44 +301,27 @@ export default function HistoryScreen({ navigation }) {
     }, [load])
   );
 
+  function closeAnyOpenSwipe() {
+    try {
+      if (openSwipeRef.current && typeof openSwipeRef.current.close === "function") {
+        openSwipeRef.current.close();
+      }
+    } catch { }
+    openSwipeRef.current = null;
+  }
+
   const activeSummary = useMemo(() => extractActiveSummary(activeState), [activeState]);
   const activePinnedId = "__active__";
   const hasActive = !!activeSummary;
 
-  const hasAnySaved = rounds.length > 0;
-  const hasAny = hasActive || hasAnySaved;
+  const items = useMemo(() => (Array.isArray(rounds) ? rounds : []), [rounds]);
+  const hasAny = hasActive || items.length > 0;
 
-  const items = useMemo(() => rounds, [rounds]);
+  const bottomPad = Math.max(14, (insets?.bottom || 0) + 12);
+  const headerPadTop = insets?.top || 0;
 
-  const selectedIds = useMemo(() => Object.keys(selected).filter((k) => selected[k]), [selected]);
-  const selectedCount = selectedIds.length;
-
-  function enterDeleteMode() {
-    setDeleteMode(true);
-    setSelected({});
-  }
-
-  function exitDeleteMode() {
-    setDeleteMode(false);
-    setSelected({});
-  }
-
-  function toggleSelectRound(id) {
-    const rid = String(id || "");
-    if (!rid) return;
-    setSelected((prev) => {
-      const next = { ...prev };
-      next[rid] = !next[rid];
-      if (!next[rid]) delete next[rid];
-      return next;
-    });
-  }
-
-  async function onPressActivePinned() {
-    if (deleteMode) {
-      toggleSelectRound(activePinnedId);
-      return;
-    }
+  async function openActivePinned() {
+    closeAnyOpenSwipe();
 
     const params = extractActiveRoundParams(activeState);
     if (params) {
@@ -351,11 +332,8 @@ export default function HistoryScreen({ navigation }) {
     navigation.navigate(ROUTES.GAMES, { resume: true });
   }
 
-  async function onPressRound(r) {
-    if (deleteMode) {
-      toggleSelectRound(r?.id);
-      return;
-    }
+  async function openRound(r) {
+    closeAnyOpenSwipe();
 
     const completed = isRoundCompletedAnyShape(r);
 
@@ -374,8 +352,6 @@ export default function HistoryScreen({ navigation }) {
     }
 
     try {
-      // Set this saved round as the active round so the rest of the app has full context.
-      // This keeps wagers/players/holes aligned as you move around.
       if (typeof RoundState.saveActiveRound === "function") {
         await RoundState.saveActiveRound({
           ...r,
@@ -389,87 +365,48 @@ export default function HistoryScreen({ navigation }) {
     navigation.navigate(ROUTES.HOLE_HUB, params);
   }
 
-  async function confirmDeleteSelected() {
-    if (deleting) return;
-    if (selectedCount === 0) return;
+  function confirmDeleteOne({ id, isActivePinned }) {
+    closeAnyOpenSwipe();
 
-    const label = selectedCount === 1 ? "this item" : `these ${selectedCount} items`;
-
-    Alert.alert("Delete?", `Are you sure you want to delete ${label}? This can’t be undone.`, [
+    Alert.alert("Delete round?", "This will permanently remove this round from this device.", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Delete",
         style: "destructive",
         onPress: async () => {
-          setDeleting(true);
           try {
-            const wantsActive = !!selected[activePinnedId];
-
-            if (wantsActive) {
+            if (isActivePinned) {
               await clearActiveRoundEverywhere();
-
               const rid = activeSummary?.roundId;
-              if (rid) {
-                await deleteRound(rid);
-              }
+              if (rid) await deleteRound(rid);
+            } else {
+              await deleteRound(String(id));
             }
-
-            for (const id of selectedIds) {
-              if (id === activePinnedId) continue;
-              // eslint-disable-next-line no-await-in-loop
-              await deleteRound(id);
-            }
-
             await load();
-            exitDeleteMode();
-            Alert.alert("Deleted", "Your selected item(s) have been removed.");
           } catch {
             Alert.alert("Couldn’t delete", "Please try again.");
-          } finally {
-            setDeleting(false);
           }
         },
       },
     ]);
   }
 
-  const bottomPad = Math.max(14, (insets?.bottom || 0) + 12);
-  const headerPadTop = insets?.top || 0;
+  function RoundRowShell({ pinned, children }) {
+    return <View style={[styles.greenRing, pinned && styles.blueRing]}>{children}</View>;
+  }
 
-  function renderRoundRow({
-    id,
+  function renderRowContent({
     courseName,
     dateText,
     statusText,
     statusKind,
     rightPrimary,
     rightSecondary,
-    onPress,
     pinned = false,
+    onPress,
   }) {
-    const isSelected = !!selected[String(id)];
-
     return (
-      <Pressable
-        key={String(id)}
-        onPress={onPress}
-        style={({ pressed }) => [
-          styles.card,
-          pinned && styles.cardPinned,
-          deleteMode && isSelected && styles.cardSelected,
-          pressed && styles.pressed,
-        ]}
-      >
-        {deleteMode ? (
-          <View style={styles.selectIconWrap}>
-            <MaterialCommunityIcons
-              name={isSelected ? "check-circle" : "circle-outline"}
-              size={22}
-              color={isSelected ? "#FF4D4D" : "rgba(255,255,255,0.55)"}
-            />
-          </View>
-        ) : null}
-
+      <Pressable onPress={onPress} style={({ pressed }) => [styles.rowCard, pressed && styles.pressed]}>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={styles.course} numberOfLines={2}>
             {shortCourseTitle(courseName)}
@@ -500,11 +437,9 @@ export default function HistoryScreen({ navigation }) {
           </Text>
         </View>
 
-        {!deleteMode ? (
-          <View style={styles.chev}>
-            <MaterialCommunityIcons name="chevron-right" size={22} color="rgba(255,255,255,0.60)" />
-          </View>
-        ) : null}
+        <View style={styles.chev}>
+          <MaterialCommunityIcons name="chevron-right" size={22} color="rgba(255,255,255,0.60)" />
+        </View>
       </Pressable>
     );
   }
@@ -529,34 +464,26 @@ export default function HistoryScreen({ navigation }) {
           <View style={styles.headerCenter}>
             <Text style={styles.headerTitle}>Round History</Text>
             <Text style={styles.headerSub}>
-              {deleteMode
-                ? selectedCount > 0
-                  ? `${selectedCount} selected`
-                  : "Tap items to select"
-                : hasAny
-                  ? `${(hasActive ? 1 : 0) + items.length} item${(hasActive ? 1 : 0) + items.length === 1 ? "" : "s"
-                  }`
-                  : "Your rounds, beautifully organized"}
+              {hasAny ? `${(hasActive ? 1 : 0) + items.length} item${(hasActive ? 1 : 0) + items.length === 1 ? "" : "s"}` : "Your rounds, beautifully organized"}
             </Text>
           </View>
 
           <Pressable
-            onPress={() => (deleteMode ? exitDeleteMode() : enterDeleteMode())}
+            onPress={() => {
+              closeAnyOpenSwipe();
+              navigation.navigate(ROUTES.GAMES);
+            }}
             hitSlop={12}
-            style={({ pressed }) => [
-              styles.headerPill,
-              deleteMode && styles.headerPillDanger,
-              pressed && styles.pressed,
-            ]}
+            style={({ pressed }) => [styles.headerPill, pressed && styles.pressed]}
           >
-            <Text style={styles.headerPillText}>{deleteMode ? "Done" : "Edit"}</Text>
+            <Text style={styles.headerPillText}>New</Text>
           </Pressable>
         </View>
       </View>
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ padding: 16, paddingBottom: 120 + bottomPad }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 28 + bottomPad }}
         showsVerticalScrollIndicator={false}
       >
         {!hasAny ? (
@@ -567,19 +494,6 @@ export default function HistoryScreen({ navigation }) {
           </View>
         ) : (
           <View style={{ gap: 12 }}>
-            {deleteMode ? (
-              <View style={styles.selectHint}>
-                <MaterialCommunityIcons
-                  name="checkbox-marked-circle-outline"
-                  size={18}
-                  color="rgba(255,255,255,0.78)"
-                />
-                <Text style={styles.selectHintText}>
-                  Select item(s) to delete. You can choose multiple.
-                </Text>
-              </View>
-            ) : null}
-
             {hasActive
               ? (() => {
                 const root = activeSummary?.root || unwrapRound(activeState) || {};
@@ -588,21 +502,36 @@ export default function HistoryScreen({ navigation }) {
                 const holeNum = activeSummary?.holeNumber || pickHoleNumberAny(root, null);
 
                 const statusText = "In Progress";
-
                 const rightPrimary = holeNum ? `Hole ${holeNum}` : "Resume";
                 const rightSecondary = holeNum ? "Currently on" : "Tap to continue";
 
-                return renderRoundRow({
-                  id: activePinnedId,
-                  courseName,
-                  dateText,
-                  statusText,
-                  statusKind: "in_progress",
-                  rightPrimary,
-                  rightSecondary,
-                  pinned: true,
-                  onPress: onPressActivePinned,
-                });
+                return (
+                  <RoundRowShell pinned>
+                    <PremiumSwipeRow
+                      openSwipeRef={openSwipeRef}
+                      closeAnyOpenSwipe={closeAnyOpenSwipe}
+                      radius={22}
+                      actionWidth={120}
+                      borderColor="transparent"
+                      backgroundColor="transparent"
+                      editLabel="Enter"
+                      onEdit={openActivePinned}
+                      deleteLabel="Delete"
+                      onDelete={() => confirmDeleteOne({ id: activePinnedId, isActivePinned: true })}
+                    >
+                      {renderRowContent({
+                        courseName,
+                        dateText,
+                        statusText,
+                        statusKind: "in_progress",
+                        rightPrimary,
+                        rightSecondary,
+                        pinned: true,
+                        onPress: openActivePinned,
+                      })}
+                    </PremiumSwipeRow>
+                  </RoundRowShell>
+                );
               })()
               : null}
 
@@ -623,56 +552,38 @@ export default function HistoryScreen({ navigation }) {
               const rightPrimary = completed ? (gross ? String(gross) : "—") : holeNum ? `Hole ${holeNum}` : "Resume";
               const rightSecondary = completed ? "Gross" : holeNum ? "Currently on" : "Tap to continue";
 
-              return renderRoundRow({
-                id: rid,
-                courseName,
-                dateText,
-                statusText,
-                statusKind: completed ? "completed" : "in_progress",
-                rightPrimary,
-                rightSecondary,
-                onPress: () => onPressRound(r),
-              });
+              const editLabel = completed ? "View" : "Enter";
+
+              return (
+                <RoundRowShell key={rid}>
+                  <PremiumSwipeRow
+                    openSwipeRef={openSwipeRef}
+                    closeAnyOpenSwipe={closeAnyOpenSwipe}
+                    radius={22}
+                    actionWidth={120}
+                    borderColor="transparent"
+                    backgroundColor="transparent"
+                    editLabel={editLabel}
+                    onEdit={() => openRound(r)}
+                    deleteLabel="Delete"
+                    onDelete={() => confirmDeleteOne({ id: rid, isActivePinned: false })}
+                  >
+                    {renderRowContent({
+                      courseName,
+                      dateText,
+                      statusText,
+                      statusKind: completed ? "completed" : "in_progress",
+                      rightPrimary,
+                      rightSecondary,
+                      onPress: () => openRound(r),
+                    })}
+                  </PremiumSwipeRow>
+                </RoundRowShell>
+              );
             })}
           </View>
         )}
       </ScrollView>
-
-      {hasAny ? (
-        <View style={[styles.fabWrap, { paddingBottom: bottomPad }]}>
-          {!deleteMode ? (
-            <Pressable onPress={enterDeleteMode} style={({ pressed }) => [styles.fab, pressed && styles.pressed]}>
-              <MaterialCommunityIcons name="trash-can-outline" size={18} color="#fff" />
-              <Text style={styles.fabText}>Select item(s) to delete</Text>
-            </Pressable>
-          ) : (
-            <View style={styles.deleteDock}>
-              <Pressable
-                onPress={exitDeleteMode}
-                style={({ pressed }) => [styles.dockBtn, pressed && styles.pressed]}
-                disabled={deleting}
-              >
-                <Text style={styles.dockBtnText}>Cancel</Text>
-              </Pressable>
-
-              <Pressable
-                onPress={confirmDeleteSelected}
-                style={({ pressed }) => [
-                  styles.dockBtnDanger,
-                  pressed && styles.pressed,
-                  (selectedCount === 0 || deleting) && { opacity: 0.45 },
-                ]}
-                disabled={selectedCount === 0 || deleting}
-              >
-                <Text style={styles.dockBtnDangerText}>{deleting ? "Deleting…" : "Confirm delete"}</Text>
-                <Text style={styles.dockBtnDangerSub}>
-                  {selectedCount > 0 ? `${selectedCount} selected` : "Select at least 1"}
-                </Text>
-              </Pressable>
-            </View>
-          )}
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -727,10 +638,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     minWidth: 70,
   },
-  headerPillDanger: {
-    borderColor: "rgba(214,40,40,0.40)",
-    backgroundColor: "rgba(214,40,40,0.16)",
-  },
   headerPillText: { color: WHITE, fontWeight: "900", fontSize: 13 },
 
   headerCenter: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 10 },
@@ -750,64 +657,39 @@ const styles = StyleSheet.create({
   emptyTitle: { color: WHITE, fontSize: 14, fontWeight: "900" },
   emptyText: { color: "rgba(255,255,255,0.65)", fontSize: 12, fontWeight: "800", textAlign: "center" },
 
-  selectHint: {
-    borderRadius: 18,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+  greenRing: {
+    borderRadius: 24,
+    padding: 2,
     borderWidth: 1,
-    borderColor: "rgba(214,40,40,0.22)",
-    backgroundColor: "rgba(214,40,40,0.10)",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
+    borderColor: GREEN_BORDER,
+    backgroundColor: "transparent",
   },
-  selectHintText: { color: "rgba(255,255,255,0.78)", fontWeight: "800", fontSize: 12, flex: 1 },
+  blueRing: {
+    borderColor: "rgba(46,125,255,0.60)",
+  },
 
-  card: {
+  rowCard: {
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 20,
+    borderRadius: 22,
     padding: 14,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
-    backgroundColor: "rgba(255,255,255,0.04)",
-  },
-
-  cardPinned: {
-    borderColor: "rgba(46,125,255,0.30)",
-    backgroundColor: "rgba(46,125,255,0.10)",
-  },
-
-  cardSelected: {
-    borderColor: "rgba(214,40,40,0.35)",
-    backgroundColor: "rgba(214,40,40,0.12)",
-  },
-
-  selectIconWrap: {
-    width: 30,
-    alignItems: "flex-start",
-    justifyContent: "center",
-    marginRight: 8,
+    borderColor: BORDER,
+    backgroundColor: CARD,
   },
 
   course: { color: WHITE, fontSize: 16, fontWeight: "900" },
   date: { marginTop: 6, color: "rgba(255,255,255,0.70)", fontSize: 12, fontWeight: "800" },
 
   statusRow: { marginTop: 8, flexDirection: "row", alignItems: "center" },
-
   statusChip: {
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 999,
     borderWidth: 1,
   },
-
-  // In Progress = blue
   statusChipProg: { borderColor: "rgba(46,125,255,0.55)", backgroundColor: "rgba(46,125,255,0.16)" },
-
-  // Completed = green
   statusChipDone: { borderColor: "rgba(46,204,113,0.60)", backgroundColor: "rgba(46,204,113,0.16)" },
-
   statusText: { color: WHITE, fontWeight: "900", fontSize: 11, letterSpacing: 0.9, opacity: 0.92 },
 
   rightBox: {
@@ -817,7 +699,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
-    backgroundColor: "rgba(0,0,0,0.18)",
+    backgroundColor: INNER,
     alignItems: "flex-end",
     justifyContent: "center",
     gap: 6,
@@ -827,70 +709,6 @@ const styles = StyleSheet.create({
   rightSecondary: { color: "rgba(255,255,255,0.62)", fontSize: 12, fontWeight: "900", letterSpacing: 0.3 },
 
   chev: { width: 28, alignItems: "flex-end", justifyContent: "center", marginLeft: 8 },
-
-  fabWrap: {
-    position: "absolute",
-    left: 14,
-    right: 14,
-    bottom: 0,
-  },
-
-  fab: {
-    height: 54,
-    borderRadius: 999,
-    backgroundColor: "rgba(214,40,40,0.92)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 14,
-    shadowColor: "#000",
-    shadowOpacity: Platform.OS === "ios" ? 0.18 : 0.22,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 6,
-  },
-  fabText: { color: WHITE, fontWeight: "900", letterSpacing: 0.2, fontSize: 13 },
-
-  deleteDock: {
-    borderRadius: 22,
-    padding: 10,
-    backgroundColor: "rgba(18,22,30,0.84)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    flexDirection: "row",
-    gap: 10,
-    alignItems: "center",
-  },
-
-  dockBtn: {
-    height: 52,
-    paddingHorizontal: 14,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.06)",
-    alignItems: "center",
-    justifyContent: "center",
-    minWidth: 92,
-  },
-  dockBtnText: { color: WHITE, fontWeight: "900", letterSpacing: 0.2 },
-
-  dockBtnDanger: {
-    flex: 1,
-    height: 52,
-    borderRadius: 18,
-    backgroundColor: "rgba(214,40,40,0.92)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 12,
-  },
-  dockBtnDangerText: { color: WHITE, fontWeight: "900", letterSpacing: 0.25 },
-  dockBtnDangerSub: { marginTop: 2, color: "rgba(255,255,255,0.80)", fontWeight: "800", fontSize: 11 },
 
   pressed: {
     opacity: Platform.OS === "ios" ? 0.86 : 0.9,
