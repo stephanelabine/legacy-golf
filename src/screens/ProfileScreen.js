@@ -43,6 +43,7 @@ const ROUND_KEYS_TO_TRY = [
 
 const DEFAULT_PROFILE = {
   name: "Stephane L",
+  nickname: "Steph",
   homeCourse: "Green Tee Country Club",
   email: "steph@example.com",
   phone: "",
@@ -188,6 +189,13 @@ export default function ProfileScreen({ navigation }) {
 
   const handicapDisplay = formatHandicap(profile.handicap);
 
+  const displayName = useMemo(() => {
+    const nn = String(profile.nickname || "").trim();
+    if (nn) return nn;
+    const full = String(profile.name || "").trim();
+    return full || "—";
+  }, [profile.nickname, profile.name]);
+
   const loadRoundsPlayed = useCallback(async () => {
     for (const key of ROUND_KEYS_TO_TRY) {
       const raw = await AsyncStorage.getItem(key);
@@ -291,20 +299,12 @@ export default function ProfileScreen({ navigation }) {
         keyboardDismissMode="on-drag"
         onScrollBeginDrag={() => Keyboard.dismiss()}
       >
-        <Pressable
-          onPress={openIdentity}
-          disabled={editing}
-          style={({ pressed }) => [
-            styles.cardStrong,
-            styles.heroCard,
-            !editing && pressed && styles.pressed,
-          ]}
-        >
+        <View style={styles.avatarRow}>
           <Pressable
             onPress={onPressAvatar}
             disabled={!editing}
             style={({ pressed }) => [
-              styles.avatar,
+              styles.avatarLarge,
               editing && styles.avatarEditable,
               pressed && editing && styles.pressed,
             ]}
@@ -313,19 +313,27 @@ export default function ProfileScreen({ navigation }) {
               <Image source={{ uri: profile.photoUri }} style={styles.avatarImg} />
             ) : (
               <>
-                <Text style={styles.avatarText}>{initials}</Text>
+                <Text style={styles.avatarTextLarge}>{initials}</Text>
                 {editing ? (
-                  <View style={styles.avatarBadge}>
-                    <MaterialCommunityIcons name="camera-plus" size={14} color="rgba(255,255,255,0.90)" />
+                  <View style={styles.avatarBadgeLarge}>
+                    <MaterialCommunityIcons name="camera-plus" size={16} color="rgba(255,255,255,0.92)" />
                   </View>
                 ) : null}
               </>
             )}
           </Pressable>
 
+          {editing ? <Text style={styles.photoHint}>Tap photo to change</Text> : null}
+        </View>
+
+        <Pressable
+          onPress={openIdentity}
+          disabled={editing}
+          style={({ pressed }) => [styles.cardStrong, styles.heroCard, !editing && pressed && styles.pressed]}
+        >
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.nameBig} numberOfLines={1}>
-              {profile.name || "—"}
+              {displayName}
             </Text>
 
             <View style={styles.rowInline}>
@@ -359,9 +367,19 @@ export default function ProfileScreen({ navigation }) {
             label="Name"
             value={profile.name}
             editing={editing}
-            placeholder="Your name"
+            placeholder="Your full name"
             autoCapitalize="words"
             onChange={(v) => setProfile((p) => ({ ...p, name: v }))}
+          />
+
+          <Field
+            icon="account-star"
+            label="Nickname"
+            value={profile.nickname}
+            editing={editing}
+            placeholder="What friends call you"
+            autoCapitalize="words"
+            onChange={(v) => setProfile((p) => ({ ...p, nickname: v }))}
           />
 
           <Field
@@ -460,17 +478,16 @@ export default function ProfileScreen({ navigation }) {
         </View>
       </ScrollView>
 
-      <Modal
-        visible={showIdentity}
-        transparent
-        animationType="fade"
-        onRequestClose={closeIdentity}
-      >
+      <Modal visible={showIdentity} transparent animationType="fade" onRequestClose={closeIdentity}>
         <Pressable style={styles.modalOverlay} onPress={closeIdentity}>
           <Pressable style={[styles.modalCard, { marginTop: insets.top + 16 }]} onPress={() => { }}>
             <View style={styles.modalHeaderRow}>
               <Text style={styles.modalTitle}>Identity Card</Text>
-              <Pressable onPress={closeIdentity} hitSlop={12} style={({ pressed }) => [styles.closePill, pressed && styles.pressed]}>
+              <Pressable
+                onPress={closeIdentity}
+                hitSlop={12}
+                style={({ pressed }) => [styles.closePill, pressed && styles.pressed]}
+              >
                 <Text style={styles.closePillText}>Close</Text>
               </Pressable>
             </View>
@@ -480,6 +497,11 @@ export default function ProfileScreen({ navigation }) {
             <View style={styles.modalRow}>
               <Text style={styles.modalLabel}>Name</Text>
               <Text style={styles.modalValue}>{profile.name || "—"}</Text>
+            </View>
+
+            <View style={styles.modalRow}>
+              <Text style={styles.modalLabel}>Nickname</Text>
+              <Text style={styles.modalValue}>{String(profile.nickname || "").trim() || "—"}</Text>
             </View>
 
             <View style={styles.modalRow}>
@@ -494,9 +516,7 @@ export default function ProfileScreen({ navigation }) {
 
             <View style={styles.modalDivider} />
 
-            <Text style={styles.modalNote}>
-              {editing ? "Editing enabled" : "This profile is your identity for every round."}
-            </Text>
+            <Text style={styles.modalNote}>This profile is your identity for every round.</Text>
           </Pressable>
         </Pressable>
       </Modal>
@@ -579,7 +599,7 @@ function Field({ icon, label, value, editing, onChange, keyboardType, autoCapita
           />
         ) : (
           <View style={styles.readOnlyBox}>
-            <Text style={styles.readOnlyText}>
+            <Text style={styles.readOnlyText} numberOfLines={1}>
               {value || "—"}
             </Text>
           </View>
@@ -649,21 +669,18 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.18)",
     backgroundColor: "rgba(255,255,255,0.07)",
-  },
-
-  heroCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    marginBottom: 18,
     borderRadius: 24,
+    padding: 16,
   },
 
-  avatar: {
-    width: 62,
-    height: 62,
-    borderRadius: 22,
-    borderWidth: 1,
+  avatarRow: { alignItems: "center", marginTop: 8, marginBottom: 14 },
+  photoHint: { marginTop: 10, color: "rgba(242,201,76,0.80)", fontSize: 12, fontWeight: "900" },
+
+  avatarLarge: {
+    width: 92,
+    height: 92,
+    borderRadius: 34,
+    borderWidth: 1.5,
     borderColor: "rgba(255,255,255,0.18)",
     backgroundColor: "rgba(0,0,0,0.18)",
     alignItems: "center",
@@ -672,25 +689,32 @@ const styles = StyleSheet.create({
   },
   avatarEditable: { borderColor: "rgba(46,125,255,0.32)" },
   avatarImg: { width: "100%", height: "100%" },
-  avatarText: { color: "#fff", fontSize: 18, fontWeight: "900" },
-  avatarBadge: {
+  avatarTextLarge: { color: "#fff", fontSize: 26, fontWeight: "900" },
+  avatarBadgeLarge: {
     position: "absolute",
-    right: 6,
-    bottom: 6,
-    width: 22,
-    height: 22,
-    borderRadius: 10,
+    right: 8,
+    bottom: 8,
+    width: 26,
+    height: 26,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.18)",
-    backgroundColor: "rgba(0,0,0,0.30)",
+    backgroundColor: "rgba(0,0,0,0.35)",
     alignItems: "center",
     justifyContent: "center",
   },
 
-  nameBig: { color: "#fff", fontSize: 19, fontWeight: "900" },
-  rowInline: { marginTop: 6, flexDirection: "row", alignItems: "center", gap: 8 },
+  heroCard: {
+    marginBottom: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+  },
+
+  nameBig: { color: "#fff", fontSize: 20, fontWeight: "900" },
+  rowInline: { marginTop: 8, flexDirection: "row", alignItems: "center", gap: 8 },
   subText: { color: "rgba(255,255,255,0.80)", fontWeight: "800", flexShrink: 1 },
-  identityHint: { marginTop: 8, color: "rgba(255,255,255,0.60)", fontSize: 12, fontWeight: "800" },
+  identityHint: { marginTop: 10, color: "rgba(255,255,255,0.60)", fontSize: 12, fontWeight: "800" },
   tapHint: { marginTop: 6, color: "rgba(242,201,76,0.82)", fontSize: 12, fontWeight: "900" },
 
   hcpBox: {
@@ -701,7 +725,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(15,122,74,0.60)",
     alignItems: "center",
-    minWidth: 120,
+    minWidth: 104,
   },
   hcpLabel: { color: "rgba(255,255,255,0.88)", fontSize: 12, fontWeight: "900" },
   hcpValue: { color: "#fff", fontSize: 22, fontWeight: "900", marginTop: 2 },
