@@ -12,6 +12,7 @@ import {
   Keyboard,
   Alert,
   Image,
+  Modal,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -80,6 +81,7 @@ export default function ProfileScreen({ navigation }) {
   const [editing, setEditing] = useState(false);
   const [profile, setProfile] = useState(DEFAULT_PROFILE);
   const [roundsPlayed, setRoundsPlayed] = useState(0);
+  const [showIdentity, setShowIdentity] = useState(false);
 
   const signedInEmail = auth?.currentUser?.email || "";
 
@@ -231,6 +233,15 @@ export default function ProfileScreen({ navigation }) {
     navigation.navigate(ROUTES.EQUIPMENT);
   }
 
+  function openIdentity() {
+    if (editing) return;
+    setShowIdentity(true);
+  }
+
+  function closeIdentity() {
+    setShowIdentity(false);
+  }
+
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: COLORS.bg }}
@@ -280,7 +291,15 @@ export default function ProfileScreen({ navigation }) {
         keyboardDismissMode="on-drag"
         onScrollBeginDrag={() => Keyboard.dismiss()}
       >
-        <View style={[styles.cardStrong, styles.heroCard]}>
+        <Pressable
+          onPress={openIdentity}
+          disabled={editing}
+          style={({ pressed }) => [
+            styles.cardStrong,
+            styles.heroCard,
+            !editing && pressed && styles.pressed,
+          ]}
+        >
           <Pressable
             onPress={onPressAvatar}
             disabled={!editing}
@@ -319,13 +338,15 @@ export default function ProfileScreen({ navigation }) {
             <Text style={styles.identityHint} numberOfLines={1}>
               {editing ? "Editing enabled" : "Your identity for every round"}
             </Text>
+
+            {!editing ? <Text style={styles.tapHint}>Tap to expand</Text> : null}
           </View>
 
           <View style={styles.hcpBox}>
             <Text style={styles.hcpLabel}>Handicap</Text>
             <Text style={styles.hcpValue}>{handicapDisplay}</Text>
           </View>
-        </View>
+        </Pressable>
 
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>Profile Details</Text>
@@ -439,6 +460,47 @@ export default function ProfileScreen({ navigation }) {
         </View>
       </ScrollView>
 
+      <Modal
+        visible={showIdentity}
+        transparent
+        animationType="fade"
+        onRequestClose={closeIdentity}
+      >
+        <Pressable style={styles.modalOverlay} onPress={closeIdentity}>
+          <Pressable style={[styles.modalCard, { marginTop: insets.top + 16 }]} onPress={() => { }}>
+            <View style={styles.modalHeaderRow}>
+              <Text style={styles.modalTitle}>Identity Card</Text>
+              <Pressable onPress={closeIdentity} hitSlop={12} style={({ pressed }) => [styles.closePill, pressed && styles.pressed]}>
+                <Text style={styles.closePillText}>Close</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.modalDivider} />
+
+            <View style={styles.modalRow}>
+              <Text style={styles.modalLabel}>Name</Text>
+              <Text style={styles.modalValue}>{profile.name || "—"}</Text>
+            </View>
+
+            <View style={styles.modalRow}>
+              <Text style={styles.modalLabel}>Home Course</Text>
+              <Text style={styles.modalValue}>{profile.homeCourse || "—"}</Text>
+            </View>
+
+            <View style={styles.modalRow}>
+              <Text style={styles.modalLabel}>Handicap</Text>
+              <Text style={styles.modalValue}>{handicapDisplay}</Text>
+            </View>
+
+            <View style={styles.modalDivider} />
+
+            <Text style={styles.modalNote}>
+              {editing ? "Editing enabled" : "This profile is your identity for every round."}
+            </Text>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       {editing ? (
         <View style={[styles.bottomBar, { paddingBottom: 14 + insets.bottom }]}>
           <Pressable onPress={onDone} style={({ pressed }) => [styles.donePill, pressed && styles.pressed]}>
@@ -517,7 +579,7 @@ function Field({ icon, label, value, editing, onChange, keyboardType, autoCapita
           />
         ) : (
           <View style={styles.readOnlyBox}>
-            <Text style={styles.readOnlyText} numberOfLines={1}>
+            <Text style={styles.readOnlyText}>
               {value || "—"}
             </Text>
           </View>
@@ -629,6 +691,7 @@ const styles = StyleSheet.create({
   rowInline: { marginTop: 6, flexDirection: "row", alignItems: "center", gap: 8 },
   subText: { color: "rgba(255,255,255,0.80)", fontWeight: "800", flexShrink: 1 },
   identityHint: { marginTop: 8, color: "rgba(255,255,255,0.60)", fontSize: 12, fontWeight: "800" },
+  tapHint: { marginTop: 6, color: "rgba(242,201,76,0.82)", fontSize: 12, fontWeight: "900" },
 
   hcpBox: {
     backgroundColor: "rgba(15,122,74,0.30)",
@@ -773,6 +836,49 @@ const styles = StyleSheet.create({
     maxWidth: 360,
   },
   donePillText: { color: "#fff", fontSize: 16, fontWeight: "900" },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    paddingHorizontal: 16,
+    paddingBottom: 18,
+    justifyContent: "flex-start",
+  },
+  modalCard: {
+    borderRadius: 24,
+    padding: 16,
+    borderWidth: 2,
+    borderColor: COLORS.gold,
+    backgroundColor: "rgba(11,18,32,0.96)",
+  },
+  modalHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  modalTitle: { color: "#fff", fontSize: 18, fontWeight: "900" },
+  closePill: {
+    height: 36,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.16)",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  closePillText: { color: "#fff", fontSize: 13, fontWeight: "900" },
+
+  modalDivider: {
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    marginVertical: 12,
+  },
+  modalRow: { marginTop: 10 },
+  modalLabel: { color: "rgba(242,201,76,0.82)", fontSize: 12, fontWeight: "900" },
+  modalValue: { marginTop: 6, color: "#fff", fontSize: 16, fontWeight: "900", lineHeight: 22 },
+  modalNote: { color: "rgba(255,255,255,0.70)", fontSize: 13, fontWeight: "800", lineHeight: 18 },
 
   pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
 });
