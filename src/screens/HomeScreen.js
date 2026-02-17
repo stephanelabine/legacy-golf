@@ -199,83 +199,52 @@ export default function HomeScreen({ navigation }) {
               </View>
             </Pressable>
 
-            <View style={[styles.quickCard, { borderColor: theme.border, backgroundColor: theme.card2 }]}>
-              <Pressable
-                onPress={() => navigation.navigate(ROUTES.HISTORY)}
-                style={({ pressed }) => [styles.quickRow, pressed && styles.pressedRow]}
-              >
-                <View style={styles.quickLeft}>
-                  <View
-                    style={[
-                      styles.quickIcon,
-                      {
-                        borderColor: isDark ? "rgba(255,255,255,0.14)" : "rgba(10,15,26,0.10)",
-                      },
-                    ]}
-                  >
-                    <MaterialCommunityIcons name="history" size={18} color={isDark ? "#fff" : "#0A0F1A"} />
+            <View style={[styles.gridWrap, { borderColor: theme.border, backgroundColor: theme.card2 }]}>
+              <View style={[styles.gridRow, { marginBottom: 12 }]}>
+                <Pressable
+                  onPress={() => navigation.navigate(ROUTES.PROFILE)}
+                  style={({ pressed }) => [styles.gridCard, { borderColor: theme.border }, pressed && styles.pressedCard]}
+                >
+                  <View style={styles.gridIconWrap}>
+                    <MaterialCommunityIcons name="account" size={16} color={isDark ? "#fff" : "#0A0F1A"} />
                   </View>
-                  <Text style={[styles.quickText, { color: theme.text }]}>Round History</Text>
-                </View>
-                <MaterialCommunityIcons
-                  name="chevron-right"
-                  size={22}
-                  color={isDark ? "rgba(255,255,255,0.70)" : "rgba(10,15,26,0.55)"}
-                />
-              </Pressable>
+                  <Text style={[styles.gridTitle, { color: theme.text }]}>Player Profile</Text>
+                </Pressable>
 
-              <View style={[styles.divider, { backgroundColor: theme.divider }]} />
-
-              <Pressable
-                onPress={() => navigation.navigate(ROUTES.PROFILE)}
-                style={({ pressed }) => [styles.quickRow, pressed && styles.pressedRow]}
-              >
-                <View style={styles.quickLeft}>
-                  <View
-                    style={[
-                      styles.quickIcon,
-                      {
-                        borderColor: isDark ? "rgba(255,255,255,0.14)" : "rgba(10,15,26,0.10)",
-                      },
-                    ]}
-                  >
-                    <MaterialCommunityIcons name="account" size={18} color={isDark ? "#fff" : "#0A0F1A"} />
+                <Pressable
+                  onPress={() => alert("Player Stats — coming soon")}
+                  style={({ pressed }) => [styles.gridCard, { borderColor: theme.border }, pressed && styles.pressedCard]}
+                >
+                  <View style={styles.gridIconWrap}>
+                    <MaterialCommunityIcons name="chart-line" size={16} color={isDark ? "#fff" : "#0A0F1A"} />
                   </View>
-                  <Text style={[styles.quickText, { color: theme.text }]}>Player Profile</Text>
-                </View>
-                <MaterialCommunityIcons
-                  name="chevron-right"
-                  size={22}
-                  color={isDark ? "rgba(255,255,255,0.70)" : "rgba(10,15,26,0.55)"}
-                />
-              </Pressable>
+                  <Text style={[styles.gridTitle, { color: theme.text }]}>Player Stats</Text>
+                </Pressable>
+              </View>
 
-              <View style={[styles.divider, { backgroundColor: theme.divider }]} />
-
-              <Pressable
-                onPress={() => navigation.navigate(ROUTES.BUDDIES)}
-                style={({ pressed }) => [styles.quickRow, pressed && styles.pressedRow]}
-              >
-                <View style={styles.quickLeft}>
-                  <View
-                    style={[
-                      styles.quickIcon,
-                      {
-                        borderColor: isDark ? "rgba(255,255,255,0.14)" : "rgba(10,15,26,0.10)",
-                      },
-                    ]}
-                  >
-                    <MaterialCommunityIcons name="account-multiple" size={18} color={isDark ? "#fff" : "#0A0F1A"} />
+              <View style={styles.gridRow}>
+                <Pressable
+                  onPress={() => navigation.navigate(ROUTES.HISTORY)}
+                  style={({ pressed }) => [styles.gridCard, { borderColor: theme.border }, pressed && styles.pressedCard]}
+                >
+                  <View style={styles.gridIconWrap}>
+                    <MaterialCommunityIcons name="history" size={22} color={isDark ? "#fff" : "#0A0F1A"} />
                   </View>
-                  <Text style={[styles.quickText, { color: theme.text }]}>Buddy List</Text>
-                </View>
-                <MaterialCommunityIcons
-                  name="chevron-right"
-                  size={22}
-                  color={isDark ? "rgba(255,255,255,0.70)" : "rgba(10,15,26,0.55)"}
-                />
-              </Pressable>
+                  <Text style={[styles.gridTitle, { color: theme.text }]}>Round History</Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={() => navigation.navigate(ROUTES.BUDDIES)}
+                  style={({ pressed }) => [styles.gridCard, { borderColor: theme.border }, pressed && styles.pressedCard]}
+                >
+                  <View style={styles.gridIconWrap}>
+                    <MaterialCommunityIcons name="account-multiple" size={16} color={isDark ? "#fff" : "#0A0F1A"} />
+                  </View>
+                  <Text style={[styles.gridTitle, { color: theme.text }]}>Buddy List</Text>
+                </Pressable>
+              </View>
             </View>
+
           </View>
         </View>
       </ImageBackground>
@@ -286,6 +255,49 @@ export default function HomeScreen({ navigation }) {
 const styles = StyleSheet.create({
   safe: { flex: 1 },
   bg: { flex: 1 },
+
+  gridWrap: {
+    padding: 14,
+    borderWidth: 1,
+    borderRadius: 18,
+  },
+  gridRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  gridCard: {
+    position: "relative",
+    justifyContent: "center",
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
+  gridIconWrap: {
+    position: "absolute",
+    top: 1,
+    left: 1,
+    width: 30,
+    height: 30,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+  gridTitle: {
+    fontFamily: "Cinzel",
+    marginTop: 8,
+    fontSize: 14,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    textAlign: "center",
+  },
+  pressedCard: {
+    opacity: 0.85,
+    transform: [{ scale: 0.99 }],
+  },
 
   overlay: { ...StyleSheet.absoluteFillObject },
 
