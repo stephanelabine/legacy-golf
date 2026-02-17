@@ -553,7 +553,15 @@ export default function HoleMapScreen({ navigation, route }) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <WebView ref={web} source={{ html: buildHtml() }} style={{ flex: 1 }} onLoadEnd={() => setWebReady(true)} />
+      <View style={styles.mapWrap}>
+        <WebView
+          ref={web}
+          source={{ html: buildHtml() }}
+          style={styles.web}
+          onLoadEnd={() => setWebReady(true)}
+        />
+      </View>
+
 
       <View style={[styles.top, { top: insets.top + 10 }]}>
         <Pressable onPress={() => navigation.goBack()} style={styles.topBtn}>
@@ -587,7 +595,7 @@ export default function HoleMapScreen({ navigation, route }) {
       </View>
 
       {/* Bottom panel: yardages + back to Hole Hub */}
-      <View style={[styles.bottomWrap, { paddingBottom: insets.bottom + 12 }]}>
+      <View style={[styles.bottomWrap, { paddingBottom: insets.bottom + 40 }]}>
 
         <View style={styles.yardPanel}>
           <View style={styles.yRow3}>
@@ -775,6 +783,28 @@ const GREEN_TEXT = "#0B1F12";
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#000" },
+  mapWrap: { flex: 1, position: "relative" },
+  web: { flex: 1 },
+
+  backHubBtn: {
+    width: "100%",
+    alignSelf: "center",
+    paddingVertical: 14,
+    borderRadius: 999,
+    backgroundColor: "rgba(46, 204, 113, 0.26)",
+    borderWidth: 1,
+    borderColor: "rgba(46, 204, 113, 0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 12,
+  },
+  backHubBtnT: {
+    color: "#fff",
+    fontWeight: "900",
+    fontSize: 14,
+    letterSpacing: 0.5,
+  },
+
 
   top: {
     position: "absolute",
@@ -833,7 +863,7 @@ const styles = StyleSheet.create({
   yCol: {
     flex: 1,
     borderRadius: 16,
-    backgroundColor: "rgba(255,255,255,0.10)",
+    backgroundColor: "#2E7DFF",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
     paddingVertical: 10,

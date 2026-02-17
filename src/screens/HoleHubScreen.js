@@ -1,4 +1,4 @@
-// src/screens/HoleViewScreen.js
+// src/screens/HoleHubScreen.js
 import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import {
   SafeAreaView,
@@ -273,7 +273,7 @@ function SideGameOverlayModal({ visible, meta, currentHole, roundNumber, onDismi
   );
 }
 
-export default function HoleViewScreen({ navigation, route }) {
+export default function HoleHubScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const params = route?.params || {};
 

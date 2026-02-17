@@ -24,7 +24,7 @@ import TeeSelectionScreen from "../screens/TeeSelectionScreen";
 import PlayerSetupScreen from "../screens/PlayerSetupScreen";
 import PlayerEntryScreen from "../screens/PlayerEntryScreen";
 
-import HoleViewScreen from "../screens/HoleViewScreen";
+import HoleHubScreen from "../screens/HoleHubScreen";
 import HoleMapScreen from "../screens/HoleMapScreen";
 import GpsScreen from "../screens/GpsScreen";
 import GreenViewScreen from "../screens/GreenViewScreen";
@@ -149,7 +149,8 @@ export default function RootNavigator() {
           <Stack.Screen name={ROUTES.PLAYER_SETUP} component={PlayerSetupScreen} />
           <Stack.Screen name={ROUTES.PLAYER_ENTRY} component={PlayerEntryScreen} />
 
-          <Stack.Screen name={ROUTES.HOLE_HUB} component={HoleViewScreen} />
+          <Stack.Screen name={ROUTES.HOLE_HUB} component={HoleHubScreen} />
+
 
 
           <Stack.Screen name={ROUTES.HOLE_MAP} component={HoleMapScreen} />
