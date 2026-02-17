@@ -25,6 +25,7 @@ import ROUTES from "../navigation/routes";
 const COLORS = {
   bg: "#0B1220",
   green: "#0F7A4A",
+  gold: "rgba(242,201,76,0.85)",
 };
 
 const PROFILE_KEY = "LEGACY_GOLF_PROFILE_V1";
@@ -166,7 +167,6 @@ export default function ProfileScreen({ navigation }) {
           try {
             setEditing(false);
             await signOut(auth);
-            // RootNavigator will route to Login automatically.
           } catch (e) {
             Alert.alert("Sign out failed", String(e?.message || "Please try again."));
           }
@@ -272,7 +272,7 @@ export default function ProfileScreen({ navigation }) {
         style={{ flex: 1 }}
         contentContainerStyle={{
           padding: 16,
-          paddingBottom: editing ? 140 + insets.bottom : 24 + insets.bottom,
+          paddingBottom: editing ? 140 + insets.bottom : 28 + insets.bottom,
           flexGrow: 1,
         }}
         showsVerticalScrollIndicator={false}
@@ -280,7 +280,7 @@ export default function ProfileScreen({ navigation }) {
         keyboardDismissMode="on-drag"
         onScrollBeginDrag={() => Keyboard.dismiss()}
       >
-        <View style={styles.heroCard}>
+        <View style={[styles.cardStrong, styles.heroCard]}>
           <Pressable
             onPress={onPressAvatar}
             disabled={!editing}
@@ -310,7 +310,7 @@ export default function ProfileScreen({ navigation }) {
             </Text>
 
             <View style={styles.rowInline}>
-              <MaterialCommunityIcons name="golf" size={16} color="rgba(255,255,255,0.70)" />
+              <MaterialCommunityIcons name="golf" size={16} color="rgba(255,255,255,0.72)" />
               <Text style={styles.subText} numberOfLines={1}>
                 {profile.homeCourse || "—"}
               </Text>
@@ -332,7 +332,7 @@ export default function ProfileScreen({ navigation }) {
           <Text style={styles.sectionHint}>{editing ? "Update your info" : "Tap Edit to update"}</Text>
         </View>
 
-        <View style={styles.formCard}>
+        <View style={[styles.cardBase, styles.formCard]}>
           <Field
             icon="account"
             label="Name"
@@ -397,13 +397,15 @@ export default function ProfileScreen({ navigation }) {
           </View>
         </View>
 
-        <View style={styles.statsGrid}>
-          <StatCard icon="trophy" label="Best" value={profile.best} />
-          <StatCard icon="chart-line" label="Avg Score" value={profile.avgScore} />
-          <StatCard icon="golf-tee" label="Fairways" value={`${profile.fairwaysHit}%`} />
-          <StatCard icon="target" label="GIR" value={`${profile.gir}%`} />
-          <StatCard icon="circle-slice-6" label="Putts/Rd" value={profile.puttsPerRound} />
-          <StatCard icon="check-circle" label="Up & Down" value={`${profile.upAndDown}%`} />
+        <View style={[styles.cardBase, styles.statsCardWrap]}>
+          <View style={styles.statsGrid}>
+            <StatCard icon="trophy" label="Best" value={profile.best} />
+            <StatCard icon="chart-line" label="Avg Score" value={profile.avgScore} />
+            <StatCard icon="golf-tee" label="Fairways" value={`${profile.fairwaysHit}%`} />
+            <StatCard icon="target" label="GIR" value={`${profile.gir}%`} />
+            <StatCard icon="circle-slice-6" label="Putts/Rd" value={profile.puttsPerRound} />
+            <StatCard icon="check-circle" label="Up & Down" value={`${profile.upAndDown}%`} />
+          </View>
         </View>
 
         <View style={styles.sectionHeaderRow}>
@@ -413,7 +415,7 @@ export default function ProfileScreen({ navigation }) {
           </Text>
         </View>
 
-        <View style={styles.accountCard}>
+        <View style={[styles.cardBase, styles.accountCard]}>
           <View style={styles.accountRow}>
             <View style={styles.accountIcon}>
               <MaterialCommunityIcons name="account-circle" size={18} color="rgba(255,255,255,0.88)" />
@@ -573,15 +575,26 @@ const styles = StyleSheet.create({
   headerTitle: { color: "#fff", fontSize: 18, fontWeight: "900", letterSpacing: 0.6 },
   headerRightSpacer: { minWidth: 70, height: 38 },
 
-  heroCard: {
+  cardBase: {
     borderRadius: 24,
     padding: 16,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    backgroundColor: "rgba(255,255,255,0.05)",
+    borderWidth: 2,
+    borderColor: COLORS.gold,
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
+
+  cardStrong: {
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.18)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+  },
+
+  heroCard: {
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
+    marginBottom: 18,
+    borderRadius: 24,
   },
 
   avatar: {
@@ -589,8 +602,8 @@ const styles = StyleSheet.create({
     height: 62,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.16)",
-    backgroundColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(255,255,255,0.18)",
+    backgroundColor: "rgba(0,0,0,0.18)",
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
@@ -612,33 +625,33 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  nameBig: { color: "#fff", fontSize: 18, fontWeight: "900" },
+  nameBig: { color: "#fff", fontSize: 19, fontWeight: "900" },
   rowInline: { marginTop: 6, flexDirection: "row", alignItems: "center", gap: 8 },
-  subText: { color: "rgba(255,255,255,0.78)", fontWeight: "800", flexShrink: 1 },
-  identityHint: { marginTop: 8, color: "rgba(255,255,255,0.55)", fontSize: 12, fontWeight: "800" },
+  subText: { color: "rgba(255,255,255,0.80)", fontWeight: "800", flexShrink: 1 },
+  identityHint: { marginTop: 8, color: "rgba(255,255,255,0.60)", fontSize: 12, fontWeight: "800" },
 
   hcpBox: {
-    backgroundColor: "rgba(15,122,74,0.28)",
+    backgroundColor: "rgba(15,122,74,0.30)",
     borderRadius: 18,
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: "rgba(15,122,74,0.55)",
+    borderColor: "rgba(15,122,74,0.60)",
     alignItems: "center",
     minWidth: 120,
   },
-  hcpLabel: { color: "rgba(255,255,255,0.86)", fontSize: 12, fontWeight: "900" },
+  hcpLabel: { color: "rgba(255,255,255,0.88)", fontSize: 12, fontWeight: "900" },
   hcpValue: { color: "#fff", fontSize: 22, fontWeight: "900", marginTop: 2 },
 
   sectionHeaderRow: {
-    marginTop: 18,
-    marginBottom: 10,
+    marginTop: 22,
+    marginBottom: 12,
     flexDirection: "row",
     alignItems: "flex-end",
     justifyContent: "space-between",
   },
   sectionTitle: { color: "#fff", fontSize: 18, fontWeight: "900" },
-  sectionHint: { color: "rgba(255,255,255,0.55)", fontSize: 12, fontWeight: "800", maxWidth: "55%" },
+  sectionHint: { color: "rgba(255,255,255,0.60)", fontSize: 12, fontWeight: "800", maxWidth: "55%" },
 
   roundsPill: {
     flexDirection: "row",
@@ -648,60 +661,50 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.06)",
+    borderColor: "rgba(255,255,255,0.16)",
+    backgroundColor: "rgba(0,0,0,0.16)",
   },
-  roundsPillText: { color: "rgba(255,255,255,0.72)", fontSize: 12, fontWeight: "900" },
+  roundsPillText: { color: "rgba(255,255,255,0.75)", fontSize: 12, fontWeight: "900" },
   roundsPillValue: { color: "#fff", fontSize: 12, fontWeight: "900" },
 
-  formCard: {
-    borderRadius: 24,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
-    backgroundColor: "rgba(255,255,255,0.04)",
-  },
+  formCard: { marginTop: 0 },
 
-  fieldLabel: { color: "rgba(255,255,255,0.72)", fontWeight: "900", marginBottom: 8 },
+  fieldLabel: { color: "rgba(255,255,255,0.76)", fontWeight: "900", marginBottom: 8 },
 
   fieldShell: {
     flexDirection: "row",
     alignItems: "center",
     borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
+    borderWidth: 1.5,
+    borderColor: "rgba(15,122,74,0.70)",
     backgroundColor: "rgba(0,0,0,0.18)",
     overflow: "hidden",
   },
-  fieldShellEditing: { borderColor: "rgba(255,255,255,0.16)", backgroundColor: "rgba(0,0,0,0.22)" },
+  fieldShellEditing: { borderColor: "rgba(255,255,255,0.18)", backgroundColor: "rgba(0,0,0,0.22)" },
   fieldIcon: {
     width: 46,
     height: 52,
     alignItems: "center",
     justifyContent: "center",
     borderRightWidth: 1,
-    borderRightColor: "rgba(255,255,255,0.10)",
-    backgroundColor: "rgba(255,255,255,0.04)",
+    borderRightColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(255,255,255,0.06)",
   },
 
   input: { flex: 1, paddingVertical: 13, paddingHorizontal: 12, color: "#fff", fontSize: 16, fontWeight: "900" },
   readOnlyBox: { flex: 1, paddingVertical: 13, paddingHorizontal: 12 },
   readOnlyText: { color: "#fff", fontSize: 16, fontWeight: "900" },
 
+  statsCardWrap: { marginTop: 0 },
   statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
 
   statCard: {
     width: "48%",
     borderRadius: 18,
     padding: 14,
-    borderWidth: 1,
-    borderColor: "rgba(15,122,74,0.55)",
-    backgroundColor: "rgba(255,255,255,0.04)",
-    shadowColor: COLORS.green,
-    shadowOpacity: 0.16,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 2,
+    borderWidth: 1.5,
+    borderColor: "rgba(15,122,74,0.75)",
+    backgroundColor: "rgba(0,0,0,0.14)",
   },
 
   statTop: { flexDirection: "row", alignItems: "center", gap: 10 },
@@ -710,33 +713,27 @@ const styles = StyleSheet.create({
     height: 34,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    backgroundColor: "rgba(255,255,255,0.06)",
+    borderColor: "rgba(255,255,255,0.14)",
+    backgroundColor: "rgba(255,255,255,0.07)",
     alignItems: "center",
     justifyContent: "center",
   },
-  statLabel: { color: "rgba(255,255,255,0.76)", fontSize: 12, fontWeight: "900" },
+  statLabel: { color: "rgba(255,255,255,0.80)", fontSize: 12, fontWeight: "900" },
   statValue: { color: "#fff", fontSize: 18, fontWeight: "900", marginTop: 10 },
 
-  accountCard: {
-    borderRadius: 24,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
-    backgroundColor: "rgba(255,255,255,0.04)",
-  },
+  accountCard: { marginTop: 0 },
   accountRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   accountIcon: {
     width: 38,
     height: 38,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    backgroundColor: "rgba(255,255,255,0.06)",
+    borderColor: "rgba(255,255,255,0.14)",
+    backgroundColor: "rgba(255,255,255,0.07)",
     alignItems: "center",
     justifyContent: "center",
   },
-  accountLabel: { color: "rgba(255,255,255,0.72)", fontSize: 12, fontWeight: "900" },
+  accountLabel: { color: "rgba(255,255,255,0.76)", fontSize: 12, fontWeight: "900" },
   accountValue: { color: "#fff", fontSize: 16, fontWeight: "900", marginTop: 4 },
 
   signOutBtn: {
@@ -744,15 +741,15 @@ const styles = StyleSheet.create({
     height: 54,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.06)",
+    borderColor: "rgba(255,255,255,0.16)",
+    backgroundColor: "rgba(0,0,0,0.16)",
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
     gap: 10,
   },
   signOutText: { color: "#fff", fontSize: 15, fontWeight: "900" },
-  accountFootnote: { marginTop: 10, color: "rgba(255,255,255,0.55)", fontSize: 12, fontWeight: "800" },
+  accountFootnote: { marginTop: 10, color: "rgba(255,255,255,0.60)", fontSize: 12, fontWeight: "800" },
 
   bottomBar: {
     position: "absolute",
