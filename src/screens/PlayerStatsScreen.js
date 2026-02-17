@@ -1,9 +1,8 @@
 // src/screens/PlayerStatsScreen.js
 import React, { useCallback, useMemo, useState } from "react";
-import { SafeAreaView, View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
+import { SafeAreaView, View, Text, StyleSheet, ScrollView, Pressable, Keyboard } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 
-import ScreenHeader from "../components/ScreenHeader";
 import { getRounds } from "../storage/rounds";
 
 const BG = "#0B1220";
@@ -13,8 +12,8 @@ const MUTED = "rgba(255,255,255,0.65)";
 const WHITE = "#FFFFFF";
 const INNER = "rgba(0,0,0,0.18)";
 
-// Green accent ring (matches Final Results)
-const GREEN_BORDER = "rgba(46,204,113,0.70)";
+const GOLD = "rgba(242,201,76,0.85)";
+const GREEN = "rgba(15,122,74,0.70)";
 
 function toInt(v) {
     const n = parseInt(String(v ?? "").replace(/[^\d]/g, ""), 10);
@@ -195,11 +194,31 @@ export default function PlayerStatsScreen({ navigation }) {
 
     return (
         <SafeAreaView style={styles.safe}>
-            <ScreenHeader navigation={navigation} title="Player Stats" subtitle="Local round history (v1)" />
+            <View style={styles.headerWrap}>
+                <View style={styles.topGlowA} pointerEvents="none" />
+                <View style={styles.topGlowB} pointerEvents="none" />
+
+                <View style={styles.topRow}>
+                    <Pressable
+                        onPress={() => navigation.goBack?.()}
+                        hitSlop={12}
+                        style={({ pressed }) => [styles.headerPill, pressed && styles.pressed]}
+                    >
+                        <Text style={styles.headerPillText}>Back</Text>
+                    </Pressable>
+
+                    <View style={styles.headerCenter}>
+                        <Text style={styles.headerTitle}>Player Stats</Text>
+                        <Text style={styles.headerSubtitle}>Local round history (v1)</Text>
+                    </View>
+
+                    <View style={styles.headerRightSpacer} />
+                </View>
+            </View>
 
             {empty ? (
                 <View style={styles.emptyWrap}>
-                    <View style={styles.greenRing}>
+                    <View style={styles.goldRing}>
                         <View style={styles.card}>
                             <Text style={styles.cardTitle}>No completed rounds yet</Text>
                             <Text style={styles.cardSub}>
@@ -217,8 +236,11 @@ export default function PlayerStatsScreen({ navigation }) {
                     style={{ flex: 1 }}
                     contentContainerStyle={{ padding: 16, paddingBottom: 28 }}
                     showsVerticalScrollIndicator={false}
+                    keyboardShouldPersistTaps="handled"
+                    keyboardDismissMode="on-drag"
+                    onScrollBeginDrag={() => Keyboard.dismiss()}
                 >
-                    <View style={styles.greenRing}>
+                    <View style={styles.goldRing}>
                         <View style={styles.card}>
                             <Text style={styles.cardTitle}>Overview</Text>
                             <Text style={styles.cardSub}>Based on completed rounds only.</Text>
@@ -242,7 +264,7 @@ export default function PlayerStatsScreen({ navigation }) {
                         </View>
                     </View>
 
-                    <View style={styles.greenRing}>
+                    <View style={styles.goldRing}>
                         <View style={styles.card}>
                             <Text style={styles.cardTitle}>Stats snapshot</Text>
                             <Text style={styles.cardSub}>Only counts holes where stats were tracked (Stats ON).</Text>
@@ -270,13 +292,11 @@ export default function PlayerStatsScreen({ navigation }) {
                                 </View>
                             </View>
 
-                            <Text style={styles.foot}>
-                                Scorecard stays strokes-only. These live in the per-player stats layer.
-                            </Text>
+                            <Text style={styles.foot}>Scorecard stays strokes-only. These live in the per-player stats layer.</Text>
                         </View>
                     </View>
 
-                    <View style={styles.greenRing}>
+                    <View style={styles.goldRing}>
                         <View style={styles.card}>
                             <Text style={styles.cardTitle}>Recent completed rounds</Text>
                             <Text style={styles.cardSub}>Tap a row later to open round details (future).</Text>
@@ -315,13 +335,61 @@ export default function PlayerStatsScreen({ navigation }) {
 const styles = StyleSheet.create({
     safe: { flex: 1, backgroundColor: BG },
 
+    headerWrap: {
+        paddingHorizontal: 16,
+        paddingBottom: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: "rgba(255,255,255,0.06)",
+        overflow: "hidden",
+    },
+    topGlowA: {
+        position: "absolute",
+        top: -90,
+        left: -50,
+        width: 300,
+        height: 300,
+        borderRadius: 300,
+        backgroundColor: "rgba(46,125,255,0.22)",
+        opacity: 0.35,
+    },
+    topGlowB: {
+        position: "absolute",
+        top: -120,
+        right: -70,
+        width: 340,
+        height: 340,
+        borderRadius: 340,
+        backgroundColor: "rgba(255,255,255,0.10)",
+        opacity: 0.18,
+    },
+
+    topRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+
+    headerPill: {
+        height: 38,
+        paddingHorizontal: 14,
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.16)",
+        backgroundColor: "rgba(255,255,255,0.06)",
+        alignItems: "center",
+        justifyContent: "center",
+        minWidth: 70,
+    },
+    headerPillText: { color: "#fff", fontWeight: "900", fontSize: 13 },
+
+    headerCenter: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 10 },
+    headerTitle: { color: "#fff", fontSize: 22, fontWeight: "900", letterSpacing: 0.6 },
+    headerSubtitle: { marginTop: 6, color: "rgba(255,255,255,0.55)", fontSize: 13, fontWeight: "800" },
+    headerRightSpacer: { minWidth: 70, height: 38 },
+
     emptyWrap: { flex: 1, padding: 16, justifyContent: "center" },
 
-    greenRing: {
+    goldRing: {
         borderRadius: 24,
         padding: 2,
-        borderWidth: 1,
-        borderColor: GREEN_BORDER,
+        borderWidth: 2,
+        borderColor: GOLD,
         backgroundColor: "transparent",
         marginBottom: 12,
     },
@@ -329,8 +397,8 @@ const styles = StyleSheet.create({
     card: {
         borderRadius: 22,
         padding: 16,
-        borderWidth: 1,
-        borderColor: BORDER,
+        borderWidth: 1.5,
+        borderColor: GREEN,
         backgroundColor: CARD,
     },
 
@@ -339,9 +407,9 @@ const styles = StyleSheet.create({
 
     row: {
         borderRadius: 18,
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.12)",
-        backgroundColor: "rgba(255,255,255,0.03)",
+        borderWidth: 1.5,
+        borderColor: GREEN,
+        backgroundColor: "rgba(0,0,0,0.18)",
         padding: 12,
         flexDirection: "row",
         alignItems: "center",
@@ -356,8 +424,8 @@ const styles = StyleSheet.create({
         height: 34,
         paddingHorizontal: 10,
         borderRadius: 14,
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.12)",
+        borderWidth: 1.5,
+        borderColor: GREEN,
         backgroundColor: INNER,
         alignItems: "center",
         justifyContent: "center",
@@ -371,9 +439,9 @@ const styles = StyleSheet.create({
 
     recentRow: {
         borderRadius: 18,
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.12)",
-        backgroundColor: "rgba(255,255,255,0.03)",
+        borderWidth: 1.5,
+        borderColor: GREEN,
+        backgroundColor: "rgba(0,0,0,0.18)",
         padding: 12,
         flexDirection: "row",
         alignItems: "center",
