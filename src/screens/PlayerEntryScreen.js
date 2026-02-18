@@ -675,96 +675,100 @@ export default function PlayerEntryScreen({ navigation, route }) {
         right={rightInvite}
       />
 
-      <View style={styles.topSection}>
-        <View
-          style={[
-            styles.progressTrack,
-            {
-              height: 40,
-              paddingHorizontal: 8,
-              paddingVertical: 7,
-              flexDirection: "row",
-              gap: 8,
-              alignItems: "center",
-            },
-          ]}
-        >
-          {Array.from({ length: playerCount }).map((_, idx) => {
-            const p = players[idx] || null;
-            const filled = !!p;
+      <View style={styles.topSectionOuter}>
+        <View style={styles.topSection}>
+          <View
+            style={[
+              styles.progressTrack,
+              {
+                height: 40,
+                paddingHorizontal: 8,
+                paddingVertical: 7,
+                flexDirection: "row",
+                gap: 8,
+                alignItems: "center",
+              },
+            ]}
+          >
 
-            const label = filled
-              ? displayNameFirstLastInitial(p?.name || `Player ${idx + 1}`)
-              : `Player ${idx + 1}`;
+            {Array.from({ length: playerCount }).map((_, idx) => {
+              const p = players[idx] || null;
+              const filled = !!p;
 
-            return (
-              <View
-                key={`slot-${idx}`}
-                style={{
-                  flex: 1,
-                  height: 26,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: filled ? "rgba(255, 210, 92, 0.55)" : "rgba(255,255,255,0.14)",
-                  backgroundColor: filled ? "rgba(255, 210, 92, 0.18)" : "rgba(255,255,255,0.04)",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  paddingHorizontal: 8,
-                  overflow: "hidden",
-                }}
-              >
-                <Text
-                  numberOfLines={1}
+              const label = filled
+                ? displayNameFirstLastInitial(p?.name || `Player ${idx + 1}`)
+                : `Player ${idx + 1}`;
+
+              return (
+                <View
+                  key={`slot-${idx}`}
                   style={{
-                    color: filled ? "#fff" : "rgba(255,255,255,0.55)",
-                    fontWeight: "900",
-                    fontSize: 11,
-                    letterSpacing: 0.2,
+                    flex: 1,
+                    height: 26,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: filled ? "rgba(255, 210, 92, 0.55)" : "rgba(255,255,255,0.14)",
+                    backgroundColor: filled ? "rgba(255, 210, 92, 0.18)" : "rgba(255,255,255,0.04)",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    paddingHorizontal: 8,
+                    overflow: "hidden",
                   }}
                 >
-                  {label}
-                </Text>
-              </View>
-            );
-          })}
+                  <Text
+                    numberOfLines={1}
+                    style={{
+                      color: filled ? "#fff" : "rgba(255,255,255,0.55)",
+                      fontWeight: "900",
+                      fontSize: 11,
+                      letterSpacing: 0.2,
+                    }}
+                  >
+                    {label}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+
+
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryKicker}>ROUND SUMMARY</Text>
+            <Text style={styles.summaryTitle} numberOfLines={1}>
+              {summaryLine1}
+            </Text>
+            <Text style={styles.summarySub} numberOfLines={1}>
+              {summaryLine2}
+            </Text>
+          </View>
+
+          <View style={styles.actionRow}>
+            <Pressable
+              onPress={openBuddyModal}
+              style={({ pressed }) => [styles.actionPillPrimary, pressed && styles.pressed]}
+            >
+              <Text style={styles.actionPillText}>Buddy List</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={openGuest}
+              style={({ pressed }) => [styles.actionPillGhost, pressed && styles.pressed]}
+            >
+              <Text style={styles.actionPillText}>Guest</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => setInviteModal(true)}
+              style={({ pressed }) => [styles.actionPillGhost, pressed && styles.pressed]}
+            >
+              <Text style={styles.actionPillText}>Invite</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.divider} pointerEvents="none" />
         </View>
-
-
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryKicker}>ROUND SUMMARY</Text>
-          <Text style={styles.summaryTitle} numberOfLines={1}>
-            {summaryLine1}
-          </Text>
-          <Text style={styles.summarySub} numberOfLines={1}>
-            {summaryLine2}
-          </Text>
-        </View>
-
-        <View style={styles.actionRow}>
-          <Pressable
-            onPress={openBuddyModal}
-            style={({ pressed }) => [styles.actionPillPrimary, pressed && styles.pressed]}
-          >
-            <Text style={styles.actionPillText}>Buddy List</Text>
-          </Pressable>
-
-          <Pressable
-            onPress={openGuest}
-            style={({ pressed }) => [styles.actionPillGhost, pressed && styles.pressed]}
-          >
-            <Text style={styles.actionPillText}>Guest</Text>
-          </Pressable>
-
-          <Pressable
-            onPress={() => setInviteModal(true)}
-            style={({ pressed }) => [styles.actionPillGhost, pressed && styles.pressed]}
-          >
-            <Text style={styles.actionPillText}>Invite</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.divider} pointerEvents="none" />
       </View>
+
 
       <FlatList
         data={players}
@@ -1115,7 +1119,18 @@ const GREEN_ACCENT_BORDER_SOFT = "rgba(15, 122, 74, 0.45)";
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: theme?.bg || theme?.colors?.bg || "#0B1220" },
 
-  topSection: { paddingTop: 12, paddingBottom: 10 },
+  topSectionOuter: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    borderRadius: 22,
+    borderWidth: 2,
+    borderColor: "rgba(255, 210, 92, 0.28)",
+    backgroundColor: "rgba(255,255,255,0.03)",
+    overflow: "hidden",
+  },
+
+  topSection: { paddingTop: 12, paddingBottom: 10, paddingHorizontal: 0 },
+
 
   headerRight: {
     height: 38,
