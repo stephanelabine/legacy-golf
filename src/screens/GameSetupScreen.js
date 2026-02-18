@@ -1,13 +1,13 @@
 // src/screens/GameSetupScreen.js
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   SafeAreaView,
   View,
   Text,
   StyleSheet,
   Pressable,
-  Alert,
   ScrollView,
+  Alert,
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -15,7 +15,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import theme from "../theme";
 import gameFormats from "../data/gameFormats.json";
 import ROUTES from "../navigation/routes";
-import { saveWagers, clearWagers } from "../storage/wagers";
 
 /* ───────────────── ICON MAP (colored) ───────────────── */
 const ICONS = {
@@ -37,6 +36,7 @@ const ICONS = {
   skins: { name: "cash-multiple", color: "rgba(255,255,255,0.90)" },
   kps: { name: "target", color: "rgba(255,255,255,0.90)" },
 
+  // NOTE: snake stays a "format"/side-game concept later — not a main game tile
   snake: { name: "snake", color: "rgba(255,255,255,0.90)" },
 
   legacy_points: { name: "trophy", color: "rgba(255,255,255,0.92)" },
@@ -47,44 +47,7 @@ const PRIMARY = theme?.colors?.primary || theme?.accent || "#2E7DFF";
 
 const GOLD = "rgba(255, 210, 92, 0.95)";
 const GOLD_SOFT = "rgba(255, 210, 92, 0.22)";
-
-const GREEN = "rgba(15, 122, 74, 0.95)";
-
-function formatMoney(n) {
-  const v = Number(n);
-  if (!Number.isFinite(v) || v <= 0) return "—";
-  if (Number.isInteger(v)) return `$${v}`;
-  return `$${v.toFixed(2)}`;
-}
-
-function buildWagerTypeChips(w) {
-  if (!w?.enabled) return [];
-
-  const chips = [];
-
-  if (w?.skins?.enabled) chips.push({ key: "skins", label: `Skins ${formatMoney(w?.skins?.amount)}` });
-  if (w?.kps?.enabled) chips.push({ key: "kps", label: `KPs ${formatMoney(w?.kps?.amount)}` });
-
-  if (w?.longDrive?.enabled) chips.push({ key: "longDrive", label: `Long Drive ${formatMoney(w?.longDrive?.amount)}` });
-  if (w?.secondShotKp?.enabled) chips.push({ key: "secondShotKp", label: `2nd Shot KP ${formatMoney(w?.secondShotKp?.amount)}` });
-  if (w?.putting?.enabled) chips.push({ key: "putting", label: `Putting Contest ${formatMoney(w?.putting?.amount)}` });
-  if (w?.teamVsTeam?.enabled) chips.push({ key: "teamVsTeam", label: `Team vs Team ${formatMoney(w?.teamVsTeam?.amount)}` });
-  if (w?.birdieBucket?.enabled) chips.push({ key: "birdieBucket", label: `Birdie Bucket ${formatMoney(w?.birdieBucket?.amount)}` });
-
-  if (w?.nassau?.enabled) {
-    const f = formatMoney(w?.nassau?.front);
-    const b = formatMoney(w?.nassau?.back);
-    const t = formatMoney(w?.nassau?.total);
-    chips.push({ key: "nassau", label: `Nassau ${f}/${b}/${t}` });
-  }
-
-  if (w?.perStroke?.enabled) {
-    const amt = formatMoney(w?.perStroke?.amount);
-    chips.push({ key: "perStroke", label: `Per Stroke ${amt}/stroke` });
-  }
-
-  return chips;
-}
+const GREEN_BORDER = "rgba(46,204,113,0.70)";
 
 export default function GameSetupScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
@@ -96,71 +59,10 @@ export default function GameSetupScreen({ navigation, route }) {
   }, [gameId, gameTitle]);
 
   const isPremiumGold = gameId === "legacy_card";
-  const iconSpec = ICONS[gameId] || { name: "circle-small", color: "rgba(255,255,255,0.80)" };
+  const iconSpec =
+    ICONS[gameId] || { name: "circle-small", color: "rgba(255,255,255,0.80)" };
 
   const [scoringMode, setScoringMode] = useState("net");
-
-  const [wagers, setWagers] = useState(null);
-  const wagersEnabled = !!wagers?.enabled;
-
-  const didInit = useRef(false);
-  useEffect(() => {
-    if (didInit.current) return;
-    didInit.current = true;
-
-    (async () => {
-      setWagers(null);
-      await clearWagers();
-    })();
-  }, []);
-
-  useEffect(() => {
-    const incoming = route?.params?.wagers;
-    if (incoming === undefined) return;
-
-    (async () => {
-      if (!incoming?.enabled) {
-        setWagers(null);
-        await clearWagers();
-        return;
-      }
-      setWagers(incoming);
-      await saveWagers(incoming);
-    })();
-  }, [route?.params?.wagers]);
-
-  function openWagers() {
-    const seed =
-      wagers ||
-      ({
-        enabled: true,
-
-        skins: { enabled: false, amount: 0 },
-        kps: { enabled: false, amount: 0 },
-
-        longDrive: { enabled: false, amount: 0 },
-        secondShotKp: { enabled: false, amount: 0 },
-        putting: { enabled: false, amount: 0 },
-        teamVsTeam: { enabled: false, amount: 0 },
-        birdieBucket: { enabled: false, amount: 0 },
-
-        nassau: { enabled: false, front: 0, back: 0, total: 0 },
-        perStroke: { enabled: false, amount: 0 },
-
-        notes: "",
-      });
-
-    navigation.navigate(ROUTES.WAGERS, { wagers: seed, returnKey: route?.key });
-  }
-
-  function toggleWagers() {
-    if (wagersEnabled) {
-      setWagers(null);
-      clearWagers();
-      return;
-    }
-    openWagers();
-  }
 
   function goNext() {
     if (!gameId) {
@@ -171,19 +73,15 @@ export default function GameSetupScreen({ navigation, route }) {
     navigation.navigate(ROUTES.NEW_ROUND, {
       gameId,
       gameTitle: game?.title || gameTitle || "Game",
-      scoringMode,
-      wagers: wagersEnabled ? wagers : null,
+      scoringMode, // "net" or "gross"
+      wagers: null, // explicitly none (regular games will mirror tournaments)
     });
   }
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
-  const scoringAccent = PRIMARY;
-  const wagersAccent = GREEN;
-
-  const wagerTypeChips = buildWagerTypeChips(wagers);
-
-  const chipsBoxHeight = wagersEnabled ? 190 : 0;
+  const isGross = scoringMode === "gross";
+  const isNet = scoringMode === "net";
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: BG }]}>
@@ -208,7 +106,12 @@ export default function GameSetupScreen({ navigation, route }) {
             <View style={{ flex: 1 }} />
 
             <View style={[styles.badge, isPremiumGold && styles.badgeLegacy]}>
-              <Text style={[styles.badgeText, isPremiumGold && styles.badgeTextLegacy]}>
+              <Text
+                style={[
+                  styles.badgeText,
+                  isPremiumGold && styles.badgeTextLegacy,
+                ]}
+              >
                 GAME SETUP
               </Text>
             </View>
@@ -216,7 +119,11 @@ export default function GameSetupScreen({ navigation, route }) {
 
           <View style={styles.titleRow}>
             <View style={[styles.formatIcon, isPremiumGold && styles.formatIconLegacy]}>
-              <MaterialCommunityIcons name={iconSpec.name} size={20} color={iconSpec.color} />
+              <MaterialCommunityIcons
+                name={iconSpec.name}
+                size={20}
+                color={iconSpec.color}
+              />
             </View>
 
             <View style={{ flex: 1 }}>
@@ -231,166 +138,116 @@ export default function GameSetupScreen({ navigation, route }) {
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={[styles.mainContent, { paddingBottom: footerPad + 96 }]}
+        contentContainerStyle={[
+          styles.mainContent,
+          { paddingBottom: footerPad + 96 },
+        ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.heroCard}>
-          <View style={[styles.accentRing, { borderColor: scoringAccent }]} pointerEvents="none" />
-          <View style={[styles.glowA, { backgroundColor: scoringAccent }]} pointerEvents="none" />
-          <View style={[styles.glowB, { backgroundColor: scoringAccent }]} pointerEvents="none" />
+        {/* SINGLE premium box with thick gold border, centered Net/Gross choices */}
+        <View style={styles.goldHero}>
+          <View style={styles.goldHeroInner}>
+            <Text style={styles.goldKicker}>SCORING MODE</Text>
+            <Text style={styles.goldTitle}>Net or Gross</Text>
+            <Text style={styles.goldSub}>Choose whether handicaps apply.</Text>
 
-          <View style={styles.innerFrame}>
-            <View style={styles.cardHeader}>
-              <Text style={styles.cardLabel}>Scoring</Text>
-              <Text style={styles.cardHint}>Net or Gross</Text>
-            </View>
-
-            <View style={{ paddingTop: 14 }}>
-              <View style={styles.seg}>
-                <Pressable
-                  onPress={() => setScoringMode("net")}
-                  style={({ pressed }) => [
-                    styles.segBtn,
-                    scoringMode === "net" && styles.segBtnActiveBlue,
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <Text style={[styles.segText, scoringMode === "net" && styles.segTextActive]}>
-                    Net
-                  </Text>
-                  <Text style={[styles.segSub, scoringMode === "net" && styles.segSubActive]}>
-                    Handicap adjusted
-                  </Text>
-                </Pressable>
-
-                <Pressable
-                  onPress={() => setScoringMode("gross")}
-                  style={({ pressed }) => [
-                    styles.segBtn,
-                    scoringMode === "gross" && styles.segBtnActiveBlue,
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <Text style={[styles.segText, scoringMode === "gross" && styles.segTextActive]}>
-                    Gross
-                  </Text>
-                  <Text style={[styles.segSub, scoringMode === "gross" && styles.segSubActive]}>
-                    Raw strokes
-                  </Text>
-                </Pressable>
-              </View>
-
-              <View style={[styles.divider, { marginTop: 14 }]} pointerEvents="none" />
-
-              <Text style={styles.help}>
-                {scoringMode === "net"
-                  ? "Net uses handicaps for fairness. You’ll enter handicaps later."
-                  : "Gross is pure strokes. No handicap adjustments."}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.heroCard}>
-          <View style={[styles.accentRing, { borderColor: wagersAccent }]} pointerEvents="none" />
-
-          <View style={styles.innerFrame}>
-            <View style={styles.cardHeader}>
-              <Text style={styles.cardLabel}>Wagers</Text>
-              <Text style={styles.cardHint}>Optional</Text>
-            </View>
-
-            <View style={{ paddingTop: 14 }}>
-              <View style={styles.wagersPanel}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.wagersTitle}>{wagersEnabled ? "Wagers enabled" : "No wagers yet"}</Text>
-                  <Text style={styles.wagersSub}>
-                    {wagersEnabled
-                      ? "Summary below. Scroll to view all wager types."
-                      : "Tap Add wagers to select wager types and amounts."}
-                  </Text>
-
-                  {wagersEnabled ? (
-                    <View style={[styles.typesBox, { height: chipsBoxHeight }]}>
-                      <ScrollView
-                        style={{ flex: 1 }}
-                        contentContainerStyle={styles.typesScrollContent}
-                        showsVerticalScrollIndicator
-                        nestedScrollEnabled
-                        keyboardShouldPersistTaps="handled"
-                      >
-                        {wagerTypeChips.length ? (
-                          wagerTypeChips.map((c) => (
-                            <View
-                              key={c.key}
-                              style={[
-                                styles.typeChip,
-                                {
-                                  borderColor: "rgba(15, 122, 74, 0.28)",
-                                  backgroundColor: "rgba(15, 122, 74, 0.10)",
-                                },
-                              ]}
-                            >
-                              <Text style={styles.typeChipText}>{c.label}</Text>
-                            </View>
-                          ))
-                        ) : (
-                          <View style={[styles.typeChip, { borderColor: "rgba(255,255,255,0.16)" }]}>
-                            <Text style={[styles.typeChipText, { opacity: 0.75 }]}>No wager types selected</Text>
-                          </View>
-                        )}
-                      </ScrollView>
-                    </View>
-                  ) : null}
-                </View>
-
-                <View style={styles.wagersRight}>
-                  <View style={[styles.statusPill, wagersEnabled ? styles.statusPillOnGreen : styles.statusPillOff]}>
-                    <Text style={styles.statusText}>{wagersEnabled ? "ON" : "OFF"}</Text>
+            <View style={styles.choiceWrap}>
+              {/* GROSS */}
+              <Pressable
+                onPress={() => setScoringMode("gross")}
+                style={({ pressed }) => [
+                  styles.choiceBox,
+                  !isGross && styles.choiceBoxDim,
+                  isGross && styles.choiceBoxActive,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <View style={styles.choiceTopRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.choiceTitle, isGross && styles.choiceTitleActive]}>
+                      Gross
+                    </Text>
                   </View>
 
-                  <Pressable onPress={toggleWagers} hitSlop={10} style={({ pressed }) => [pressed && styles.pressed]}>
-                    <View style={[styles.switchOuter, wagersEnabled && styles.switchOuterOnGreen]}>
-                      <View style={[styles.switchKnob, wagersEnabled && styles.switchKnobOn]} />
+                  {isGross ? (
+                    <View style={styles.selectedPill}>
+                      <MaterialCommunityIcons
+                        name="check"
+                        size={14}
+                        color={GOLD}
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={styles.selectedPillText}>SELECTED</Text>
                     </View>
-                  </Pressable>
+                  ) : (
+                    <View style={styles.unselectedPill}>
+                      <Text style={styles.unselectedPillText}>TAP</Text>
+                    </View>
+                  )}
                 </View>
-              </View>
 
-              <View style={styles.wagersActions}>
-                {wagersEnabled ? (
-                  <>
-                    <Pressable
-                      onPress={openWagers}
-                      style={({ pressed }) => [styles.secondaryBtn, pressed && styles.pressed]}
-                    >
-                      <Text style={styles.secondaryText}>Configure</Text>
-                    </Pressable>
+                <Text style={[styles.choiceDesc, isGross && styles.choiceDescActive]}>
+                  Raw strokes
+                </Text>
+              </Pressable>
 
-                    <Pressable
-                      onPress={toggleWagers}
-                      style={({ pressed }) => [styles.ghostBtn, pressed && styles.pressed]}
-                    >
-                      <Text style={styles.ghostText}>Turn off</Text>
-                    </Pressable>
-                  </>
-                ) : (
-                  <Pressable
-                    onPress={openWagers}
-                    style={({ pressed }) => [styles.secondaryBtn, pressed && styles.pressed]}
-                  >
-                    <Text style={styles.secondaryText}>Add wagers</Text>
-                  </Pressable>
-                )}
-              </View>
+              {/* NET */}
+              <Pressable
+                onPress={() => setScoringMode("net")}
+                style={({ pressed }) => [
+                  styles.choiceBox,
+                  !isNet && styles.choiceBoxDim,
+                  isNet && styles.choiceBoxActive,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <View style={styles.choiceTopRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.choiceTitle, isNet && styles.choiceTitleActive]}>
+                      Net
+                    </Text>
+                  </View>
+
+                  {isNet ? (
+                    <View style={styles.selectedPill}>
+                      <MaterialCommunityIcons
+                        name="check"
+                        size={14}
+                        color={GOLD}
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={styles.selectedPillText}>SELECTED</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.unselectedPill}>
+                      <Text style={styles.unselectedPillText}>TAP</Text>
+                    </View>
+                  )}
+                </View>
+
+                <Text style={[styles.choiceDesc, isNet && styles.choiceDescActive]}>
+                  Handicap adjusted
+                </Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.microNoteWrap}>
+              <Text style={styles.microNote}>
+                {scoringMode === "net"
+                  ? "Net uses handicaps for fairness."
+                  : "Gross is pure strokes (no handicaps)."}
+              </Text>
             </View>
           </View>
         </View>
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: footerPad, backgroundColor: BG }]}>
-        <Pressable onPress={goNext} style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}>
+        <Pressable
+          onPress={goNext}
+          style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}
+        >
           <Text style={styles.primaryText}>Next: Course Selection</Text>
         </Pressable>
       </View>
@@ -452,7 +309,10 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.14)",
     backgroundColor: "rgba(255,255,255,0.06)",
   },
-  badgeLegacy: { borderColor: "rgba(255, 210, 92, 0.22)", backgroundColor: "rgba(255, 210, 92, 0.10)" },
+  badgeLegacy: {
+    borderColor: "rgba(255, 210, 92, 0.22)",
+    backgroundColor: "rgba(255, 210, 92, 0.10)",
+  },
   badgeText: { color: "#fff", fontSize: 11, fontWeight: "900", letterSpacing: 1.2, opacity: 0.85 },
   badgeTextLegacy: { color: GOLD, opacity: 1 },
 
@@ -469,7 +329,10 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.06)",
     marginTop: 2,
   },
-  formatIconLegacy: { borderColor: "rgba(255, 210, 92, 0.28)", backgroundColor: "rgba(255, 210, 92, 0.10)" },
+  formatIconLegacy: {
+    borderColor: "rgba(255, 210, 92, 0.28)",
+    backgroundColor: "rgba(255, 210, 92, 0.10)",
+  },
 
   h1: { color: "#fff", fontSize: 28, fontWeight: "900", letterSpacing: 0.2, lineHeight: 34 },
   h2: { marginTop: 8, color: "#fff", opacity: 0.7, fontSize: 13, fontWeight: "700", lineHeight: 18 },
@@ -479,161 +342,129 @@ const styles = StyleSheet.create({
 
   mainContent: { paddingHorizontal: 16, paddingTop: 14 },
 
-  heroCard: {
+  goldHero: {
     borderRadius: 24,
+    borderWidth: 5,
+    borderColor: "rgba(255, 210, 92, 0.92)",
     backgroundColor: "rgba(255,255,255,0.04)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
     overflow: "hidden",
     marginBottom: 14,
   },
-
-  accentRing: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 24,
-    borderWidth: 1,
-    opacity: 0.8,
-  },
-
-  glowA: {
-    position: "absolute",
-    top: -90,
-    left: -70,
-    width: 260,
-    height: 260,
-    borderRadius: 260,
-    opacity: 0.12,
-  },
-  glowB: {
-    position: "absolute",
-    bottom: -120,
-    right: -90,
-    width: 320,
-    height: 320,
-    borderRadius: 320,
-    opacity: 0.1,
-  },
-
-  innerFrame: {
+  goldHeroInner: {
     margin: 10,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
+    borderColor: "rgba(255, 210, 92, 0.22)",
     backgroundColor: "rgba(0,0,0,0.12)",
-    padding: 16,
+    padding: 18,
+    alignItems: "center",
   },
 
-  cardHeader: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" },
-  cardLabel: { color: "#fff", fontSize: 14, fontWeight: "900", letterSpacing: 0.2 },
-  cardHint: { color: "#fff", opacity: 0.6, fontSize: 12, fontWeight: "800" },
-
-  seg: { flexDirection: "row", gap: 12 },
-  segBtn: {
-    flex: 1,
-    paddingVertical: 16,
-    paddingHorizontal: 14,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    backgroundColor: "rgba(255,255,255,0.04)",
+  goldKicker: {
+    color: "rgba(255,255,255,0.72)",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1.4,
   },
-  segBtnActiveBlue: { borderColor: "rgba(46,125,255,0.65)", backgroundColor: "rgba(46,125,255,0.14)" },
-  segText: { color: "#fff", opacity: 0.9, fontSize: 16, fontWeight: "900" },
-  segTextActive: { opacity: 1 },
-  segSub: { marginTop: 8, color: "#fff", opacity: 0.62, fontSize: 12, fontWeight: "800" },
-  segSubActive: { opacity: 0.78 },
+  goldTitle: {
+    marginTop: 10,
+    color: "#fff",
+    fontSize: 22,
+    fontWeight: "900",
+    letterSpacing: 0.2,
+  },
+  goldSub: {
+    marginTop: 8,
+    color: "rgba(255,255,255,0.70)",
+    fontSize: 12,
+    fontWeight: "800",
+    textAlign: "center",
+    lineHeight: 17,
+  },
 
-  divider: { height: 1, backgroundColor: "rgba(255,255,255,0.08)" },
-  help: { marginTop: 12, color: "#fff", opacity: 0.72, fontSize: 12, fontWeight: "700", lineHeight: 17 },
-
-  wagersPanel: {
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    backgroundColor: "rgba(255,255,255,0.04)",
-    padding: 16,
-    flexDirection: "row",
-    alignItems: "flex-start",
+  choiceWrap: {
+    marginTop: 18,
+    width: "100%",
     gap: 12,
   },
-  wagersTitle: { color: "#fff", fontSize: 15, fontWeight: "900" },
-  wagersSub: { marginTop: 8, color: "#fff", opacity: 0.66, fontSize: 12, fontWeight: "700", lineHeight: 17 },
 
-  typesBox: {
-    marginTop: 12,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
-    backgroundColor: "rgba(0,0,0,0.12)",
-    overflow: "hidden",
+  choiceBox: {
+    width: "100%",
+    borderRadius: 18,
+    borderWidth: 2,
+    borderColor: GREEN_BORDER,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    paddingVertical: 18,
+    paddingHorizontal: 16,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  typesScrollContent: { padding: 10, gap: 8, paddingBottom: 14 },
 
-  typeChip: {
-    alignSelf: "flex-start",
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: 999,
-    borderWidth: 1,
-    backgroundColor: "rgba(0,0,0,0.14)",
+  choiceBoxDim: {
+    opacity: 0.74,
   },
-  typeChipText: { color: "#fff", fontSize: 12, fontWeight: "900", letterSpacing: 0.2, opacity: 0.92 },
 
-  wagersRight: { alignItems: "flex-end", justifyContent: "flex-start", gap: 10, paddingTop: 2 },
-  statusPill: {
+  choiceBoxActive: {
+    borderColor: "rgba(255, 210, 92, 0.95)",
+    backgroundColor: "rgba(255, 210, 92, 0.22)",
+    opacity: 1,
+  },
+
+  choiceTopRow: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  selectedPill: {
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 999,
     borderWidth: 1,
-    backgroundColor: "rgba(0,0,0,0.14)",
+    borderColor: "rgba(255, 210, 92, 0.85)",
+    backgroundColor: "rgba(255, 210, 92, 0.22)",
   },
-  statusPillOnGreen: { borderColor: "rgba(15, 122, 74, 0.45)", backgroundColor: "rgba(15, 122, 74, 0.16)" },
-  statusPillOff: { borderColor: "rgba(255,255,255,0.16)" },
-  statusText: { color: "#fff", fontSize: 11, fontWeight: "900", letterSpacing: 1.0, opacity: 0.92 },
 
-  wagersActions: { marginTop: 12, flexDirection: "row", gap: 10 },
-  secondaryBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.06)",
+  selectedPillText: {
+    color: "rgba(255, 210, 92, 0.95)",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.9,
   },
-  secondaryText: { color: "#fff", fontWeight: "900", fontSize: 13 },
-  ghostBtn: {
-    height: 48,
-    paddingHorizontal: 14,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,90,90,0.30)",
-    backgroundColor: "rgba(255,90,90,0.10)",
-  },
-  ghostText: { color: "#fff", fontWeight: "900", fontSize: 13, opacity: 0.92 },
 
-  switchOuter: {
-    width: 58,
-    height: 36,
+  unselectedPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderRadius: 999,
-    padding: 3,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.06)",
-    justifyContent: "center",
+    borderColor: "rgba(46,204,113,0.45)",
+    backgroundColor: "rgba(46,204,113,0.10)",
   },
-  switchOuterOnGreen: { borderColor: "rgba(15, 122, 74, 0.55)", backgroundColor: "rgba(15, 122, 74, 0.16)" },
-  switchKnob: {
-    width: 30,
-    height: 30,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.70)",
-    transform: [{ translateX: 0 }],
+
+  unselectedPillText: {
+    color: "rgba(255,255,255,0.82)",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.9,
   },
-  switchKnobOn: { backgroundColor: "rgba(255,255,255,0.92)", transform: [{ translateX: 20 }] },
+
+  choiceTitle: { color: "#fff", fontSize: 18, fontWeight: "900", opacity: 0.9 },
+  choiceTitleActive: { opacity: 1 },
+
+  choiceDesc: { marginTop: 8, color: "rgba(255,255,255,0.70)", fontSize: 12, fontWeight: "800" },
+  choiceDescActive: { color: "rgba(255,255,255,0.82)" },
+
+  microNoteWrap: {
+    marginTop: 16,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.10)",
+    width: "100%",
+  },
+  microNote: { color: "rgba(255,255,255,0.72)", fontSize: 12, fontWeight: "700", textAlign: "center" },
 
   footer: {
     position: "absolute",
@@ -645,7 +476,13 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "rgba(255,255,255,0.08)",
   },
-  primaryBtn: { height: 56, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: PRIMARY },
+  primaryBtn: {
+    height: 56,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: PRIMARY,
+  },
   primaryText: { color: "#fff", fontSize: 16, fontWeight: "900", letterSpacing: 0.4 },
 
   pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },

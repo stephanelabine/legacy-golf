@@ -46,6 +46,8 @@ import EquipmentScreen from "../screens/EquipmentScreen";
 import WagersScreen from "../screens/WagersScreen";
 import HazardsScreen from "../screens/HazardsScreen";
 
+import GameRoundCalculatingResultsScreen from "../screens/GameRoundCalculatingResultsScreen";
+
 /* ---------------- tournaments ---------------- */
 
 import TournamentsScreen from "../screens/TournamentsScreen";
@@ -154,7 +156,7 @@ export default function RootNavigator() {
           <Stack.Screen name={ROUTES.HOLE_MAP} component={HoleMapScreen} />
 
           <Stack.Screen name={ROUTES.GPS} component={GpsScreen} />
-          <Stack.Screen name={ROUTES.GREEN_VIEW} component={TournamentGreenViewScreen} />
+          <Stack.Screen name={ROUTES.GREEN_VIEW} component={GreenViewScreen} />
           <Stack.Screen name={ROUTES.HOLE_STRATEGY} component={HoleStrategyScreen} />
 
           <Stack.Screen name={ROUTES.SCORE_ENTRY} component={ScoreEntryScreen} />
@@ -168,6 +170,9 @@ export default function RootNavigator() {
           <Stack.Screen name={ROUTES.BUDDIES} component={BuddyListScreen} />
           <Stack.Screen name={ROUTES.EQUIPMENT} component={EquipmentScreen} />
           <Stack.Screen name={ROUTES.WAGERS} component={WagersScreen} />
+
+          {/* Regular game finish splash */}
+          <Stack.Screen name={ROUTES.GAME_ROUND_CALCULATING} component={GameRoundCalculatingResultsScreen} />
 
           {/* Tournaments */}
           <Stack.Screen name={ROUTES.TOURNAMENT_HUB_SPLASH} component={TournamentHubSplashScreen} />

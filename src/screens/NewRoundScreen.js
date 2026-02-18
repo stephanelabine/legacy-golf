@@ -31,11 +31,13 @@ const GREEN_BORDER = "rgba(15,122,74,0.55)";
 const GREEN_BG = "rgba(15,122,74,0.12)";
 const GREEN_BG_SOFT = "rgba(15,122,74,0.08)";
 
+// Premium gold accents
+const GOLD = "rgba(255, 210, 92, 0.95)";
+const GOLD_BORDER = "rgba(255, 210, 92, 0.70)";
+const DARK_GLASS = "rgba(255,255,255,0.04)";
+
 // Option B: hide local courses except Green Tee
-const PINNED_LOCAL_COURSE_IDS = new Set([
-  "green-tee-country-club",
-  "green_tee_country_club",
-]);
+const PINNED_LOCAL_COURSE_IDS = new Set(["green-tee-country-club", "green_tee_country_club"]);
 
 function norm(s) {
   return String(s || "")
@@ -142,7 +144,6 @@ export default function NewRoundScreen({ navigation, route }) {
   const debounceRef = useRef(null);
 
   const qTrim = String(query || "").trim();
-  const qLower = qTrim.toLowerCase();
 
   // API mode only at 3+ chars (clear, predictable)
   const useApiMode = qTrim.length >= 3;
@@ -325,7 +326,8 @@ export default function NewRoundScreen({ navigation, route }) {
     });
   }
 
-  const footerHeight = 92;
+  // bottom dock sizing
+  const footerHeight = 128;
   const listBottomPad = footerHeight + 20;
 
   function renderRow({ item }) {
@@ -351,35 +353,47 @@ export default function NewRoundScreen({ navigation, route }) {
     return (
       <Pressable
         onPress={() => tapCourse(item)}
-        style={({ pressed }) => [styles.row, styles.rowShadow, active && styles.rowActive, pressed && styles.pressed]}
+        style={({ pressed }) => [
+          styles.rowOuter,
+          active && styles.rowOuterActive,
+          pressed && styles.pressed,
+        ]}
       >
-        <View style={styles.rowMain}>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <View style={styles.rowTop}>
-              <Text style={styles.rowTitle} numberOfLines={1}>
-                {obj.name}
-              </Text>
+        <View style={[styles.row, styles.rowShadow, active && styles.rowActive]}>
+          <View style={styles.rowMain}>
+            <View style={[styles.statusDot, active && styles.statusDotActive]} />
 
-              {active ? (
-                <View style={styles.selectedPill}>
-                  <Text style={styles.selectedPillText}>Selected</Text>
-                </View>
-              ) : null}
-            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <View style={styles.rowTop}>
+                <Text style={styles.rowTitle} numberOfLines={1}>
+                  {obj.name}
+                </Text>
 
-            <View style={styles.rowMeta}>
-              <View style={[styles.kmPill, active && styles.kmPillActive]}>
-                <Text style={[styles.kmText, active && styles.kmTextActive]}>{metaRight}</Text>
+                {active ? (
+                  <View style={styles.selectedPill}>
+                    <Text style={styles.selectedPillText}>Selected</Text>
+                  </View>
+                ) : null}
               </View>
 
-              <Text style={styles.rowSub} numberOfLines={1}>
-                {subLeft}
-              </Text>
-            </View>
-          </View>
+              <View style={styles.rowMeta}>
+                <View style={[styles.kmPill, active && styles.kmPillActive]}>
+                  <Text style={[styles.kmText, active && styles.kmTextActive]}>{metaRight}</Text>
+                </View>
 
-          <View style={[styles.chevWrap, active && styles.chevWrapActive]}>
-            <MaterialCommunityIcons name="chevron-right" size={24} color="rgba(255,255,255,0.65)" />
+                <Text style={styles.rowSub} numberOfLines={1}>
+                  {subLeft}
+                </Text>
+              </View>
+            </View>
+
+            <View style={[styles.chevWrap, active && styles.chevWrapActive]}>
+              <MaterialCommunityIcons
+                name="chevron-right"
+                size={24}
+                color={active ? "#FFFFFF" : "rgba(255,255,255,0.65)"}
+              />
+            </View>
           </View>
         </View>
       </Pressable>
@@ -397,11 +411,17 @@ export default function NewRoundScreen({ navigation, route }) {
     ? "Try a different spelling. (Online search starts at 3+ letters.)"
     : "Green Tee isn’t present in your local list. We can add it back safely.";
 
+  const coursePillText = selectedCourse ? selectedCourse.name : "Select a course";
+  const ctaText = "Next: Continue to Tee Selection";
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScreenHeader navigation={navigation} title="Select Course" subtitle={headerSubtitle} />
 
       <View style={styles.topArea}>
+        <View style={styles.heroGlowA} pointerEvents="none" />
+        <View style={styles.heroGlowB} pointerEvents="none" />
+
         <TextInput
           style={styles.input}
           placeholder="Search course…"
@@ -454,25 +474,35 @@ export default function NewRoundScreen({ navigation, route }) {
         )}
       </View>
 
+      {/* Bottom Dock: 2 stacked pills */}
       <View style={styles.footer}>
-        <View style={styles.footerInner}>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.footerLabel}>Course</Text>
-            <Text style={styles.footerValue} numberOfLines={1}>
-              {selectedCourse ? selectedCourse.name : "None selected"}
+        <View style={styles.footerDock}>
+          <Pressable
+            onPress={() => {
+              if (selectedCourse) setSelectedCourse(null);
+            }}
+            style={({ pressed }) => [
+              styles.coursePill,
+              !selectedCourse && styles.coursePillEmpty,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text style={styles.coursePillLabel}>COURSE</Text>
+            <Text style={styles.coursePillValue} numberOfLines={1}>
+              {coursePillText}
             </Text>
-          </View>
+          </Pressable>
 
           <Pressable
             onPress={onContinue}
             disabled={!selectedCourse}
             style={({ pressed }) => [
-              styles.continueBtn,
-              !selectedCourse && styles.continueBtnDisabled,
+              styles.ctaPill,
+              !selectedCourse && styles.ctaPillDisabled,
               pressed && selectedCourse && styles.pressed,
             ]}
           >
-            <Text style={styles.continueText}>Continue</Text>
+            <Text style={styles.ctaText}>{ctaText}</Text>
           </Pressable>
         </View>
       </View>
@@ -483,7 +513,34 @@ export default function NewRoundScreen({ navigation, route }) {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: theme?.colors?.bg || "#0B1220" },
 
-  topArea: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
+  topArea: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
+    position: "relative",
+    overflow: "visible",
+  },
+
+  heroGlowA: {
+    position: "absolute",
+    top: -90,
+    left: -60,
+    width: 260,
+    height: 260,
+    borderRadius: 260,
+    backgroundColor: "rgba(46,125,255,0.22)",
+    opacity: 0.55,
+  },
+  heroGlowB: {
+    position: "absolute",
+    top: -120,
+    right: -80,
+    width: 320,
+    height: 320,
+    borderRadius: 320,
+    backgroundColor: "rgba(255,255,255,0.10)",
+    opacity: 0.18,
+  },
 
   input: {
     height: 50,
@@ -534,17 +591,26 @@ const styles = StyleSheet.create({
 
   listContent: { paddingHorizontal: 16, paddingTop: 12 },
 
+  rowOuter: {
+    borderRadius: 22,
+    marginBottom: 12,
+    padding: 2,
+    backgroundColor: "transparent",
+  },
+  rowOuterActive: {
+    backgroundColor: "rgba(255, 210, 92, 0.25)",
+  },
+
   row: {
     borderRadius: 20,
     padding: 14,
     borderWidth: 1,
     borderColor: GREEN_BORDER,
     backgroundColor: "rgba(255,255,255,0.05)",
-    marginBottom: 12,
   },
   rowActive: {
-    borderColor: GREEN,
-    backgroundColor: GREEN_BG,
+    borderColor: "rgba(255, 210, 92, 0.55)",
+    backgroundColor: "rgba(255, 210, 92, 0.10)",
   },
 
   rowShadow: Platform.select({
@@ -560,6 +626,21 @@ const styles = StyleSheet.create({
 
   rowMain: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
 
+  statusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    marginRight: 10,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.18)",
+    alignSelf: "center",
+  },
+  statusDotActive: {
+    backgroundColor: GOLD,
+    borderColor: "rgba(255,255,255,0.65)",
+  },
+
   rowTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
   rowTitle: { color: "#fff", fontSize: 16, fontWeight: "900", flex: 1 },
 
@@ -568,8 +649,8 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: GREEN_BORDER,
-    backgroundColor: GREEN_BG,
+    borderColor: "rgba(255, 210, 92, 0.55)",
+    backgroundColor: "rgba(255, 210, 92, 0.14)",
   },
   selectedPillText: { color: "#fff", fontSize: 12, fontWeight: "900", letterSpacing: 0.3 },
 
@@ -583,7 +664,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.12)",
     backgroundColor: "rgba(255,255,255,0.06)",
   },
-  kmPillActive: { borderColor: "rgba(15,122,74,0.35)", backgroundColor: GREEN_BG_SOFT },
+  kmPillActive: { borderColor: "rgba(255, 210, 92, 0.35)", backgroundColor: GREEN_BG_SOFT },
   kmText: { color: "#fff", fontSize: 12, fontWeight: "900", opacity: 0.9 },
   kmTextActive: { opacity: 1 },
 
@@ -600,8 +681,8 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.04)",
   },
   chevWrapActive: {
-    borderColor: "rgba(15,122,74,0.30)",
-    backgroundColor: "rgba(15,122,74,0.08)",
+    borderColor: "rgba(46,125,255,0.40)",
+    backgroundColor: "rgba(46,125,255,0.24)",
   },
 
   loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
@@ -619,6 +700,8 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
 
+  /* ---------------- bottom dock (floating glass) ---------------- */
+
   footer: {
     position: "absolute",
     left: 0,
@@ -626,34 +709,77 @@ const styles = StyleSheet.create({
     bottom: 0,
     paddingHorizontal: 16,
     paddingTop: 12,
-    paddingBottom: 16,
-    backgroundColor: theme?.colors?.bg || "#0B1220",
-    borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.08)",
+    paddingBottom: 14,
+    backgroundColor: "transparent",
   },
-  footerInner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    borderRadius: 18,
+
+  footerDock: {
+    borderRadius: 26,
     padding: 12,
+    gap: 10,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.10)",
-    backgroundColor: "rgba(255,255,255,0.04)",
+    backgroundColor: "rgba(18,22,30,0.92)",
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOpacity: 0.28,
+        shadowRadius: 18,
+        shadowOffset: { width: 0, height: 10 },
+      },
+      android: { elevation: 10 },
+      default: {},
+    }),
   },
-  footerLabel: { color: "rgba(255,255,255,0.65)", fontSize: 11, fontWeight: "900", letterSpacing: 0.9 },
-  footerValue: { marginTop: 4, color: "#fff", fontSize: 14, fontWeight: "900" },
 
-  continueBtn: {
-    height: 50,
-    paddingHorizontal: 18,
-    borderRadius: 16,
+  coursePill: {
+    height: 58,
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    borderWidth: 2,
+    borderColor: GOLD_BORDER,
+    backgroundColor: DARK_GLASS,
     alignItems: "center",
     justifyContent: "center",
+  },
+  coursePillEmpty: {
+    borderColor: "rgba(255,255,255,0.14)",
+    backgroundColor: "rgba(255,255,255,0.04)",
+  },
+  coursePillLabel: {
+    color: "rgba(255,255,255,0.65)",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1.1,
+    textAlign: "center",
+  },
+  coursePillValue: {
+    marginTop: 4,
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+
+  ctaPill: {
+    height: 58,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(46,125,255,0.35)",
     backgroundColor: "rgba(46,125,255,0.92)",
   },
-  continueBtnDisabled: { opacity: 0.35 },
-  continueText: { color: "#fff", fontSize: 15, fontWeight: "900", letterSpacing: 0.3 },
+  ctaPillDisabled: {
+    opacity: 0.35,
+  },
+  ctaText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "900",
+    letterSpacing: 0.4,
+    textAlign: "center",
+  },
 
   pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
 });

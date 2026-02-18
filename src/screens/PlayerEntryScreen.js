@@ -767,9 +767,14 @@ export default function PlayerEntryScreen({ navigation, route }) {
       </View>
 
       {/* Buddy Modal */}
+      {/* Buddy Modal */}
       <Modal visible={buddyModal} transparent animationType="fade" onRequestClose={closeBuddyModal}>
-        <Pressable style={styles.modalWrap} onPress={closeBuddyModal}>
-          <Pressable style={styles.modalCard} onPress={() => { }}>
+        <View style={styles.modalWrap}>
+          {/* Backdrop (tap to close) */}
+          <Pressable style={styles.modalBackdrop} onPress={closeBuddyModal} />
+
+          {/* Card (NOT pressable, so FlatList scroll works perfectly) */}
+          <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Add from Buddy List</Text>
 
             <TextInput
@@ -782,38 +787,42 @@ export default function PlayerEntryScreen({ navigation, route }) {
               returnKeyType="search"
             />
 
-            <FlatList
-              data={filteredBuddies}
-              keyExtractor={(it) => it.id}
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 8 }}
-              ListEmptyComponent={<Text style={styles.emptyText}>No buddies found.</Text>}
-              renderItem={({ item }) => {
-                const disabled = isAlreadyAdded(item.id) || players.length >= playerCount;
-                return (
-                  <View style={styles.pickRow}>
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={styles.pickName} numberOfLines={1}>
-                        {item.name}
-                      </Text>
-                      <Text style={styles.pickMeta}>HCP {item.handicap ?? 0}</Text>
-                    </View>
+            {/* Give the list real height */}
+            <View style={{ flex: 1, minHeight: 120 }}>
+              <FlatList
+                data={filteredBuddies}
+                keyExtractor={(it) => it.id}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 8 }}
+                ListEmptyComponent={<Text style={styles.emptyText}>No buddies found.</Text>}
+                renderItem={({ item }) => {
+                  const disabled = isAlreadyAdded(item.id) || players.length >= playerCount;
+                  return (
+                    <View style={styles.pickRow}>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={styles.pickName} numberOfLines={1}>
+                          {item.name}
+                        </Text>
+                        <Text style={styles.pickMeta}>HCP {item.handicap ?? 0}</Text>
+                      </View>
 
-                    <Pressable
-                      disabled={disabled}
-                      onPress={() => addBuddy(item)}
-                      style={({ pressed }) => [
-                        styles.pickBtn,
-                        disabled && styles.pickBtnDisabled,
-                        pressed && !disabled && styles.pressed,
-                      ]}
-                    >
-                      <Text style={styles.pickBtnText}>{disabled ? "Added" : "Add"}</Text>
-                    </Pressable>
-                  </View>
-                );
-              }}
-            />
+                      <Pressable
+                        disabled={disabled}
+                        onPress={() => addBuddy(item)}
+                        style={({ pressed }) => [
+                          styles.pickBtn,
+                          disabled && styles.pickBtnDisabled,
+                          pressed && !disabled && styles.pressed,
+                        ]}
+                      >
+                        <Text style={styles.pickBtnText}>{disabled ? "Added" : "Add"}</Text>
+                      </Pressable>
+                    </View>
+                  );
+                }}
+              />
+            </View>
 
             {/* Done becomes BLUE after at least one Add */}
             <Pressable
@@ -824,10 +833,12 @@ export default function PlayerEntryScreen({ navigation, route }) {
                 pressed && styles.pressed,
               ]}
             >
-              <Text style={[styles.modalCloseText, doneIsPrimary && styles.modalCloseTextPrimary]}>Done</Text>
+              <Text style={[styles.modalCloseText, doneIsPrimary && styles.modalCloseTextPrimary]}>
+                Done
+              </Text>
             </Pressable>
-          </Pressable>
-        </Pressable>
+          </View>
+        </View>
       </Modal>
 
       {/* Guest Modal */}
@@ -1019,15 +1030,15 @@ const styles = StyleSheet.create({
   progressFill: {
     height: 10,
     borderRadius: 999,
-    backgroundColor: theme?.primary || theme?.colors?.primary || "#2E7DFF",
+    backgroundColor: "rgba(255, 210, 92, 0.95)",
   },
 
   summaryCard: {
     marginHorizontal: 16,
     marginTop: 12,
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: GREEN_BORDER,
+    borderWidth: 2,
+    borderColor: "rgba(255, 210, 92, 0.40)",
     backgroundColor: GREEN_BG,
     padding: 14,
   },
@@ -1043,6 +1054,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: theme?.primary || theme?.colors?.primary || "#2E7DFF",
+    borderWidth: 2,
+    borderColor: "rgba(255, 210, 92, 0.35)",
     ...Platform.select({
       ios: { shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 14, shadowOffset: { width: 0, height: 8 } },
       android: { elevation: 4 },
@@ -1054,10 +1067,11 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
+    borderWidth: 2,
+    borderColor: "rgba(255, 210, 92, 0.22)",
     backgroundColor: "rgba(255,255,255,0.06)",
   },
+
   actionPillText: { color: "#fff", fontWeight: "900", fontSize: 13 },
 
   divider: { marginTop: 12, height: 1, backgroundColor: "rgba(255,255,255,0.08)" },
@@ -1150,19 +1164,24 @@ const styles = StyleSheet.create({
 
   modalWrap: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
     alignItems: "center",
-    justifyContent: "center",
-    padding: 16,
+    justifyContent: "flex-end",
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.6)",
   },
   modalCard: {
     width: "100%",
-    maxHeight: "82%",
-    borderRadius: 18,
+    height: "88%",
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.16)",
     backgroundColor: theme?.bg || theme?.colors?.bg || "#0B1220",
     padding: 14,
+    overflow: "hidden",
   },
   modalCardSmall: {
     width: "100%",
@@ -1189,8 +1208,8 @@ const styles = StyleSheet.create({
 
   pickRow: {
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
+    borderWidth: 2,
+    borderColor: "rgba(255, 210, 92, 0.22)",
     backgroundColor: "rgba(255,255,255,0.03)",
     paddingVertical: 12,
     paddingHorizontal: 12,

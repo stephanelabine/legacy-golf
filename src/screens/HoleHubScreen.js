@@ -186,17 +186,6 @@ function getMissingHolesFromState(state, playersList) {
   return missing;
 }
 
-function holeHasAllStrokes(state, holeNumber, playersList) {
-  const players = Array.isArray(playersList) ? playersList : [];
-  const ids = players.map((p, idx) => String(p?.id ?? String(idx)));
-
-  for (const pid of ids) {
-    const strokes = state?.holes?.[String(holeNumber)]?.players?.[String(pid)]?.strokes;
-    if (toInt(strokes) <= 0) return false;
-  }
-  return ids.length > 0;
-}
-
 /* -------------------------- */
 /* side game overlay helpers  */
 /* -------------------------- */
@@ -714,23 +703,18 @@ export default function HoleHubScreen({ navigation, route }) {
         return;
       }
 
-      const res = await doSaveRoundNow({ status: "completed" });
-
-      try {
-        await RoundState.clearActiveRoundEverywhere();
-      } catch { }
-
-      const FINAL_RESULTS = ROUTES.FINAL_RESULTS || "FinalResults";
-
       navigation.dispatch(
         CommonActions.navigate({
-          name: FINAL_RESULTS,
+          name: ROUTES.GAME_ROUND_CALCULATING,
           params: {
-            roundId: res?.roundId || active?.id || roundId || null,
+            roundId: active?.id || active?.roundId || roundId || null,
             course: active?.course || courseParam || { name: courseName, id: courseId, center: courseCenter },
             tee: active?.tee || teeParam || { name: teeName },
             players: active?.players || players,
             holeMeta: active?.meta?.holeMeta || holeMeta,
+            wagers: active?.wagers || params?.wagers || null,
+            courseName,
+            teeName,
           },
           merge: true,
         })
@@ -773,7 +757,6 @@ export default function HoleHubScreen({ navigation, route }) {
   const showFinish =
     currentHole === 18 &&
     getMissingHolesFromState((activeSnap || {}).activeRound || activeSnap || {}, players).length === 0;
-
 
   const holeListRef = useRef(null);
   const [holeBarWidth, setHoleBarWidth] = useState(0);
@@ -825,7 +808,7 @@ export default function HoleHubScreen({ navigation, route }) {
     <SafeAreaView style={styles.safe}>
       <ScreenHeader
         navigation={navigation}
-        title={headerTitle}
+        title={useMemo(() => shortCourseTitle(courseName), [courseName])}
         subtitle={`${teeName} • Hole ${currentHole} • Par ${par}`}
         safeTop={false}
         rightLabel="Home"
@@ -840,11 +823,7 @@ export default function HoleHubScreen({ navigation, route }) {
         onDismiss={dismissSideGameOverlay}
       />
 
-      <ScrollView
-        style={styles.body}
-        contentContainerStyle={styles.bodyContent}
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} showsVerticalScrollIndicator={false}>
         <View style={styles.holeBarWrap} onLayout={(e) => setHoleBarWidth(e?.nativeEvent?.layout?.width || 0)}>
           <FlatList
             ref={holeListRef}
@@ -864,11 +843,7 @@ export default function HoleHubScreen({ navigation, route }) {
               return (
                 <Pressable
                   onPress={() => setCurrentHole(h)}
-                  style={({ pressed }) => [
-                    styles.holePill,
-                    active && styles.holePillActive,
-                    pressed && styles.pressed,
-                  ]}
+                  style={({ pressed }) => [styles.holePill, active && styles.holePillActive, pressed && styles.pressed]}
                 >
                   <Text style={[styles.holePillText, active && styles.holePillTextActive]}>{h}</Text>
                 </Pressable>
@@ -892,10 +867,7 @@ export default function HoleHubScreen({ navigation, route }) {
         </View>
 
         <View style={styles.ybWrap}>
-          <Pressable
-            onPress={() => setYardageOpen(true)}
-            style={({ pressed }) => [styles.ybCard, pressed && styles.pressed]}
-          >
+          <Pressable onPress={() => setYardageOpen(true)} style={({ pressed }) => [styles.ybCard, pressed && styles.pressed]}>
             <Text style={styles.ybCenterText}>Yardage Book</Text>
           </Pressable>
         </View>
@@ -953,12 +925,7 @@ export default function HoleHubScreen({ navigation, route }) {
         <View style={styles.footerMiniRow}>
           <Pressable
             onPress={showFinish ? onPressFinishRound : onPressSaveRound}
-            style={({ pressed }) => [
-              styles.miniBtn,
-              styles.saveMiniBtn,
-              pressed && styles.pressed,
-              savingRound && { opacity: 0.7 },
-            ]}
+            style={({ pressed }) => [styles.miniBtn, styles.saveMiniBtn, pressed && styles.pressed, savingRound && { opacity: 0.7 }]}
             disabled={savingRound}
           >
             <Text style={styles.miniBtnText}>{savingRound ? "Saving…" : showFinish ? "Finish Round" : "Save Round"}</Text>
@@ -1297,15 +1264,8 @@ const styles = StyleSheet.create({
 
   pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
 
-  sgWrap: {
-    flex: 1,
-    justifyContent: "center",
-    padding: 18,
-  },
-  sgBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.62)",
-  },
+  sgWrap: { flex: 1, justifyContent: "center", padding: 18 },
+  sgBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.62)" },
   sgCard: {
     borderRadius: 24,
     padding: 14,
@@ -1313,11 +1273,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "rgba(242,201,76,0.85)",
   },
-  sgTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
+  sgTopRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   sgIconPill: {
     width: 48,
     height: 48,
@@ -1332,9 +1288,7 @@ const styles = StyleSheet.create({
   sgKicker: { color: "rgba(255,255,255,0.72)", fontWeight: "900", fontSize: 11, letterSpacing: 1.1 },
   sgTitle: { marginTop: 4, color: WHITE, fontWeight: "900", fontSize: 20, letterSpacing: 0.8 },
   sgSub: { marginTop: 6, color: "rgba(255,255,255,0.74)", fontWeight: "800", fontSize: 13, lineHeight: 17 },
-
   sgDivider: { height: 1, backgroundColor: "rgba(255,255,255,0.12)", marginTop: 12, marginBottom: 12 },
-
   sgBottomRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   sgMiniPill: {
     paddingHorizontal: 10,
@@ -1345,7 +1299,6 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.14)",
   },
   sgMiniText: { color: "rgba(255,255,255,0.78)", fontWeight: "900", fontSize: 11, letterSpacing: 0.8 },
-
   sgBtn: {
     height: 44,
     paddingHorizontal: 14,

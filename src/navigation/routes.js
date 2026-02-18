@@ -41,6 +41,9 @@ const ROUTES = {
 
   WAGERS: "Wagers",
 
+  // NEW: regular game calculating splash
+  GAME_ROUND_CALCULATING: "GameRoundCalculatingResults",
+
   /* ---------------- Tournaments ---------------- */
 
   TOURNAMENTS: "Tournaments",
