@@ -43,10 +43,12 @@ import PlayerStatsScreen from "../screens/PlayerStatsScreen";
 import BuddyListScreen from "../screens/BuddyListScreen";
 import EquipmentScreen from "../screens/EquipmentScreen";
 
-import WagersScreen from "../screens/WagersScreen";
 import HazardsScreen from "../screens/HazardsScreen";
 
 import GameRoundCalculatingResultsScreen from "../screens/GameRoundCalculatingResultsScreen";
+
+// NEW: regular game formats screen (replaces Wagers in the new flow)
+import GameFormatsScreen from "../screens/GameFormatsScreen";
 
 /* ---------------- tournaments ---------------- */
 
@@ -169,7 +171,9 @@ export default function RootNavigator() {
           <Stack.Screen name={ROUTES.PLAYER_STATS} component={PlayerStatsScreen} />
           <Stack.Screen name={ROUTES.BUDDIES} component={BuddyListScreen} />
           <Stack.Screen name={ROUTES.EQUIPMENT} component={EquipmentScreen} />
-          <Stack.Screen name={ROUTES.WAGERS} component={WagersScreen} />
+
+          {/* NEW: regular game formats (use this in the new flow) */}
+          <Stack.Screen name={ROUTES.GAME_FORMATS} component={GameFormatsScreen} />
 
           {/* Regular game finish splash */}
           <Stack.Screen name={ROUTES.GAME_ROUND_CALCULATING} component={GameRoundCalculatingResultsScreen} />

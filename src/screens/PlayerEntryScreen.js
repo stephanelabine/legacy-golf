@@ -411,8 +411,8 @@ export default function PlayerEntryScreen({ navigation, route }) {
       // do not block starting the round
     }
 
-    // Go to Hole Hub
-    navigation.navigate(ROUTES.HOLE_HUB, {
+    // Next step: choose Formats (replaces old Wagers flow)
+    navigation.navigate(ROUTES.GAME_FORMATS, {
       ...params,
       course,
       tee,
@@ -421,7 +421,6 @@ export default function PlayerEntryScreen({ navigation, route }) {
       players,
       playerCount,
       joinCode: lobbyCode,
-      startHole: 1,
     });
   }
 

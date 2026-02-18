@@ -70,12 +70,12 @@ export default function GameSetupScreen({ navigation, route }) {
       return;
     }
 
-    navigation.navigate(ROUTES.NEW_ROUND, {
+    navigation.navigate(ROUTES.GAME_FORMATS, {
       gameId,
       gameTitle: game?.title || gameTitle || "Game",
       scoringMode, // "net" or "gross"
-      wagers: null, // explicitly none (regular games will mirror tournaments)
     });
+
   }
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);

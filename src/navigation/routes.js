@@ -39,7 +39,8 @@ const ROUTES = {
   BUDDIES: "Buddies",
   EQUIPMENT: "Equipment",
 
-  WAGERS: "Wagers",
+  // NEW: regular game formats (replaces old Wagers step)
+  GAME_FORMATS: "GameFormats",
 
   // NEW: regular game calculating splash
   GAME_ROUND_CALCULATING: "GameRoundCalculatingResults",
