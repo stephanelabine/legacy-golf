@@ -70,12 +70,12 @@ export default function GameSetupScreen({ navigation, route }) {
       return;
     }
 
-    navigation.navigate(ROUTES.GAME_FORMATS, {
+    // Next step is Course Selection
+    navigation.navigate(ROUTES.NEW_ROUND, {
       gameId,
       gameTitle: game?.title || gameTitle || "Game",
       scoringMode, // "net" or "gross"
     });
-
   }
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
