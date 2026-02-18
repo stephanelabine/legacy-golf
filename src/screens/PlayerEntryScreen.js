@@ -28,6 +28,7 @@ import {
 import theme from "../theme";
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
+import PremiumSwipeRow from "../components/PremiumSwipeRow";
 import { getBuddies } from "../storage/buddies";
 import { saveActiveRound } from "../storage/roundState";
 import { auth, db } from "../firebase/firebase";
@@ -211,6 +212,15 @@ export default function PlayerEntryScreen({ navigation, route }) {
   const lobbyUnsubRef = useRef(null);
   const lobbyCreatedRef = useRef(false);
 
+  // Only one swipe row open at a time
+  const openSwipeRef = useRef(null);
+  function closeAnyOpenSwipe() {
+    try {
+      if (openSwipeRef.current) openSwipeRef.current.close();
+    } catch { }
+    openSwipeRef.current = null;
+  }
+
   // Edit Handicap modal (tap HCP pill)
   const [editHcpModal, setEditHcpModal] = useState(false);
   const [editPlayerId, setEditPlayerId] = useState(null);
@@ -391,7 +401,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
     } catch { }
   }
 
-  async function onStartRound() {
+  async function onNextFormats() {
     if (!canStart) return;
 
     // Save Active Round snapshot (for Resume + stable downstream screens)
@@ -408,7 +418,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
       });
       await saveActiveRound(activeRound);
     } catch {
-      // do not block starting the round
+      // do not block moving forward
     }
 
     // Next step: choose Formats (replaces old Wagers flow)
@@ -666,9 +676,59 @@ export default function PlayerEntryScreen({ navigation, route }) {
       />
 
       <View style={styles.topSection}>
-        <View style={styles.progressTrack}>
-          <View style={[styles.progressFill, { width: `${progressPct * 100}%` }]} />
+        <View
+          style={[
+            styles.progressTrack,
+            {
+              height: 40,
+              paddingHorizontal: 8,
+              paddingVertical: 7,
+              flexDirection: "row",
+              gap: 8,
+              alignItems: "center",
+            },
+          ]}
+        >
+          {Array.from({ length: playerCount }).map((_, idx) => {
+            const p = players[idx] || null;
+            const filled = !!p;
+
+            const label = filled
+              ? displayNameFirstLastInitial(p?.name || `Player ${idx + 1}`)
+              : `Player ${idx + 1}`;
+
+            return (
+              <View
+                key={`slot-${idx}`}
+                style={{
+                  flex: 1,
+                  height: 26,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: filled ? "rgba(255, 210, 92, 0.55)" : "rgba(255,255,255,0.14)",
+                  backgroundColor: filled ? "rgba(255, 210, 92, 0.18)" : "rgba(255,255,255,0.04)",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  paddingHorizontal: 8,
+                  overflow: "hidden",
+                }}
+              >
+                <Text
+                  numberOfLines={1}
+                  style={{
+                    color: filled ? "#fff" : "rgba(255,255,255,0.55)",
+                    fontWeight: "900",
+                    fontSize: 11,
+                    letterSpacing: 0.2,
+                  }}
+                >
+                  {label}
+                </Text>
+              </View>
+            );
+          })}
         </View>
+
 
         <View style={styles.summaryCard}>
           <Text style={styles.summaryKicker}>ROUND SUMMARY</Text>
@@ -714,12 +774,61 @@ export default function PlayerEntryScreen({ navigation, route }) {
         renderItem={({ item }) => {
           const isMe = item.id === "me";
           const isRemote = item.source === "remote";
+          const canSwipeRemove = !isMe && !isRemote;
           const nameShort = displayNameFirstLastInitial(item.name);
 
-          return (
-            <View style={[styles.playerCard, isMe && styles.playerCardMe]}>
-              <View style={styles.playerRing} pointerEvents="none" />
+          const shellStyle = [
+            styles.playerCard,
+            isMe && styles.playerCardMe,
+          ];
 
+          // When swiping, the swipe shell IS the bubble (same radius/height as action pane)
+          if (canSwipeRemove) {
+            return (
+              <PremiumSwipeRow
+                openSwipeRef={openSwipeRef}
+                closeAnyOpenSwipe={closeAnyOpenSwipe}
+                onDelete={() => removePlayer(item.id)}
+                deleteLabel="Remove"
+                actionWidth={108}
+                radius={20}
+                shellStyle={shellStyle}
+              >
+                <View style={{ flex: 1 }}>
+                  <View style={styles.playerRing} pointerEvents="none" />
+                  <View style={styles.playerInner}>
+
+
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={styles.playerName} numberOfLines={1}>
+                        {nameShort}
+                      </Text>
+                      {isRemote ? (
+                        <Text style={styles.playerMeta} numberOfLines={1}>
+                          Joined via code
+                        </Text>
+                      ) : null}
+                    </View>
+
+                    <Pressable
+                      onPress={() => openEditHandicap(item)}
+                      style={({ pressed }) => [styles.hcpPill, pressed && styles.pressed]}
+                    >
+                      <Text style={styles.hcpPillText}>HCP {item.handicap ?? 0}</Text>
+                    </Pressable>
+
+                    <View style={{ width: 70 }} />
+
+                  </View>
+                </View>
+              </PremiumSwipeRow>
+            );
+          }
+
+          // Non-swipe rows keep the original bubble wrapper
+          return (
+            <View style={shellStyle}>
+              <View style={styles.playerRing} pointerEvents="none" />
               <View style={styles.playerInner}>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={styles.playerName} numberOfLines={1}>
@@ -739,29 +848,22 @@ export default function PlayerEntryScreen({ navigation, route }) {
                   <Text style={styles.hcpPillText}>HCP {item.handicap ?? 0}</Text>
                 </Pressable>
 
-                {!isMe && !isRemote ? (
-                  <Pressable
-                    onPress={() => removePlayer(item.id)}
-                    style={({ pressed }) => [styles.removeBtn, pressed && styles.pressed]}
-                  >
-                    <Text style={styles.removeText}>Remove</Text>
-                  </Pressable>
-                ) : (
-                  <View style={{ width: 70 }} />
-                )}
+                <View style={{ width: 70 }} />
               </View>
             </View>
           );
         }}
+
+
       />
 
       <View style={styles.bottomBar}>
         <Pressable
-          onPress={onStartRound}
+          onPress={onNextFormats}
           disabled={!canStart}
           style={({ pressed }) => [styles.cta, !canStart && styles.ctaDisabled, pressed && canStart && styles.pressed]}
         >
-          <Text style={styles.ctaText}>{canStart ? "Start Round" : `Add ${playerCount - players.length} more`}</Text>
+          <Text style={styles.ctaText}>{canStart ? "Next: Formats" : `Add ${playerCount - players.length} more`}</Text>
         </Pressable>
       </View>
 
@@ -796,7 +898,13 @@ export default function PlayerEntryScreen({ navigation, route }) {
                 contentContainerStyle={{ paddingBottom: 8 }}
                 ListEmptyComponent={<Text style={styles.emptyText}>No buddies found.</Text>}
                 renderItem={({ item }) => {
-                  const disabled = isAlreadyAdded(item.id) || players.length >= playerCount;
+                  const already = isAlreadyAdded(item.id);
+                  const isFull = players.length >= playerCount;
+
+                  const disabled = already || isFull;
+
+                  const label = already ? "Added" : isFull ? "Full" : "Add";
+
                   return (
                     <View style={styles.pickRow}>
                       <View style={{ flex: 1, minWidth: 0 }}>
@@ -811,15 +919,18 @@ export default function PlayerEntryScreen({ navigation, route }) {
                         onPress={() => addBuddy(item)}
                         style={({ pressed }) => [
                           styles.pickBtn,
+                          already && styles.pickBtnAdded,
+                          !already && isFull && styles.pickBtnFull,
                           disabled && styles.pickBtnDisabled,
                           pressed && !disabled && styles.pressed,
                         ]}
                       >
-                        <Text style={styles.pickBtnText}>{disabled ? "Added" : "Add"}</Text>
+                        <Text style={styles.pickBtnText}>{label}</Text>
                       </Pressable>
                     </View>
                   );
                 }}
+
               />
             </View>
 
@@ -1227,7 +1338,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: theme?.primary || theme?.colors?.primary || "#2E7DFF",
   },
-  pickBtnDisabled: { opacity: 0.45 },
+  pickBtnAdded: {
+    backgroundColor: GREEN_ACCENT,
+    borderWidth: 1,
+    borderColor: GREEN_ACCENT_BORDER,
+  },
+  pickBtnFull: {
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+  pickBtnDisabled: { opacity: 0.55 },
   pickBtnText: { color: "#fff", fontWeight: "900" },
 
   modalClose: {
