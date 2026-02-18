@@ -20,15 +20,25 @@ import { saveWagers, clearWagers } from "../storage/wagers";
 /* ───────────────── ICON MAP (colored) ───────────────── */
 const ICONS = {
   legacy_card: { name: "cards-diamond", color: "rgba(255, 210, 92, 0.95)" },
+
   stroke_play: { name: "golf", color: "rgba(255,255,255,0.92)" },
-  match_play: { name: "account-group", color: "rgba(255,255,255,0.90)" },
-  kps: { name: "target", color: "rgba(255,255,255,0.90)" },
-  skins: { name: "cash-multiple", color: "rgba(255,255,255,0.90)" },
+  match_play: { name: "trophy-outline", color: "rgba(255,255,255,0.90)" },
+
+  one_v_one: { name: "account", color: "rgba(255,255,255,0.92)" },
   two_v_two: { name: "account-group-outline", color: "rgba(255,255,255,0.90)" },
+  team_vs_team: { name: "account-group", color: "rgba(255,255,255,0.90)" },
+
   nassau: { name: "view-week", color: "rgba(255,255,255,0.90)" },
   stableford: { name: "plus-circle", color: "rgba(255,255,255,0.90)" },
   wolf: { name: "paw", color: "rgba(255,255,255,0.90)" },
+
+  birdie_buckets: { name: "bucket-outline", color: "rgba(255,255,255,0.90)" },
+
+  skins: { name: "cash-multiple", color: "rgba(255,255,255,0.90)" },
+  kps: { name: "target", color: "rgba(255,255,255,0.90)" },
+
   snake: { name: "snake", color: "rgba(255,255,255,0.90)" },
+
   legacy_points: { name: "trophy", color: "rgba(255,255,255,0.92)" },
 };
 
@@ -85,7 +95,7 @@ export default function GameSetupScreen({ navigation, route }) {
     return gameFormats?.[gameId] || { title: gameTitle || "Game", subtitle: "" };
   }, [gameId, gameTitle]);
 
-  const isLegacy = gameId === "legacy_card";
+  const isPremiumGold = gameId === "legacy_card";
   const iconSpec = ICONS[gameId] || { name: "circle-small", color: "rgba(255,255,255,0.80)" };
 
   const [scoringMode, setScoringMode] = useState("net");
@@ -177,18 +187,18 @@ export default function GameSetupScreen({ navigation, route }) {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: BG }]}>
-      <View style={[styles.topWrap, isLegacy && styles.topWrapLegacy]}>
+      <View style={[styles.topWrap, isPremiumGold && styles.topWrapLegacy]}>
         <View style={styles.topGlowA} pointerEvents="none" />
         <View style={styles.topGlowB} pointerEvents="none" />
 
-        <View style={[styles.top, isLegacy && styles.topLegacy]}>
+        <View style={[styles.top, isPremiumGold && styles.topLegacy]}>
           <View style={styles.topRow}>
             <Pressable
               onPress={() => navigation.goBack()}
               hitSlop={12}
               style={({ pressed }) => [
                 styles.backBtn,
-                isLegacy && styles.backBtnLegacy,
+                isPremiumGold && styles.backBtnLegacy,
                 pressed && styles.pressed,
               ]}
             >
@@ -197,15 +207,15 @@ export default function GameSetupScreen({ navigation, route }) {
 
             <View style={{ flex: 1 }} />
 
-            <View style={[styles.badge, isLegacy && styles.badgeLegacy]}>
-              <Text style={[styles.badgeText, isLegacy && styles.badgeTextLegacy]}>
+            <View style={[styles.badge, isPremiumGold && styles.badgeLegacy]}>
+              <Text style={[styles.badgeText, isPremiumGold && styles.badgeTextLegacy]}>
                 GAME SETUP
               </Text>
             </View>
           </View>
 
           <View style={styles.titleRow}>
-            <View style={[styles.formatIcon, isLegacy && styles.formatIconLegacy]}>
+            <View style={[styles.formatIcon, isPremiumGold && styles.formatIconLegacy]}>
               <MaterialCommunityIcons name={iconSpec.name} size={20} color={iconSpec.color} />
             </View>
 
@@ -215,7 +225,7 @@ export default function GameSetupScreen({ navigation, route }) {
             </View>
           </View>
 
-          <View style={[styles.accentLine, isLegacy && styles.accentLineLegacy]} />
+          <View style={[styles.accentLine, isPremiumGold && styles.accentLineLegacy]} />
         </View>
       </View>
 
