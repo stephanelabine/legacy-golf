@@ -3,7 +3,6 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Alert, Platform, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import PremiumSwipeRow from "../components/PremiumSwipeRow";
 import { useTheme } from "../theme/ThemeProvider";
@@ -11,24 +10,128 @@ import { loadActiveRound, updateActiveRound } from "../storage/roundState";
 
 /*
   Regular Game Formats (Premium)
-  - Reuses TournamentFormatsScreen UI patterns
-  - Single source of truth: active round snapshot (AsyncStorage) via roundState.js
-  - No Firestore, no tournamentId
+  - Firestore is source of truth via roundState.js
+  - This screen reloads on focus so selections always reflect latest round state
 */
 
 const FORMAT_CATALOG = [
-    { key: "kp", name: "KP", subtitle: "Closest to the pin", needsHoles: true, blurb: "Select the official KP holes later (per round) when we add the holes step." },
-    { key: "longdrive", name: "Long Drive", subtitle: "Longest drive on a hole", needsHoles: true, blurb: "Select the official holes later (per round) when we add the holes step." },
-    { key: "secondshotkp", name: "Second Shot KP", subtitle: "Closest after second shot", needsHoles: true, blurb: "Select the official holes later (per round) when we add the holes step." },
-    { key: "deuce_pot", name: "Deuce Pot", subtitle: "Split pot among all deuces", needsHoles: false, blurb: "Calculated later: every score of 2 counts." },
-    { key: "putting_contest", name: "Putting Contest", subtitle: "Lowest total putts wins", needsHoles: false, blurb: "Calculated later from round scoring data (fewest total putts)." },
-    { key: "team_vs_team", name: "Team vs Team", subtitle: "Team points battle", needsHoles: false, blurb: "Team names next. Pairings/matchups later (with handicap balancing)." },
+    // 1
+    {
+        key: "kp",
+        name: "KP",
+        subtitle: "Closest to the pin",
+        needsHoles: true,
+        blurb: "Closest to the pin on selected par 3s. Hole selection coming soon.",
+        comingSoon: false,
+    },
+    // 2
+    {
+        key: "longdrive",
+        name: "Long Drive",
+        subtitle: "Longest drive on a hole",
+        needsHoles: true,
+        blurb: "Longest drive on selected holes. Hole selection coming soon.",
+        comingSoon: false,
+    },
+    // 3
+    {
+        key: "secondshotkp",
+        name: "2nd Shot KP",
+        subtitle: "Closest after second shot",
+        needsHoles: true,
+        blurb: "Closest to the pin after the second shot on selected holes. Hole selection coming soon.",
+        comingSoon: false,
+    },
+    // 4
+    {
+        key: "deuce_pot",
+        name: "Deuce Pot",
+        subtitle: "All 2s split the pot",
+        needsHoles: false,
+        blurb: "Every score of 2 counts. Pot splits among all players with a deuce.",
+        comingSoon: false,
+    },
+    // 5
+    {
+        key: "putting_contest",
+        name: "Putting Contest",
+        subtitle: "Fewest total putts wins",
+        needsHoles: false,
+        blurb: "Calculated later from round scoring data (fewest total putts).",
+        comingSoon: false,
+    },
+    // 6
+    {
+        key: "skins",
+        name: "Skins",
+        subtitle: "Win a hole outright",
+        needsHoles: false,
+        blurb: "Lowest score wins the hole. Ties carry over to the next hole.",
+        comingSoon: false,
+    },
+    // 7
+    {
+        key: "nassau",
+        name: "Nassau",
+        subtitle: "Front / Back / Total",
+        needsHoles: false,
+        blurb: "Three bets: Front 9, Back 9, and Total 18. Config options coming soon.",
+        comingSoon: false,
+    },
+    // 8
+    {
+        key: "stableford",
+        name: "Stableford",
+        subtitle: "Points scoring system",
+        needsHoles: false,
+        blurb: "Score points per hole. Rule set selection coming soon.",
+        comingSoon: false,
+    },
+    // 9
+    {
+        key: "birdie_buckets",
+        name: "Birdie Buckets",
+        subtitle: "Bucket builds, birdie wins",
+        needsHoles: false,
+        blurb: "Contributions build the pot. First birdie (or better) wins the bucket. Full rules display coming soon.",
+        comingSoon: false,
+    },
+    // 10
+    {
+        key: "snake",
+        name: "Snake",
+        subtitle: "3-putt penalty game",
+        needsHoles: false,
+        blurb: "Tracks 3-putts across the round. Payout rules/config coming soon.",
+        comingSoon: false,
+    },
+    // 11
+    {
+        key: "team_vs_team",
+        name: "Team vs Team",
+        subtitle: "Team points battle",
+        needsHoles: false,
+        blurb: "Team names next. Pairings/matchups later (with handicap balancing).",
+        comingSoon: false,
+    },
+    // 12
+    {
+        key: "__more_coming_soon__",
+        name: "More Games Coming Soon",
+        subtitle: "We’re building fast",
+        needsHoles: false,
+        blurb: "More side games and configuration options are on the way.",
+        comingSoon: true,
+    },
 ];
 
-export default function GameFormatsScreen({ navigation }) {
+export default function GameFormatsScreen({ navigation, route }) {
     const insets = useSafeAreaInsets();
     const { scheme, theme } = useTheme();
     const isDark = scheme === "dark";
+
+    const params = route?.params || {};
+    const roundId = params?.roundId || null;
 
     const [saving, setSaving] = useState(false);
     const [activeRound, setActiveRound] = useState(null);
@@ -40,23 +143,37 @@ export default function GameFormatsScreen({ navigation }) {
     function closeAnyOpenSwipe() {
         try {
             openSwipeRef.current?.close?.();
-        } catch (e) { }
+        } catch { }
         openSwipeRef.current = null;
+    }
+
+    async function refreshRound() {
+        const r = await loadActiveRound(roundId);
+        setActiveRound(r || null);
     }
 
     useEffect(() => {
         let mounted = true;
+
         (async () => {
-            const r = await loadActiveRound();
+            const r = await loadActiveRound(roundId);
             if (!mounted) return;
             setActiveRound(r || null);
         })();
+
+        const unsub = navigation.addListener("focus", () => {
+            refreshRound();
+        });
+
         return () => {
             mounted = false;
+            try {
+                unsub && unsub();
+            } catch { }
             closeAnyOpenSwipe();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [roundId]);
 
     const selectedKeys = useMemo(() => {
         const s = new Set();
@@ -71,6 +188,7 @@ export default function GameFormatsScreen({ navigation }) {
         }
 
         s.delete("");
+        s.delete("__more_coming_soon__");
         return s;
     }, [activeRound]);
 
@@ -88,6 +206,9 @@ export default function GameFormatsScreen({ navigation }) {
 
         const badgeBg = isDark ? "rgba(10,15,26,0.72)" : "rgba(255,255,255,0.72)";
         const badgeBorder = isDark ? "rgba(255,255,255,0.16)" : "rgba(10,15,26,0.12)";
+
+        const comingSoonBorder = isDark ? "rgba(255,255,255,0.12)" : "rgba(10,15,26,0.10)";
+        const comingSoonBg = isDark ? "rgba(255,255,255,0.04)" : "rgba(10,15,26,0.04)";
 
         return StyleSheet.create({
             screen: { flex: 1, backgroundColor: theme.bg },
@@ -149,6 +270,12 @@ export default function GameFormatsScreen({ navigation }) {
                 backgroundColor: theme.card2,
             },
             formatRowOn: { borderColor: greenRing, backgroundColor: greenBg },
+
+            formatRowComingSoon: {
+                borderColor: comingSoonBorder,
+                backgroundColor: comingSoonBg,
+            },
+
             formatRowTitle: { color: theme.text, fontSize: 15, fontWeight: "900" },
             formatRowSub: { marginTop: 6, color: theme.text, opacity: 0.72, fontSize: 12, fontWeight: "800", lineHeight: 16 },
 
@@ -217,13 +344,15 @@ export default function GameFormatsScreen({ navigation }) {
         const arr = Array.from(nextSet);
         setSaving(true);
         try {
-            const next = await updateActiveRound({
-                formatsSelected: arr,
-                formatsSelectedCount: arr.length,
-                updatedAt: Date.now(),
-            });
+            const next = await updateActiveRound(
+                {
+                    formatsSelected: arr,
+                    formatsSelectedCount: arr.length,
+                },
+                roundId
+            );
             setActiveRound(next || null);
-        } catch (e) {
+        } catch {
             Alert.alert("Save failed", "Could not update formats.");
         } finally {
             setSaving(false);
@@ -232,6 +361,7 @@ export default function GameFormatsScreen({ navigation }) {
 
     async function toggleFormat(item) {
         if (!item?.key) return;
+        if (item.comingSoon) return;
 
         const key = String(item.key);
         const next = new Set(selectedKeys);
@@ -259,13 +389,18 @@ export default function GameFormatsScreen({ navigation }) {
 
         closeAnyOpenSwipe();
 
-        // Next step placeholder: for now we return to Players and continue building flow from there.
-        // We will replace this with the next real step (holes selection / team names / pools) later.
+        // placeholder until Format Details screen exists
         navigation.goBack();
     }
 
     function onRowPress(item) {
         if (saving) return;
+
+        if (item?.comingSoon) {
+            Alert.alert("Coming soon", "More games and configuration options are on the way.");
+            return;
+        }
+
         toggleFormat(item);
     }
 
@@ -280,14 +415,19 @@ export default function GameFormatsScreen({ navigation }) {
                 disabled={saving}
                 style={({ pressed }) => [
                     styles.formatRow,
-                    on && styles.formatRowOn,
+                    item.comingSoon && styles.formatRowComingSoon,
+                    on && !item.comingSoon && styles.formatRowOn,
                     pressed && !saving && styles.pressed,
                     saving && { opacity: 0.7 },
                 ]}
             >
-                {on ? (
+                {!item.comingSoon && on ? (
                     <View style={[styles.selectedBadge, styles.selectedBadgeOn]}>
                         <Text style={styles.selectedBadgeText}>Selected</Text>
+                    </View>
+                ) : item.comingSoon ? (
+                    <View style={styles.selectedBadge}>
+                        <Text style={styles.selectedBadgeText}>Soon</Text>
                     </View>
                 ) : null}
 
@@ -325,7 +465,7 @@ export default function GameFormatsScreen({ navigation }) {
 
             <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                 <View style={styles.hero}>
-                    <Text style={styles.heroKicker}>Step 4</Text>
+                    <Text style={styles.heroKicker}>Step 5</Text>
                     <Text style={styles.heroTitle}>Side Games</Text>
                     <Text style={styles.heroSub}>
                         Select what this round will include. Next we’ll configure holes/team names where needed.
@@ -336,7 +476,7 @@ export default function GameFormatsScreen({ navigation }) {
                             <Text style={styles.pillText}>selected: {selectedCount}</Text>
                         </View>
                         <View style={styles.pill}>
-                            <Text style={styles.pillText}>premium</Text>
+                            <Text style={styles.pillText}>firestore</Text>
                         </View>
                     </View>
                 </View>
@@ -351,7 +491,7 @@ export default function GameFormatsScreen({ navigation }) {
                     disabled={saving}
                     style={({ pressed }) => [styles.primaryBtn, pressed && !saving && styles.pressed, saving && { opacity: 0.7 }]}
                 >
-                    <Text style={styles.primaryText}>{saving ? "Saving..." : "Continue"}</Text>
+                    <Text style={styles.primaryText}>{saving ? "Saving..." : "Next: Format Details"}</Text>
                 </Pressable>
 
                 <Pressable

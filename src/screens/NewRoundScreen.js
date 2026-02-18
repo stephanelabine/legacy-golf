@@ -148,18 +148,23 @@ export default function NewRoundScreen({ navigation, route }) {
   // API mode only at 3+ chars (clear, predictable)
   const useApiMode = qTrim.length >= 3;
 
-  // Seed Active Round with GameSetup params
+  // Seed Active Round with GameSetup params (MUST stay on the same Firestore round doc)
   useEffect(() => {
     let alive = true;
 
     (async () => {
       const params = route?.params || {};
+      const roundId = params?.roundId || null;
+
       const incomingGameId = params?.gameId ?? null;
       const incomingGameTitle = params?.gameTitle ?? null;
       const incomingScoringMode = params?.scoringMode ?? null;
       const incomingWagers = params?.wagers ?? null;
 
-      const existing = await loadActiveRound();
+      // LAW: never load/save "active round" without an explicit roundId once setup has started.
+      if (!roundId) return;
+
+      const existing = await loadActiveRound(roundId);
       if (!alive) return;
 
       const next = {
@@ -171,7 +176,7 @@ export default function NewRoundScreen({ navigation, route }) {
         wagers: incomingWagers ?? existing?.wagers ?? null,
       };
 
-      await saveActiveRound(next);
+      await saveActiveRound(next, roundId);
 
       if (__DEV__) {
         console.log("[LegacyGolf] Active round seeded on Select Course:", next);
@@ -181,7 +186,51 @@ export default function NewRoundScreen({ navigation, route }) {
     return () => {
       alive = false;
     };
-  }, [route?.params?.gameId, route?.params?.gameTitle, route?.params?.scoringMode, route?.params?.wagers]);
+  }, [route?.params?.roundId, route?.params?.gameId, route?.params?.gameTitle, route?.params?.scoringMode, route?.params?.wagers]);
+
+  // Re-hydrate previously selected course from Firestore truth (when returning from Net/Gross/back stack)
+  useEffect(() => {
+    let alive = true;
+
+    async function hydrateSelectedCourseFromRound() {
+      const roundId = route?.params?.roundId || null;
+
+      // If roundId is missing, loadActiveRound() will fall back to Firestore active pointer (still truth).
+      const r = await loadActiveRound(roundId);
+      if (!alive) return;
+
+      const c = r?.course || null;
+      const hasCourse = !!(c?.id && c?.name);
+      if (!hasCourse) return;
+
+      const hydrated = {
+        id: String(c.id),
+        name: String(c.name),
+        raw: c?.raw ?? null,
+        source: c?.source ?? null,
+        city: c?.city ?? null,
+        state: c?.state ?? null,
+        country: c?.country ?? null,
+        lat: c?.lat ?? null,
+        lng: c?.lng ?? null,
+      };
+
+      setSelectedCourse((prev) => prev || hydrated);
+    }
+
+    hydrateSelectedCourseFromRound();
+
+    const unsub = navigation.addListener("focus", () => {
+      hydrateSelectedCourseFromRound();
+    });
+
+    return () => {
+      alive = false;
+      try {
+        unsub && unsub();
+      } catch { }
+    };
+  }, [navigation, route?.params?.roundId]);
 
   // Location for distance labels (API results + pinned course)
   useEffect(() => {
@@ -292,7 +341,7 @@ export default function NewRoundScreen({ navigation, route }) {
   async function onContinue() {
     if (!selectedCourse) return;
 
-    await updateActiveRound({
+    const patch = {
       course: {
         id: selectedCourse.id,
         name: selectedCourse.name,
@@ -304,14 +353,21 @@ export default function NewRoundScreen({ navigation, route }) {
         lat: Number.isFinite(Number(selectedCourse.lat)) ? Number(selectedCourse.lat) : null,
         lng: Number.isFinite(Number(selectedCourse.lng)) ? Number(selectedCourse.lng) : null,
       },
-    });
+    };
+
+    // LAW: Firestore is the truth. If roundId is missing in params, resolve via Firestore active pointer.
+    const updated = await updateActiveRound(patch, route?.params?.roundId || null);
+    const resolvedRoundId = updated?.roundId || route?.params?.roundId || null;
 
     if (__DEV__) {
-      console.log("[LegacyGolf] Active round updated with course:", selectedCourse);
+      console.log("[LegacyGolf] Active round updated with course:", selectedCourse, "roundId:", resolvedRoundId);
     }
+
+    if (!resolvedRoundId) return;
 
     navigation.navigate(ROUTES.TEE_SELECTION, {
       ...(route?.params || {}),
+      roundId: resolvedRoundId,
       course: {
         id: selectedCourse.id,
         name: selectedCourse.name,

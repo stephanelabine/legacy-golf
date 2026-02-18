@@ -13,6 +13,7 @@ import {
 import theme from "../theme";
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
+import { loadActiveRound, updateActiveRound } from "../storage/roundState";
 
 function clampCount(n) {
   if (!Number.isFinite(n)) return null;
@@ -55,6 +56,7 @@ function pickGameLabel(params) {
 
 export default function PlayerSetupScreen({ navigation, route }) {
   const params = route?.params || {};
+  const roundId = params?.roundId || null;
 
   const course = params?.course || null;
   const tee = params?.tee || null;
@@ -64,30 +66,50 @@ export default function PlayerSetupScreen({ navigation, route }) {
 
   const gameLabel = useMemo(() => pickGameLabel(params), [params]);
 
-  // Default should be BLANK when arriving here (unless a playerCount was explicitly passed in).
-  const initialCount = useMemo(() => {
+  // initial from params ONLY (screen should still work if round not created)
+  const initialCountFromParams = useMemo(() => {
     const raw = params?.playerCount;
     if (raw === null || raw === undefined || raw === "") return null;
     const parsed = clampCount(Number(raw));
     return parsed || null;
   }, [params?.playerCount]);
 
-  // Draft input (what they are typing right now) — blank by default
-  const [countText, setCountText] = useState(initialCount ? String(initialCount) : "");
-
-  // Committed input (what the app considers “confirmed”)
-  const [committedCount, setCommittedCount] = useState(initialCount);
+  const [countText, setCountText] = useState(initialCountFromParams ? String(initialCountFromParams) : "");
+  const [committedCount, setCommittedCount] = useState(initialCountFromParams);
 
   const inputRef = useRef(null);
 
+  async function refreshFromActiveRound() {
+    if (!roundId) return;
+
+    const r = await loadActiveRound(roundId);
+    const fsCount = clampCount(Number(r?.playerCount));
+    if (!fsCount) return;
+
+    // If the user is actively editing (dirty), do not override the draft UI.
+    // Otherwise always snap to Firestore truth on focus/mount.
+    if (isDirty) return;
+
+    setCommittedCount(fsCount);
+    setCountText(String(fsCount));
+  }
+
   useEffect(() => {
-    const t = setTimeout(() => {
+    // DO NOT auto-focus this input. Keyboard should only appear after user taps.
+    // hydrate from Firestore (single source of truth) if available
+    refreshFromActiveRound();
+
+    const unsub = navigation.addListener("focus", () => {
+      refreshFromActiveRound();
+    });
+
+    return () => {
       try {
-        inputRef?.current?.focus?.();
-      } catch {}
-    }, 250);
-    return () => clearTimeout(t);
-  }, []);
+        unsub && unsub();
+      } catch { }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roundId]);
 
   const draftCount = useMemo(() => {
     const digits = String(countText || "").replace(/[^\d]/g, "");
@@ -97,27 +119,48 @@ export default function PlayerSetupScreen({ navigation, route }) {
 
   const hasValidDraft = !!draftCount;
 
-  // Dirty means: they typed a new valid number different than the committed one
   const isDirty = hasValidDraft && Number(draftCount) !== Number(committedCount);
 
-  // Done becomes the “call to action” ONLY when there’s a valid, changed value to confirm
-  const canDone = hasValidDraft && (committedCount == null || isDirty);
+  // Allow "Done" to re-confirm even if unchanged (prevents being forced to change the number)
+  const canDone = hasValidDraft;
 
-  // Next is enabled only when we have a committed count AND nothing is waiting to be confirmed
+  // Continue still requires a committed value and no pending edits
   const canContinue = !!committedCount && !isDirty;
 
-  function onDone() {
-    if (!canDone) return;
-    setCommittedCount(draftCount);
-    Keyboard.dismiss();
+
+  async function persistPlayerCount(nextCount) {
+    if (!roundId) return;
+    try {
+      await updateActiveRound(
+        {
+          playerCount: nextCount,
+          updatedAt: Date.now(),
+        },
+        roundId
+      );
+    } catch {
+      // do not block UI
+    }
   }
 
-  function onNext() {
+  async function onDone() {
+    if (!canDone) return;
+    const next = draftCount;
+    setCommittedCount(next);
+    Keyboard.dismiss();
+    await persistPlayerCount(next);
+  }
+
+  async function onNext() {
     if (!canContinue) return;
     Keyboard.dismiss();
 
+    // safety: ensure Firestore has the committed value before leaving
+    await persistPlayerCount(committedCount);
+
     navigation.navigate(ROUTES.PLAYER_ENTRY, {
       ...params,
+      roundId,
       course,
       tee,
       scoring,
@@ -136,75 +179,79 @@ export default function PlayerSetupScreen({ navigation, route }) {
   const primary = theme?.primary || theme?.colors?.primary || "#2E7DFF";
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <ScreenHeader navigation={navigation} title="Players" subtitle="How many are playing today?" />
+    <Pressable style={{ flex: 1 }} onPress={Keyboard.dismiss}>
+      <SafeAreaView style={styles.safe}>
 
-      <View style={styles.summaryCard}>
-        <Text style={styles.summaryKicker}>ROUND SUMMARY</Text>
-        <Text style={styles.summaryTitle} numberOfLines={1}>
-          {summaryLine1}
-        </Text>
-        <Text style={styles.summarySub} numberOfLines={1}>
-          {summaryLine2}
-        </Text>
-        <Text style={styles.summarySub2} numberOfLines={1}>
-          {summaryLine3}
-        </Text>
-      </View>
+        <ScreenHeader navigation={navigation} title="Players" subtitle="How many are playing today?" />
 
-      <View style={styles.inputCard}>
-        <Text style={styles.inputLabel}>How many players?</Text>
-
-        <View style={styles.bigPill}>
-          <TextInput
-            ref={inputRef}
-            value={countText}
-            onChangeText={setCountText}
-            placeholder=""
-            placeholderTextColor="rgba(255,255,255,0.35)"
-            keyboardType="number-pad"
-            maxLength={2}
-            style={styles.bigInput}
-            selectionColor={primary}
-          />
-
-          <Pressable
-            onPress={onDone}
-            disabled={!canDone}
-            style={({ pressed }) => [
-              styles.donePill,
-              canDone && { backgroundColor: primary, borderColor: "rgba(255,255,255,0.22)" },
-              !canDone && styles.donePillDisabled,
-              pressed && canDone && styles.pressed,
-            ]}
-          >
-            <Text style={[styles.doneText, canDone && { color: "#fff" }]}>Done</Text>
-          </Pressable>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryKicker}>ROUND SUMMARY</Text>
+          <Text style={styles.summaryTitle} numberOfLines={1}>
+            {summaryLine1}
+          </Text>
+          <Text style={styles.summarySub} numberOfLines={1}>
+            {summaryLine2}
+          </Text>
+          <Text style={styles.summarySub2} numberOfLines={1}>
+            {summaryLine3}
+          </Text>
         </View>
 
-        <Text style={styles.note}>
-          {committedCount == null
-            ? "Enter the number of players, then press Done."
-            : isDirty
-            ? "Press Done to confirm the player count."
-            : "Next you’ll add guests or choose buddies."}
-        </Text>
-      </View>
+        <View style={styles.inputCard}>
+          <Text style={styles.inputLabel}>How many players?</Text>
 
-      <View style={styles.bottomBar}>
-        <Pressable
-          onPress={onNext}
-          disabled={!canContinue}
-          style={({ pressed }) => [
-            styles.cta,
-            !canContinue && styles.ctaDisabled,
-            pressed && canContinue && styles.pressed,
-          ]}
-        >
-          <Text style={styles.ctaText}>Next: Add Players</Text>
-        </Pressable>
-      </View>
-    </SafeAreaView>
+          <View style={styles.bigPill}>
+            <TextInput
+              ref={inputRef}
+              value={countText}
+              onChangeText={setCountText}
+              placeholder=""
+              placeholderTextColor="rgba(255,255,255,0.35)"
+              keyboardType="number-pad"
+              maxLength={2}
+              style={styles.bigInput}
+              selectionColor={primary}
+            />
+
+            <Pressable
+              onPress={onDone}
+              disabled={!canDone}
+              style={({ pressed }) => [
+                styles.donePill,
+                canDone && { backgroundColor: primary, borderColor: "rgba(255,255,255,0.22)" },
+                !canDone && styles.donePillDisabled,
+                pressed && canDone && styles.pressed,
+              ]}
+            >
+              <Text style={[styles.doneText, canDone && { color: "#fff" }]}>Done</Text>
+            </Pressable>
+          </View>
+
+          <Text style={styles.note}>
+            {committedCount == null
+              ? "Enter the number of players, then press Done."
+              : isDirty
+                ? "Press Done to confirm the player count."
+                : "Next you’ll add guests or choose buddies."}
+          </Text>
+        </View>
+
+        <View style={styles.bottomBar}>
+          <Pressable
+            onPress={onNext}
+            disabled={!canContinue}
+            style={({ pressed }) => [
+              styles.cta,
+              !canContinue && styles.ctaDisabled,
+              pressed && canContinue && styles.pressed,
+            ]}
+          >
+            <Text style={styles.ctaText}>Next: Add Players</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    </Pressable>
+
   );
 }
 

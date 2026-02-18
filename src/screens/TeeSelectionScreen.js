@@ -19,7 +19,7 @@ import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import { getTeesForCourse } from "../services/tees";
 import { loadCourseData } from "../storage/courseData";
-import { updateActiveRound } from "../storage/roundState";
+import { loadActiveRound, updateActiveRound } from "../storage/roundState";
 
 const PROTECTED_LOCAL_COURSE_IDS = new Set([
   "green-tee-country-club", // Green Tee Country Club (your home course)
@@ -139,7 +139,16 @@ export default function TeeSelectionScreen({ navigation, route }) {
     }
 
     const scoring = route?.params?.scoring || route?.params?.scoringType || "net";
-    const playerCount = route?.params?.playerCount ?? null;
+    const roundId = route?.params?.roundId || null;
+
+    // Pull playerCount from the correct round doc (Firestore truth)
+    let playerCountFromTruth = null;
+    try {
+      const active = (await loadActiveRound(roundId)) || {};
+      playerCountFromTruth = active?.playerCount ?? null;
+    } catch {
+      playerCountFromTruth = null;
+    }
 
     // Gate net scoring: require valid Par + SI
     if (String(scoring).toLowerCase() === "net") {
@@ -168,14 +177,14 @@ export default function TeeSelectionScreen({ navigation, route }) {
       }
     }
 
+    // IMPORTANT: do NOT write playerCount here (PlayerSetup owns it).
     const patch = {
       tee: selectedTee,
       holeMeta: holeMeta || null,
       scoring,
-      playerCount,
     };
 
-    const next = await updateActiveRound(patch);
+    const next = await updateActiveRound(patch, roundId);
 
     if (__DEV__) {
       console.log("[LegacyGolf] Active round updated on Tee continue:", next);
@@ -183,11 +192,12 @@ export default function TeeSelectionScreen({ navigation, route }) {
 
     navigation.navigate(ROUTES.PLAYER_SETUP, {
       ...(route?.params || {}),
+      roundId,
       course,
       tee: selectedTee,
       holeMeta,
       scoring,
-      playerCount,
+      playerCount: playerCountFromTruth,
     });
   }
 

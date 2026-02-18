@@ -15,8 +15,12 @@ export default function GameSettingsScreen({ navigation, route }) {
   }, [gameId]);
 
   function onContinue() {
+    const roundId = route?.params?.roundId || null;
+
     navigation.navigate(ROUTES.NEW_ROUND, {
-      format: gameId,
+      ...route?.params,
+      roundId,
+      gameId,
       gameTitle,
       scoringMode,
     });

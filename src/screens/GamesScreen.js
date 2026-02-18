@@ -8,6 +8,7 @@ import BottomSheet from "../components/BottomSheet";
 import ScreenHeader from "../components/ScreenHeader";
 import gameFormats from "../data/gameFormats.json";
 import { useTheme } from "../theme/ThemeProvider";
+import { createSetupRound } from "../storage/roundState";
 
 const FALLBACK_INFO = {
   tournaments: {
@@ -144,7 +145,7 @@ export default function GamesScreen({ navigation }) {
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
-  function onContinue() {
+  async function onContinue() {
     if (!selectedId) {
       Alert.alert("Select game to continue");
       return;
@@ -156,11 +157,26 @@ export default function GamesScreen({ navigation }) {
       return;
     }
 
+    // LAW: Firestore is the single source of truth.
+    // Create the setup round at the FIRST commit moment (right here).
+    const created = await createSetupRound({
+      gameId: selected.id,
+      gameTitle: selected.title,
+      status: "setup",
+    });
+
+    if (!created?.roundId) {
+      Alert.alert("Sign in required", "Please sign in to start a round.");
+      return;
+    }
+
     navigation.navigate(ROUTES.GAME_SETUP, {
+      roundId: created.roundId,
       gameId: selected.id,
       gameTitle: selected.title,
     });
   }
+
 
   const info = useMemo(() => {
     if (!infoId) return null;
