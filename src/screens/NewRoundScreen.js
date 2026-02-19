@@ -391,6 +391,28 @@ export default function NewRoundScreen({ navigation, route }) {
     const obj = normalizeSelectedCourse(item, { preferApi });
     const active = selectedCourse?.id === obj.id;
 
+    const isProtectedLocal = !preferApi && isGreenTeeLocal(item);
+
+    // Protected local course: simple centered "Green Tee" card only
+    if (isProtectedLocal) {
+      return (
+        <Pressable
+          onPress={() => tapCourse(item)}
+          style={({ pressed }) => [
+            styles.rowOuter,
+            active && styles.rowOuterActive,
+            pressed && styles.pressed,
+          ]}
+        >
+          <View style={[styles.row, styles.rowShadow, active && styles.rowActive, styles.rowProtectedLocal]}>
+            <Text style={[styles.rowProtectedLocalText, active && styles.rowProtectedLocalTextActive]}>
+              Green Tee
+            </Text>
+          </View>
+        </Pressable>
+      );
+    }
+
     const distanceLabel = Number.isFinite(Number(item?.distanceKm)) ? formatKm(item.distanceKm) : null;
 
     let metaRight = preferApi ? "Online" : "Home";
@@ -398,12 +420,16 @@ export default function NewRoundScreen({ navigation, route }) {
 
     let subLeft = "Tap to select";
     if (preferApi) {
-      const loc = [String(item?.city || "").trim(), String(item?.state || "").trim(), String(item?.country || "").trim()]
+      const loc = [
+        String(item?.city || "").trim(),
+        String(item?.state || "").trim(),
+        String(item?.country || "").trim(),
+      ]
         .filter(Boolean)
         .join(", ");
       subLeft = loc || "Tap to select";
     } else {
-      subLeft = "Protected local course (no API import)";
+      subLeft = "Local course";
     }
 
     return (
@@ -417,8 +443,6 @@ export default function NewRoundScreen({ navigation, route }) {
       >
         <View style={[styles.row, styles.rowShadow, active && styles.rowActive]}>
           <View style={styles.rowMain}>
-            <View style={[styles.statusDot, active && styles.statusDotActive]} />
-
             <View style={{ flex: 1, minWidth: 0 }}>
               <View style={styles.rowTop}>
                 <Text style={styles.rowTitle} numberOfLines={1}>
@@ -426,8 +450,8 @@ export default function NewRoundScreen({ navigation, route }) {
                 </Text>
 
                 {active ? (
-                  <View style={styles.selectedPill}>
-                    <Text style={styles.selectedPillText}>Selected</Text>
+                  <View style={styles.selectedCheckWrap}>
+                    <MaterialCommunityIcons name="check" size={18} color="#FFFFFF" />
                   </View>
                 ) : null}
               </View>
@@ -442,20 +466,11 @@ export default function NewRoundScreen({ navigation, route }) {
                 </Text>
               </View>
             </View>
-
-            <View style={[styles.chevWrap, active && styles.chevWrapActive]}>
-              <MaterialCommunityIcons
-                name="chevron-right"
-                size={24}
-                color={active ? "#FFFFFF" : "rgba(255,255,255,0.65)"}
-              />
-            </View>
           </View>
         </View>
       </Pressable>
     );
   }
-
   const headerSubtitle = useApiMode
     ? "Online course search"
     : "Home course (local) • Type 3+ letters to search online";
@@ -543,7 +558,6 @@ export default function NewRoundScreen({ navigation, route }) {
               pressed && styles.pressed,
             ]}
           >
-            <Text style={styles.coursePillLabel}>COURSE</Text>
             <Text style={styles.coursePillValue} numberOfLines={1}>
               {coursePillText}
             </Text>
@@ -654,19 +668,19 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
   },
   rowOuterActive: {
-    backgroundColor: "rgba(255, 210, 92, 0.25)",
+    backgroundColor: "rgba(255, 210, 92, 0.16)",
   },
 
   row: {
     borderRadius: 20,
     padding: 14,
-    borderWidth: 1,
-    borderColor: GREEN_BORDER,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.14)",
     backgroundColor: "rgba(255,255,255,0.05)",
   },
   rowActive: {
-    borderColor: "rgba(255, 210, 92, 0.55)",
-    backgroundColor: "rgba(255, 210, 92, 0.10)",
+    borderColor: "rgba(255, 210, 92, 0.75)",
+    backgroundColor: "rgba(255, 210, 92, 0.08)",
   },
 
   rowShadow: Platform.select({
@@ -682,33 +696,34 @@ const styles = StyleSheet.create({
 
   rowMain: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
 
-  statusDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 999,
-    marginRight: 10,
-    backgroundColor: "rgba(255,255,255,0.18)",
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.18)",
-    alignSelf: "center",
-  },
-  statusDotActive: {
-    backgroundColor: GOLD,
-    borderColor: "rgba(255,255,255,0.65)",
-  },
-
   rowTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
   rowTitle: { color: "#fff", fontSize: 16, fontWeight: "900", flex: 1 },
 
-  selectedPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
+  selectedCheckWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
     borderWidth: 1,
     borderColor: "rgba(255, 210, 92, 0.55)",
     backgroundColor: "rgba(255, 210, 92, 0.14)",
   },
-  selectedPillText: { color: "#fff", fontSize: 12, fontWeight: "900", letterSpacing: 0.3 },
+
+  rowProtectedLocal: {
+    paddingVertical: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rowProtectedLocalText: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "900",
+    letterSpacing: 0.2,
+  },
+  rowProtectedLocalTextActive: {
+    opacity: 1,
+  },
 
   rowMeta: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 10 },
 
@@ -802,17 +817,9 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.14)",
     backgroundColor: "rgba(255,255,255,0.04)",
   },
-  coursePillLabel: {
-    color: "rgba(255,255,255,0.65)",
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 1.1,
-    textAlign: "center",
-  },
   coursePillValue: {
-    marginTop: 4,
     color: "#fff",
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: "900",
     textAlign: "center",
   },
