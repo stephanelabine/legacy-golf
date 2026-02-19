@@ -377,15 +377,14 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             state.isActive = true;
             state.updatedAt = Date.now();
 
-            if (!opts?.skipResumeUpdate) {
-                const nextHole = holeNumber >= 18 ? 18 : holeNumber + 1;
-                const resumeHole = opts?.resumeHole ? Number(opts.resumeHole) : nextHole;
+            // Only advance the round's resume hole when we explicitly say so (Next Hole).
+            if (Number.isFinite(Number(opts?.resumeHole))) {
+                const resumeHole = Math.max(1, Math.min(18, Number(opts.resumeHole)));
 
                 state.currentHole = resumeHole;
                 state.holeNumber = resumeHole;
                 state.hole = resumeHole;
                 state.holeIndex = resumeHole - 1;
-                state.startHole = resumeHole;
             }
 
             const ok = await saveActiveRound(state);
@@ -409,7 +408,8 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
             (async () => {
                 try {
-                    await persistHole();
+                    // IMPORTANT: backing out should NOT advance resume hole
+                    await persistHole({ skipResumeUpdate: true });
                 } catch { }
                 navigation.dispatch(e.data.action);
                 leavingRef.current = false;
@@ -447,9 +447,12 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             return;
         }
 
-        const res = await persistHole();
+        // IMPORTANT: Back should save, but NOT advance resume hole
+        const res = await persistHole({ skipResumeUpdate: true });
         goToHoleHub(holeNumber, { roundId: res?.roundId || roundIdParam || null });
     }
+
+
 
     async function onScorecard() {
         Keyboard.dismiss();
@@ -570,8 +573,6 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                 title={title}
                 subtitle={isFixMode ? "Fix missing scores • Tap a box to pick a value." : "Tap a box to pick a value."}
                 safeTop={false}
-                rightLabel="Back"
-                onRightPress={onBack}
             />
 
             <View style={styles.body}>

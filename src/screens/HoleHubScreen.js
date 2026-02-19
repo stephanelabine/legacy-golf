@@ -621,10 +621,18 @@ export default function HoleHubScreen({ navigation, route }) {
       const safeMeta = active?.meta && typeof active.meta === "object" ? active.meta : {};
       const mergedMeta = { ...safeMeta, holeMeta };
 
-      const id = String(active?.id || roundId || `r_${Date.now()}`);
+      const id = String(active?.roundId || active?.id || roundId || "").trim();
+      if (!id) {
+        Alert.alert(
+          "Save failed",
+          "Missing roundId. Please return Home, reopen the round, then try Save & Exit again."
+        );
+        return { ok: false, roundId: null };
+      }
 
       const payload = {
         id,
+        roundId: id,
         courseName: String(safeCourse?.name || courseName || "Course"),
         teeName: String(safeTee?.name || teeName || "Tees"),
         course: safeCourse,
@@ -636,6 +644,7 @@ export default function HoleHubScreen({ navigation, route }) {
         playedAt: active?.playedAt || active?.startedAt || new Date().toISOString(),
         startedAt: active?.startedAt || new Date().toISOString(),
         status: status || "in_progress",
+        currentHole,
         lastHole: currentHole,
       };
 
