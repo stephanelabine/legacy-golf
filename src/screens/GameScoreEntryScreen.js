@@ -67,8 +67,8 @@ function uniqIds(list) {
 }
 
 function defaultTrackStatsForPlayer(p) {
-    const src = String(p?.source || "").toLowerCase();
-    if (src === "me") return true;
+    // Regular games: default Stats OFF for all players.
+    // Strokes + Putts are always tracked regardless.
     return false;
 }
 
@@ -272,13 +272,11 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             if (field === "trackStats") {
                 const nextOn = !!value;
 
-                // if turning OFF -> clear stats so we don't persist stale
+                // if turning OFF -> clear ONLY the extra stats (keep strokes/putts)
                 if (!nextOn) {
                     next[id] = {
                         ...cur,
                         trackStats: false,
-                        putts: 0,
-                        _hasPuttsSaved: false,
                         fairway: "na",
                         green: "na",
                         sandSave: "na",
@@ -286,6 +284,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                     };
                     return next;
                 }
+
 
                 next[id] = { ...cur, trackStats: true };
                 return next;
@@ -362,7 +361,8 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                 payload[String(pid)] = {
                     trackStats: track,
                     strokes: String(toInt(val.strokes) || ""),
-                    putts: track ? String(toInt(val.putts) || "") : "",
+                    // Putts are always tracked (needed for games like Putting Contest), even when Stats is OFF.
+                    putts: String(toInt(val.putts) || ""),
                     fairway: track ? (val.fairway ?? "na") : "na",
                     green: track ? (val.green ?? "na") : "na",
                     sandSave: track ? (val.sandSave ?? "na") : "na",
@@ -586,7 +586,8 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                         const strokes = toInt(val.strokes);
                         const putts = toInt(val.putts);
                         const trackStats = !!val.trackStats;
-                        const showPutts = trackStats && (val?._hasPuttsSaved === true || String(val?.putts ?? "").length > 0);
+                        const showPutts = val?._hasPuttsSaved === true || String(val?.putts ?? "").length > 0;
+
 
                         return (
                             <View style={styles.playerCard}>
@@ -603,6 +604,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                                     >
                                         <Text style={styles.statsPillText}>Stats {trackStats ? "ON" : "OFF"}</Text>
                                     </Pressable>
+
                                 </View>
 
                                 <View style={styles.inputRow}>
@@ -615,19 +617,10 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                                     </Pressable>
 
                                     <Pressable
-                                        onPress={() => {
-                                            if (!trackStats) {
-                                                Alert.alert("Stats are off", "Turn Stats ON for this player to track putts and stats.");
-                                                return;
-                                            }
-                                            openPicker(pid, "putts");
-                                        }}
-                                        style={({ pressed }) => [
-                                            styles.fieldWrap,
-                                            !trackStats && { opacity: 0.55 },
-                                            pressed && styles.pressed,
-                                        ]}
+                                        onPress={() => openPicker(pid, "putts")}
+                                        style={({ pressed }) => [styles.fieldWrap, pressed && styles.pressed]}
                                     >
+
                                         <Text style={styles.fieldLabel}>Putts</Text>
                                         <View style={styles.valueBox}>
                                             <Text style={styles.valueText}>{showPutts ? String(Math.max(0, Math.min(10, putts))) : "—"}</Text>
