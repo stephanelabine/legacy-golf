@@ -35,7 +35,6 @@ const MUTED = "#AFC3DA";
 const WHITE = "#FFFFFF";
 const GREEN = "#2ECC71";
 const GREEN_TEXT = "#0B1F12";
-const DANGER = "#D62828";
 const YELLOW = "#F2C94C";
 
 const DEFAULT_PARS = [4, 4, 3, 5, 4, 4, 3, 4, 5, 4, 3, 4, 4, 5, 4, 3, 4, 4];
@@ -284,8 +283,15 @@ export default function HoleHubScreen({ navigation, route }) {
   const courseCenterFromParams = params.courseCenter ?? courseParam?.center ?? courseParam?.courseCenter ?? null;
 
   const teeName = teeParam?.name ?? (typeof teeParam === "string" ? teeParam : "Tees");
-  const players = params.players || [];
-  const roundId = params.roundId ?? null;
+
+  // IMPORTANT: params.players is often empty in the regular flow.
+  // Always fall back to active round snapshot players.
+  const players = Array.isArray(params.players) && params.players.length
+    ? params.players
+    : (Array.isArray(activeRoot?.players) ? activeRoot.players : []);
+
+  const roundId = params.roundId ?? activeRoot?.id ?? activeRoot?.roundId ?? null;
+
 
   const [currentHole, setCurrentHole] = useState(params.hole || 1);
   const [courseData, setCourseData] = useState(null);
@@ -503,13 +509,18 @@ export default function HoleHubScreen({ navigation, route }) {
   }
 
   function openScoreEntry(extra = {}) {
+    const roster =
+      (Array.isArray(players) && players.length ? players : null) ||
+      (Array.isArray(activeRoot?.players) && activeRoot.players.length ? activeRoot.players : null) ||
+      [];
+
     navigation.navigate(ROUTES.SCORE_ENTRY, {
       course: courseParam ?? activeRoot?.course ?? { name: courseName, id: courseId },
       tee: teeParam ?? activeRoot?.tee ?? { name: teeName },
-      players,
+      players: roster,
       hole: currentHole,
       holeMeta,
-      roundId,
+      roundId: activeRoot?.id || activeRoot?.roundId || roundId || null,
       courseName,
       teeName,
       courseCenter,
@@ -591,30 +602,8 @@ export default function HoleHubScreen({ navigation, route }) {
     });
   }
 
-  const headerTitle = useMemo(() => shortCourseTitle(courseName), [courseName]);
-
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [deletedOpen, setDeletedOpen] = useState(false);
-
   const [savingRound, setSavingRound] = useState(false);
   const [savedOpen, setSavedOpen] = useState(false);
-
-  async function doDeleteRound() {
-    if (deleting) return;
-    setDeleting(true);
-    try {
-      await RoundState.clearActiveRoundEverywhere();
-    } finally {
-      setDeleting(false);
-      setDeleteOpen(false);
-      setDeletedOpen(true);
-      setTimeout(() => {
-        setDeletedOpen(false);
-        navigation.navigate(ROUTES.HOME);
-      }, 900);
-    }
-  }
 
   async function doSaveRoundNow({ status }) {
     if (savingRound) return;
@@ -665,14 +654,6 @@ export default function HoleHubScreen({ navigation, route }) {
     } finally {
       setSavingRound(false);
     }
-  }
-
-  function onPressSaveRound() {
-    if (savingRound) return;
-    Alert.alert("Save round?", "This will save the round to Round History so you can review or resume later.", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Save", onPress: () => doSaveRoundNow({ status: "in_progress" }) },
-    ]);
   }
 
   async function onPressFinishRound() {
@@ -740,8 +721,9 @@ export default function HoleHubScreen({ navigation, route }) {
         },
       },
       {
-        text: "Save & Exit",
+        text: savingRound ? "Saving…" : "Save & Exit",
         onPress: async () => {
+          if (savingRound) return;
           await doSaveRoundNow({ status: "in_progress" });
           navigation.dispatch(
             CommonActions.reset({
@@ -922,22 +904,15 @@ export default function HoleHubScreen({ navigation, route }) {
           <Text style={styles.greenText}>Input Scores</Text>
         </Pressable>
 
-        <View style={styles.footerMiniRow}>
+        {showFinish ? (
           <Pressable
-            onPress={showFinish ? onPressFinishRound : onPressSaveRound}
-            style={({ pressed }) => [styles.miniBtn, styles.saveMiniBtn, pressed && styles.pressed, savingRound && { opacity: 0.7 }]}
+            onPress={onPressFinishRound}
             disabled={savingRound}
+            style={({ pressed }) => [styles.finishBtn, pressed && styles.pressed, savingRound && { opacity: 0.7 }]}
           >
-            <Text style={styles.miniBtnText}>{savingRound ? "Saving…" : showFinish ? "Finish Round" : "Save Round"}</Text>
+            <Text style={styles.finishBtnText}>{savingRound ? "Saving…" : "Finish Round"}</Text>
           </Pressable>
-
-          <Pressable
-            onPress={() => setDeleteOpen(true)}
-            style={({ pressed }) => [styles.miniBtn, styles.deleteMiniBtn, pressed && styles.pressed]}
-          >
-            <Text style={styles.miniBtnText}>Delete Round</Text>
-          </Pressable>
-        </View>
+        ) : null}
       </View>
 
       <Modal visible={yardageOpen} transparent animationType="fade" onRequestClose={() => setYardageOpen(false)}>
@@ -979,45 +954,6 @@ export default function HoleHubScreen({ navigation, route }) {
             </Pressable>
           </View>
         </KeyboardAvoidingView>
-      </Modal>
-
-      <Modal visible={deleteOpen} transparent animationType="fade" onRequestClose={() => setDeleteOpen(false)}>
-        <Pressable style={styles.confirmBg} onPress={() => setDeleteOpen(false)}>
-          <View />
-        </Pressable>
-
-        <View style={styles.confirmWrap}>
-          <View style={styles.confirmCard}>
-            <Text style={styles.confirmTitle}>Delete round?</Text>
-            <Text style={styles.confirmSub}>Are you sure you want to delete this round? This can’t be undone.</Text>
-
-            <View style={styles.confirmRow}>
-              <Pressable onPress={() => setDeleteOpen(false)} style={({ pressed }) => [styles.confirmBtn, pressed && styles.pressed]}>
-                <Text style={styles.confirmBtnT}>Cancel</Text>
-              </Pressable>
-
-              <Pressable
-                onPress={doDeleteRound}
-                disabled={deleting}
-                style={({ pressed }) => [styles.confirmBtnDanger, pressed && styles.pressed, deleting && { opacity: 0.7 }]}
-              >
-                <Text style={styles.confirmBtnDangerT}>{deleting ? "Deleting…" : "Delete"}</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={deletedOpen} transparent animationType="fade" onRequestClose={() => setDeletedOpen(false)}>
-        <Pressable style={styles.confirmBg} onPress={() => setDeletedOpen(false)}>
-          <View />
-        </Pressable>
-        <View style={styles.confirmWrap}>
-          <View style={styles.confirmCard}>
-            <Text style={styles.confirmTitle}>Round deleted</Text>
-            <Text style={styles.confirmSub}>Returning Home…</Text>
-          </View>
-        </View>
       </Modal>
 
       <Modal visible={savedOpen} transparent animationType="fade" onRequestClose={() => setSavedOpen(false)}>
@@ -1164,21 +1100,17 @@ const styles = StyleSheet.create({
   },
   greenText: { color: GREEN_TEXT, fontSize: 17, fontWeight: "900" },
 
-  footerMiniRow: { marginTop: 10, flexDirection: "row", gap: 10 },
-
-  miniBtn: {
-    flex: 1,
+  finishBtn: {
+    marginTop: 10,
     height: 44,
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
+    backgroundColor: "rgba(46,125,255,0.18)",
+    borderColor: "rgba(46,125,255,0.45)",
   },
-
-  saveMiniBtn: { backgroundColor: "rgba(46,125,255,0.18)", borderColor: "rgba(46,125,255,0.45)" },
-  deleteMiniBtn: { backgroundColor: "rgba(214,40,40,0.12)", borderColor: "rgba(214,40,40,0.35)" },
-
-  miniBtnText: { color: WHITE, fontWeight: "900", letterSpacing: 0.25, fontSize: 13 },
+  finishBtnText: { color: WHITE, fontWeight: "900", letterSpacing: 0.25, fontSize: 13 },
 
   modalBg: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.60)" },
   modalWrap: { flex: 1, justifyContent: "center", padding: 18 },
@@ -1240,27 +1172,6 @@ const styles = StyleSheet.create({
   },
   confirmTitle: { color: WHITE, fontWeight: "900", fontSize: 16 },
   confirmSub: { marginTop: 8, color: "rgba(255,255,255,0.72)", fontWeight: "800", fontSize: 12, lineHeight: 17 },
-  confirmRow: { marginTop: 12, flexDirection: "row", gap: 10 },
-  confirmBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-  },
-  confirmBtnT: { color: WHITE, fontWeight: "900" },
-  confirmBtnDanger: {
-    flex: 1,
-    height: 48,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: DANGER,
-  },
-  confirmBtnDangerT: { color: WHITE, fontWeight: "900" },
 
   pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
 

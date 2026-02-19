@@ -1,7 +1,7 @@
 // src/services/tees.js
 //
 // Tee resolver for Legacy Golf
-// - Calls GolfCourseAPI for tees + total yards (setup-time)
+// - Calls GolfCourseAPI for tees + total yards (setup-time) unless forceLocalOnly
 // - Falls back to local special cases and then default tees
 //
 // Returns: [{ name, code, yardage }]
@@ -71,14 +71,7 @@ function parseTeesFromApiDetails(details) {
 
   for (const t of teesFlat) {
     const name =
-      String(
-        t?.tee_name ||
-        t?.name ||
-        t?.teeName ||
-        t?.color ||
-        t?.code ||
-        ""
-      ).trim() || "Tee";
+      String(t?.tee_name || t?.name || t?.teeName || t?.color || t?.code || "").trim() || "Tee";
 
     const gender = String(t?.gender || "").trim().toLowerCase(); // male/female
     const baseCode = String(t?.code || "").trim() || toCode(name);
@@ -105,8 +98,23 @@ function parseTeesFromApiDetails(details) {
   return out.length ? out : null;
 }
 
-// Temporary local mappings
+// Local mappings (include Green Tee / Pagoda Ridge protection)
 function getLocalTees(courseId, courseName) {
+  // Green Tee / Pagoda Ridge (protected)
+  if (
+    matchesCourse(courseId, courseName, ["green", "tee"]) ||
+    matchesCourse(courseId, courseName, ["pagoda", "ridge"])
+  ) {
+    return [
+      makeTee("Championship", "CHAMP"),
+      makeTee("Tournament", "TOURNAMENT"),
+      makeTee("Blue", "BLUE"),
+      makeTee("White", "WHITE"),
+      makeTee("Gold", "GOLD"),
+      makeTee("Red", "RED"),
+    ];
+  }
+
   if (matchesCourse(courseId, courseName, ["osoyoos", "desert"])) {
     return [
       makeTee("Gold", "GOLD"),
@@ -138,9 +146,20 @@ function getDefaultTees() {
   ];
 }
 
+// opts:
+// - courseName: string
+// - forceLocalOnly: boolean (if true, skip API and only use local + default)
 export async function getTeesForCourse(courseId, opts = {}) {
   const id = String(courseId || "").trim();
   const courseName = String(opts?.courseName || "");
+  const forceLocalOnly = opts?.forceLocalOnly === true;
+
+  // 0) Forced local-only (protected courses)
+  if (forceLocalOnly) {
+    const local = getLocalTees(id, courseName);
+    if (local) return local;
+    return getDefaultTees();
+  }
 
   // 1) API details (setup-time)
   if (id) {

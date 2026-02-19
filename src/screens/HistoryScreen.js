@@ -1,6 +1,3 @@
-// FEB17 NOTE: Branch = feb17-round-history-swipe-polish
-// Goal: Final polish for Round History swipe rows (borders/spacing/consistency).
-
 // src/screens/HistoryScreen.js
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, Alert, Platform } from "react-native";
@@ -11,17 +8,17 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import ROUTES from "../navigation/routes";
 import { auth } from "../firebase/firebase";
 import { getRounds, deleteRound } from "../storage/rounds";
-import { loadActiveRound, clearActiveRoundEverywhere } from "../storage/roundState";
-import * as RoundState from "../storage/roundState";
+import { loadActiveRound, updateActiveRound, clearActiveRound } from "../storage/roundState";
 import PremiumSwipeRow from "../components/PremiumSwipeRow";
 
 const BG = "#0B1220";
 const WHITE = "#FFFFFF";
 const CARD = "rgba(255,255,255,0.05)";
 const BORDER = "rgba(255,255,255,0.14)";
-const MUTED = "rgba(255,255,255,0.65)";
 const INNER = "rgba(0,0,0,0.18)";
 const GREEN_BORDER = "rgba(46,204,113,0.70)";
+
+const HOLE_FORMAT_KEYS = new Set(["kp", "longdrive", "secondshotkp"]);
 
 function pickFirstString(...vals) {
   for (const v of vals) {
@@ -36,11 +33,6 @@ function pickFirstNumber(...vals) {
     if (Number.isFinite(n)) return n;
   }
   return null;
-}
-
-function unwrapRound(state) {
-  if (!state || typeof state !== "object") return null;
-  return state?.activeRound || state?.currentRound || state?.round || state;
 }
 
 function shortCourseTitle(name) {
@@ -99,19 +91,10 @@ function sumGrossAnyShape(roundRoot, playerId) {
 }
 
 function formatDateAny(round) {
-  const raw =
-    round?.playedAt ||
-    round?.date ||
-    round?.createdAt ||
-    round?.startedAt ||
-    round?.timestamp;
+  const raw = round?.playedAt || round?.date || round?.createdAt || round?.startedAt || round?.timestamp;
   const d = raw ? new Date(raw) : null;
   if (!d || Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
 function isRoundCompletedAnyShape(r) {
@@ -133,14 +116,7 @@ function isRoundCompletedAnyShape(r) {
 }
 
 function pickHoleNumberAny(r, fallback = null) {
-  const holeRaw = pickFirstNumber(
-    r?.holeNumber,
-    r?.currentHole,
-    r?.hole,
-    r?.lastHole,
-    r?.resumeHole,
-    r?.holeIndex
-  );
+  const holeRaw = pickFirstNumber(r?.holeNumber, r?.currentHole, r?.hole, r?.lastHole, r?.resumeHole, r?.holeIndex);
 
   let holeNumber = holeRaw;
 
@@ -176,74 +152,98 @@ function pickUserPlayer(roundRoot) {
   return players[0];
 }
 
-function extractActiveSummary(state) {
-  const root = unwrapRound(state);
-  if (!root) return null;
-
-  const courseName = pickFirstString(
-    root?.course?.name,
-    root?.courseName,
-    root?.course?.title,
-    root?.place?.name,
-    state?.course?.name,
-    state?.courseName
-  );
-
-  const holeNumber = pickHoleNumberAny(root, null);
-
-  const isActiveExplicit =
-    !!root?.isActive ||
-    !!state?.isActive ||
-    root?.status === "active" ||
-    state?.status === "active" ||
-    root?.inProgress === true ||
-    state?.inProgress === true;
-
-  const hasEnoughToShow = !!courseName || isActiveExplicit || !!root?.course || !!root?.players;
-  if (!hasEnoughToShow) return null;
-
-  const roundId = root?.roundId ?? root?.id ?? state?.roundId ?? state?.id ?? null;
-
-  return {
-    roundId: roundId ? String(roundId) : null,
-    courseName: courseName || "Current Round",
-    holeNumber: holeNumber,
-    startedAt: root?.startedAt ?? state?.startedAt ?? null,
-    root,
-  };
+function normalizeKey(k) {
+  return String(k || "").trim().toLowerCase();
 }
 
-function extractActiveRoundParams(state) {
-  const root = unwrapRound(state);
-  if (!root) return null;
+function getConfigByKeyFromRoundDoc(doc) {
+  const c1 = doc?.configByKey;
+  const c2 = doc?.formatConfigByKey;
+  const c3 = doc?.formatDetailsByKey;
+  const c4 = doc?.formatsConfigByKey;
+  const c5 = doc?.formatsConfig;
+  const c6 = doc?.formatConfig;
+  return (
+    (c1 && typeof c1 === "object" && c1) ||
+    (c2 && typeof c2 === "object" && c2) ||
+    (c3 && typeof c3 === "object" && c3) ||
+    (c4 && typeof c4 === "object" && c4) ||
+    (c5 && typeof c5 === "object" && c5) ||
+    (c6 && typeof c6 === "object" && c6) ||
+    {}
+  );
+}
 
-  const course = root?.course || state?.course || null;
-  const tee = root?.tee || state?.tee || null;
-  const players = root?.players || state?.players || null;
+function getFeeByKeyFromRoundDoc(doc) {
+  const a = doc?.feeByKey;
+  const b = doc?.poolsByKey;
+  const c = doc?.moneyPools?.feeByKey;
+  const d = doc?.moneyPools?.poolsByKey;
+  const e = doc?.money?.feeByKey;
+  return (
+    (a && typeof a === "object" && a) ||
+    (b && typeof b === "object" && b) ||
+    (c && typeof c === "object" && c) ||
+    (d && typeof d === "object" && d) ||
+    (e && typeof e === "object" && e) ||
+    {}
+  );
+}
 
-  if (!course || !tee || !Array.isArray(players) || players.length === 0) return null;
+function hasAnyFeeForSelectedFormats(roundDoc) {
+  const selected = Array.isArray(roundDoc?.formatsSelected) ? roundDoc.formatsSelected : [];
+  if (!selected.length) return false;
 
-  const holeMeta =
-    root?.holeMeta ??
-    root?.meta?.holeMeta ??
-    state?.holeMeta ??
-    state?.meta?.holeMeta ??
-    null;
+  const feeByKey = getFeeByKeyFromRoundDoc(roundDoc);
+  for (const k of selected) {
+    const key = String(k || "").trim();
+    if (!key) continue;
+    const v = feeByKey?.[key];
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0) return true;
+  }
+  return false;
+}
 
-  const scoring =
-    root?.scoring ??
-    root?.scoringType ??
-    state?.scoring ??
-    state?.scoringType ??
-    "net";
+function needsHoleDetails(roundDoc) {
+  const selected = Array.isArray(roundDoc?.formatsSelected) ? roundDoc.formatsSelected : [];
+  if (!selected.length) return false;
 
-  const startHole = pickHoleNumberAny(root, 1);
+  const configByKey = getConfigByKeyFromRoundDoc(roundDoc);
 
-  const courseName = pickFirstString(course?.name, root?.courseName, state?.courseName);
-  const roundId = root?.roundId ?? root?.id ?? state?.roundId ?? state?.id ?? null;
+  for (const rawKey of selected) {
+    const key = normalizeKey(rawKey);
+    if (!HOLE_FORMAT_KEYS.has(key)) continue;
+
+    const cfg = configByKey?.[key];
+
+    const holes = Array.isArray(cfg?.holes) ? cfg.holes : null;
+    const holesSelected = Array.isArray(cfg?.holesSelected) ? cfg.holesSelected : null;
+    const holesByRound = cfg?.holesByRound && typeof cfg.holesByRound === "object" ? cfg.holesByRound : null;
+    const holesR1 = holesByRound && Array.isArray(holesByRound?.r1) ? holesByRound.r1 : null;
+
+    const any = (holes && holes.length) || (holesSelected && holesSelected.length) || (holesR1 && holesR1.length);
+
+    if (!any) return true;
+  }
+
+  return false;
+}
+
+function buildHoleHubParamsFromRoundDoc(roundDoc, rid) {
+  const course = roundDoc?.course || null;
+  const tee = roundDoc?.tee || null;
+  const players = Array.isArray(roundDoc?.players) ? roundDoc.players : null;
+  if (!course || !tee || !players || !players.length) return null;
+
+  const scoring = roundDoc?.scoring || roundDoc?.scoringType || "net";
+  const startHole = pickHoleNumberAny(roundDoc, 1);
+
+  const courseName = pickFirstString(roundDoc?.courseName, course?.name);
+  const holeMeta = roundDoc?.holeMeta ?? roundDoc?.meta?.holeMeta ?? null;
 
   return {
-    ...root,
+    ...roundDoc,
     course,
     tee,
     players,
@@ -253,36 +253,62 @@ function extractActiveRoundParams(state) {
     hole: startHole,
     holeIndex: startHole - 1,
     courseName: courseName || course?.name,
-    roundId,
+    roundId: rid || roundDoc?.roundId || roundDoc?.id || null,
   };
 }
 
-function extractResumeParamsFromSavedRound(r) {
-  if (!r || typeof r !== "object") return null;
+function buildHydrationPatchFromLocal(localRound, rid) {
+  if (!localRound || typeof localRound !== "object") return {};
 
-  const course = r?.course || { name: r?.courseName || "Course", id: r?.courseId || r?.id || null };
-  const tee = r?.tee || { name: r?.teeName || "Tees" };
-  const players = Array.isArray(r?.players) ? r.players : [];
-  if (!players.length) return null;
+  const course = localRound?.course || (localRound?.courseName ? { name: localRound.courseName } : null);
+  const tee = localRound?.tee || (localRound?.teeName ? { name: localRound.teeName } : null);
+  const players = Array.isArray(localRound?.players) ? localRound.players : null;
 
-  const holeMeta = r?.holeMeta ?? r?.meta?.holeMeta ?? null;
-  const startHole = pickHoleNumberAny(r, 1);
+  const holeMeta = localRound?.holeMeta ?? localRound?.meta?.holeMeta ?? null;
+  const scoring = localRound?.scoring || localRound?.scoringType || "net";
 
-  const courseName = pickFirstString(r?.courseName, course?.name);
-  const roundId = r?.id ? String(r.id) : null;
+  const courseName = pickFirstString(localRound?.courseName, course?.name);
+  const teeName = pickFirstString(localRound?.teeName, tee?.name);
 
-  return {
-    ...r,
-    course,
-    tee,
-    players,
-    holeMeta: holeMeta && typeof holeMeta === "object" ? holeMeta : undefined,
-    startHole,
-    hole: startHole,
-    holeIndex: startHole - 1,
-    courseName: courseName || course?.name,
-    roundId,
+  const currentHole = pickHoleNumberAny(localRound, 1);
+
+  const patch = {
+    roundId: rid || localRound?.roundId || localRound?.id || null,
+
+    course: course || null,
+    tee: tee || null,
+    players: players || null,
+    holeMeta: holeMeta || null,
+
+    courseName: courseName || null,
+    teeName: teeName || null,
+
+    scoring,
+
+    currentHole,
+    startHole: localRound?.startHole ? Number(localRound.startHole) : 1,
+
+    // keep formats if they exist locally
+    formatsSelected: Array.isArray(localRound?.formatsSelected) ? localRound.formatsSelected : undefined,
+    configByKey: localRound?.configByKey && typeof localRound.configByKey === "object" ? localRound.configByKey : undefined,
+    feeByKey: localRound?.feeByKey && typeof localRound.feeByKey === "object" ? localRound.feeByKey : undefined,
+
+    // status normalization: setup / active / in_progress
+    status: String(localRound?.status || "setup").toLowerCase().includes("active")
+      ? "active"
+      : String(localRound?.status || "").toLowerCase().includes("progress")
+        ? "in_progress"
+        : String(localRound?.status || "").toLowerCase().includes("in_progress")
+          ? "in_progress"
+          : "setup",
   };
+
+  // remove undefined keys so merge is clean
+  Object.keys(patch).forEach((k) => {
+    if (patch[k] === undefined) delete patch[k];
+  });
+
+  return patch;
 }
 
 export default function HistoryScreen({ navigation }) {
@@ -290,12 +316,12 @@ export default function HistoryScreen({ navigation }) {
   const openSwipeRef = useRef(null);
 
   const [rounds, setRounds] = useState([]);
-  const [activeState, setActiveState] = useState(null);
+  const [activeFsRound, setActiveFsRound] = useState(null);
 
   const load = useCallback(async () => {
     const [all, active] = await Promise.all([getRounds(), loadActiveRound()]);
     setRounds(Array.isArray(all) ? all : []);
-    setActiveState(active || null);
+    setActiveFsRound(active || null);
   }, []);
 
   useFocusEffect(
@@ -313,9 +339,8 @@ export default function HistoryScreen({ navigation }) {
     openSwipeRef.current = null;
   }
 
-  const activeSummary = useMemo(() => extractActiveSummary(activeState), [activeState]);
+  const hasActive = !!activeFsRound?.roundId;
   const activePinnedId = "__active__";
-  const hasActive = !!activeSummary;
 
   const items = useMemo(() => (Array.isArray(rounds) ? rounds : []), [rounds]);
   const hasAny = hasActive || items.length > 0;
@@ -323,49 +348,110 @@ export default function HistoryScreen({ navigation }) {
   const bottomPad = Math.max(14, (insets?.bottom || 0) + 12);
   const headerPadTop = insets?.top || 0;
 
+  async function routeIntoRoundById(roundId, localFallback) {
+    const rid = String(roundId || "").trim();
+    if (!rid) {
+      Alert.alert("Can’t open round", "Missing round id.");
+      return;
+    }
+
+    // point “active” at this roundId first
+    try {
+      await updateActiveRound({}, rid);
+    } catch { }
+
+    // load Firestore doc
+    let fsRound = null;
+    try {
+      fsRound = await loadActiveRound(rid);
+    } catch { }
+
+    // if Firestore is missing core setup, hydrate from local round (AsyncStorage)
+    const hasCourse = !!fsRound?.course;
+    const hasTee = !!fsRound?.tee;
+    const hasPlayers = Array.isArray(fsRound?.players) && fsRound.players.length > 0;
+
+    if ((!fsRound || !hasCourse || !hasTee || !hasPlayers) && localFallback) {
+      try {
+        const patch = buildHydrationPatchFromLocal(localFallback, rid);
+        await updateActiveRound(patch, rid);
+        fsRound = await loadActiveRound(rid);
+      } catch { }
+    }
+
+    if (!fsRound) {
+      Alert.alert("Round not found", "This round isn’t available in Firestore. It may have been deleted or not synced.");
+      return;
+    }
+
+    // IMPORTANT: completion wins over status (status may be wrong)
+    if (isRoundCompletedAnyShape(fsRound)) {
+      navigation.navigate({ name: ROUTES.ROUND_DETAILS, params: { roundId: rid } });
+      return;
+    }
+
+    const status = String(fsRound?.status || "").toLowerCase();
+
+    // if active / in-progress, go straight to Hole Hub
+    if (status === "active" || status.includes("in_progress") || status.includes("progress")) {
+      const params = buildHoleHubParamsFromRoundDoc(fsRound, rid);
+      if (params) {
+        navigation.navigate(ROUTES.HOLE_HUB, params);
+        return;
+      }
+
+      Alert.alert("Round incomplete", "This round is missing setup details. Please open it from setup and try again.");
+      return;
+    }
+
+    // setup routing
+    const selected = Array.isArray(fsRound?.formatsSelected) ? fsRound.formatsSelected : [];
+    if (!selected.length) {
+      navigation.navigate(ROUTES.GAME_FORMATS, { roundId: rid });
+      return;
+    }
+
+    if (needsHoleDetails(fsRound)) {
+      navigation.navigate(ROUTES.GAME_FORMAT_DETAILS, { roundId: rid });
+      return;
+    }
+
+    if (!hasAnyFeeForSelectedFormats(fsRound)) {
+      navigation.navigate(ROUTES.GAME_FORMAT_POOLS, { roundId: rid });
+      return;
+    }
+
+    navigation.navigate(ROUTES.GAME_ROUND_BRIEFING, { roundId: rid });
+  }
+
   async function openActivePinned() {
     closeAnyOpenSwipe();
 
-    const params = extractActiveRoundParams(activeState);
-    if (params) {
-      navigation.navigate(ROUTES.HOLE_HUB, params);
+    const rid = activeFsRound?.roundId ? String(activeFsRound.roundId) : "";
+    if (!rid) {
+      Alert.alert("No active round", "There is no active round to open right now.");
       return;
     }
 
-    navigation.navigate(ROUTES.GAMES, { resume: true });
+    await routeIntoRoundById(rid, null);
   }
 
-  async function openRound(r) {
+  async function openRound(localRound) {
     closeAnyOpenSwipe();
 
-    const completed = isRoundCompletedAnyShape(r);
-
-    if (completed) {
-      navigation.navigate({
-        name: ROUTES.ROUND_DETAILS,
-        params: { roundId: r.id },
-      });
+    const rid = String(localRound?.id || localRound?.roundId || "").trim();
+    if (!rid) {
+      Alert.alert("Can’t open round", "Missing round id.");
       return;
     }
 
-    const params = extractResumeParamsFromSavedRound(r);
-    if (!params) {
-      Alert.alert("Can’t resume", "This round is missing data needed to resume.");
+    const completedLocal = isRoundCompletedAnyShape(localRound);
+    if (completedLocal) {
+      navigation.navigate({ name: ROUTES.ROUND_DETAILS, params: { roundId: rid } });
       return;
     }
 
-    try {
-      if (typeof RoundState.saveActiveRound === "function") {
-        await RoundState.saveActiveRound({
-          ...r,
-          id: String(r?.id || `r_${Date.now()}`),
-          status: "in_progress",
-          lastHole: pickHoleNumberAny(r, params?.hole || 1),
-        });
-      }
-    } catch { }
-
-    navigation.navigate(ROUTES.HOLE_HUB, params);
+    await routeIntoRoundById(rid, localRound);
   }
 
   function confirmDeleteOne({ id, isActivePinned }) {
@@ -379,8 +465,10 @@ export default function HistoryScreen({ navigation }) {
         onPress: async () => {
           try {
             if (isActivePinned) {
-              await clearActiveRoundEverywhere();
-              const rid = activeSummary?.roundId;
+              try {
+                await clearActiveRound();
+              } catch { }
+              const rid = activeFsRound?.roundId;
               if (rid) await deleteRound(rid);
             } else {
               await deleteRound(String(id));
@@ -398,16 +486,7 @@ export default function HistoryScreen({ navigation }) {
     return <View style={[styles.greenRing, pinned && styles.blueRing]}>{children}</View>;
   }
 
-  function renderRowContent({
-    courseName,
-    dateText,
-    statusText,
-    statusKind,
-    rightPrimary,
-    rightSecondary,
-    pinned = false,
-    onPress,
-  }) {
+  function renderRowContent({ courseName, dateText, statusText, statusKind, rightPrimary, rightSecondary, onPress }) {
     return (
       <Pressable onPress={onPress} style={({ pressed }) => [styles.rowCard, pressed && styles.pressed]}>
         <View style={{ flex: 1, minWidth: 0 }}>
@@ -447,6 +526,15 @@ export default function HistoryScreen({ navigation }) {
     );
   }
 
+  // active row display values (from Firestore active doc)
+  const activeCourseName = pickFirstString(activeFsRound?.courseName, activeFsRound?.course?.name, "Current Round");
+  const activeDateText = formatDateAny(activeFsRound || {});
+  const activeHoleNum = pickHoleNumberAny(activeFsRound || {}, null);
+
+  const activeStatusText = "In Progress";
+  const activeRightPrimary = activeHoleNum ? `Hole ${activeHoleNum}` : "Resume";
+  const activeRightSecondary = activeHoleNum ? "Currently on" : "Tap to continue";
+
   return (
     <View style={[styles.screen, { paddingTop: headerPadTop }]}>
       <View style={styles.headerWrap}>
@@ -455,9 +543,7 @@ export default function HistoryScreen({ navigation }) {
 
         <View style={styles.headerRow}>
           <Pressable
-            onPress={() =>
-              navigation.canGoBack?.() ? navigation.goBack() : navigation.navigate(ROUTES.HOME)
-            }
+            onPress={() => (navigation.canGoBack?.() ? navigation.goBack() : navigation.navigate(ROUTES.HOME))}
             hitSlop={12}
             style={({ pressed }) => [styles.headerPill, pressed && styles.pressed]}
           >
@@ -467,7 +553,9 @@ export default function HistoryScreen({ navigation }) {
           <View style={styles.headerCenter}>
             <Text style={styles.headerTitle}>Round History</Text>
             <Text style={styles.headerSub}>
-              {hasAny ? `${(hasActive ? 1 : 0) + items.length} item${(hasActive ? 1 : 0) + items.length === 1 ? "" : "s"}` : "Your rounds, beautifully organized"}
+              {hasAny
+                ? `${(hasActive ? 1 : 0) + items.length} item${(hasActive ? 1 : 0) + items.length === 1 ? "" : "s"}`
+                : "Your rounds, beautifully organized"}
             </Text>
           </View>
 
@@ -497,49 +585,35 @@ export default function HistoryScreen({ navigation }) {
           </View>
         ) : (
           <View style={{ gap: 12 }}>
-            {hasActive
-              ? (() => {
-                const root = activeSummary?.root || unwrapRound(activeState) || {};
-                const courseName = String(activeSummary?.courseName || "Current Round").trim();
-                const dateText = formatDateAny(root);
-                const holeNum = activeSummary?.holeNumber || pickHoleNumberAny(root, null);
-
-                const statusText = "In Progress";
-                const rightPrimary = holeNum ? `Hole ${holeNum}` : "Resume";
-                const rightSecondary = holeNum ? "Currently on" : "Tap to continue";
-
-                return (
-                  <RoundRowShell pinned>
-                    <PremiumSwipeRow
-                      openSwipeRef={openSwipeRef}
-                      closeAnyOpenSwipe={closeAnyOpenSwipe}
-                      radius={22}
-                      actionWidth={120}
-                      borderColor="transparent"
-                      backgroundColor="transparent"
-                      editLabel="Enter"
-                      onEdit={openActivePinned}
-                      deleteLabel="Delete"
-                      onDelete={() => confirmDeleteOne({ id: activePinnedId, isActivePinned: true })}
-                    >
-                      {renderRowContent({
-                        courseName,
-                        dateText,
-                        statusText,
-                        statusKind: "in_progress",
-                        rightPrimary,
-                        rightSecondary,
-                        pinned: true,
-                        onPress: openActivePinned,
-                      })}
-                    </PremiumSwipeRow>
-                  </RoundRowShell>
-                );
-              })()
-              : null}
+            {hasActive ? (
+              <RoundRowShell pinned>
+                <PremiumSwipeRow
+                  openSwipeRef={openSwipeRef}
+                  closeAnyOpenSwipe={closeAnyOpenSwipe}
+                  radius={22}
+                  actionWidth={120}
+                  borderColor="transparent"
+                  backgroundColor="transparent"
+                  editLabel="Enter"
+                  onEdit={openActivePinned}
+                  deleteLabel="Delete"
+                  onDelete={() => confirmDeleteOne({ id: activePinnedId, isActivePinned: true })}
+                >
+                  {renderRowContent({
+                    courseName: activeCourseName,
+                    dateText: activeDateText,
+                    statusText: activeStatusText,
+                    statusKind: "in_progress",
+                    rightPrimary: activeRightPrimary,
+                    rightSecondary: activeRightSecondary,
+                    onPress: openActivePinned,
+                  })}
+                </PremiumSwipeRow>
+              </RoundRowShell>
+            ) : null}
 
             {items.map((r) => {
-              const rid = String(r?.id);
+              const rid = String(r?.id || r?.roundId || "");
               const courseName = String(r?.courseName || r?.course?.name || "Course").trim();
               const dateText = formatDateAny(r);
 

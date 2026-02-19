@@ -30,7 +30,9 @@ import GpsScreen from "../screens/GpsScreen";
 import GreenViewScreen from "../screens/GreenViewScreen";
 import HoleStrategyScreen from "../screens/HoleStrategyScreen";
 
-import ScoreEntryScreen from "../screens/ScoreEntryScreen";
+// NEW: regular game score entry (tournament-style UI)
+import GameScoreEntryScreen from "../screens/GameScoreEntryScreen";
+
 import ScorecardScreen from "../screens/ScorecardScreen";
 
 import CourseDataScreen from "../screens/CourseDataScreen";
@@ -53,7 +55,6 @@ import GameFormatsScreen from "../screens/GameFormatsScreen";
 // NEW: regular game money pools + briefing
 import GameRoundBriefingScreen from "../screens/GameRoundBriefingScreen";
 
-// NEW: regular game format details (post-select)
 // NEW: regular game format details (post-select)
 import GameFormatDetailsScreen from "../screens/GameFormatDetailsScreen";
 
@@ -171,7 +172,9 @@ export default function RootNavigator() {
           <Stack.Screen name={ROUTES.GREEN_VIEW} component={GreenViewScreen} />
           <Stack.Screen name={ROUTES.HOLE_STRATEGY} component={HoleStrategyScreen} />
 
-          <Stack.Screen name={ROUTES.SCORE_ENTRY} component={ScoreEntryScreen} />
+          {/* Regular game score entry (tournament-style UI) */}
+          <Stack.Screen name={ROUTES.SCORE_ENTRY} component={GameScoreEntryScreen} />
+
           <Stack.Screen name={ROUTES.COURSE_DATA} component={CourseDataScreen} />
 
           <Stack.Screen name={ROUTES.HISTORY} component={HistoryScreen} />
@@ -181,6 +184,7 @@ export default function RootNavigator() {
           <Stack.Screen name={ROUTES.PLAYER_STATS} component={PlayerStatsScreen} />
           <Stack.Screen name={ROUTES.BUDDIES} component={BuddyListScreen} />
           <Stack.Screen name={ROUTES.EQUIPMENT} component={EquipmentScreen} />
+
           {/* NEW: regular game formats (use this in the new flow) */}
           <Stack.Screen name={ROUTES.GAME_FORMATS} component={GameFormatsScreen} />
 
@@ -195,7 +199,6 @@ export default function RootNavigator() {
 
           {/* Regular game finish splash */}
           <Stack.Screen name={ROUTES.GAME_ROUND_CALCULATING} component={GameRoundCalculatingResultsScreen} />
-
 
           {/* Tournaments */}
           <Stack.Screen name={ROUTES.TOURNAMENT_HUB_SPLASH} component={TournamentHubSplashScreen} />
@@ -249,7 +252,7 @@ export default function RootNavigator() {
           {/* NEW: Winner's Circle / Trophy */}
           <Stack.Screen name={ROUTES.TOURNAMENT_TROPHY} component={TournamentTrophyScreen} />
 
-          {/* NEW: Settle Payouts (post-trophy) */}
+          {/* NEW: Settle Payouts (post-trophy step) */}
           <Stack.Screen name={ROUTES.TOURNAMENT_SETTLE_PAYOUTS} component={TournamentSettlePayoutsScreen} />
 
           {/* Modals */}
