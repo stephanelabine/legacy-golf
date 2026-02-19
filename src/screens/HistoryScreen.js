@@ -342,7 +342,17 @@ export default function HistoryScreen({ navigation }) {
   const hasActive = !!activeFsRound?.roundId;
   const activePinnedId = "__active__";
 
-  const items = useMemo(() => (Array.isArray(rounds) ? rounds : []), [rounds]);
+  const items = useMemo(() => {
+    const list = Array.isArray(rounds) ? rounds : [];
+    const activeId = activeFsRound?.roundId ? String(activeFsRound.roundId) : null;
+    if (!activeId) return list;
+
+    return list.filter((r) => {
+      const rid = String(r?.id || r?.roundId || "").trim();
+      return rid && rid !== activeId;
+    });
+  }, [rounds, activeFsRound?.roundId]);
+
   const hasAny = hasActive || items.length > 0;
 
   const bottomPad = Math.max(14, (insets?.bottom || 0) + 12);
