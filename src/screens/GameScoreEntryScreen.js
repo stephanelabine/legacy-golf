@@ -686,23 +686,14 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             </View>
 
             <View style={[styles.footer, { paddingBottom: Math.max(10, (insets?.bottom || 0) + 8) }]}>
-                <View style={styles.footerRow}>
-                    <Pressable onPress={onBack} style={({ pressed }) => [styles.secondaryBtn, pressed && styles.pressed]}>
-                        <Text style={styles.secondaryText}>Back</Text>
-                    </Pressable>
-
-                    <Pressable onPress={onScorecard} style={({ pressed }) => [styles.midBtn, pressed && styles.pressed]}>
-                        <Text style={styles.midText}>Scorecard</Text>
-                    </Pressable>
-
-                    <Pressable
-                        onPress={isFixMode ? doneFixMode : onNextHole}
-                        style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}
-                    >
-                        <Text style={styles.primaryText}>{isFixMode ? "Done" : "Save • Next Hole"}</Text>
-                    </Pressable>
-                </View>
+                <Pressable
+                    onPress={isFixMode ? doneFixMode : onNextHole}
+                    style={({ pressed }) => [styles.primaryBtnFull, pressed && styles.pressed]}
+                >
+                    <Text style={styles.primaryText}>{isFixMode ? "Done" : "Save • Next Hole"}</Text>
+                </Pressable>
             </View>
+
 
             <Modal visible={pickOpen} transparent animationType="fade" onRequestClose={closePicker}>
                 <Pressable style={styles.pickerBackdrop} onPress={closePicker} />
@@ -864,12 +855,24 @@ const styles = StyleSheet.create({
 
     primaryBtn: {
         flex: 1,
-        height: 56,
-        borderRadius: 999,
-        backgroundColor: BLUE,
+        height: 54,
+        borderRadius: 16,
+        backgroundColor: GREEN,
         alignItems: "center",
         justifyContent: "center",
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.14)",
     },
+    primaryBtnFull: {
+        height: 56,
+        borderRadius: 18,
+        backgroundColor: GREEN,
+        alignItems: "center",
+        justifyContent: "center",
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.14)",
+    },
+
     primaryText: { color: WHITE, fontWeight: "900" },
 
     pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
