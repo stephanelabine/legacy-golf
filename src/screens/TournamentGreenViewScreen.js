@@ -219,7 +219,8 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
     const h = Number(greenBox?.h || 0);
     if (!w || !h) return gMiddle || A;
 
-    const t = clamp(pinPx.y / h, 0, 1);
+    // Invert Y so dragging UP increases yardage (back of green)
+    const t = clamp(1 - pinPx.y / h, 0, 1);
     const s = clamp((pinPx.x / w - 0.5) * 2, -1, 1);
 
     const d = latLonToMetersDelta(A, B);

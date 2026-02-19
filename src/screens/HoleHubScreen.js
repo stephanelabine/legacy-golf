@@ -544,19 +544,17 @@ export default function HoleHubScreen({ navigation, route }) {
   }
 
   function openGreenView() {
-    navigation.navigate(ROUTES.GREEN_VIEW, {
-      ...params,
-      course: courseParam ?? activeRoot?.course ?? { name: courseName, id: courseId, center: courseCenter },
-      tee: teeParam ?? activeRoot?.tee ?? { name: teeName },
-      players,
-      holeMeta,
-      roundId,
+    navigation.navigate(ROUTES.TOURNAMENT_GREEN_VIEW, {
+      // TournamentGreenViewScreen param shape (works for regular too)
+      holeNumber: currentHole,
       hole: currentHole,
-      holeIndex: currentHole - 1,
+      courseId,
       courseName,
       teeName,
-      courseCenter,
-      courseId,
+      roundId: activeRoot?.id || activeRoot?.roundId || roundId || "",
+      // optional
+      greenInfo: params?.greenInfo || null,
+      yardages: params?.yardages || null,
     });
   }
 
