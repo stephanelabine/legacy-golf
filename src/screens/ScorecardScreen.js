@@ -435,13 +435,30 @@ export default function ScorecardScreen({ navigation, route }) {
   const localPlayerRows = useMemo(() => {
     const fromParams = Array.isArray(params?.players) ? params.players : null;
     const list = fromParams && fromParams.length ? fromParams : Array.isArray(localRound?.players) ? localRound.players : [];
-    return (list || [])
+
+    const rows = (list || [])
       .map((p, idx) => {
         const pid = safePlayerId(p, String(idx));
         return { ...p, _pid: pid, _name: safePlayerName(p) };
       })
       .filter((p) => !!p._pid);
-  }, [params?.players, localRound]);
+
+    // Ensure logged-in user row exists (but do not invent extra “Player” rows).
+    if (meUid) {
+      const hasMe = rows.some((r) => String(r._pid) === String(meUid));
+      if (!hasMe) {
+        const meName =
+          String(auth?.currentUser?.displayName || "").trim() ||
+          String(auth?.currentUser?.email || "").trim() ||
+          "Me";
+        rows.unshift({ uid: meUid, id: meUid, _pid: meUid, _name: meName });
+      }
+    }
+
+    return rows;
+  }, [params?.players, localRound, meUid]);
+
+
 
   const mySelectionIds = useMemo(() => {
     const groupSet = new Set((Array.isArray(groupIds) ? groupIds : []).map(String));
