@@ -42,8 +42,19 @@ const ROUTES = {
   // NEW: regular game formats (replaces old Wagers step)
   GAME_FORMATS: "GameFormats",
 
+  // NEW: regular game format details (post-select)
+  GAME_FORMAT_DETAILS: "GameFormatDetails",
+
+  // NEW: regular game money pools (allocate $ per format)
+  GAME_FORMAT_POOLS: "GameFormatPools",
+
+  // NEW: regular game calculating splash
   // NEW: regular game calculating splash
   GAME_ROUND_CALCULATING: "GameRoundCalculatingResults",
+
+  // NEW: regular game round briefing (post money pools)
+  GAME_ROUND_BRIEFING: "GameRoundBriefing",
+
 
   /* ---------------- Tournaments ---------------- */
 

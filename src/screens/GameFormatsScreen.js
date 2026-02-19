@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Alert, Platform, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import PremiumSwipeRow from "../components/PremiumSwipeRow";
 import { useTheme } from "../theme/ThemeProvider";
@@ -15,7 +16,6 @@ import { loadActiveRound, updateActiveRound } from "../storage/roundState";
 */
 
 const FORMAT_CATALOG = [
-    // 1
     {
         key: "kp",
         name: "KP",
@@ -24,7 +24,6 @@ const FORMAT_CATALOG = [
         blurb: "Closest to the pin on selected par 3s. Hole selection coming soon.",
         comingSoon: false,
     },
-    // 2
     {
         key: "longdrive",
         name: "Long Drive",
@@ -33,7 +32,6 @@ const FORMAT_CATALOG = [
         blurb: "Longest drive on selected holes. Hole selection coming soon.",
         comingSoon: false,
     },
-    // 3
     {
         key: "secondshotkp",
         name: "2nd Shot KP",
@@ -42,7 +40,6 @@ const FORMAT_CATALOG = [
         blurb: "Closest to the pin after the second shot on selected holes. Hole selection coming soon.",
         comingSoon: false,
     },
-    // 4
     {
         key: "deuce_pot",
         name: "Deuce Pot",
@@ -51,7 +48,6 @@ const FORMAT_CATALOG = [
         blurb: "Every score of 2 counts. Pot splits among all players with a deuce.",
         comingSoon: false,
     },
-    // 5
     {
         key: "putting_contest",
         name: "Putting Contest",
@@ -60,7 +56,6 @@ const FORMAT_CATALOG = [
         blurb: "Calculated later from round scoring data (fewest total putts).",
         comingSoon: false,
     },
-    // 6
     {
         key: "skins",
         name: "Skins",
@@ -69,7 +64,6 @@ const FORMAT_CATALOG = [
         blurb: "Lowest score wins the hole. Ties carry over to the next hole.",
         comingSoon: false,
     },
-    // 7
     {
         key: "nassau",
         name: "Nassau",
@@ -78,7 +72,6 @@ const FORMAT_CATALOG = [
         blurb: "Three bets: Front 9, Back 9, and Total 18. Config options coming soon.",
         comingSoon: false,
     },
-    // 8
     {
         key: "stableford",
         name: "Stableford",
@@ -87,7 +80,6 @@ const FORMAT_CATALOG = [
         blurb: "Score points per hole. Rule set selection coming soon.",
         comingSoon: false,
     },
-    // 9
     {
         key: "birdie_buckets",
         name: "Birdie Buckets",
@@ -96,7 +88,6 @@ const FORMAT_CATALOG = [
         blurb: "Contributions build the pot. First birdie (or better) wins the bucket. Full rules display coming soon.",
         comingSoon: false,
     },
-    // 10
     {
         key: "snake",
         name: "Snake",
@@ -105,7 +96,6 @@ const FORMAT_CATALOG = [
         blurb: "Tracks 3-putts across the round. Payout rules/config coming soon.",
         comingSoon: false,
     },
-    // 11
     {
         key: "team_vs_team",
         name: "Team vs Team",
@@ -114,7 +104,6 @@ const FORMAT_CATALOG = [
         blurb: "Team names next. Pairings/matchups later (with handicap balancing).",
         comingSoon: false,
     },
-    // 12
     {
         key: "__more_coming_soon__",
         name: "More Games Coming Soon",
@@ -148,6 +137,7 @@ export default function GameFormatsScreen({ navigation, route }) {
     }
 
     async function refreshRound() {
+        if (!roundId) return;
         const r = await loadActiveRound(roundId);
         setActiveRound(r || null);
     }
@@ -156,6 +146,7 @@ export default function GameFormatsScreen({ navigation, route }) {
         let mounted = true;
 
         (async () => {
+            if (!roundId) return;
             const r = await loadActiveRound(roundId);
             if (!mounted) return;
             setActiveRound(r || null);
@@ -341,7 +332,9 @@ export default function GameFormatsScreen({ navigation, route }) {
     }, [theme, isDark, footerPad]);
 
     async function setSelectedKeys(nextSet) {
+        if (!roundId) return;
         const arr = Array.from(nextSet);
+
         setSaving(true);
         try {
             const next = await updateActiveRound(
@@ -382,15 +375,21 @@ export default function GameFormatsScreen({ navigation, route }) {
     async function onContinue() {
         if (saving) return;
 
+        if (!roundId) {
+            Alert.alert("Missing round", "No roundId found. Please go back and start again.");
+            return;
+        }
+
         if (selectedCount === 0) {
             Alert.alert("Select formats", "Choose at least one side game to continue.");
             return;
         }
 
-        closeAnyOpenSwipe();
-
-        // placeholder until Format Details screen exists
-        navigation.goBack();
+        // next screen (regular games) — we will mirror the tournament details UI there
+        navigation.navigate(ROUTES.GAME_FORMAT_DETAILS, {
+            ...(params || {}),
+            roundId,
+        });
     }
 
     function onRowPress(item) {
@@ -463,7 +462,11 @@ export default function GameFormatsScreen({ navigation, route }) {
         <View style={styles.screen}>
             <ScreenHeader navigation={navigation} title="Formats" subtitle="Choose side games for this round." />
 
-            <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            <ScrollView
+                contentContainerStyle={styles.content}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+            >
                 <View style={styles.hero}>
                     <Text style={styles.heroKicker}>Step 5</Text>
                     <Text style={styles.heroTitle}>Side Games</Text>

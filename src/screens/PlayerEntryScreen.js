@@ -15,16 +15,22 @@ import {
   Alert,
 } from "react-native";
 
-import { useFocusEffect } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  onSnapshot,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+} from "firebase/firestore";
 
 import theme from "../theme";
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import PremiumSwipeRow from "../components/PremiumSwipeRow";
-import { getBuddies } from "../storage/buddies";
-import { getActiveRoundId, loadActiveRound, updateActiveRound, saveActiveRound } from "../storage/roundState";
+import { subscribeBuddies } from "../storage/buddies";
+import { getActiveRoundId, loadActiveRound, saveActiveRound, updateActiveRound } from "../storage/roundState";
 import { auth, db } from "../firebase/firebase";
 
 const PROFILE_KEY = "LEGACY_GOLF_PROFILE_V1";
@@ -89,7 +95,16 @@ function parseProfile(raw) {
   }
 }
 
-function makeActiveRoundSnapshot({ params, course, tee, holeMeta, scoring, players, playerCount, joinCode }) {
+function makeActiveRoundSnapshot({
+  params,
+  course,
+  tee,
+  holeMeta,
+  scoring,
+  players,
+  playerCount,
+  joinCode,
+}) {
   const gameId = params?.gameId || params?.gameFormat || params?.format || params?.gameType || null;
   const gameTitle = params?.gameTitle || params?.title || null;
 
@@ -142,49 +157,24 @@ function normalizeJoinCode(v) {
     .slice(0, 8);
 }
 
-function normalizePlayersForUi(fsPlayers, playerCount) {
-  const myUid = auth?.currentUser?.uid || null;
-
-  const arr = Array.isArray(fsPlayers) ? fsPlayers : [];
-
-  // Ensure "me" exists and is first
-  const meFromFs =
-    arr.find((p) => p?.id === "me") ||
-    arr.find((p) => p?.source === "me") ||
-    arr.find((p) => p?.uid && myUid && String(p.uid) === String(myUid)) ||
-    null;
-
-  const me = {
-    id: "me",
-    uid: myUid,
-    name: String(meFromFs?.name || "Me"),
-    handicap: clampHandicap(Number(meFromFs?.handicap ?? 0)),
-    phone: String(meFromFs?.phone || ""),
-    email: String(meFromFs?.email || ""),
-    source: "me",
-    trackStats: true,
-  };
-
-  const rest = arr
-    .filter((p) => p && typeof p === "object")
-    .filter((p) => p.id !== "me")
-    .map((p) => ({
-      id: String(p.id || ""),
-      uid: p.uid ? String(p.uid) : null,
-      name: String(p.name || "Player"),
-      handicap: clampHandicap(Number(p.handicap ?? 0)),
-      phone: String(p.phone || ""),
-      email: String(p.email || ""),
-      source: String(p.source || "buddy"),
-      trackStats: p.trackStats !== false,
-    }))
-    .filter((p) => p.id);
-
-  return [me, ...rest].slice(0, playerCount);
+function normalizePlayersForRound(players) {
+  const arr = Array.isArray(players) ? players : [];
+  return arr.map((p) => ({
+    id: String(p?.id || ""),
+    uid: p?.uid || null,
+    name: String(p?.name || "Player"),
+    handicap: clampHandicap(Number(p?.handicap ?? 0)),
+    phone: String(p?.phone || ""),
+    email: String(p?.email || ""),
+    source: String(p?.source || "buddy"),
+    trackStats: p?.trackStats !== false,
+  })).filter((p) => p.id);
 }
 
 export default function PlayerEntryScreen({ navigation, route }) {
   const params = route?.params || {};
+  const roundIdParam = params?.roundId || null;
+
   const course = params?.course || null;
   const tee = params?.tee || null;
   const holeMeta = params?.holeMeta || null;
@@ -193,17 +183,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
   const scoring = String(scoringRaw || "net").toLowerCase() === "gross" ? "gross" : "net";
 
   const gameLabel = useMemo(() => pickGameLabel(params), [params]);
-
-  const paramCount = useMemo(() => {
-    const n = Number(params?.playerCount || 4);
-    return Math.max(1, Math.min(16, Number.isFinite(n) ? n : 4));
-  }, [params?.playerCount]);
-
-  // IMPORTANT: playerCount must be state so it can hydrate from Firestore
-  const [playerCount, setPlayerCount] = useState(paramCount);
-
-  // Round id must be passed through the whole setup flow
-  const roundId = params?.roundId || null;
+  const playerCount = Math.max(1, Math.min(16, Number(params?.playerCount || 4)));
 
   const [buddies, setBuddies] = useState([]);
 
@@ -247,10 +227,6 @@ export default function PlayerEntryScreen({ navigation, route }) {
   const lobbyUnsubRef = useRef(null);
   const lobbyCreatedRef = useRef(false);
 
-  // Firestore hydration / autosave guards
-  const hydratedOnceRef = useRef(false);
-  const autosaveTimerRef = useRef(null);
-
   // Only one swipe row open at a time
   const openSwipeRef = useRef(null);
   function closeAnyOpenSwipe() {
@@ -289,13 +265,6 @@ export default function PlayerEntryScreen({ navigation, route }) {
     closeEditHandicap();
   }
 
-  // Keep paramCount only as a fallback BEFORE Firestore hydrates
-  useEffect(() => {
-    if (!roundId) {
-      setPlayerCount(paramCount);
-    }
-  }, [paramCount, roundId]);
-
   // Always pull Player 1 from Profile (name + handicap)
   useEffect(() => {
     let mounted = true;
@@ -308,13 +277,14 @@ export default function PlayerEntryScreen({ navigation, route }) {
         const parsed = raw ? parseProfile(raw) : null;
 
         setPlayers((prev) => {
+          const myUid = auth?.currentUser?.uid || null;
           const hasMe = prev.some((p) => p?.id === "me");
           const base = hasMe
             ? prev
             : [
               {
                 id: "me",
-                uid: auth?.currentUser?.uid || null,
+                uid: myUid,
                 name: "Stephane L",
                 handicap: 0,
                 phone: "",
@@ -333,7 +303,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
 
             return {
               ...p,
-              uid: auth?.currentUser?.uid || p.uid || null,
+              uid: myUid || p.uid || null,
               name: nextName,
               handicap: nextHcp,
               source: "me",
@@ -351,85 +321,15 @@ export default function PlayerEntryScreen({ navigation, route }) {
     };
   }, []);
 
+  // Buddy list: realtime (Firestore when signed in, local fallback when not)
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const list = await getBuddies();
-        if (mounted) setBuddies(Array.isArray(list) ? list : []);
-      } catch {
-        if (mounted) setBuddies([]);
-      }
-    })();
+    const unsub = subscribeBuddies((list) => {
+      setBuddies(Array.isArray(list) ? list : []);
+    });
     return () => {
-      mounted = false;
+      try { unsub && unsub(); } catch { }
     };
   }, []);
-
-  // HYDRATE FROM FIRESTORE on focus (so back-navigation reloads buddies)
-  useFocusEffect(
-    React.useCallback(() => {
-      let alive = true;
-
-      (async () => {
-        if (!roundId) return;
-
-        const data = await loadActiveRound(roundId);
-        if (!alive) return;
-        if (!data) return;
-
-        const fsCount = Number(data.playerCount);
-        const nextCount = Number.isFinite(fsCount) ? Math.max(1, Math.min(16, fsCount)) : null;
-
-        if (nextCount) setPlayerCount(nextCount);
-
-        const fsPlayers = Array.isArray(data.players) ? data.players : null;
-        if (fsPlayers) {
-          const countToUse = nextCount || playerCount;
-          setPlayers(normalizePlayersForUi(fsPlayers, countToUse));
-        }
-
-        if (data?.joinCode) setLobbyCode(String(data.joinCode));
-
-        hydratedOnceRef.current = true;
-      })();
-
-      return () => {
-        alive = false;
-      };
-    }, [roundId])
-  );
-
-  // AUTOSAVE PLAYERS to Firestore whenever they change (debounced)
-  useEffect(() => {
-    if (!roundId) return;
-
-    // If we haven't hydrated yet, still allow autosave after a short delay
-    if (!hydratedOnceRef.current) {
-      const t = setTimeout(() => {
-        hydratedOnceRef.current = true;
-      }, 250);
-      return () => clearTimeout(t);
-    }
-
-    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
-
-    autosaveTimerRef.current = setTimeout(() => {
-      updateActiveRound(
-        {
-          players,
-          playerCount,
-          joinCode: lobbyCode,
-          scoring,
-        },
-        roundId
-      );
-    }, 300);
-
-    return () => {
-      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
-    };
-  }, [players, playerCount, lobbyCode, scoring, roundId]);
 
   const canStart = players.length === playerCount;
 
@@ -512,11 +412,132 @@ export default function PlayerEntryScreen({ navigation, route }) {
     } catch { }
   }
 
+  // -----------------------------
+  // LOCK IN PLAYERS TO THIS ROUND
+  // -----------------------------
+  const persistTimerRef = useRef(null);
+  const lastPersistHashRef = useRef("");
+
+  function hashPlayers(list) {
+    try {
+      return JSON.stringify(
+        (Array.isArray(list) ? list : []).map((p) => ({
+          id: p.id,
+          uid: p.uid || null,
+          name: p.name || "",
+          handicap: Number(p.handicap ?? 0),
+          source: p.source || "",
+          trackStats: p.trackStats !== false,
+        }))
+      );
+    } catch {
+      return String(Date.now());
+    }
+  }
+
+  async function resolveRoundId() {
+    return roundIdParam || (await getActiveRoundId());
+  }
+
+  async function hydratePlayersFromRound() {
+    const rid = await resolveRoundId();
+    if (!rid) return;
+
+    const r = await loadActiveRound(rid);
+    const saved = normalizePlayersForRound(r?.players);
+
+    if (!saved.length) return;
+
+    setPlayers((prev) => {
+      const myUid = auth?.currentUser?.uid || null;
+
+      const meFromPrev = prev.find((p) => p.id === "me") || {
+        id: "me",
+        uid: myUid,
+        name: "Me",
+        handicap: 0,
+        phone: "",
+        email: "",
+        source: "me",
+        trackStats: true,
+      };
+
+      const meFromSaved = saved.find((p) => p.id === "me");
+      const me = {
+        ...meFromPrev,
+        ...(meFromSaved || {}),
+        id: "me",
+        uid: myUid || meFromSaved?.uid || meFromPrev?.uid || null,
+        source: "me",
+        trackStats: true,
+      };
+
+      const rest = saved.filter((p) => p.id !== "me");
+
+      const next = [me, ...rest].slice(0, playerCount);
+
+      return next;
+    });
+  }
+
+  // On mount + when screen gains focus, hydrate players from Firestore round doc
+  useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      if (!alive) return;
+      await hydratePlayersFromRound();
+    })();
+
+    const unsub = navigation.addListener("focus", () => {
+      hydratePlayersFromRound();
+    });
+
+    return () => {
+      alive = false;
+      try { unsub && unsub(); } catch { }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roundIdParam, playerCount]);
+
+  // Debounced persist whenever players changes
+  useEffect(() => {
+    if (!roundIdParam) return;
+
+    const hash = hashPlayers(players);
+    if (hash === lastPersistHashRef.current) return;
+
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+
+    persistTimerRef.current = setTimeout(async () => {
+      try {
+        lastPersistHashRef.current = hash;
+
+        await updateActiveRound(
+          {
+            players,
+            playerCount,
+            updatedAt: Date.now(),
+          },
+          roundIdParam
+        );
+      } catch {
+        // ignore
+      }
+    }, 250);
+
+    return () => {
+      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    };
+  }, [players, playerCount, roundIdParam]);
+
   async function onNextFormats() {
     if (!canStart) return;
 
+    // Firestore is the source of truth:
     // This screen must NEVER create a new round.
-    let rid = roundId || null;
+    // It must attach to an existing roundId (params OR Firestore active pointer).
+    let roundId = roundIdParam || null;
 
     try {
       const activeRound = makeActiveRoundSnapshot({
@@ -530,23 +551,24 @@ export default function PlayerEntryScreen({ navigation, route }) {
         joinCode: lobbyCode,
       });
 
-      if (!rid) {
-        rid = await getActiveRoundId();
+      if (!roundId) {
+        roundId = await getActiveRoundId();
       }
 
-      if (!rid) {
+      if (!roundId) {
         Alert.alert("Round not initialized", "Please start the round again.");
         return;
       }
 
-      await saveActiveRound({ ...activeRound, roundId: rid }, rid);
+      await saveActiveRound({ ...activeRound, roundId }, roundId);
     } catch {
       // do not block moving forward
     }
 
+    // Next step: choose Formats (Firestore source-of-truth round)
     navigation.navigate(ROUTES.GAME_FORMATS, {
       ...params,
-      roundId: rid,
+      roundId,
       course,
       tee,
       holeMeta,
@@ -558,6 +580,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
   }
 
   const courseName = course?.name || "Course";
+
   const teeName = tee?.name || "Tee";
   const teeYards = tee?.yardage ? `${tee.yardage} yds` : "";
 
@@ -565,7 +588,10 @@ export default function PlayerEntryScreen({ navigation, route }) {
   const summaryLine2 = `${courseName} • ${teeName}${teeYards ? ` (${teeYards})` : ""}`;
 
   const rightInvite = (
-    <Pressable onPress={() => setInviteModal(true)} style={({ pressed }) => [styles.headerRight, pressed && styles.pressed]}>
+    <Pressable
+      onPress={() => setInviteModal(true)}
+      style={({ pressed }) => [styles.headerRight, pressed && styles.pressed]}
+    >
       <Text style={styles.headerRightText}>Invite</Text>
     </Pressable>
   );
@@ -684,6 +710,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
             const manual = prev.filter((p) => p.id !== "me" && p.source !== "remote");
 
             const next = [me, ...remotePlayers, ...manual].slice(0, playerCount);
+
             return next;
           });
         },
@@ -755,7 +782,10 @@ export default function PlayerEntryScreen({ navigation, route }) {
 
       Alert.alert("Joined", `You joined game ${code}.`);
     } catch (e) {
-      Alert.alert("Join failed", "Could not join the lobby. This is usually Firestore rules blocking reads/writes.");
+      Alert.alert(
+        "Join failed",
+        "Could not join the lobby. This is usually Firestore rules blocking reads/writes."
+      );
     } finally {
       setJoining(false);
     }
@@ -772,13 +802,19 @@ export default function PlayerEntryScreen({ navigation, route }) {
         role: String(m.role || "player"),
       }));
 
+    // host first
     arr.sort((a, b) => (a.role === "host" ? -1 : 1) - (b.role === "host" ? -1 : 1));
     return arr;
   }, [lobbyDoc]);
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScreenHeader navigation={navigation} title="Add Players" subtitle={`${players.length} of ${playerCount}`} right={rightInvite} />
+      <ScreenHeader
+        navigation={navigation}
+        title="Add Players"
+        subtitle={`${players.length} of ${playerCount}`}
+        right={rightInvite}
+      />
 
       <View style={styles.topSectionOuter}>
         <View style={styles.topSection}>
@@ -799,7 +835,9 @@ export default function PlayerEntryScreen({ navigation, route }) {
               const p = players[idx] || null;
               const filled = !!p;
 
-              const label = filled ? displayNameFirstLastInitial(p?.name || `Player ${idx + 1}`) : `Player ${idx + 1}`;
+              const label = filled
+                ? displayNameFirstLastInitial(p?.name || `Player ${idx + 1}`)
+                : `Player ${idx + 1}`;
 
               return (
                 <View
@@ -844,15 +882,24 @@ export default function PlayerEntryScreen({ navigation, route }) {
           </View>
 
           <View style={styles.actionRow}>
-            <Pressable onPress={openBuddyModal} style={({ pressed }) => [styles.actionPillPrimary, pressed && styles.pressed]}>
+            <Pressable
+              onPress={openBuddyModal}
+              style={({ pressed }) => [styles.actionPillPrimary, pressed && styles.pressed]}
+            >
               <Text style={styles.actionPillText}>Buddy List</Text>
             </Pressable>
 
-            <Pressable onPress={openGuest} style={({ pressed }) => [styles.actionPillGhost, pressed && styles.pressed]}>
+            <Pressable
+              onPress={openGuest}
+              style={({ pressed }) => [styles.actionPillGhost, pressed && styles.pressed]}
+            >
               <Text style={styles.actionPillText}>Guest</Text>
             </Pressable>
 
-            <Pressable onPress={() => setInviteModal(true)} style={({ pressed }) => [styles.actionPillGhost, pressed && styles.pressed]}>
+            <Pressable
+              onPress={() => setInviteModal(true)}
+              style={({ pressed }) => [styles.actionPillGhost, pressed && styles.pressed]}
+            >
               <Text style={styles.actionPillText}>Invite</Text>
             </Pressable>
           </View>
@@ -872,7 +919,10 @@ export default function PlayerEntryScreen({ navigation, route }) {
           const canSwipeRemove = !isMe && !isRemote;
           const nameShort = displayNameFirstLastInitial(item.name);
 
-          const shellStyle = [styles.playerCard, isMe && styles.playerCardMe];
+          const shellStyle = [
+            styles.playerCard,
+            isMe && styles.playerCardMe,
+          ];
 
           if (canSwipeRemove) {
             return (
@@ -899,7 +949,10 @@ export default function PlayerEntryScreen({ navigation, route }) {
                       ) : null}
                     </View>
 
-                    <Pressable onPress={() => openEditHandicap(item)} style={({ pressed }) => [styles.hcpPill, pressed && styles.pressed]}>
+                    <Pressable
+                      onPress={() => openEditHandicap(item)}
+                      style={({ pressed }) => [styles.hcpPill, pressed && styles.pressed]}
+                    >
                       <Text style={styles.hcpPillText}>HCP {item.handicap ?? 0}</Text>
                     </Pressable>
 
@@ -925,7 +978,10 @@ export default function PlayerEntryScreen({ navigation, route }) {
                   ) : null}
                 </View>
 
-                <Pressable onPress={() => openEditHandicap(item)} style={({ pressed }) => [styles.hcpPill, pressed && styles.pressed]}>
+                <Pressable
+                  onPress={() => openEditHandicap(item)}
+                  style={({ pressed }) => [styles.hcpPill, pressed && styles.pressed]}
+                >
                   <Text style={styles.hcpPillText}>HCP {item.handicap ?? 0}</Text>
                 </Pressable>
 
@@ -977,6 +1033,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
                   const isFull = players.length >= playerCount;
 
                   const disabled = already || isFull;
+
                   const label = already ? "Added" : isFull ? "Full" : "Add";
 
                   return (
@@ -1009,9 +1066,15 @@ export default function PlayerEntryScreen({ navigation, route }) {
 
             <Pressable
               onPress={closeBuddyModal}
-              style={({ pressed }) => [styles.modalClose, doneIsPrimary && styles.modalClosePrimary, pressed && styles.pressed]}
+              style={({ pressed }) => [
+                styles.modalClose,
+                doneIsPrimary && styles.modalClosePrimary,
+                pressed && styles.pressed,
+              ]}
             >
-              <Text style={[styles.modalCloseText, doneIsPrimary && styles.modalCloseTextPrimary]}>Done</Text>
+              <Text style={[styles.modalCloseText, doneIsPrimary && styles.modalCloseTextPrimary]}>
+                Done
+              </Text>
             </Pressable>
           </View>
         </View>
@@ -1045,7 +1108,10 @@ export default function PlayerEntryScreen({ navigation, route }) {
             />
 
             <View style={{ flexDirection: "row", gap: 10, marginTop: 8 }}>
-              <Pressable onPress={() => setGuestModal(false)} style={({ pressed }) => [styles.modalGhostBtn, pressed && styles.pressed]}>
+              <Pressable
+                onPress={() => setGuestModal(false)}
+                style={({ pressed }) => [styles.modalGhostBtn, pressed && styles.pressed]}
+              >
                 <Text style={styles.modalGhostText}>Cancel</Text>
               </Pressable>
 
@@ -1070,7 +1136,10 @@ export default function PlayerEntryScreen({ navigation, route }) {
             </View>
 
             <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
-              <Pressable onPress={() => setInviteModal(false)} style={({ pressed }) => [styles.modalGhostBtn, pressed && styles.pressed]}>
+              <Pressable
+                onPress={() => setInviteModal(false)}
+                style={({ pressed }) => [styles.modalGhostBtn, pressed && styles.pressed]}
+              >
                 <Text style={styles.modalGhostText}>Close</Text>
               </Pressable>
 
@@ -1118,7 +1187,11 @@ export default function PlayerEntryScreen({ navigation, route }) {
             <Pressable
               onPress={joinLobbyByCode}
               disabled={joining}
-              style={({ pressed }) => [styles.joinBtn, joining && { opacity: 0.7 }, pressed && !joining && styles.pressed]}
+              style={({ pressed }) => [
+                styles.joinBtn,
+                joining && { opacity: 0.7 },
+                pressed && !joining && styles.pressed,
+              ]}
             >
               <Text style={styles.joinBtnText}>{joining ? "Joining..." : "Join Game"}</Text>
             </Pressable>
@@ -1202,11 +1275,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: "rgba(255,255,255,0.08)",
     overflow: "hidden",
-  },
-  progressFill: {
-    height: 10,
-    borderRadius: 999,
-    backgroundColor: "rgba(255, 210, 92, 0.95)",
   },
 
   summaryCard: {
@@ -1297,18 +1365,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   hcpPillText: { color: "#fff", fontWeight: "900", fontSize: 12, letterSpacing: 0.2 },
-
-  removeBtn: {
-    height: 34,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.06)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  removeText: { color: "#fff", fontWeight: "900", fontSize: 12 },
 
   emptyText: { color: "rgba(255,255,255,0.6)", fontWeight: "800", fontSize: 12, marginTop: 8 },
 
