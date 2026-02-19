@@ -18,6 +18,7 @@ import { CommonActions, StackActions } from "@react-navigation/native";
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import theme from "../theme";
+import { auth } from "../firebase/firebase";
 import { loadActiveRound, saveActiveRound } from "../storage/roundState";
 
 const BG = "#0B1220";
@@ -156,14 +157,20 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
     const normalizedPlayers = useMemo(() => {
         const list = Array.isArray(players) ? players : [];
-        return list.map((p, idx) => ({
-            id: safePlayerId(p, String(idx)),
-            name: safePlayerName(p, idx),
-            handicap: p?.handicap ?? 0,
-            source: p?.source || null,
-            uid: p?.uid || p?.userId || null,
-            email: p?.email || null,
-        }));
+        const meUid = String(auth?.currentUser?.uid || "");
+        return list.map((p, idx) => {
+            const source = p?.source || null;
+            const forcedMeId = source === "me" && meUid ? meUid : null;
+
+            return {
+                id: forcedMeId || safePlayerId(p, String(idx)),
+                name: safePlayerName(p, idx),
+                handicap: p?.handicap ?? 0,
+                source,
+                uid: p?.uid || p?.userId || (source === "me" ? meUid : null) || null,
+                email: p?.email || null,
+            };
+        });
     }, [players]);
 
     const playerRows = useMemo(() => {
