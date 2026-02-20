@@ -367,14 +367,8 @@ export default function HoleHubScreen({ navigation, route }) {
       sgShownKeyRef.current = sgOnceKey;
 
       setSgVisible(true);
-      clearSgTimer();
-      sgTimerRef.current = setTimeout(() => {
-        dismissSideGameOverlay();
-      }, 3200);
 
-      return () => {
-        clearSgTimer();
-      };
+      return () => { };
     }, [showFormatSplash, sideGameKey, sgOnceKey, dismissSideGameOverlay])
   );
 

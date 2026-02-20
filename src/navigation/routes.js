@@ -48,13 +48,14 @@ const ROUTES = {
   // NEW: regular game money pools (allocate $ per format)
   GAME_FORMAT_POOLS: "GameFormatPools",
 
-  // NEW: regular game calculating splash
+  // NEW: regular game round start splash (Start Round -> splash -> Hole Hub)
+  GAME_ROUND_START_SPLASH: "GameRoundStartSplash",
+
   // NEW: regular game calculating splash
   GAME_ROUND_CALCULATING: "GameRoundCalculatingResults",
 
   // NEW: regular game round briefing (post money pools)
   GAME_ROUND_BRIEFING: "GameRoundBriefing",
-
 
   /* ---------------- Tournaments ---------------- */
 

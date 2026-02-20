@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, Pressable, ScrollView, Platform, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { doc, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
@@ -446,7 +446,43 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
 
             <View style={styles.footer}>
                 <Pressable
-                    onPress={() => navigation.navigate(ROUTES.HOLE_HUB, { roundId })}
+                    onPress={async () => {
+                        try {
+                            const uid = auth?.currentUser?.uid || null;
+                            if (!uid) {
+                                Alert.alert("Not signed in", "Please sign in again.");
+                                return;
+                            }
+                            if (!roundId) {
+                                Alert.alert("Missing round", "roundId was not provided.");
+                                return;
+                            }
+
+                            const ref = doc(db, "users", uid, "rounds", String(roundId));
+                            const snap = await getDoc(ref);
+                            const data = snap.exists() ? (snap.data() || {}) : {};
+
+                            const patch = {
+                                status: "in_progress",
+                                startHole: 1,
+                                currentHole: 1,
+                                hole: 1,
+                                holeNumber: 1,
+                                holeIndex: 0,
+                                updatedAt: serverTimestamp(),
+                            };
+
+                            if (!data?.startedAt) {
+                                patch.startedAt = serverTimestamp();
+                            }
+
+                            await updateDoc(ref, patch);
+
+                            navigation.replace(ROUTES.GAME_ROUND_START_SPLASH, { roundId, ms: 3000 });
+                        } catch (e) {
+                            Alert.alert("Start failed", e?.message || "Could not start the round.");
+                        }
+                    }}
                     style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}
                 >
                     <Text style={styles.primaryText}>Start Round</Text>

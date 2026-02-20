@@ -55,6 +55,8 @@ import GameFormatsScreen from "../screens/GameFormatsScreen";
 // NEW: regular game money pools + briefing
 import GameRoundBriefingScreen from "../screens/GameRoundBriefingScreen";
 
+// NEW: regular game round start splash (Start Round -> Hole Hub runway)
+import GameRoundStartSplashScreen from "../screens/GameRoundStartSplashScreen";
 // NEW: regular game format details (post-select)
 import GameFormatDetailsScreen from "../screens/GameFormatDetailsScreen";
 
@@ -196,6 +198,9 @@ export default function RootNavigator() {
 
           {/* NEW: regular game round briefing (post money pools) */}
           <Stack.Screen name={ROUTES.GAME_ROUND_BRIEFING} component={GameRoundBriefingScreen} />
+
+          {/* NEW: regular game round start splash */}
+          <Stack.Screen name={ROUTES.GAME_ROUND_START_SPLASH} component={GameRoundStartSplashScreen} />
 
           {/* Regular game finish splash */}
           <Stack.Screen name={ROUTES.GAME_ROUND_CALCULATING} component={GameRoundCalculatingResultsScreen} />
