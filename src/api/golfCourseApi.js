@@ -3,7 +3,7 @@
 //
 // Key rules:
 // - Reads EXPO_PUBLIC_GOLFCOURSEAPI_KEY from process.env
-// - Uses auth header: Authorization: Key <your API key>
+// - Uses auth header: Authorization: Bearer <your API key>
 // - Always returns safe data; never crashes UI
 // - Mock fallback is ONLY for missing/placeholder key. If real key + request fails, return null.
 
@@ -27,6 +27,7 @@ function buildHeaders() {
   const h = { Accept: "application/json" };
 
   if (!isPlaceholderKey(API_KEY)) {
+    // GolfCourseAPI expects this scheme
     h.Authorization = `Key ${API_KEY}`;
   }
 
@@ -91,7 +92,13 @@ function pickFirst(obj, keys) {
 function normalizeCourseSummary(item) {
   const id = pickFirst(item, ["id", "_id", "courseId", "course_id"]);
   const courseName = pickFirst(item, ["course_name", "courseName", "name", "title"]);
-  const clubName = pickFirst(item, ["club_name", "clubName", "club", "facility", "facility_name"]);
+  const clubName = pickFirst(item, [
+    "club_name",
+    "clubName",
+    "club",
+    "facility",
+    "facility_name",
+  ]);
 
   const loc = item?.location || {};
   const city = pickFirst(loc, ["city", "town"]) || pickFirst(item, ["city"]) || "";
@@ -153,7 +160,9 @@ function normalizeTeesAnyShape(root) {
   const seen = new Set();
   const out = [];
   for (const t of teesFlat) {
-    const name = safeStr(t?.tee_name || t?.teeName || t?.name || t?.color || t?.code || "").trim();
+    const name = safeStr(
+      t?.tee_name || t?.teeName || t?.name || t?.color || t?.code || ""
+    ).trim();
     const total = safeStr(t?.total_yards ?? t?.totalYards ?? t?.yardage ?? "");
     const gender = safeStr(t?.gender || "");
     const sig = `${name}|${total}|${gender}`;
@@ -169,9 +178,12 @@ function normalizeCourseDetails(payload) {
   const root = payload?.course || payload?.data || payload?.result || payload || {};
 
   const id = safeStr(pickFirst(root, ["id", "_id", "courseId", "course_id"]) || "");
-  const courseName = safeStr(pickFirst(root, ["course_name", "courseName", "name", "title"]) || "");
+  const courseName = safeStr(
+    pickFirst(root, ["course_name", "courseName", "name", "title"]) || ""
+  );
   const clubName = safeStr(
-    pickFirst(root, ["club_name", "clubName", "club", "facility", "facility_name"]) || ""
+    pickFirst(root, ["club_name", "clubName", "club", "facility", "facility_name"]) ||
+    ""
   );
 
   const loc = root.location || {};
@@ -212,9 +224,29 @@ async function searchCourses(query, opts = {}) {
   try {
     const data = await fetchJson(url.toString());
     const list = data?.courses || data?.results || data?.data || [];
+
+    if (__DEV__) {
+      console.log("[LegacyGolf] GolfCourseAPI search ok:", {
+        query: q,
+        url: url.toString(),
+        keys: Object.keys(data || {}),
+        listType: Array.isArray(list) ? "array" : typeof list,
+        listLen: Array.isArray(list) ? list.length : null,
+      });
+    }
+
     if (!Array.isArray(list)) return [];
     return list.map(normalizeCourseSummary).filter((x) => x.id || x.courseName);
-  } catch {
+  } catch (e) {
+    if (__DEV__) {
+      console.log("[LegacyGolf] GolfCourseAPI search failed:", {
+        query: q,
+        status: e?.status,
+        message: e?.message,
+        url: e?.url,
+        payload: e?.payload,
+      });
+    }
     return [];
   }
 }
@@ -232,7 +264,15 @@ async function getCourseDetails(courseId) {
   try {
     const data = await fetchJson(url);
     return normalizeCourseDetails(data);
-  } catch {
+  } catch (e) {
+    if (__DEV__) {
+      console.log("[LegacyGolf] GolfCourseAPI details failed:", {
+        message: e?.message,
+        status: e?.status,
+        url: e?.url,
+        payload: e?.payload,
+      });
+    }
     // With a real key, do NOT return mock data (it causes fake tees/hole data).
     return null;
   }
