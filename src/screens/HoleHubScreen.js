@@ -20,6 +20,9 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, CommonActions } from "@react-navigation/native";
 import * as Location from "expo-location";
+import { doc, onSnapshot } from "firebase/firestore";
+
+import { auth, db } from "../firebase/firebase";
 
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
@@ -223,7 +226,9 @@ function getSideGameMeta(sideGameKeyRaw) {
   return { title: "FORMAT HOLE", subtitle: "Special hole", icon: "⭐" };
 }
 
-function SideGameOverlayModal({ visible, meta, currentHole, roundNumber, onDismiss }) {
+function SideGameOverlayModal({ visible, meta, currentHole, roundNumber, holderName, onDismiss }) {
+  const holderLine = holderName ? `Current holder: ${String(holderName)}` : "Currently unclaimed";
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onDismiss} statusBarTranslucent>
       <View style={styles.sgWrap}>
@@ -241,6 +246,7 @@ function SideGameOverlayModal({ visible, meta, currentHole, roundNumber, onDismi
               </Text>
               <Text style={styles.sgTitle}>{meta?.title || "FORMAT HOLE"}</Text>
               {!!meta?.subtitle ? <Text style={styles.sgSub}>{meta.subtitle}</Text> : null}
+              <Text style={[styles.sgSub, { marginTop: 8 }]}>{holderLine}</Text>
             </View>
           </View>
 
@@ -333,6 +339,41 @@ export default function HoleHubScreen({ navigation, route }) {
   const [sgVisible, setSgVisible] = useState(false);
   const sgTimerRef = useRef(null);
   const sgShownKeyRef = useRef(null);
+
+  // Regular format claims (Firestore truth)
+  const [claimDoc, setClaimDoc] = useState(null);
+
+  const claimRef = useMemo(() => {
+    const uid = auth?.currentUser?.uid || null;
+    const rid = String(roundId || "").trim();
+    const sg = String(sideGameKey || "").trim();
+    const h = Number(currentHole || 1);
+
+    if (!uid) return null;
+    if (!rid) return null;
+    if (!sg) return null;
+    if (!Number.isFinite(h) || h < 1 || h > 18) return null;
+
+    const docId = `${sg}_h${String(h)}`;
+    return doc(db, "users", String(uid), "rounds", String(rid), "formatClaims", String(docId));
+  }, [roundId, sideGameKey, currentHole]);
+
+  useEffect(() => {
+    if (!sgVisible || !claimRef) {
+      setClaimDoc(null);
+      return;
+    }
+
+    const unsub = onSnapshot(
+      claimRef,
+      (snap) => setClaimDoc(snap?.exists?.() ? (snap.data() || null) : null),
+      () => setClaimDoc(null)
+    );
+
+    return () => unsub();
+  }, [sgVisible, claimRef]);
+
+  const holderName = String(claimDoc?.claimedByPlayerName || "").trim();
 
   const sgOnceKey = useMemo(() => {
     const t = String(params?.tournamentId || "t");
@@ -519,6 +560,10 @@ export default function HoleHubScreen({ navigation, route }) {
       teeName,
       courseCenter,
       courseId,
+
+      // If this hole is a format hole (from entry splash), forward it so Score Entry can allow claiming
+      sideGameKey: sideGameKey || null,
+
       ...extra,
     });
   }
@@ -803,6 +848,7 @@ export default function HoleHubScreen({ navigation, route }) {
         meta={sideMeta}
         currentHole={currentHole}
         roundNumber={roundNumber}
+        holderName={holderName}
         onDismiss={dismissSideGameOverlay}
       />
 

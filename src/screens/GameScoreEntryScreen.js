@@ -18,8 +18,9 @@ import { CommonActions, StackActions } from "@react-navigation/native";
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import theme from "../theme";
-import { auth } from "../firebase/firebase";
+import { auth, db } from "../firebase/firebase";
 import { loadActiveRound, saveActiveRound } from "../storage/roundState";
+import { doc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
 
 const BG = "#0B1220";
 const CARD = "#1D3557";
@@ -139,6 +140,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         hole = 1,
         holeMeta: holeMetaParam,
         roundId: roundIdParam,
+        sideGameKey: sideGameKeyParam,
         fixMissing,
         missingHoles,
         missingIndex,
@@ -184,6 +186,83 @@ export default function GameScoreEntryScreen({ navigation, route }) {
     }, [normalizedPlayers]);
 
     const [inputs, setInputs] = useState({});
+
+    // -----------------------------
+    // Regular format claim (Firestore)
+    // -----------------------------
+    const sideGameKey = useMemo(() => String(sideGameKeyParam || "").trim(), [sideGameKeyParam]);
+
+    const claimable = useMemo(() => {
+        const k = sideGameKey.toLowerCase();
+        return k === "kp" || k === "long_drive" || k === "second_shot_kp" || k === "longdrive" || k === "secondshotkp";
+    }, [sideGameKey]);
+
+    const [claimDoc, setClaimDoc] = useState(null);
+
+    const claimRef = useMemo(() => {
+        const uid = auth?.currentUser?.uid || null;
+        const rid = String(roundIdParam || "").trim();
+        const h = Number(holeNumber || 1);
+        const k = String(sideGameKey || "").trim();
+
+        if (!uid) return null;
+        if (!rid) return null;
+        if (!claimable) return null;
+        if (!k) return null;
+        if (!Number.isFinite(h) || h < 1 || h > 18) return null;
+
+        const docId = `${k}_h${String(h)}`;
+        return doc(db, "users", String(uid), "rounds", String(rid), "formatClaims", String(docId));
+    }, [roundIdParam, sideGameKey, holeNumber, claimable]);
+
+    useEffect(() => {
+        if (!claimRef) {
+            setClaimDoc(null);
+            return;
+        }
+        const unsub = onSnapshot(
+            claimRef,
+            (snap) => setClaimDoc(snap?.exists?.() ? (snap.data() || null) : null),
+            () => setClaimDoc(null)
+        );
+        return () => unsub();
+    }, [claimRef]);
+
+    const holderName = useMemo(() => String(claimDoc?.claimedByPlayerName || "").trim(), [claimDoc]);
+
+    const saveClaim = useCallback(
+        async (pid, name) => {
+            if (!claimRef) return false;
+
+            const meUid = String(auth?.currentUser?.uid || "");
+            const claimedByPlayerId = String(pid || "").trim();
+            const claimedByPlayerName = String(name || "Player").trim();
+
+            if (!claimedByPlayerId) return false;
+
+            try {
+                await setDoc(
+                    claimRef,
+                    {
+                        roundId: String(roundIdParam || ""),
+                        holeNumber: Number(holeNumber || 1),
+                        formatKey: String(sideGameKey || ""),
+                        claimedByPlayerId,
+                        claimedByPlayerName,
+                        status: "claimed",
+                        claimedAt: serverTimestamp(),
+                        updatedAt: serverTimestamp(),
+                        updatedByUid: meUid,
+                    },
+                    { merge: true }
+                );
+                return true;
+            } catch {
+                return false;
+            }
+        },
+        [claimRef, roundIdParam, holeNumber, sideGameKey]
+    );
 
     useEffect(() => {
         // Seed inputs once playerRows arrives (and keep any existing edits)
@@ -598,7 +677,38 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                         return (
                             <View style={styles.playerCard}>
                                 <View style={styles.playerTopRow}>
-                                    <Text style={styles.playerName}>{item._name}</Text>
+                                    <View style={{ flex: 1, minWidth: 0 }}>
+                                        <Text style={styles.playerName}>{item._name}</Text>
+
+                                        {claimable ? (
+                                            <View style={{ marginTop: 8 }}>
+                                                <Pressable
+                                                    disabled={toInt(val.strokes) <= 0}
+                                                    onPress={async () => {
+                                                        const ok = await saveClaim(pid, item._name);
+                                                        if (!ok) {
+                                                            Alert.alert("Claim failed", "Could not save the claim. Please try again.");
+                                                            return;
+                                                        }
+                                                        Alert.alert("Claim saved", `Format claimed for ${item._name}.`);
+                                                    }}
+                                                    style={({ pressed }) => [
+                                                        styles.claimBtn,
+                                                        toInt(val.strokes) <= 0 && styles.claimBtnDisabled,
+                                                        pressed && styles.pressed,
+                                                    ]}
+                                                >
+                                                    <Text style={styles.claimBtnText}>
+                                                        {toInt(val.strokes) <= 0 ? "Claim (enter strokes first)" : "Claim"}
+                                                    </Text>
+                                                </Pressable>
+
+                                                <Text style={styles.claimMetaText}>
+                                                    {holderName ? `Current holder: ${holderName}` : "Currently unclaimed"}
+                                                </Text>
+                                            </View>
+                                        ) : null}
+                                    </View>
 
                                     <Pressable
                                         onPress={() => setPlayerField(pid, "trackStats", !trackStats)}
@@ -610,7 +720,6 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                                     >
                                         <Text style={styles.statsPillText}>Stats {trackStats ? "ON" : "OFF"}</Text>
                                     </Pressable>
-
                                 </View>
 
                                 <View style={styles.inputRow}>
@@ -751,6 +860,23 @@ const styles = StyleSheet.create({
     statsPillOn: { backgroundColor: "rgba(46,204,113,0.16)", borderColor: "rgba(46,204,113,0.30)" },
     statsPillOff: { backgroundColor: "rgba(255,255,255,0.06)", borderColor: "rgba(255,255,255,0.14)" },
     statsPillText: { color: WHITE, fontWeight: "900", fontSize: 12, letterSpacing: 0.2 },
+
+    claimBtn: {
+        height: 36,
+        borderRadius: 14,
+        paddingHorizontal: 12,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "rgba(242,201,76,0.18)",
+        borderWidth: 1,
+        borderColor: "rgba(242,201,76,0.42)",
+    },
+    claimBtnDisabled: {
+        opacity: 0.45,
+    },
+    claimBtnText: { color: WHITE, fontWeight: "900", fontSize: 12, letterSpacing: 0.4 },
+    claimMetaText: { marginTop: 6, color: "rgba(255,255,255,0.72)", fontWeight: "800", fontSize: 12 },
+
 
     inputRow: { flexDirection: "row", gap: 12, marginTop: 10 },
     fieldWrap: {
