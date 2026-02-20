@@ -330,7 +330,6 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                 players: normalizedPlayers,
                 holes: {},
                 meta: {},
-                startedAt: Date.now(),
             };
 
             const existingId =
@@ -379,7 +378,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
             state.holes[String(holeNumber)].players = payload;
 
-            state.status = "active";
+            state.status = "in_progress";
             state.inProgress = true;
             state.isActive = true;
             state.updatedAt = Date.now();
