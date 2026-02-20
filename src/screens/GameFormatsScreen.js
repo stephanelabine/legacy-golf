@@ -7,8 +7,8 @@ import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import PremiumSwipeRow from "../components/PremiumSwipeRow";
 import { useTheme } from "../theme/ThemeProvider";
-import { loadActiveRound, updateActiveRound } from "../storage/roundState";
-
+import { doc, onSnapshot, updateDoc } from "firebase/firestore";
+import { auth, db } from "../firebase/firebase";
 /*
   Regular Game Formats (Premium)
   - Firestore is source of truth via roundState.js
@@ -136,42 +136,43 @@ export default function GameFormatsScreen({ navigation, route }) {
         openSwipeRef.current = null;
     }
 
-    async function refreshRound() {
-        if (!roundId) return;
-        const r = await loadActiveRound(roundId);
-        setActiveRound(r || null);
-    }
-
     useEffect(() => {
-        let mounted = true;
+        if (!roundId) return;
 
-        (async () => {
-            if (!roundId) return;
-            const r = await loadActiveRound(roundId);
-            if (!mounted) return;
-            setActiveRound(r || null);
-        })();
+        const uid = auth?.currentUser?.uid || null;
+        if (!uid) return;
 
-        const unsub = navigation.addListener("focus", () => {
-            refreshRound();
-        });
+        const ref = doc(db, "users", uid, "rounds", String(roundId));
+
+        const unsub = onSnapshot(
+            ref,
+            (snap) => {
+                const data = snap?.data?.() || null;
+                setActiveRound(data ? { ...data, roundId } : null);
+            },
+            () => {
+                // non-blocking
+            }
+        );
 
         return () => {
-            mounted = false;
-            try {
-                unsub && unsub();
-            } catch { }
+            try { unsub && unsub(); } catch { }
             closeAnyOpenSwipe();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [roundId]);
-
     const selectedKeys = useMemo(() => {
         const s = new Set();
         const list = activeRound?.formatsSelected;
 
         if (Array.isArray(list)) {
-            list.forEach((k) => s.add(String(k || "")));
+            list.forEach((raw) => {
+                const key =
+                    typeof raw === "string"
+                        ? String(raw).trim()
+                        : String(raw?.key || raw?.id || "").trim();
+                if (key) s.add(key);
+            });
         } else if (list && typeof list === "object") {
             Object.keys(list).forEach((k) => {
                 if (list[k]) s.add(String(k));
@@ -337,14 +338,16 @@ export default function GameFormatsScreen({ navigation, route }) {
 
         setSaving(true);
         try {
-            const next = await updateActiveRound(
-                {
-                    formatsSelected: arr,
-                    formatsSelectedCount: arr.length,
-                },
-                roundId
-            );
-            setActiveRound(next || null);
+            const uid = auth?.currentUser?.uid || null;
+            if (!uid) throw new Error("Missing user");
+
+            const ref = doc(db, "users", uid, "rounds", String(roundId));
+            await updateDoc(ref, {
+                formatsSelected: arr,
+                formatsSelectedCount: arr.length,
+                updatedAt: Date.now(),
+            });
+            // activeRound will refresh via onSnapshot
         } catch {
             Alert.alert("Save failed", "Could not update formats.");
         } finally {

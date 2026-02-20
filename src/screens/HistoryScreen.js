@@ -194,14 +194,41 @@ function hasAnyFeeForSelectedFormats(roundDoc) {
   const selected = Array.isArray(roundDoc?.formatsSelected) ? roundDoc.formatsSelected : [];
   if (!selected.length) return false;
 
+  // NEW canonical: formatPools (regular games)
+  const pools = roundDoc?.formatPools && typeof roundDoc.formatPools === "object" ? roundDoc.formatPools : null;
+  if (pools) {
+    for (const raw of selected) {
+      const key =
+        typeof raw === "string"
+          ? String(raw).trim()
+          : String(raw?.key || raw?.id || "").trim();
+
+      if (!key) continue;
+
+      const p = pools?.[key];
+      const amt =
+        Number(p?.amountPerHole) ||
+        Number(p?.entryFee) ||
+        Number(p?.amountPerSkin);
+
+      if (Number.isFinite(amt) && amt > 0) return true;
+    }
+  }
+
+  // Legacy shapes
   const feeByKey = getFeeByKeyFromRoundDoc(roundDoc);
-  for (const k of selected) {
-    const key = String(k || "").trim();
+  for (const raw of selected) {
+    const key =
+      typeof raw === "string"
+        ? String(raw).trim()
+        : String(raw?.key || raw?.id || "").trim();
+
     if (!key) continue;
-    const v = feeByKey?.[key];
-    const n = Number(v);
+
+    const n = Number(feeByKey?.[key]);
     if (Number.isFinite(n) && n > 0) return true;
   }
+
   return false;
 }
 
@@ -414,24 +441,82 @@ export default function HistoryScreen({ navigation }) {
       return;
     }
 
-    // setup routing
+    // setup routing (HISTORY -> rebuild stack so Back behaves like normal setup flow)
+    const statusNorm = String(fsRound?.status || "").trim().toLowerCase();
+    const hasGame = !!(fsRound?.gameId || fsRound?.gameTitle);
+    const hasCourse2 = !!fsRound?.course;
+    const hasTee2 = !!fsRound?.tee;
+    const hasPlayers2 = Array.isArray(fsRound?.players) && fsRound.players.length > 0;
+
+    // Build base stack that always matches the normal setup sequence.
+    const routes = [
+      { name: ROUTES.HISTORY },
+      { name: ROUTES.GAME_SETUP, params: { roundId: rid } },
+      { name: ROUTES.NEW_ROUND, params: { roundId: rid } },
+      { name: ROUTES.TEE_SELECTION, params: { roundId: rid } },
+      { name: ROUTES.PLAYER_ENTRY, params: { roundId: rid } },
+    ];
+
+    // If any core setup step is missing, land on that step (last incomplete).
+    if (!hasGame) {
+      navigation.reset({ index: 1, routes });
+      return;
+    }
+    if (!hasCourse2) {
+      navigation.reset({ index: 2, routes });
+      return;
+    }
+    if (!hasTee2) {
+      navigation.reset({ index: 3, routes });
+      return;
+    }
+    if (!hasPlayers2) {
+      navigation.reset({ index: 4, routes });
+      return;
+    }
+
+    // Formats flow
     const selected = Array.isArray(fsRound?.formatsSelected) ? fsRound.formatsSelected : [];
+    const needDetails = !!selected.length && needsHoleDetails(fsRound);
+
+    const poolsReady = fsRound?.poolsReady === true;
+    const hasFees = !!selected.length && hasAnyFeeForSelectedFormats(fsRound);
+
+    // Always include Formats so Back works predictably.
+    routes.push({ name: ROUTES.GAME_FORMATS, params: { roundId: rid } });
+
+    // If no formats chosen, land on Formats.
     if (!selected.length) {
-      navigation.navigate(ROUTES.GAME_FORMATS, { roundId: rid });
+      navigation.reset({ index: routes.length - 1, routes });
       return;
     }
 
-    if (needsHoleDetails(fsRound)) {
-      navigation.navigate(ROUTES.GAME_FORMAT_DETAILS, { roundId: rid });
+    // If details are needed, include Details and land there.
+    if (needDetails) {
+      routes.push({ name: ROUTES.GAME_FORMAT_DETAILS, params: { roundId: rid } });
+      navigation.reset({ index: routes.length - 1, routes });
       return;
     }
 
-    if (!hasAnyFeeForSelectedFormats(fsRound)) {
-      navigation.navigate(ROUTES.GAME_FORMAT_POOLS, { roundId: rid });
+    // If any fees exist, Pools must be part of the stack.
+    if (hasFees) {
+      routes.push({ name: ROUTES.GAME_FORMAT_POOLS, params: { roundId: rid } });
+
+      // If pools are complete, include Briefing and land there.
+      if (poolsReady) {
+        routes.push({ name: ROUTES.GAME_ROUND_BRIEFING, params: { roundId: rid } });
+        navigation.reset({ index: routes.length - 1, routes });
+        return;
+      }
+
+      // Pools not complete -> land on Pools.
+      navigation.reset({ index: routes.length - 1, routes });
       return;
     }
 
-    navigation.navigate(ROUTES.GAME_ROUND_BRIEFING, { roundId: rid });
+    // No fees -> go straight to Briefing.
+    routes.push({ name: ROUTES.GAME_ROUND_BRIEFING, params: { roundId: rid } });
+    navigation.reset({ index: routes.length - 1, routes });
   }
 
   async function openActivePinned() {
@@ -498,7 +583,22 @@ export default function HistoryScreen({ navigation }) {
 
   function renderRowContent({ courseName, dateText, statusText, statusKind, rightPrimary, rightSecondary, onPress }) {
     return (
-      <Pressable onPress={onPress} style={({ pressed }) => [styles.rowCard, pressed && styles.pressed]}>
+      <Pressable
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.rowCard,
+          {
+            borderWidth: 4,
+            borderColor:
+              statusKind === "complete"
+                ? "rgba(255, 210, 92, 0.92)" // GOLD (Complete)
+                : statusKind === "setup"
+                  ? "rgba(46,204,113,0.88)"  // GREEN (In Setup)
+                  : "rgba(46,125,255,0.88)", // BLUE (In Progress)
+          },
+          pressed && styles.pressed,
+        ]}
+      >
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={styles.course} numberOfLines={2}>
             {shortCourseTitle(courseName)}
@@ -512,7 +612,11 @@ export default function HistoryScreen({ navigation }) {
             <View
               style={[
                 styles.statusChip,
-                statusKind === "completed" ? styles.statusChipDone : styles.statusChipProg,
+                statusKind === "complete"
+                  ? styles.statusChipComplete
+                  : statusKind === "setup"
+                    ? styles.statusChipSetup
+                    : styles.statusChipProgress,
               ]}
             >
               <Text style={styles.statusText}>{statusText}</Text>
@@ -541,7 +645,14 @@ export default function HistoryScreen({ navigation }) {
   const activeDateText = formatDateAny(activeFsRound || {});
   const activeHoleNum = pickHoleNumberAny(activeFsRound || {}, null);
 
-  const activeStatusText = "In Progress";
+  const activeStatusText = (() => {
+    const completed = isRoundCompletedAnyShape(activeFsRound);
+    if (completed) return "Complete";
+    const s = String(activeFsRound?.status || "").trim().toLowerCase();
+    if (s === "setup") return "In Setup";
+    if (s === "in_progress" || s.includes("progress") || s === "active") return "In Progress";
+    return "In Setup";
+  })();
   const activeRightPrimary = activeHoleNum ? `Hole ${activeHoleNum}` : "Resume";
   const activeRightSecondary = activeHoleNum ? "Currently on" : "Tap to continue";
 
@@ -613,7 +724,14 @@ export default function HistoryScreen({ navigation }) {
                     courseName: activeCourseName,
                     dateText: activeDateText,
                     statusText: activeStatusText,
-                    statusKind: "in_progress",
+                    statusKind: (() => {
+                      const completed = isRoundCompletedAnyShape(activeFsRound);
+                      if (completed) return "complete";
+                      const s = String(activeFsRound?.status || "").trim().toLowerCase();
+                      if (s === "setup") return "setup";
+                      if (s === "in_progress" || s.includes("progress") || s === "active") return "in_progress";
+                      return "setup";
+                    })(),
                     rightPrimary: activeRightPrimary,
                     rightSecondary: activeRightSecondary,
                     onPress: openActivePinned,
@@ -628,7 +746,7 @@ export default function HistoryScreen({ navigation }) {
               const dateText = formatDateAny(r);
 
               const completed = isRoundCompletedAnyShape(r);
-              const statusText = completed ? "Completed" : "In Progress";
+              const statusText = completed ? "Complete" : status === "setup" ? "In Setup" : "In Progress";
 
               const holeNum = pickHoleNumberAny(r, null);
 
@@ -659,7 +777,7 @@ export default function HistoryScreen({ navigation }) {
                       courseName,
                       dateText,
                       statusText,
-                      statusKind: completed ? "completed" : "in_progress",
+                      statusKind: completed ? "complete" : status === "setup" ? "setup" : "in_progress",
                       rightPrimary,
                       rightSecondary,
                       onPress: () => openRound(r),
@@ -775,8 +893,9 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
   },
-  statusChipProg: { borderColor: "rgba(46,125,255,0.55)", backgroundColor: "rgba(46,125,255,0.16)" },
-  statusChipDone: { borderColor: "rgba(46,204,113,0.60)", backgroundColor: "rgba(46,204,113,0.16)" },
+  statusChipSetup: { borderColor: "rgba(46,204,113,0.70)", backgroundColor: "rgba(46,204,113,0.16)" },
+  statusChipProgress: { borderColor: "rgba(46,125,255,0.70)", backgroundColor: "rgba(46,125,255,0.16)" },
+  statusChipComplete: { borderColor: "rgba(255, 210, 92, 0.75)", backgroundColor: "rgba(255, 210, 92, 0.16)" },
   statusText: { color: WHITE, fontWeight: "900", fontSize: 11, letterSpacing: 0.9, opacity: 0.92 },
 
   rightBox: {

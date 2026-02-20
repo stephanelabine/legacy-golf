@@ -54,7 +54,12 @@ function isHoleMetaValid(holeMeta) {
 }
 
 export default function TeeSelectionScreen({ navigation, route }) {
-  const { course } = route.params;
+  const params = route?.params || {};
+  const courseParam = params?.course || null;
+  const roundIdParam = params?.roundId || null;
+
+  const [courseFromTruth, setCourseFromTruth] = useState(null);
+  const course = courseParam || courseFromTruth;
 
   const [loading, setLoading] = useState(true);
   const [tees, setTees] = useState([]);
@@ -64,6 +69,13 @@ export default function TeeSelectionScreen({ navigation, route }) {
   const loadAll = useCallback(async () => {
     try {
       const courseId = String(course?.id || "").trim();
+      if (!courseId) {
+        setTees([]);
+        setHoleMeta(null);
+        setSelectedCode(null);
+        return;
+      }
+
       const isProtected = PROTECTED_LOCAL_COURSE_IDS.has(courseId);
 
       const [teeList, saved] = await Promise.all([
@@ -117,6 +129,16 @@ export default function TeeSelectionScreen({ navigation, route }) {
 
     (async () => {
       try {
+        // If course param is missing (History reset/back), hydrate from Firestore via roundId.
+        if (!courseParam && roundIdParam) {
+          try {
+            const active = (await loadActiveRound(roundIdParam)) || {};
+            if (mounted && active?.course) setCourseFromTruth(active.course);
+          } catch {
+            // ignore
+          }
+        }
+
         await loadAll();
       } finally {
         if (mounted) setLoading(false);
@@ -126,7 +148,8 @@ export default function TeeSelectionScreen({ navigation, route }) {
     return () => {
       mounted = false;
     };
-  }, [loadAll]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadAll, roundIdParam, courseParam]);
 
   // Important: when you come back from CourseDataScreen, refresh holeMeta (and tees if needed)
   useFocusEffect(

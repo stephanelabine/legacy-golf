@@ -1,5 +1,5 @@
 // src/screens/GameSetupScreen.js
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   SafeAreaView,
   View,
@@ -15,6 +15,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import theme from "../theme";
 import gameFormats from "../data/gameFormats.json";
 import ROUTES from "../navigation/routes";
+
+import { loadActiveRound, updateActiveRound } from "../storage/roundState";
 
 /* ───────────────── ICON MAP (colored) ───────────────── */
 const ICONS = {
@@ -51,29 +53,106 @@ const GREEN_BORDER = "rgba(46,204,113,0.70)";
 
 export default function GameSetupScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
-  const { gameId, gameTitle } = route?.params || {};
+
+  const params = route?.params || {};
+  const roundId = params?.roundId ? String(params.roundId) : null;
+
+  const paramGameId = params?.gameId || null;
+  const paramGameTitle = params?.gameTitle || null;
+
+  const [fsGameId, setFsGameId] = useState(null);
+  const [fsGameTitle, setFsGameTitle] = useState(null);
+  const [roundLoading, setRoundLoading] = useState(!!roundId);
+
+  const didWriteParamsToFsRef = useRef(false);
+
+  async function hydrateFromFirestore() {
+    if (!roundId) return;
+    setRoundLoading(true);
+    try {
+      const r = await loadActiveRound(roundId);
+      setFsGameId(r?.gameId || null);
+      setFsGameTitle(r?.gameTitle || null);
+    } catch {
+      // non-blocking
+    } finally {
+      setRoundLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    hydrateFromFirestore();
+
+    const unsub = navigation?.addListener?.("focus", () => {
+      hydrateFromFirestore();
+    });
+
+    return unsub;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roundId]);
+
+  // If we arrived from normal flow with params, persist them once so History reset works everywhere.
+  useEffect(() => {
+    if (!roundId) return;
+    if (didWriteParamsToFsRef.current) return;
+
+    const gid = String(paramGameId || "").trim();
+    if (!gid) return;
+
+    didWriteParamsToFsRef.current = true;
+
+    updateActiveRound(
+      {
+        gameId: gid,
+        gameTitle: String(paramGameTitle || "").trim() || (gameFormats?.[gid]?.title || "Game"),
+        updatedAt: Date.now(),
+      },
+      roundId
+    ).catch(() => {
+      // non-blocking
+    });
+  }, [roundId, paramGameId, paramGameTitle]);
+
+  const effectiveGameId = fsGameId || paramGameId || null;
+  const effectiveGameTitle =
+    fsGameTitle ||
+    paramGameTitle ||
+    (effectiveGameId ? gameFormats?.[effectiveGameId]?.title : null) ||
+    null;
 
   const game = useMemo(() => {
-    if (!gameId) return null;
-    return gameFormats?.[gameId] || { title: gameTitle || "Game", subtitle: "" };
-  }, [gameId, gameTitle]);
+    if (!effectiveGameId) return null;
+    return gameFormats?.[effectiveGameId] || { title: effectiveGameTitle || "Game", subtitle: "" };
+  }, [effectiveGameId, effectiveGameTitle]);
 
-  const isPremiumGold = gameId === "legacy_card";
+  const isPremiumGold = effectiveGameId === "legacy_card";
   const iconSpec =
-    ICONS[gameId] || { name: "circle-small", color: "rgba(255,255,255,0.80)" };
+    ICONS[effectiveGameId] || { name: "circle-small", color: "rgba(255,255,255,0.80)" };
 
   const [scoringMode, setScoringMode] = useState("net");
 
-  function goNext() {
-    if (!gameId) {
+  async function goNext() {
+    if (roundLoading) return;
+
+    if (!effectiveGameId) {
       Alert.alert("Missing game selection");
       return;
     }
 
+    // Persist scoringMode so History reset stacks are stable across devices.
+    if (roundId) {
+      try {
+        await updateActiveRound({ scoringMode, updatedAt: Date.now() }, roundId);
+      } catch {
+        // non-blocking
+      }
+    }
+
     // Next step is Course Selection
     navigation.navigate(ROUTES.NEW_ROUND, {
-      gameId,
-      gameTitle: game?.title || gameTitle || "Game",
+      roundId,
+      gameId: effectiveGameId,
+      gameTitle: game?.title || effectiveGameTitle || "Game",
       scoringMode, // "net" or "gross"
     });
   }

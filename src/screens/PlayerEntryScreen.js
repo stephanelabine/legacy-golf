@@ -110,7 +110,7 @@ function makeActiveRoundSnapshot({
 
   return {
     version: 1,
-    status: "active",
+    status: "setup",
     createdAt: Date.now(),
     updatedAt: Date.now(),
 
@@ -183,7 +183,12 @@ export default function PlayerEntryScreen({ navigation, route }) {
   const scoring = String(scoringRaw || "net").toLowerCase() === "gross" ? "gross" : "net";
 
   const gameLabel = useMemo(() => pickGameLabel(params), [params]);
-  const playerCount = Math.max(1, Math.min(16, Number(params?.playerCount || 4)));
+
+  // IMPORTANT: playerCount must not fall back to 4 when resuming via History reset.
+  // Use state, hydrate from Firestore when roundId exists.
+  const [playerCount, setPlayerCount] = useState(() =>
+    Math.max(1, Math.min(16, Number(params?.playerCount || 4)))
+  );
 
   const [buddies, setBuddies] = useState([]);
 
@@ -444,8 +449,12 @@ export default function PlayerEntryScreen({ navigation, route }) {
     if (!rid) return;
 
     const r = await loadActiveRound(rid);
-    const saved = normalizePlayersForRound(r?.players);
 
+    // Prefer Firestore playerCount to avoid stale state during hydration.
+    const fsPcRaw = Number(r?.playerCount);
+    const pc = Number.isFinite(fsPcRaw) && fsPcRaw >= 1 && fsPcRaw <= 16 ? fsPcRaw : playerCount;
+
+    const saved = normalizePlayersForRound(r?.players);
     if (!saved.length) return;
 
     setPlayers((prev) => {
@@ -474,23 +483,44 @@ export default function PlayerEntryScreen({ navigation, route }) {
 
       const rest = saved.filter((p) => p.id !== "me");
 
-      const next = [me, ...rest].slice(0, playerCount);
-
+      const next = [me, ...rest].slice(0, pc);
       return next;
     });
   }
 
-  // On mount + when screen gains focus, hydrate players from Firestore round doc
+  // On mount + when screen gains focus, hydrate from Firestore round doc.
+  // NOTE: do NOT depend on playerCount (History reset may not pass params).
   useEffect(() => {
     let alive = true;
 
-    (async () => {
+    async function hydrateAll() {
       if (!alive) return;
-      await hydratePlayersFromRound();
-    })();
+
+      // First hydrate playerCount from Firestore if available
+      try {
+        if (roundIdParam) {
+          const r = await loadActiveRound(roundIdParam);
+          const pc = Number(r?.playerCount);
+          if (Number.isFinite(pc) && pc >= 1 && pc <= 16) {
+            setPlayerCount(pc);
+          }
+        }
+      } catch {
+        // ignore
+      }
+
+      // Then hydrate players
+      try {
+        await hydratePlayersFromRound();
+      } catch {
+        // ignore
+      }
+    }
+
+    hydrateAll();
 
     const unsub = navigation.addListener("focus", () => {
-      hydratePlayersFromRound();
+      hydrateAll();
     });
 
     return () => {
@@ -498,7 +528,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
       try { unsub && unsub(); } catch { }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roundIdParam, playerCount]);
+  }, [roundIdParam]);
 
   // Debounced persist whenever players changes
   useEffect(() => {
@@ -534,38 +564,38 @@ export default function PlayerEntryScreen({ navigation, route }) {
   async function onNextFormats() {
     if (!canStart) return;
 
-    // Firestore is the source of truth:
-    // This screen must NEVER create a new round.
-    // It must attach to an existing roundId (params OR Firestore active pointer).
+    // Firestore is the source of truth.
+    // Do NOT write local snapshots here (History reset must not get overwritten).
     let roundId = roundIdParam || null;
 
-    try {
-      const activeRound = makeActiveRoundSnapshot({
-        params,
-        course,
-        tee,
-        holeMeta,
-        scoring,
-        players,
-        playerCount,
-        joinCode: lobbyCode,
-      });
-
-      if (!roundId) {
+    if (!roundId) {
+      try {
         roundId = await getActiveRoundId();
+      } catch {
+        // ignore
       }
-
-      if (!roundId) {
-        Alert.alert("Round not initialized", "Please start the round again.");
-        return;
-      }
-
-      await saveActiveRound({ ...activeRound, roundId }, roundId);
-    } catch {
-      // do not block moving forward
     }
 
-    // Next step: choose Formats (Firestore source-of-truth round)
+    if (!roundId) {
+      Alert.alert("Round not initialized", "Please start the round again.");
+      return;
+    }
+
+    // Ensure Firestore has the latest players + playerCount (debounce already does this, but we’ll be safe)
+    try {
+      await updateActiveRound(
+        {
+          players,
+          playerCount,
+          updatedAt: Date.now(),
+        },
+        roundId
+      );
+    } catch {
+      // ignore
+    }
+
+    // Next step: choose Formats
     navigation.navigate(ROUTES.GAME_FORMATS, {
       ...params,
       roundId,
