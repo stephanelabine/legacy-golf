@@ -1,12 +1,16 @@
 // src/services/tees.js
 //
 // Tee resolver for Legacy Golf
-// - Calls GolfCourseAPI for tees + total yards (setup-time) unless forceLocalOnly
-// - Falls back to local special cases and then default tees
+// Priority order:
+// 1) Saved CourseData (Firestore remote-first via loadCourseData)  <-- this fixes "-yds"
+// 2) GolfCourseAPI tees (setup-time)
+// 3) Local special-cases (Green Tee / Pagoda Ridge protection)
+// 4) Default tees
 //
 // Returns: [{ name, code, yardage }]
 
 import { getCourseDetails } from "../api/golfCourseApi";
+import { loadCourseData } from "../storage/courseData";
 
 function norm(s) {
   return String(s || "")
@@ -23,12 +27,9 @@ function matchesCourse(courseId, courseName, tokens) {
   return tokens.every((t) => hay.includes(t));
 }
 
-function makeTee(name, code, yardage = null) {
-  return {
-    name: String(name || "").trim(),
-    code: String(code || "").trim(),
-    yardage: Number.isFinite(Number(yardage)) ? Number(yardage) : null,
-  };
+function safeNum(x) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : null;
 }
 
 function toCode(name, fallback = "TEE") {
@@ -37,9 +38,36 @@ function toCode(name, fallback = "TEE") {
   return s.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
-function safeNum(x) {
-  const n = Number(x);
-  return Number.isFinite(n) ? n : null;
+function makeTee(name, code, yardage = null) {
+  return {
+    name: String(name || "").trim(),
+    code: String(code || "").trim(),
+    yardage: safeNum(yardage),
+  };
+}
+
+function normalizeTees(list) {
+  const arr = Array.isArray(list) ? list : [];
+  const out = [];
+  const seen = new Set();
+
+  for (const t of arr) {
+    const name = String(t?.name || "").trim();
+    if (!name) continue;
+
+    const rawCode = String(t?.code || "").trim();
+    const code = rawCode ? rawCode.toUpperCase() : toCode(name, "TEE");
+
+    const yardage = t?.yardage === "" || t?.yardage == null ? null : safeNum(t?.yardage);
+
+    const key = code.toUpperCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    out.push(makeTee(name, code, yardage));
+  }
+
+  return out;
 }
 
 function sumHoleYards(holes) {
@@ -54,11 +82,13 @@ function sumHoleYards(holes) {
       safeNum(h?.distance) ??
       safeNum(h?.length) ??
       safeNum(h?.raw?.yards);
+
     if (Number.isFinite(y)) {
       total += y;
       ok = true;
     }
   }
+
   return ok ? total : null;
 }
 
@@ -90,9 +120,9 @@ function parseTeesFromApiDetails(details) {
   }
 
   out.sort((a, b) => {
-    const ay = Number.isFinite(Number(a?.yardage)) ? Number(a.yardage) : -1;
-    const by = Number.isFinite(Number(b?.yardage)) ? Number(b.yardage) : -1;
-    return by - ay;
+    const ay = safeNum(a?.yardage);
+    const by = safeNum(b?.yardage);
+    return (by ?? -1) - (ay ?? -1);
   });
 
   return out.length ? out : null;
@@ -148,11 +178,13 @@ function getDefaultTees() {
 
 // opts:
 // - courseName: string
-// - forceLocalOnly: boolean (if true, skip API and only use local + default)
+// - forceLocalOnly: boolean (skip API + skip courseData; only local + default)
+// - preferSavedCourseData: boolean (default true) (use saved tees first if present)
 export async function getTeesForCourse(courseId, opts = {}) {
   const id = String(courseId || "").trim();
   const courseName = String(opts?.courseName || "");
   const forceLocalOnly = opts?.forceLocalOnly === true;
+  const preferSavedCourseData = opts?.preferSavedCourseData !== false;
 
   // 0) Forced local-only (protected courses)
   if (forceLocalOnly) {
@@ -161,7 +193,18 @@ export async function getTeesForCourse(courseId, opts = {}) {
     return getDefaultTees();
   }
 
-  // 1) API details (setup-time)
+  // 1) Saved CourseData tees (remote-first)
+  if (preferSavedCourseData && id) {
+    try {
+      const saved = await loadCourseData(id);
+      const savedTees = normalizeTees(saved?.tees);
+      if (savedTees.length) return savedTees;
+    } catch {
+      // ignore
+    }
+  }
+
+  // 2) API details (setup-time)
   if (id) {
     try {
       const details = await getCourseDetails(id);
@@ -172,10 +215,10 @@ export async function getTeesForCourse(courseId, opts = {}) {
     }
   }
 
-  // 2) Local special cases
+  // 3) Local special cases
   const local = getLocalTees(id, courseName);
   if (local) return local;
 
-  // 3) Default
+  // 4) Default
   return getDefaultTees();
 }

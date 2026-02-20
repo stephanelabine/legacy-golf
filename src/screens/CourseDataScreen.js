@@ -57,19 +57,31 @@ function toCode(name, fallback = "TEE") {
     .replace(/^_+|_+$/g, "");
 }
 
+function makeId() {
+  return `tee_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
 function makeTeeRow(seed) {
   const name = safeStr(seed?.name).trim();
   const yardageNum = Number(seed?.yardage);
   const yardage = Number.isFinite(yardageNum) && yardageNum > 0 ? yardageNum : "";
   const code = safeStr(seed?.code).trim() || toCode(name, "TEE");
-  return { name, code, yardage };
+
+  const _id = safeStr(seed?._id).trim() || makeId();
+
+  return { _id, name, code, yardage };
 }
 
 function normalizeTees(list) {
   const arr = Array.isArray(list) ? list : [];
   return arr
     .map((t) => makeTeeRow(t))
-    .filter((t) => safeStr(t.name).trim().length > 0 || safeStr(t.code).trim().length > 0 || String(t.yardage).length > 0);
+    .filter(
+      (t) =>
+        safeStr(t.name).trim().length > 0 ||
+        safeStr(t.code).trim().length > 0 ||
+        String(t.yardage).length > 0
+    );
 }
 
 export default function CourseDataScreen({ navigation, route }) {
@@ -203,7 +215,7 @@ export default function CourseDataScreen({ navigation, route }) {
   function addTee() {
     setTees((prev) => {
       const next = Array.isArray(prev) ? [...prev] : [];
-      next.push(makeTeeRow({ name: "Blue", code: "BLUE", yardage: "" }));
+      next.push(makeTeeRow({ _id: makeId(), name: "Blue", code: "BLUE", yardage: "" }));
       return next;
     });
   }
@@ -235,9 +247,10 @@ export default function CourseDataScreen({ navigation, route }) {
     const patch = {
       holeMeta,
       tees: normalizeTees(tees).map((t) => ({
-        name: safeStr(t.name).trim(),
-        code: safeStr(t.code).trim(),
-        yardage: t.yardage === "" ? null : Number(t.yardage),
+        _id: safeStr(t?._id).trim(),
+        name: safeStr(t?.name).trim(),
+        code: safeStr(t?.code).trim(),
+        yardage: t?.yardage === "" ? null : Number(t?.yardage),
       })),
     };
 
@@ -246,6 +259,7 @@ export default function CourseDataScreen({ navigation, route }) {
       Alert.alert("Save failed", "Could not save course data.");
       return;
     }
+
     navigation.goBack();
   }
 
@@ -418,7 +432,7 @@ export default function CourseDataScreen({ navigation, route }) {
                   const codeVal = safeStr(t?.code || toCode(nameVal, "TEE"));
 
                   return (
-                    <View key={`${idx}-${codeVal}`} style={styles.teeRow}>
+                    <View key={safeStr(t?._id) || String(idx)} style={styles.teeRow}>
                       <View style={styles.teeColName}>
                         <Text style={styles.label}>Name</Text>
                         <TextInput

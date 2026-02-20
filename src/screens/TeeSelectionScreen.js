@@ -31,6 +31,12 @@ function formatYds(y) {
   return String(Math.round(n));
 }
 
+function toCode(name, fallback = "TEE") {
+  const s = String(name || "").trim();
+  if (!s) return fallback;
+  return s.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
 function isHoleMetaValid(holeMeta) {
   if (!holeMeta) return false;
 
@@ -70,7 +76,25 @@ export default function TeeSelectionScreen({ navigation, route }) {
         loadCourseData(courseId, { allowApiImport: !isProtected, publishIfAdmin: false }),
       ]);
 
-      const list = Array.isArray(teeList) ? teeList : [];
+      const base = Array.isArray(teeList) ? teeList : [];
+
+      // If CourseData has tees, they are the source of truth for display (names + yardages)
+      const savedTeesRaw = Array.isArray(saved?.tees) ? saved.tees : [];
+      const savedTees = savedTeesRaw
+        .map((t) => {
+          const name = String(t?.name || "").trim();
+          const code = String(t?.code || toCode(name)).trim();
+          const y = Number(t?.yardage);
+          return {
+            name: name || code,
+            code,
+            yardage: Number.isFinite(y) && y > 0 ? y : null,
+          };
+        })
+        .filter((t) => t.code || t.name);
+
+      const list = savedTees.length > 0 ? savedTees : base;
+
       setTees(list);
 
       const hm = saved?.holeMeta || null;
@@ -107,8 +131,6 @@ export default function TeeSelectionScreen({ navigation, route }) {
   // Important: when you come back from CourseDataScreen, refresh holeMeta (and tees if needed)
   useFocusEffect(
     useCallback(() => {
-      let alive = true;
-
       (async () => {
         try {
           await loadAll();
@@ -117,9 +139,7 @@ export default function TeeSelectionScreen({ navigation, route }) {
         }
       })();
 
-      return () => {
-        alive = false;
-      };
+      return () => { };
     }, [loadAll])
   );
 
@@ -531,4 +551,4 @@ const styles = StyleSheet.create({
   loadingText: { color: "#fff", opacity: 0.72, fontSize: 12, fontWeight: "800" },
 
   pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
-});
+}); 
