@@ -44,11 +44,40 @@ function defaultHoleMeta() {
   return meta;
 }
 
+function safeStr(x) {
+  return String(x == null ? "" : x);
+}
+
+function toCode(name, fallback = "TEE") {
+  const s = safeStr(name).trim();
+  if (!s) return fallback;
+  return s
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function makeTeeRow(seed) {
+  const name = safeStr(seed?.name).trim();
+  const yardageNum = Number(seed?.yardage);
+  const yardage = Number.isFinite(yardageNum) && yardageNum > 0 ? yardageNum : "";
+  const code = safeStr(seed?.code).trim() || toCode(name, "TEE");
+  return { name, code, yardage };
+}
+
+function normalizeTees(list) {
+  const arr = Array.isArray(list) ? list : [];
+  return arr
+    .map((t) => makeTeeRow(t))
+    .filter((t) => safeStr(t.name).trim().length > 0 || safeStr(t.code).trim().length > 0 || String(t.yardage).length > 0);
+}
+
 export default function CourseDataScreen({ navigation, route }) {
   const { course } = route.params;
   const courseId = String(course?.id || "").trim();
 
   const [holeMeta, setHoleMeta] = useState(defaultHoleMeta());
+  const [tees, setTees] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [publishing, setPublishing] = useState(false);
@@ -65,6 +94,9 @@ export default function CourseDataScreen({ navigation, route }) {
     const saved = await loadCourseData(courseId);
     if (saved?.holeMeta) setHoleMeta(saved.holeMeta);
     else setHoleMeta(defaultHoleMeta());
+
+    if (Array.isArray(saved?.tees)) setTees(normalizeTees(saved.tees));
+    else setTees([]);
   }
 
   useEffect(() => {
@@ -74,6 +106,11 @@ export default function CourseDataScreen({ navigation, route }) {
       if (!live) return;
 
       if (saved?.holeMeta) setHoleMeta(saved.holeMeta);
+      else setHoleMeta(defaultHoleMeta());
+
+      if (Array.isArray(saved?.tees)) setTees(normalizeTees(saved.tees));
+      else setTees([]);
+
       setLoading(false);
     })();
 
@@ -82,7 +119,7 @@ export default function CourseDataScreen({ navigation, route }) {
     };
   }, [courseId]);
 
-  const isValid = useMemo(() => {
+  const isHoleMetaValid = useMemo(() => {
     const siSet = new Set();
     for (let h = 1; h <= 18; h++) {
       const par = Number(holeMeta[String(h)]?.par);
@@ -95,6 +132,41 @@ export default function CourseDataScreen({ navigation, route }) {
     return true;
   }, [holeMeta]);
 
+  const isTeesValid = useMemo(() => {
+    // Tees are optional, but if present must have:
+    // - name non-empty
+    // - code non-empty (auto-derived)
+    // - yardage either blank or > 0
+    // - no duplicate codes
+    const seen = new Set();
+
+    for (const t of Array.isArray(tees) ? tees : []) {
+      const name = safeStr(t?.name).trim();
+      const code = safeStr(t?.code).trim();
+
+      if (!name) return false;
+      if (!code) return false;
+
+      const yRaw = t?.yardage;
+      const y =
+        yRaw === "" || yRaw == null
+          ? null
+          : Number.isFinite(Number(yRaw))
+            ? Number(yRaw)
+            : NaN;
+
+      if (y != null && (!(Number.isFinite(y)) || y <= 0)) return false;
+
+      const key = code.toUpperCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+    }
+
+    return true;
+  }, [tees]);
+
+  const isValid = isHoleMetaValid && isTeesValid;
+
   function updateHole(h, field, value) {
     setHoleMeta((prev) => ({
       ...prev,
@@ -105,14 +177,71 @@ export default function CourseDataScreen({ navigation, route }) {
     }));
   }
 
+  function updateTee(idx, field, value) {
+    setTees((prev) => {
+      const next = Array.isArray(prev) ? [...prev] : [];
+      const row = { ...(next[idx] || {}) };
+
+      if (field === "name") {
+        row.name = safeStr(value);
+        row.code = toCode(row.name, "TEE");
+      } else if (field === "yardage") {
+        // allow blank
+        const v = safeStr(value).replace(/[^0-9]/g, "");
+        row.yardage = v === "" ? "" : Number(v);
+      } else if (field === "code") {
+        row.code = safeStr(value).trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+      } else {
+        row[field] = value;
+      }
+
+      next[idx] = row;
+      return next;
+    });
+  }
+
+  function addTee() {
+    setTees((prev) => {
+      const next = Array.isArray(prev) ? [...prev] : [];
+      next.push(makeTeeRow({ name: "Blue", code: "BLUE", yardage: "" }));
+      return next;
+    });
+  }
+
+  function removeTee(idx) {
+    setTees((prev) => {
+      const next = Array.isArray(prev) ? [...prev] : [];
+      next.splice(idx, 1);
+      return next;
+    });
+  }
+
   async function onSave() {
     if (!admin) return;
 
-    if (!isValid) {
+    if (!isHoleMetaValid) {
       Alert.alert("Fix inputs", "Pars must be 3/4/5 and Stroke Index must be 1-18 with no duplicates.");
       return;
     }
-    const ok = await saveCourseData(courseId, { holeMeta });
+
+    if (!isTeesValid) {
+      Alert.alert(
+        "Fix tee boxes",
+        "Each tee box needs a name, a unique code, and an optional total yardage (> 0).\n\nTip: enter the tee name and yardage — code auto-fills."
+      );
+      return;
+    }
+
+    const patch = {
+      holeMeta,
+      tees: normalizeTees(tees).map((t) => ({
+        name: safeStr(t.name).trim(),
+        code: safeStr(t.code).trim(),
+        yardage: t.yardage === "" ? null : Number(t.yardage),
+      })),
+    };
+
+    const ok = await saveCourseData(courseId, patch);
     if (!ok) {
       Alert.alert("Save failed", "Could not save course data.");
       return;
@@ -138,7 +267,8 @@ export default function CourseDataScreen({ navigation, route }) {
               return;
             }
             setHoleMeta(defaultHoleMeta());
-            Alert.alert("Wiped", "Course data cleared. You can now re-enter Pars/SI and re-map points.");
+            setTees([]);
+            Alert.alert("Wiped", "Course data cleared. You can now re-enter Pars/SI, Tee Boxes, and re-map points.");
           },
         },
       ]
@@ -230,7 +360,7 @@ export default function CourseDataScreen({ navigation, route }) {
       <SafeAreaView style={styles.safe}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <View style={styles.header}>
-            <Text style={styles.title}>Course Hole Data</Text>
+            <Text style={styles.title}>Course Data</Text>
             <Text style={styles.sub}>{course.name}</Text>
             <Text style={styles.sub2}>courseId: {courseId}</Text>
 
@@ -259,7 +389,87 @@ export default function CourseDataScreen({ navigation, route }) {
             )}
           </View>
 
-          <ScrollView contentContainerStyle={{ paddingBottom: 120 }}>
+          <ScrollView contentContainerStyle={{ paddingBottom: 140 }}>
+            {/* Tee Boxes Section */}
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionTop}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sectionTitle}>Tee Boxes</Text>
+                  <Text style={styles.sectionSub}>
+                    Optional. Add tee names + total yardage so Tee Selection shows yards.
+                  </Text>
+                </View>
+
+                {admin ? (
+                  <Pressable onPress={addTee} style={({ pressed }) => [styles.addBtn, pressed && styles.pressed]}>
+                    <Text style={styles.addBtnText}>Add Tee</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+
+              {tees.length === 0 ? (
+                <View style={{ paddingTop: 10 }}>
+                  <Text style={styles.emptyTeeText}>No tee boxes saved yet.</Text>
+                </View>
+              ) : (
+                tees.map((t, idx) => {
+                  const nameVal = safeStr(t?.name);
+                  const yardVal = t?.yardage === "" || t?.yardage == null ? "" : String(t.yardage);
+                  const codeVal = safeStr(t?.code || toCode(nameVal, "TEE"));
+
+                  return (
+                    <View key={`${idx}-${codeVal}`} style={styles.teeRow}>
+                      <View style={styles.teeColName}>
+                        <Text style={styles.label}>Name</Text>
+                        <TextInput
+                          value={nameVal}
+                          editable={admin}
+                          onChangeText={(v) => updateTee(idx, "name", v)}
+                          style={[styles.input, !admin && { opacity: 0.85 }]}
+                          placeholder="Blue / White / Gold..."
+                          placeholderTextColor={MUTED}
+                        />
+                        <Text style={styles.codeLine} numberOfLines={1}>
+                          code: {codeVal}
+                        </Text>
+                      </View>
+
+                      <View style={styles.teeColYds}>
+                        <Text style={styles.label}>Total yds</Text>
+                        <TextInput
+                          value={yardVal}
+                          editable={admin}
+                          onChangeText={(v) => updateTee(idx, "yardage", v)}
+                          keyboardType="numeric"
+                          style={[styles.input, !admin && { opacity: 0.85 }]}
+                          placeholder="e.g. 6400"
+                          placeholderTextColor={MUTED}
+                        />
+                        {admin ? (
+                          <Pressable onPress={() => removeTee(idx)} style={({ pressed }) => [styles.removeBtn, pressed && styles.pressed]}>
+                            <Text style={styles.removeBtnText}>Remove</Text>
+                          </Pressable>
+                        ) : (
+                          <View style={{ height: 34 }} />
+                        )}
+                      </View>
+                    </View>
+                  );
+                })
+              )}
+
+              {!isTeesValid ? (
+                <View style={styles.warnPill}>
+                  <Text style={styles.warnText}>
+                    Tee boxes need: Name, unique code, and optional yardage (> 0).
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+
+            {/* Hole Meta Section */}
+            <Text style={styles.sectionHeader}>Course Hole Data</Text>
+
             {Array.from({ length: 18 }).map((_, i) => {
               const h = i + 1;
               const parVal = String(holeMeta[String(h)]?.par ?? "");
@@ -299,6 +509,14 @@ export default function CourseDataScreen({ navigation, route }) {
                 </View>
               );
             })}
+
+            {!isHoleMetaValid ? (
+              <View style={[styles.warnPill, { marginHorizontal: 16, marginTop: 2 }]}>
+                <Text style={styles.warnText}>
+                  Pars must be 3/4/5 and Stroke Index must be 1-18 with no duplicates.
+                </Text>
+              </View>
+            ) : null}
           </ScrollView>
 
           <View style={styles.footer}>
@@ -455,6 +673,49 @@ const styles = StyleSheet.create({
   },
   wipeText: { color: WHITE, fontWeight: "900", fontSize: 14, letterSpacing: 0.2 },
 
+  sectionCard: {
+    marginHorizontal: 16,
+    marginBottom: 14,
+    backgroundColor: CARD,
+    borderRadius: 20,
+    padding: 14,
+  },
+  sectionTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
+  sectionTitle: { color: WHITE, fontWeight: "900", fontSize: 16 },
+  sectionSub: {
+    marginTop: 6,
+    color: "rgba(255,255,255,0.72)",
+    fontWeight: "800",
+    fontSize: 12,
+    lineHeight: 17,
+  },
+
+  addBtn: {
+    height: 38,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(46,125,255,0.18)",
+    borderWidth: 1,
+    borderColor: "rgba(46,125,255,0.35)",
+  },
+  addBtnText: { color: "#fff", fontWeight: "900", fontSize: 13 },
+
+  emptyTeeText: { color: "rgba(255,255,255,0.72)", fontWeight: "800" },
+
+  teeRow: { flexDirection: "row", gap: 12, marginTop: 12 },
+  teeColName: { flex: 1.3 },
+  teeColYds: { flex: 0.9 },
+
+  sectionHeader: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    color: "rgba(255,255,255,0.85)",
+    fontWeight: "900",
+    letterSpacing: 0.2,
+  },
+
   rowCard: {
     marginHorizontal: 16,
     marginBottom: 12,
@@ -476,6 +737,36 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     fontWeight: "900",
   },
+
+  codeLine: {
+    marginTop: 8,
+    color: "rgba(255,255,255,0.72)",
+    fontWeight: "800",
+    fontSize: 12,
+  },
+
+  removeBtn: {
+    marginTop: 10,
+    height: 34,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(231,76,60,0.20)",
+    borderWidth: 1,
+    borderColor: "rgba(231,76,60,0.35)",
+  },
+  removeBtnText: { color: "#fff", fontWeight: "900", fontSize: 12 },
+
+  warnPill: {
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    backgroundColor: "rgba(243,156,18,0.16)",
+    borderWidth: 1,
+    borderColor: "rgba(243,156,18,0.28)",
+  },
+  warnText: { color: "#fff", fontWeight: "900", fontSize: 12, lineHeight: 17, opacity: 0.92 },
 
   footer: { padding: 16, flexDirection: "row", gap: 12, backgroundColor: BG },
   orangeBtn: {
