@@ -746,6 +746,7 @@ export default function HistoryScreen({ navigation }) {
               const dateText = formatDateAny(r);
 
               const completed = isRoundCompletedAnyShape(r);
+              const status = String(r?.status || "").trim().toLowerCase();
               const statusText = completed ? "Complete" : status === "setup" ? "In Setup" : "In Progress";
 
               const holeNum = pickHoleNumberAny(r, null);
