@@ -61,16 +61,55 @@ function chunk(arr, size) {
     return out;
 }
 
+function prettyFormatName(keyOrName) {
+    const k = String(keyOrName || "").trim();
+    const n = k.toLowerCase();
+
+    if (!k) return "Unknown";
+
+    // Exact keys we care about
+    if (n === "kp") return "KP";
+    if (n === "longdrive" || n === "long_drive" || n === "ld") return "Long Drive";
+    if (n === "secondshotkp" || n === "second_shot_kp" || n === "2nd_kp") return "Second Shot KP";
+    if (n === "deuce_pot") return "Deuce Pot";
+    if (n === "putting_contest") return "Putting Contest";
+    if (n === "team_vs_team" || n === "teamvsteam") return "Team vs Team";
+    if (n === "skins") return "Skins";
+    if (n === "nassau") return "Nassau";
+    if (n === "stableford") return "Stableford";
+    if (n === "birdie_buckets") return "Birdie Buckets";
+    if (n === "snake") return "Snake";
+
+    // Fallback: Title Case + preserve acronyms like KP if user typed them
+    const cleaned = k.replace(/[_-]+/g, " ").trim();
+    return cleaned
+        .split(/\s+/)
+        .map((w) => {
+            const lw = w.toLowerCase();
+            if (lw === "kp") return "KP";
+            return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+        })
+        .join(" ");
+}
+
 function normalizeFormats(arr) {
     if (!Array.isArray(arr)) return [];
     return arr
         .filter(Boolean)
         .map((f) => {
-            if (typeof f === "string") return { key: f, name: f };
+            if (typeof f === "string") {
+                const key = String(f || "").trim();
+                return { key, name: prettyFormatName(key) };
+            }
+
+            const key = String(f?.key || f?.id || f?.type || "").trim();
+            const rawName = String(f?.name || f?.label || f?.title || "").trim();
+            const name = rawName ? prettyFormatName(rawName) : prettyFormatName(key);
+
             return {
-                key: f.key || f.id || f.type || "",
-                name: f.name || f.label || f.title || f.key || f.id || "Unknown",
-                blurb: f.blurb || "",
+                key,
+                name,
+                blurb: f?.blurb || "",
             };
         })
         .filter((f) => String(f.key || "").trim());
@@ -584,9 +623,8 @@ export default function GameFormatDetailsScreen({ navigation, route }) {
             await setDoc(
                 roundRef(uid, roundId),
                 {
-                    formatsSelected: formats.map((f) => ({ key: getKey(f), name: String(f?.name || getKey(f)) })),
-                    formatConfig: nextConfig,
-                    formatDetailsReady: true,
+                    formatsSelected: formats.map((f) => ({ key: getKey(f), name: prettyFormatName(String(f?.name || getKey(f))) })),
+                    formatConfig: nextConfig, formatDetailsReady: true,
                     updatedAt: serverTimestamp(),
                 },
                 { merge: true }
