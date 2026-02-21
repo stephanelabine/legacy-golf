@@ -253,7 +253,7 @@ function sideGameKeyForHole(roundDoc, holeNum) {
   return null;
 }
 
-function SideGameOverlayModal({ visible, meta, currentHole, roundNumber, holderName, onDismiss }) {
+function SideGameOverlayModal({ visible, meta, currentHole, roundNumber, holderName, carryIn, carryFromHole, onDismiss }) {
   const holderLine = holderName ? `Current holder: ${String(holderName)}` : "Currently unclaimed";
 
   return (
@@ -271,9 +271,24 @@ function SideGameOverlayModal({ visible, meta, currentHole, roundNumber, holderN
                 {Number.isFinite(Number(roundNumber)) ? `ROUND ${Number(roundNumber)}` : "ROUND"}
                 {Number.isFinite(Number(currentHole)) ? `  •  HOLE ${Number(currentHole)}` : ""}
               </Text>
-              <Text style={styles.sgTitle}>{meta?.title || "FORMAT HOLE"}</Text>
+
+              <View style={{ flexDirection: "row", alignItems: "baseline", flexWrap: "wrap" }}>
+                <Text style={styles.sgTitle}>{meta?.title || "FORMAT HOLE"}</Text>
+
+                {carryIn ? (
+                  <Text style={styles.sgCarry}>
+                    {"  •  "}
+                    {"CARRYOVER"}
+                    {Number.isFinite(Number(carryFromHole)) && Number.isFinite(Number(currentHole))
+                      ? ` (H${Number(carryFromHole)}→H${Number(currentHole)})`
+                      : ""}
+                  </Text>
+                ) : null}
+              </View>
+
               {!!meta?.subtitle ? <Text style={styles.sgSub}>{meta.subtitle}</Text> : null}
-              <Text style={[styles.sgSub, { marginTop: 8 }]}>{holderLine}</Text>
+
+              {carryIn ? null : <Text style={[styles.sgSub, { marginTop: 8 }]}>{holderLine}</Text>}
             </View>
           </View>
 
@@ -347,9 +362,34 @@ export default function HoleHubScreen({ navigation, route }) {
   }, [courseCenterFromParams, activeRoot]);
 
   const holeMeta = useMemo(() => {
-    return params.holeMeta && typeof params.holeMeta === "object" ? params.holeMeta : buildDefaultHoleMeta();
-  }, [params.holeMeta]);
+    // Single source of truth (when available): Firestore round meta.holeMeta
+    // This must win over route params so new-round entry and history entry behave identically.
+    const root = unwrapRound(activeSnap);
+    const fromRound = root?.meta?.holeMeta;
 
+    if (fromRound && typeof fromRound === "object") {
+      // Normalize keys to strings "1".."18" and ensure numeric par/si
+      const out = {};
+      for (let h = 1; h <= 18; h++) {
+        const kStr = String(h);
+        const raw = fromRound[kStr] ?? fromRound[h];
+        const par = Number(raw?.par);
+        const si = Number(raw?.si);
+        out[kStr] = {
+          par: Number.isFinite(par) ? par : (DEFAULT_PARS[h - 1] || 4),
+          si: Number.isFinite(si) ? si : (DEFAULT_SI[h - 1] || h),
+        };
+      }
+      return out;
+    }
+
+    // Fallback to nav param holeMeta (older entry paths)
+    const direct = params?.holeMeta;
+    if (direct && typeof direct === "object") return direct;
+
+    // Last resort
+    return buildDefaultHoleMeta();
+  }, [activeSnap, params?.holeMeta]);
   const par = holeMeta?.[String(currentHole)]?.par ?? 4;
 
   /* -------------------------- */
@@ -373,6 +413,7 @@ export default function HoleHubScreen({ navigation, route }) {
 
   // Regular format claims (Firestore truth)
   const [claimDoc, setClaimDoc] = useState(null);
+  const [prevClaimDoc, setPrevClaimDoc] = useState(null);
 
   const claimRef = useMemo(() => {
     const uid = auth?.currentUser?.uid || null;
@@ -389,6 +430,42 @@ export default function HoleHubScreen({ navigation, route }) {
     return doc(db, "users", String(uid), "rounds", String(rid), "formatClaims", String(docId));
   }, [roundId, computedSideGameKey, currentHole]);
 
+  const prevEligibleHole = useMemo(() => {
+    const root = unwrapRound(activeSnap);
+    const key = String(computedSideGameKey || "").trim();
+    const cur = Number(currentHole || 1);
+
+    if (!key) return null;
+    if (!Number.isFinite(cur) || cur < 1 || cur > 18) return null;
+
+    const cfg = root?.formatConfig?.[key] || null;
+    const holes = Array.isArray(cfg?.holes) ? cfg.holes : [];
+    if (!holes.length) return null;
+
+    let prev = null;
+    for (const h of holes) {
+      const n = Number(h);
+      if (!Number.isFinite(n)) continue;
+      if (n < cur && (prev === null || n > prev)) prev = n;
+    }
+    return prev;
+  }, [activeSnap, computedSideGameKey, currentHole]);
+
+  const prevClaimRef = useMemo(() => {
+    const uid = auth?.currentUser?.uid || null;
+    const rid = String(roundId || "").trim();
+    const key = String(computedSideGameKey || "").trim();
+    const prev = prevEligibleHole;
+
+    if (!uid) return null;
+    if (!rid) return null;
+    if (!key) return null;
+    if (!Number.isFinite(prev) || prev < 1 || prev > 18) return null;
+
+    const prevId = `${key}_h${String(prev)}`;
+    return doc(db, "users", String(uid), "rounds", String(rid), "formatClaims", String(prevId));
+  }, [roundId, computedSideGameKey, prevEligibleHole]);
+
   useEffect(() => {
     if (!sgVisible || !claimRef) {
       setClaimDoc(null);
@@ -404,8 +481,33 @@ export default function HoleHubScreen({ navigation, route }) {
     return () => unsub();
   }, [sgVisible, claimRef]);
 
+  useEffect(() => {
+    if (!sgVisible || !prevClaimRef) {
+      setPrevClaimDoc(null);
+      return;
+    }
+
+    const unsub = onSnapshot(
+      prevClaimRef,
+      (snap) => setPrevClaimDoc(snap?.exists?.() ? (snap.data() || null) : null),
+      () => setPrevClaimDoc(null)
+    );
+
+    return () => unsub();
+  }, [sgVisible, prevClaimRef]);
+
   const holderName = String(claimDoc?.claimedByPlayerName || "").trim();
 
+  const carryIn = useMemo(() => {
+    if (!prevClaimDoc) return false;
+
+    const s = String(prevClaimDoc?.status || "").toLowerCase().trim();
+    if (s === "carryover" || s === "carry_over") return true;
+
+    if (prevClaimDoc?.carryOver === true) return true;
+
+    return false;
+  }, [prevClaimDoc]);
   // NOTE: sgOnceKey removed — we now compute a local onceKey in the focus effect
 
   function clearSgTimer() {
@@ -870,6 +972,8 @@ export default function HoleHubScreen({ navigation, route }) {
         currentHole={currentHole}
         roundNumber={roundNumber}
         holderName={holderName}
+        carryIn={carryIn}
+        carryFromHole={prevEligibleHole}
         onDismiss={dismissSideGameOverlay}
       />
 
@@ -1266,6 +1370,7 @@ const styles = StyleSheet.create({
   sgIcon: { fontSize: 20 },
   sgKicker: { color: "rgba(255,255,255,0.72)", fontWeight: "900", fontSize: 11, letterSpacing: 1.1 },
   sgTitle: { marginTop: 4, color: WHITE, fontWeight: "900", fontSize: 20, letterSpacing: 0.8 },
+  sgCarry: { marginTop: 4, color: "rgba(255,255,255,0.80)", fontWeight: "900", fontSize: 18, letterSpacing: 0.3 },
   sgSub: { marginTop: 6, color: "rgba(255,255,255,0.74)", fontWeight: "800", fontSize: 13, lineHeight: 17 },
   sgDivider: { height: 1, backgroundColor: "rgba(255,255,255,0.12)", marginTop: 12, marginBottom: 12 },
   sgBottomRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },

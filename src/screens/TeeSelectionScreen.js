@@ -221,9 +221,10 @@ export default function TeeSelectionScreen({ navigation, route }) {
     }
 
     // IMPORTANT: do NOT write playerCount here (PlayerSetup owns it).
+    // Single source of truth for hole meta is meta.holeMeta (not root-level holeMeta).
     const patch = {
       tee: selectedTee,
-      holeMeta: holeMeta || null,
+      "meta.holeMeta": holeMeta || null,
       scoring,
     };
 
