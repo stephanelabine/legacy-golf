@@ -733,6 +733,16 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                                     : `${sideGameTitle} • Hole ${holeNumber}`}
                         </Text>
 
+                        <Text style={styles.sideGameSub}>
+                            {claimStatus === "claimed" && holderName
+                                ? `Current holder: ${holderName}`
+                                : claimStatus === "carry_over"
+                                    ? "Carry over requested"
+                                    : claimStatus === "unclaimed"
+                                        ? "Marked unclaimed"
+                                        : "Currently unclaimed"}
+                        </Text>
+
                         <View style={styles.sideGameBtnsRow}>
                             <Pressable
                                 onPress={async () => {
@@ -834,16 +844,6 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                                 <Text style={[styles.sideBtnText, claimStatus === "claimed" && styles.sideBtnTextMuted]}>Carry Over</Text>
                             </Pressable>
                         </View>
-
-                        <Text style={styles.sideGameSub}>
-                            {claimStatus === "claimed" && holderName
-                                ? `Current holder: ${holderName}`
-                                : claimStatus === "carry_over"
-                                    ? "Carry over requested"
-                                    : claimStatus === "unclaimed"
-                                        ? "Marked unclaimed"
-                                        : "Currently unclaimed"}
-                        </Text>
                     </View>
                 ) : null}
 
@@ -1079,11 +1079,11 @@ const styles = StyleSheet.create({
         opacity: 0.45,
     },
     claimBtnClaimed: {
-        backgroundColor: "rgba(242,201,76,0.34)",
-        borderColor: "rgba(242,201,76,0.85)",
+        backgroundColor: "rgba(242,201,76,0.75)",
+        borderColor: "rgba(242,201,76,0.95)",
     },
     claimBtnTextClaimed: {
-        color: "#0B1F12",
+        color: "#0B1220",
     },
     claimBtnText: { color: WHITE, fontWeight: "900", fontSize: 12, letterSpacing: 0.4 },
     claimMetaText: { marginTop: 6, color: "rgba(255,255,255,0.72)", fontWeight: "800", fontSize: 12 },
@@ -1099,11 +1099,19 @@ const styles = StyleSheet.create({
         alignItems: "center",
     },
     sideGameTitle: { color: WHITE, fontWeight: "900", fontSize: 13, letterSpacing: 0.6, textAlign: "center" },
-    sideGameSub: { marginTop: 10, color: "rgba(255,255,255,0.72)", fontWeight: "800", fontSize: 12, textAlign: "center" },
+    sideGameSub: { marginTop: 8, color: "rgba(255,255,255,0.72)", fontWeight: "800", fontSize: 12, textAlign: "center" },
 
-    sideGameBtnsRow: { marginTop: 10, flexDirection: "row", gap: 10, alignItems: "center", justifyContent: "center" },
+    sideGameBtnsRow: {
+        marginTop: 10,
+        width: "100%",
+        flexDirection: "row",
+        gap: 10,
+        alignItems: "stretch",
+        justifyContent: "space-between",
+    },
     sideBtn: {
-        height: 36,
+        flex: 1,
+        height: 44,
         paddingHorizontal: 12,
         borderRadius: 14,
         alignItems: "center",
@@ -1119,22 +1127,22 @@ const styles = StyleSheet.create({
         opacity: 0.70,
     },
     sideBtnUnclaimed: {
-        backgroundColor: "rgba(255,255,255,0.06)",
-        borderColor: "rgba(255,255,255,0.16)",
+        backgroundColor: "rgba(255,80,80,0.10)",
+        borderColor: "rgba(255,80,80,0.22)",
     },
     sideBtnUnclaimedOn: {
-        backgroundColor: "rgba(255,255,255,0.10)",
-        borderColor: "rgba(255,255,255,0.30)",
+        backgroundColor: "rgba(255,80,80,0.18)",
+        borderColor: "rgba(255,80,80,0.45)",
     },
     sideBtnCarry: {
-        backgroundColor: "rgba(46,125,255,0.10)",
-        borderColor: "rgba(46,125,255,0.22)",
+        backgroundColor: "rgba(46,125,255,0.14)",
+        borderColor: "rgba(46,125,255,0.28)",
     },
     sideBtnCarryOn: {
-        backgroundColor: "rgba(46,125,255,0.22)",
-        borderColor: "rgba(46,125,255,0.55)",
+        backgroundColor: "rgba(46,125,255,0.26)",
+        borderColor: "rgba(46,125,255,0.60)",
     },
-    sideBtnText: { color: WHITE, fontWeight: "900", fontSize: 12, letterSpacing: 0.2 },
+    sideBtnText: { color: WHITE, fontWeight: "900", fontSize: 13, letterSpacing: 0.2 },
 
 
     inputRow: { flexDirection: "row", gap: 12, marginTop: 10 },
