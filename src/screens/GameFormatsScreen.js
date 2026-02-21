@@ -368,11 +368,22 @@ export default function GameFormatsScreen({ navigation, route }) {
         await setSelectedKeys(next);
     }
 
-    async function clearAll() {
-        Alert.alert("Clear all formats?", "This removes every selected side game for this round.", [
-            { text: "Cancel", style: "cancel" },
-            { text: "Clear", style: "destructive", onPress: async () => setSelectedKeys(new Set()) },
-        ]);
+    async function skipFormats() {
+        if (saving) return;
+
+        if (!roundId) {
+            Alert.alert("Missing round", "No roundId found. Please go back and start again.");
+            return;
+        }
+
+        // Explicitly choose zero formats for this round
+        await setSelectedKeys(new Set());
+
+        // Continue forward with no formats (skip details/pools entirely)
+        navigation.navigate(ROUTES.GAME_ROUND_BRIEFING, {
+            ...(params || {}),
+            roundId,
+        });
     }
 
     async function onContinue() {
@@ -501,11 +512,11 @@ export default function GameFormatsScreen({ navigation, route }) {
                 </Pressable>
 
                 <Pressable
-                    onPress={clearAll}
+                    onPress={skipFormats}
                     disabled={saving}
                     style={({ pressed }) => [styles.secondaryBtn, pressed && !saving && styles.pressed, saving && { opacity: 0.7 }]}
                 >
-                    <Text style={styles.secondaryText}>Clear all</Text>
+                    <Text style={styles.secondaryText}>Skip Formats</Text>
                 </Pressable>
             </View>
         </View>
