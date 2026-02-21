@@ -226,6 +226,33 @@ function getSideGameMeta(sideGameKeyRaw) {
   return { title: "FORMAT HOLE", subtitle: "Special hole", icon: "⭐" };
 }
 
+// Compute the sideGameKey for ANY hole, based on the round doc's formatConfig holes.
+// This fixes: jumping back to Hole 1 then opening Score Entry missing the banner/claim UI.
+function sideGameKeyForHole(roundDoc, holeNum) {
+  const h = Number(holeNum);
+  if (!Number.isFinite(h) || h < 1 || h > 18) return null;
+
+  const cfgRoot =
+    (roundDoc?.formatConfig && typeof roundDoc.formatConfig === "object" ? roundDoc.formatConfig : null) ||
+    (roundDoc?.configByKey && typeof roundDoc.configByKey === "object" ? roundDoc.configByKey : null) ||
+    null;
+
+  if (!cfgRoot) return null;
+
+  function holesFor(k) {
+    const node = cfgRoot?.[k];
+    const arr = Array.isArray(node?.holes) ? node.holes : Array.isArray(node?.holesSelected) ? node.holesSelected : [];
+    return arr.map((x) => Number(x)).filter((n) => Number.isFinite(n));
+  }
+
+  // priority order (only one should match on a given hole, but this is deterministic)
+  if (holesFor("secondshotkp").includes(h) || holesFor("second_shot_kp").includes(h) || holesFor("2nd_kp").includes(h)) return "secondshotkp";
+  if (holesFor("longdrive").includes(h) || holesFor("long_drive").includes(h) || holesFor("ld").includes(h)) return "longdrive";
+  if (holesFor("kp").includes(h)) return "kp";
+
+  return null;
+}
+
 function SideGameOverlayModal({ visible, meta, currentHole, roundNumber, holderName, onDismiss }) {
   const holderLine = holderName ? `Current holder: ${String(holderName)}` : "Currently unclaimed";
 
@@ -290,6 +317,13 @@ export default function HoleHubScreen({ navigation, route }) {
 
   const teeName = teeParam?.name ?? (typeof teeParam === "string" ? teeParam : "Tees");
 
+  const [currentHole, setCurrentHole] = useState(params.hole || 1);
+  const [courseData, setCourseData] = useState(null);
+  const [user, setUser] = useState(null);
+  const [activeSnap, setActiveSnap] = useState(null);
+
+  const activeRoot = useMemo(() => unwrapRound(activeSnap), [activeSnap]);
+
   // IMPORTANT: params.players is often empty in the regular flow.
   // Always fall back to active round snapshot players.
   const players = Array.isArray(params.players) && params.players.length
@@ -297,14 +331,6 @@ export default function HoleHubScreen({ navigation, route }) {
     : (Array.isArray(activeRoot?.players) ? activeRoot.players : []);
 
   const roundId = params.roundId ?? activeRoot?.id ?? activeRoot?.roundId ?? null;
-
-
-  const [currentHole, setCurrentHole] = useState(params.hole || 1);
-  const [courseData, setCourseData] = useState(null);
-  const [user, setUser] = useState(null);
-  const [activeSnap, setActiveSnap] = useState(null);
-
-  const activeRoot = useMemo(() => unwrapRound(activeSnap), [activeSnap]);
 
   const courseId = useMemo(() => {
     return courseIdFromParams ? String(courseIdFromParams) : pickCourseIdAny(activeRoot);
@@ -330,11 +356,16 @@ export default function HoleHubScreen({ navigation, route }) {
   /* side game overlay behavior */
   /* -------------------------- */
 
-  const showFormatSplash = !!params?.showFormatSplash;
-  const sideGameKey = params?.sideGameKey;
   const roundNumber = params?.roundNumber;
 
-  const sideMeta = useMemo(() => getSideGameMeta(sideGameKey), [sideGameKey]);
+  // Always compute the format for the CURRENT hole (so hole strip + Next Hole behave identically)
+  const computedSideGameKey = useMemo(() => {
+    const fromConfig = sideGameKeyForHole(activeRoot, currentHole);
+    const fromParams = String(params?.sideGameKey || "").trim();
+    return fromConfig || (fromParams ? fromParams : null);
+  }, [activeRoot, currentHole, params?.sideGameKey]);
+
+  const sideMeta = useMemo(() => getSideGameMeta(computedSideGameKey), [computedSideGameKey]);
 
   const [sgVisible, setSgVisible] = useState(false);
   const sgTimerRef = useRef(null);
@@ -346,7 +377,7 @@ export default function HoleHubScreen({ navigation, route }) {
   const claimRef = useMemo(() => {
     const uid = auth?.currentUser?.uid || null;
     const rid = String(roundId || "").trim();
-    const sg = String(sideGameKey || "").trim();
+    const sg = String(computedSideGameKey || "").trim();
     const h = Number(currentHole || 1);
 
     if (!uid) return null;
@@ -356,7 +387,7 @@ export default function HoleHubScreen({ navigation, route }) {
 
     const docId = `${sg}_h${String(h)}`;
     return doc(db, "users", String(uid), "rounds", String(rid), "formatClaims", String(docId));
-  }, [roundId, sideGameKey, currentHole]);
+  }, [roundId, computedSideGameKey, currentHole]);
 
   useEffect(() => {
     if (!sgVisible || !claimRef) {
@@ -375,13 +406,7 @@ export default function HoleHubScreen({ navigation, route }) {
 
   const holderName = String(claimDoc?.claimedByPlayerName || "").trim();
 
-  const sgOnceKey = useMemo(() => {
-    const t = String(params?.tournamentId || "t");
-    const r = String(roundNumber || "r");
-    const h = String(currentHole || "h");
-    const s = String(sideGameKey || "none");
-    return `${t}__${r}__${h}__${s}`;
-  }, [params?.tournamentId, roundNumber, currentHole, sideGameKey]);
+  // NOTE: sgOnceKey removed — we now compute a local onceKey in the focus effect
 
   function clearSgTimer() {
     if (sgTimerRef.current) {
@@ -393,24 +418,20 @@ export default function HoleHubScreen({ navigation, route }) {
   const dismissSideGameOverlay = useCallback(() => {
     clearSgTimer();
     setSgVisible(false);
+  }, []);
 
-    try {
-      navigation.setParams({ showFormatSplash: false });
-    } catch { }
-  }, [navigation]);
-
+  // Auto-splash whenever the CURRENT hole is a format hole (once per hole+format)
   useFocusEffect(
     useCallback(() => {
-      if (!showFormatSplash) return undefined;
-      if (!sideGameKey) return undefined;
+      if (!computedSideGameKey) return undefined;
 
-      if (sgShownKeyRef.current === sgOnceKey) return undefined;
-      sgShownKeyRef.current = sgOnceKey;
+      const onceKey = `${String(roundId || "r")}__${String(currentHole || "h")}__${String(computedSideGameKey)}`;
+      if (sgShownKeyRef.current === onceKey) return undefined;
+      sgShownKeyRef.current = onceKey;
 
       setSgVisible(true);
-
       return () => { };
-    }, [showFormatSplash, sideGameKey, sgOnceKey, dismissSideGameOverlay])
+    }, [computedSideGameKey, roundId, currentHole])
   );
 
   useEffect(() => {
@@ -561,8 +582,8 @@ export default function HoleHubScreen({ navigation, route }) {
       courseCenter,
       courseId,
 
-      // If this hole is a format hole (from entry splash), forward it so Score Entry can allow claiming
-      sideGameKey: sideGameKey || null,
+      // Always compute the format hole key for the CURRENT hole (so jumping back works correctly)
+      sideGameKey: sideGameKeyForHole(activeRoot, currentHole) || null,
 
       ...extra,
     });
