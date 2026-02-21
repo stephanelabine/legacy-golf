@@ -962,6 +962,14 @@ export default function HoleHubScreen({ navigation, route }) {
         title={useMemo(() => shortCourseTitle(courseName), [courseName])}
         subtitle={`${teeName} • Hole ${currentHole} • Par ${par}`}
         safeTop={false}
+        leftLabel={currentHole <= 1 ? "Exit" : "Back"}
+        onLeftPress={() => {
+          if (currentHole <= 1) {
+            onPressHome();
+            return;
+          }
+          setCurrentHole((prev) => Math.max(1, Number(prev || 1) - 1));
+        }}
         rightLabel="Home"
         onRightPress={onPressHome}
       />

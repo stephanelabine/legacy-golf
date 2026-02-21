@@ -19,6 +19,10 @@ export default function ScreenHeader({
   // New API (optional): pass a custom React element for the right side
   right,
 
+  // NEW: left controls (optional)
+  leftLabel = "Back",
+  onLeftPress,
+
   // NEW: title controls (optional)
   titleNumberOfLines = 1,
   titleAutoShrink = false,
@@ -35,13 +39,17 @@ export default function ScreenHeader({
       <View style={styles.row}>
         <Pressable
           onPress={() => {
+            if (typeof onLeftPress === "function") {
+              onLeftPress();
+              return;
+            }
             if (navigation?.goBack && canGoBack) navigation.goBack();
             else navigation?.navigate?.("Home");
           }}
           hitSlop={12}
           style={({ pressed }) => [styles.pill, pressed && styles.pressed]}
         >
-          <Text style={styles.pillText}>Back</Text>
+          <Text style={styles.pillText}>{leftLabel || "Back"}</Text>
         </Pressable>
 
         <View style={styles.center}>
