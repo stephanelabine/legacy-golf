@@ -9,12 +9,16 @@ import {
   Pressable,
   Alert,
   ActivityIndicator,
+  Modal,
 } from "react-native";
 import { useFocusEffect, CommonActions } from "@react-navigation/native";
+import { collection, onSnapshot } from "firebase/firestore";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import { getRoundById } from "../storage/rounds";
+import { auth, db } from "../firebase/firebase";
 
 const BG = "#06150F";
 const CARD = "rgba(18,22,30,0.92)";
@@ -27,6 +31,37 @@ const YELLOW = "#F2C94C";
 function toInt(v) {
   const n = parseInt(String(v ?? "").replace(/[^\d-]/g, ""), 10);
   return Number.isFinite(n) ? n : 0;
+}
+
+function money(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v <= 0) return "$0";
+  const fixed = Math.round(v * 100) / 100;
+  return fixed % 1 === 0 ? `$${fixed.toFixed(0)}` : `$${fixed.toFixed(2)}`;
+}
+
+function uniqInts(arr) {
+  const s = new Set();
+  (arr || []).forEach((x) => {
+    const v = Number(x);
+    if (Number.isFinite(v)) s.add(Math.round(v));
+  });
+  return Array.from(s).sort((a, b) => a - b);
+}
+
+function normKey(x) {
+  return String(x || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function parseHcp(v) {
+  if (v == null) return 0;
+  if (typeof v === "number") return Number.isFinite(v) ? Math.round(v) : 0;
+  const s = String(v).trim();
+  if (!s) return 0;
+  const m = s.match(/-?\d+(\.\d+)?/);
+  if (!m) return 0;
+  const n = Number(m[0]);
+  return Number.isFinite(n) ? Math.round(n) : 0;
 }
 
 // Supports BOTH storage shapes:
@@ -75,17 +110,6 @@ function fmtPct(a, b) {
   return `${pct}%`;
 }
 
-function parseHcp(v) {
-  if (v == null) return 0;
-  if (typeof v === "number") return Number.isFinite(v) ? Math.round(v) : 0;
-  const s = String(v).trim();
-  if (!s) return 0;
-  const m = s.match(/-?\d+(\.\d+)?/);
-  if (!m) return 0;
-  const n = Number(m[0]);
-  return Number.isFinite(n) ? Math.round(n) : 0;
-}
-
 // Try to read a Stroke Index/Handicap number (1-18) for a given hole.
 // Supports several holeMeta shapes (array or object keyed by hole number).
 function getStrokeIndex(roundRoot, holeNumber) {
@@ -110,13 +134,11 @@ function getStrokeIndex(roundRoot, holeNumber) {
     return n;
   };
 
-  // array shape: holeMeta[0] is hole 1
   if (Array.isArray(hm)) {
     const obj = hm[holeNumber - 1];
     return pick(obj);
   }
 
-  // object keyed by hole number (string)
   const obj = hm?.[String(holeNumber)] ?? hm?.[holeNumber] ?? null;
   return pick(obj);
 }
@@ -139,7 +161,6 @@ function sumNetTotal(roundRoot, playerId, playerHcp) {
     }
   }
 
-  // fallback if we don't have stroke index info
   if (!anyStrokeIndex) {
     const netFallback = gross - hcp;
     return Number.isFinite(netFallback) ? netFallback : gross;
@@ -158,11 +179,123 @@ function sumNetTotal(roundRoot, playerId, playerHcp) {
     const getsExtra = Number.isFinite(si) && si <= extra ? 1 : 0;
     const received = base + getsExtra;
 
-    const holeNet = strokes - received;
-    net += holeNet;
+    net += strokes - received;
   }
 
   return net;
+}
+
+function getConfigByKeyFromRoundDoc(doc) {
+  const c1 = doc?.configByKey;
+  const c2 = doc?.formatConfigByKey;
+  const c3 = doc?.formatDetailsByKey;
+  const c4 = doc?.formatsConfigByKey;
+  const c5 = doc?.formatsConfig;
+  const c6 = doc?.formatConfig;
+  return (
+    (c1 && typeof c1 === "object" && c1) ||
+    (c2 && typeof c2 === "object" && c2) ||
+    (c3 && typeof c3 === "object" && c3) ||
+    (c4 && typeof c4 === "object" && c4) ||
+    (c5 && typeof c5 === "object" && c5) ||
+    (c6 && typeof c6 === "object" && c6) ||
+    {}
+  );
+}
+
+function getFormatPools(roundDoc) {
+  const pools = roundDoc?.formatPools && typeof roundDoc.formatPools === "object" ? roundDoc.formatPools : null;
+  return pools || null;
+}
+
+// IMPORTANT: detect “second shot kp” before “kp”
+function detectFormatType(key, name) {
+  const k = normKey(key);
+  const n = normKey(name);
+  const s = `${k} ${n}`.trim();
+
+  const isSecondShot =
+    s.includes("secondshotkp") ||
+    s.includes("secondshot") ||
+    (s.includes("second") && s.includes("shot") && s.includes("kp")) ||
+    s.includes("2ndshotkp") ||
+    (s.includes("2nd") && s.includes("shot") && s.includes("kp"));
+
+  if (isSecondShot) return "secondshotkp";
+  if (s.includes("longdrive") || (s.includes("long") && s.includes("drive"))) return "longdrive";
+  if (s.includes("deucepot") || (s.includes("deuce") && s.includes("pot"))) return "deucepot";
+  if (s.includes("puttingcontest") || (s.includes("putting") && s.includes("contest"))) return "puttingcontest";
+  if (s.includes("teamvsteam") || (s.includes("team") && s.includes("vs") && s.includes("team"))) return "teamvsteam";
+  if (s.includes("kp")) return "kp";
+  return "unknown";
+}
+
+function formatIconName(type) {
+  if (type === "kp") return "target";
+  if (type === "secondshotkp") return "target-variant";
+  if (type === "longdrive") return "golf";
+  if (type === "puttingcontest") return "golf";
+  if (type === "deucepot") return "cash";
+  if (type === "teamvsteam") return "account-group";
+  return "star-four-points";
+}
+
+function formatDisplayTitle(type, rawName) {
+  if (type === "kp") return "KP";
+  if (type === "longdrive") return "LONG DRIVE";
+  if (type === "secondshotkp") return "SECOND SHOT KP";
+  if (type === "deucepot") return "DEUCE POT";
+  if (type === "puttingcontest") return "PUTTING CONTEST";
+  if (type === "teamvsteam") return "TEAM VS TEAM";
+  return String(rawName || "FORMAT").toUpperCase();
+}
+
+function formatTheme(type) {
+  if (type === "kp") return { accent: "#5AD7FF", bg: "rgba(90,215,255,0.10)", border: "rgba(90,215,255,0.28)" };
+  if (type === "longdrive") return { accent: "#B8F37A", bg: "rgba(184,243,122,0.10)", border: "rgba(184,243,122,0.28)" };
+  if (type === "secondshotkp") return { accent: "#9D7BFF", bg: "rgba(157,123,255,0.10)", border: "rgba(157,123,255,0.28)" };
+  if (type === "deucepot") return { accent: "#FFCF5A", bg: "rgba(255,207,90,0.10)", border: "rgba(255,207,90,0.30)" };
+  if (type === "puttingcontest") return { accent: "#FF7AC8", bg: "rgba(255,122,200,0.10)", border: "rgba(255,122,200,0.28)" };
+  if (type === "teamvsteam") return { accent: "#69E6B4", bg: "rgba(105,230,180,0.10)", border: "rgba(105,230,180,0.28)" };
+  return { accent: YELLOW, bg: "rgba(242,201,76,0.08)", border: "rgba(242,201,76,0.22)" };
+}
+
+// Regular official holes from configByKey:
+// - cfg.holes
+// - cfg.holesSelected
+// - cfg.holesByRound.r1
+function getOfficialHolesForFormat(roundDoc, formatKey) {
+  const cfgAll = getConfigByKeyFromRoundDoc(roundDoc);
+  const cfg = cfgAll?.[String(formatKey)] || cfgAll?.[normKey(formatKey)] || null;
+  if (!cfg || typeof cfg !== "object") return [];
+
+  const holes = Array.isArray(cfg?.holes) ? cfg.holes : null;
+  const holesSelected = Array.isArray(cfg?.holesSelected) ? cfg.holesSelected : null;
+  const holesByRound = cfg?.holesByRound && typeof cfg.holesByRound === "object" ? cfg.holesByRound : null;
+  const holesR1 = holesByRound && Array.isArray(holesByRound?.r1) ? holesByRound.r1 : null;
+
+  const list = holesR1 || holesSelected || holes || [];
+  return uniqInts(list).filter((h) => h >= 1 && h <= 18);
+}
+
+function getEntryFee(roundDoc, formatKey) {
+  const pools = getFormatPools(roundDoc);
+  if (pools && pools?.[formatKey]) {
+    const p = pools[formatKey];
+    const fee =
+      Number(p?.entryFee) ||
+      Number(p?.buyIn) ||
+      Number(p?.buyInAmount) ||
+      Number(p?.amountPerHole) ||
+      Number(p?.amountPerSkin) ||
+      0;
+    return Number.isFinite(fee) && fee > 0 ? fee : 0;
+  }
+
+  // legacy-ish fallback
+  const feeByKey = roundDoc?.feeByKey && typeof roundDoc.feeByKey === "object" ? roundDoc.feeByKey : null;
+  const n = feeByKey ? Number(feeByKey?.[formatKey]) : 0;
+  return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 export default function FinalResultsScreen({ navigation, route }) {
@@ -178,6 +311,12 @@ export default function FinalResultsScreen({ navigation, route }) {
   const [loading, setLoading] = useState(true);
 
   const [scoreMode, setScoreMode] = useState("gross"); // "gross" | "net"
+
+  const [claimsByFormat, setClaimsByFormat] = useState({}); // normFormatKey -> { holeStr: claimDoc }
+  const [showAllFormats, setShowAllFormats] = useState(true);
+
+  const [winnerModalOpen, setWinnerModalOpen] = useState(false);
+  const [selectedFormat, setSelectedFormat] = useState(null);
 
   const courseName = String(round?.courseName || round?.course?.name || "Course");
   const teeName = String(round?.teeName || round?.tee?.name || "Tees");
@@ -229,6 +368,44 @@ export default function FinalResultsScreen({ navigation, route }) {
     }, [roundId])
   );
 
+  // Live claims snapshot (single source of truth):
+  // users/{uid}/rounds/{roundId}/formatClaims/{formatKey}_h{hole}
+  useFocusEffect(
+    useCallback(() => {
+      const uid = auth?.currentUser?.uid;
+      if (!uid || !roundId) return undefined;
+
+      const ref = collection(db, "users", String(uid), "rounds", String(roundId), "formatClaims");
+
+      const unsub = onSnapshot(
+        ref,
+        (snap) => {
+          const map = {};
+          snap.forEach((d) => {
+            const id = String(d.id || "");
+            const m = id.match(/^(.*)_h(\d+)$/);
+            if (!m) return;
+
+            const rawKey = String(m[1] || "").trim();
+            const hole = String(Number(m[2] || 0));
+            if (!rawKey || !hole || hole === "0") return;
+
+            const nk = normKey(rawKey);
+            if (!nk) return;
+
+            if (!map[nk]) map[nk] = {};
+            map[nk][hole] = d.data() || {};
+          });
+
+          setClaimsByFormat(map);
+        },
+        () => setClaimsByFormat({})
+      );
+
+      return () => unsub();
+    }, [roundId])
+  );
+
   const players = useMemo(() => {
     const list = Array.isArray(round?.players) ? round.players : [];
     return list.map((p, idx) => ({
@@ -246,6 +423,8 @@ export default function FinalResultsScreen({ navigation, route }) {
       ),
     }));
   }, [round]);
+
+  const rosterCount = useMemo(() => (Array.isArray(players) ? players.length : 0), [players]);
 
   const stats = useMemo(() => {
     const r = round || {};
@@ -448,6 +627,7 @@ export default function FinalResultsScreen({ navigation, route }) {
                   </Text>
                   <Text style={styles.numSub}>{scoreMode === "gross" ? "gross" : "net"}</Text>
                 </View>
+
                 <View style={styles.numCol}>
                   <Text style={styles.numBig2}>{p.putts > 0 ? String(p.putts) : "—"}</Text>
                   <Text style={styles.numSub}>putts</Text>
@@ -478,19 +658,480 @@ export default function FinalResultsScreen({ navigation, route }) {
     );
   };
 
+  const selectedFormats = useMemo(() => {
+    const raw = Array.isArray(round?.formatsSelected) ? round.formatsSelected : [];
+    const out = raw
+      .map((x) => {
+        if (typeof x === "string") return { key: String(x).trim(), name: String(x).trim() };
+        const k = String(x?.key || x?.id || x?.formatKey || "").trim();
+        const n = String(x?.name || x?.title || k || "").trim();
+        return k ? { key: k, name: n || k } : null;
+      })
+      .filter(Boolean);
+
+    const ORDER = ["kp", "longdrive", "secondshotkp", "deucepot", "puttingcontest", "teamvsteam"];
+    const rank = (f) => {
+      const t = detectFormatType(f.key, f.name);
+      const idx = ORDER.indexOf(t);
+      return idx === -1 ? 999 : idx;
+    };
+
+    return [...out].sort((a, b) => rank(a) - rank(b));
+  }, [round]);
+
+  const formatsToRender = useMemo(() => {
+    if (showAllFormats) return selectedFormats;
+    return selectedFormats.slice(0, 3);
+  }, [selectedFormats, showAllFormats]);
+
+  const openWinnerModal = useCallback((f) => {
+    setSelectedFormat(f || null);
+    setWinnerModalOpen(true);
+  }, []);
+
+  const closeWinnerModal = useCallback(() => {
+    setWinnerModalOpen(false);
+    setSelectedFormat(null);
+  }, []);
+
+  const computePuttingLeaders = useCallback(() => {
+    const rows = (stats || [])
+      .map((s) => ({ id: String(s.id), name: String(s.name), putts: Number(s.puttsTotal || 0) }))
+      .filter((r) => Number.isFinite(r.putts));
+
+    rows.sort((a, b) => a.putts - b.putts || a.name.localeCompare(b.name));
+    if (!rows.length) return { first: [], second: [] };
+
+    const firstPutts = rows[0].putts;
+    const first = rows.filter((r) => r.putts === firstPutts);
+
+    const rest = rows.filter((r) => r.putts !== firstPutts);
+    if (!rest.length) return { first, second: [] };
+
+    const secondPutts = rest[0].putts;
+    const second = rest.filter((r) => r.putts === secondPutts);
+
+    return { first, second };
+  }, [stats]);
+
+  const computeDeuceCounts = useCallback(() => {
+    const r = round || {};
+    const rows = [];
+
+    players.forEach((p) => {
+      let count = 0;
+      for (let h = 1; h <= 18; h++) {
+        const s = readStroke(r, h, p.id);
+        if (Number.isFinite(s) && s === 2) count += 1;
+      }
+      if (count > 0) rows.push({ id: p.id, name: p.name, deuces: count });
+    });
+
+    rows.sort((a, b) => b.deuces - a.deuces || a.name.localeCompare(b.name));
+    return rows;
+  }, [round, players]);
+
+  function renderFormatPayout(formatKey, type, officialHoles) {
+    // For hole-based formats, this value means "$ per hole (per event) per player"
+    // For round-total formats, it means "$ buy-in per player"
+    const baseAmount = getEntryFee(round || {}, formatKey);
+
+    const playersCount = Math.max(0, rosterCount);
+
+    if (baseAmount <= 0) {
+      return { headline: "No buy-in", lines: ["Set a buy-in in Formats / Money Pools to compute payouts."] };
+    }
+
+    if (type === "kp" || type === "longdrive" || type === "secondshotkp") {
+      const events = Array.isArray(officialHoles) ? officialHoles.length : 0;
+
+      const perHoleAmount = baseAmount;
+      const perPlayerEntry = events > 0 ? perHoleAmount * events : 0;
+      const poolTotal = perPlayerEntry > 0 ? perPlayerEntry * playersCount : 0;
+
+      // Winner should not “pay themselves”
+      const perWin = perHoleAmount * Math.max(0, playersCount - 1);
+
+      return {
+        headline: events > 0 ? `${money(perWin)} per win` : "Needs holes",
+        lines: [
+          `$ per hole: ${money(perHoleAmount)}`,
+          `Entry fee (per player): ${money(perPlayerEntry)}`,
+          `Players: ${playersCount}`,
+          `Pool total: ${money(poolTotal)}`,
+          `Official holes selected: ${events > 0 ? String(events) : "0 (select holes in Format Details)"}`,
+        ],
+      };
+    }
+
+    // Round-total formats: baseAmount is buy-in per player
+    const buyIn = baseAmount;
+    const poolTotal = buyIn * playersCount;
+
+    if (type === "deucepot") {
+      return {
+        headline: "Split among deuces",
+        lines: [`Buy-in (per player): ${money(buyIn)}`, `Players: ${playersCount}`, `Pot total: ${money(poolTotal)}`],
+      };
+    }
+
+    if (type === "puttingcontest") {
+      const first = poolTotal * 0.75;
+      const second = poolTotal * 0.25;
+      return {
+        headline: `${money(first)} / ${money(second)}`,
+        lines: [
+          "Split: 1st place 75% and 2nd place 25% of the total pool.",
+          `Buy-in (per player): ${money(buyIn)}`,
+          `Players: ${playersCount}`,
+          `Pool total: ${money(poolTotal)}`,
+        ],
+      };
+    }
+
+    if (type === "teamvsteam") {
+      const perPlayer = playersCount > 0 ? poolTotal / playersCount : 0;
+      return {
+        headline: playersCount > 0 ? `${money(perPlayer)} per player` : "Players needed",
+        lines: [`Buy-in (per player): ${money(buyIn)}`, `Players: ${playersCount}`, `Pool total: ${money(poolTotal)}`],
+      };
+    }
+
+    return {
+      headline: `${money(poolTotal)} (winner)`,
+      lines: [`Buy-in (per player): ${money(buyIn)}`, `Players: ${playersCount}`, `Pool total: ${money(poolTotal)}`],
+    };
+  }
+
+  const renderWinnerModal = () => {
+    if (!winnerModalOpen || !selectedFormat) return null;
+
+    const f = selectedFormat;
+    const formatKey = String(f.key || "").trim();
+    const rawName = String(f.name || f.key || "Format");
+
+    const type = detectFormatType(formatKey, rawName);
+    const display = formatDisplayTitle(type, rawName);
+    const theme = formatTheme(type);
+    const icon = formatIconName(type);
+
+    const nk = normKey(formatKey);
+    const officialHoles = getOfficialHolesForFormat(round || {}, formatKey);
+    const claimsMap = claimsByFormat?.[nk] || {};
+
+    const perHoleAmount = getEntryFee(round || {}, formatKey); // for hole formats: $ per hole (per event) per player
+
+    const events = officialHoles.length;
+
+    const perPlayerEntry = perHoleAmount > 0 && events > 0 ? perHoleAmount * events : 0;
+    const pool = perPlayerEntry > 0 ? perPlayerEntry * Math.max(0, rosterCount) : 0;
+
+    // Winner should not “pay themselves”:
+    // payout per win = per-hole amount * (players - 1)
+    const perWin = perHoleAmount > 0 ? perHoleAmount * Math.max(0, rosterCount - 1) : 0;
+
+    const isAuto = type === "deucepot" || type === "puttingcontest";
+
+    const isCarryDoc = (c) => {
+      const s = String(c?.status || "").toLowerCase();
+      return s === "carry_over" || s === "carryover";
+    };
+
+    const extractWinnerName = (c) => {
+      const nm = String(c?.claimedByPlayerName || c?.playerName || c?.name || "").trim();
+      return nm || "";
+    };
+
+    // Build resolved winners per official hole.
+    // If a hole is carry over, it resolves to the next official hole that has a winner.
+    const resolvedByHole = {};
+    if (!isAuto) {
+      for (let i = 0; i < officialHoles.length; i++) {
+        const h = officialHoles[i];
+        const c = claimsMap?.[String(h)] || null;
+
+        const directWinner = extractWinnerName(c);
+        if (directWinner) {
+          resolvedByHole[String(h)] = { winnerName: directWinner, note: "" };
+          continue;
+        }
+
+        if (c && isCarryDoc(c)) {
+          // find the next official hole with a real winner
+          let resolvedHole = null;
+          let resolvedName = "";
+
+          for (let j = i + 1; j < officialHoles.length; j++) {
+            const h2 = officialHoles[j];
+            const c2 = claimsMap?.[String(h2)] || null;
+            const nm2 = extractWinnerName(c2);
+            if (nm2) {
+              resolvedHole = h2;
+              resolvedName = nm2;
+              break;
+            }
+          }
+
+          if (resolvedName) {
+            resolvedByHole[String(h)] = {
+              winnerName: resolvedName,
+              note: `Carry over → Hole ${resolvedHole}`,
+            };
+          } else {
+            resolvedByHole[String(h)] = { winnerName: "", note: "Carry over pending" };
+          }
+
+          continue;
+        }
+
+        // no doc or no winner yet
+        resolvedByHole[String(h)] = { winnerName: "", note: "" };
+      }
+    }
+
+    const resolvedCount = !isAuto
+      ? officialHoles.reduce((acc, h) => acc + (resolvedByHole?.[String(h)]?.winnerName ? 1 : 0), 0)
+      : 0;
+
+    const statusPill = isAuto
+      ? "AUTO"
+      : events === 0
+        ? "NO HOLES SET"
+        : `${resolvedCount}/${events} RESOLVED`;
+
+    const payout = renderFormatPayout(formatKey, type, officialHoles);
+
+    const puttingLeaders = isAuto && type === "puttingcontest" ? computePuttingLeaders() : null;
+    const deuceRows = isAuto && type === "deucepot" ? computeDeuceCounts() : null;
+
+    return (
+      <Modal visible={winnerModalOpen} transparent animationType="fade" onRequestClose={closeWinnerModal}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { borderColor: theme.border }]}>
+            <View style={styles.modalTop}>
+              <View style={[styles.modalIconWrap, { backgroundColor: theme.bg, borderColor: theme.border }]}>
+                <MaterialCommunityIcons name={icon} size={18} color={theme.accent} />
+              </View>
+
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.modalTitle} numberOfLines={1}>
+                  {display} Winners
+                </Text>
+              </View>
+
+              <Pressable onPress={closeWinnerModal} style={({ pressed }) => [styles.modalClose, pressed && styles.pressed]}>
+                <Text style={styles.modalCloseText}>Close</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.modalDivider} />
+
+            <View style={styles.modalSection}>
+              <View style={styles.modalSectionRow}>
+                <Text style={styles.modalSectionTitle}>Winner</Text>
+                <View style={styles.statusPill}>
+                  <Text style={styles.statusPillText}>{statusPill}</Text>
+                </View>
+              </View>
+
+              <View style={styles.winnerBox}>
+                {isAuto ? (
+                  <View style={{ width: "100%", gap: 8 }}>
+                    {type === "puttingcontest" ? (
+                      <>
+                        {!puttingLeaders || (!puttingLeaders.first.length && !puttingLeaders.second.length) ? (
+                          <Text style={styles.modalLine}>No putts recorded yet.</Text>
+                        ) : (
+                          <>
+                            <Text style={styles.modalLine}>
+                              1st: {puttingLeaders.first.map((r) => `${r.name} (${r.putts})`).join(", ")}
+                            </Text>
+                            {puttingLeaders.second.length ? (
+                              <Text style={styles.modalLine}>
+                                2nd: {puttingLeaders.second.map((r) => `${r.name} (${r.putts})`).join(", ")}
+                              </Text>
+                            ) : (
+                              <Text style={styles.modalLine}>2nd: —</Text>
+                            )}
+                          </>
+                        )}
+                      </>
+                    ) : null}
+
+                    {type === "deucepot" ? (
+                      <>
+                        {!deuceRows || deuceRows.length === 0 ? (
+                          <Text style={styles.modalLine}>No deuces recorded yet.</Text>
+                        ) : (
+                          deuceRows.map((r) => (
+                            <Text key={`deuce-${r.id}`} style={styles.modalLine}>
+                              {r.name} — {r.deuces} deuce{r.deuces === 1 ? "" : "s"}
+                            </Text>
+                          ))
+                        )}
+                      </>
+                    ) : null}
+                  </View>
+                ) : events > 0 ? (
+                  <View style={{ width: "100%", gap: 10 }}>
+                    {officialHoles.map((h, i) => {
+                      const key = String(h);
+                      const c = claimsMap?.[key] || null;
+
+                      const statusRaw = String(c?.status || "").toLowerCase();
+                      const isCarry = statusRaw === "carry_over" || statusRaw === "carryover";
+
+                      const directName = String(
+                        c?.claimedByPlayerName ||
+                        c?.playerName ||
+                        c?.name ||
+                        ""
+                      ).trim();
+
+                      // carryover chain: find next official hole with a real winner
+                      let resolvedHole = null;
+                      let resolvedName = "";
+
+                      if (isCarry) {
+                        for (let j = i + 1; j < officialHoles.length; j++) {
+                          const h2 = officialHoles[j];
+                          const c2 = claimsMap?.[String(h2)] || null;
+                          const nm2 = String(
+                            c2?.claimedByPlayerName ||
+                            c2?.playerName ||
+                            c2?.name ||
+                            ""
+                          ).trim();
+
+                          if (nm2) {
+                            resolvedHole = h2;
+                            resolvedName = nm2;
+                            break;
+                          }
+                        }
+                      }
+
+                      const winnerName = directName || resolvedName || "";
+                      const note = isCarry && resolvedName ? `Carry over → Hole ${resolvedHole}` : "";
+
+                      return (
+                        <View key={`hole-${h}`} style={styles.claimRow}>
+                          <Text style={styles.claimLeft}>Hole {h}</Text>
+
+                          <View style={styles.claimMidBox}>
+                            <Text style={styles.claimMidName} numberOfLines={1}>
+                              {winnerName ? winnerName : "Unclaimed"}
+                            </Text>
+                            {note ? (
+                              <Text style={styles.claimMidNote} numberOfLines={1}>
+                                {note}
+                              </Text>
+                            ) : null}
+                          </View>
+
+                          <View style={styles.matchPill}>
+                            <Text style={styles.matchPillText}>{perWin > 0 ? money(perWin) : "—"}</Text>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <Text style={styles.modalLine}>No official holes selected yet.</Text>
+                )}
+
+                <Text style={styles.winnerSmall}>Claims are shown as pending until confirmation/override is added.</Text>
+              </View>
+            </View>
+
+            <View style={styles.modalDivider} />
+
+            <View style={styles.modalSection}>
+              <View style={styles.modalSectionRow}>
+                <Text style={styles.modalSectionTitle}>Payout</Text>
+                <View style={styles.formatPill}>
+                  <Text style={styles.formatPillText}>PAYOUT</Text>
+                </View>
+              </View>
+
+              <Text style={styles.payoutHeadline}>{payout.headline}</Text>
+
+              {payout.lines.map((line, idx) => (
+                <Text key={`${formatKey}-p-${idx}`} style={styles.modalLine}>
+                  {line}
+                </Text>
+              ))}
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
   const renderFormatsCard = () => {
     return (
       <View style={styles.leaderWrap}>
         <View style={styles.leaderTopRow}>
           <Text style={styles.leaderTitle}>Formats</Text>
+
+          <Pressable onPress={() => setShowAllFormats((v) => !v)} style={({ pressed }) => [styles.leaderToggle, pressed && styles.pressed]}>
+            <Text style={styles.leaderToggleText}>{showAllFormats ? "Show less" : "View all"}</Text>
+          </Pressable>
         </View>
 
         <View style={styles.divider} />
 
-        <View style={styles.placeholderBox}>
-          <Text style={styles.placeholderTitle}>Coming next</Text>
-          <Text style={styles.placeholderSub}>This tab will show format winners + details.</Text>
-        </View>
+        {!formatsToRender.length ? (
+          <View style={styles.placeholderBox}>
+            <Text style={styles.placeholderTitle}>No formats to show</Text>
+            <Text style={styles.placeholderSub}>Select formats in setup, then they will appear here.</Text>
+          </View>
+        ) : (
+          <>
+            {formatsToRender.map((f) => {
+              const formatKey = String(f.key || "").trim();
+              const rawName = String(f.name || f.key || "Format");
+
+              const type = detectFormatType(formatKey, rawName);
+              const display = formatDisplayTitle(type, rawName);
+              const theme = formatTheme(type);
+              const icon = formatIconName(type);
+
+              return (
+                <Pressable
+                  key={formatKey}
+                  onPress={() => openWinnerModal(f)}
+                  style={({ pressed }) => [
+                    styles.winnerTile,
+                    { backgroundColor: theme.bg, borderColor: theme.border },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <View style={styles.winnerTileTop}>
+                    <View style={[styles.winnerIcon, { backgroundColor: "rgba(0,0,0,0.18)", borderColor: theme.border }]}>
+                      <MaterialCommunityIcons name={icon} size={18} color={theme.accent} />
+                    </View>
+                    <View style={styles.formatPill}>
+                      <Text style={styles.formatPillText}>WINNER</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.winnerTileCenter}>
+                    <Text style={styles.winnerTileTitle} numberOfLines={2}>
+                      {display} WINNER
+                    </Text>
+                    <Text style={styles.winnerTileSub} numberOfLines={1}>
+                      Tap to view details
+                    </Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+
+            <View style={{ height: 2 }} />
+            {renderWinnerModal()}
+          </>
+        )}
       </View>
     );
   };
@@ -699,7 +1340,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
+    borderWidth: 2,
   },
   tabPillIdle: {
     backgroundColor: "rgba(255,255,255,0.06)",
@@ -776,6 +1417,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(242,201,76,0.28)",
     flexWrap: "wrap",
   },
+
   rankPillSpacer: { width: 34, height: 34, borderRadius: 14 },
 
   rankPill: {
@@ -884,4 +1526,150 @@ const styles = StyleSheet.create({
   btnOutlineText: { color: WHITE, fontWeight: "900", fontSize: 15 },
 
   pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
+
+  winnerTile: {
+    borderRadius: 22,
+    borderWidth: 2,
+    padding: 12,
+    marginBottom: 10,
+  },
+  winnerTileTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  winnerIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  winnerTileCenter: { marginTop: 12, alignItems: "center", justifyContent: "center" },
+  winnerTileTitle: { color: WHITE, fontWeight: "900", fontSize: 18, textAlign: "center", letterSpacing: 0.4 },
+  winnerTileSub: { marginTop: 8, color: MUTED, fontWeight: "800", fontSize: 12 },
+
+  formatPill: {
+    height: 28,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    backgroundColor: "rgba(242,201,76,0.16)",
+    borderWidth: 1,
+    borderColor: "rgba(242,201,76,0.30)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  formatPillText: { color: "rgba(242,201,76,0.98)", fontWeight: "900", fontSize: 11, letterSpacing: 0.3 },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 16,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 520,
+    borderRadius: 24,
+    backgroundColor: "rgba(18,22,30,0.97)",
+    borderWidth: 3,
+    padding: 14,
+  },
+  modalTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  modalIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalTitle: { color: WHITE, fontWeight: "900", fontSize: 16 },
+  modalSub: { marginTop: 2, color: MUTED, fontWeight: "800", fontSize: 12 },
+  modalClose: {
+    height: 34,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalCloseText: { color: WHITE, fontWeight: "900", fontSize: 12 },
+  modalDivider: {
+    height: 2,
+    backgroundColor: "rgba(255,255,255,0.14)",
+    marginTop: 14,
+    marginBottom: 14,
+  },
+  modalSection: { marginBottom: 2 },
+  modalSectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  modalSectionTitle: { color: WHITE, fontWeight: "900", fontSize: 14 },
+
+  statusPill: {
+    height: 26,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statusPillText: { color: WHITE, fontWeight: "900", fontSize: 11, letterSpacing: 0.2 },
+
+  winnerBox: {
+    marginTop: 10,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+    padding: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+  },
+  winnerSmall: { marginTop: 10, color: MUTED, fontWeight: "800", fontSize: 12, textAlign: "center", lineHeight: 16 },
+
+  payoutHeadline: { marginTop: 10, color: WHITE, fontWeight: "900", fontSize: 15 },
+  modalLine: { marginTop: 8, color: MUTED, fontWeight: "800", fontSize: 12, lineHeight: 16 },
+
+  claimRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    width: "100%",
+  },
+  claimLeft: { color: WHITE, fontWeight: "900", fontSize: 13 },
+
+  claimMidBox: { flex: 1, alignItems: "center", justifyContent: "center", minWidth: 0 },
+  claimMidName: { color: WHITE, fontWeight: "900", fontSize: 13, textAlign: "center" },
+  claimMidNote: { marginTop: 2, color: MUTED, fontWeight: "900", fontSize: 11, textAlign: "center" },
+
+  matchPill: {
+    height: 28,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    backgroundColor: "rgba(242,201,76,0.16)",
+    borderWidth: 1,
+    borderColor: "rgba(242,201,76,0.30)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  matchPillText: { color: "rgba(242,201,76,0.98)", fontWeight: "900", fontSize: 11, letterSpacing: 0.3 },
 });

@@ -454,10 +454,32 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
 
     function selectedHoleCountForFormat(f) {
         const fk = getKey(f);
-        const cfg = safeObj(roundDoc?.formatConfig);
-        const entry = safeObj(cfg?.[fk]);
-        const holes = safeArr(entry?.holes);
-        return holes.filter((n) => Number.isFinite(Number(n))).length;
+        if (!fk) return 0;
+
+        // Canonical (and aliases) used across regular games
+        const cfgByKey =
+            safeObj(roundDoc?.configByKey) ||
+            safeObj(roundDoc?.formatConfigByKey) ||
+            safeObj(roundDoc?.formatDetailsByKey) ||
+            safeObj(roundDoc?.formatsConfigByKey) ||
+            safeObj(roundDoc?.formatsConfig) ||
+            safeObj(roundDoc?.formatConfig) ||
+            {};
+
+        const entry = safeObj(cfgByKey?.[fk] || cfgByKey?.[normKey(fk)] || {});
+
+        // Support holes, holesSelected, holesByRound.r1
+        const holesA = safeArr(entry?.holes);
+        const holesB = safeArr(entry?.holesSelected);
+        const hbr = safeObj(entry?.holesByRound);
+        const holesR1 = safeArr(hbr?.r1);
+
+        const list = holesR1.length ? holesR1 : holesB.length ? holesB : holesA;
+
+        return list.filter((n) => {
+            const v = Number(n);
+            return Number.isFinite(v) && v >= 1 && v <= 18;
+        }).length;
     }
 
     function includedCountForKey(fk) {
@@ -636,17 +658,20 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
         let previewRight = "Calculated later";
 
         if ((type === "kp" || type === "longdrive" || type === "secondshotkp") && holesSelected !== null) {
-            previewRight =
-                holesSelected > 0 && Number.isFinite(feeNum) && feeNum > 0
-                    ? `Total: ${money(feeNum * holesSelected)}`
-                    : `Holes: ${holesSelected}`;
+            if (holesSelected > 0 && Number.isFinite(feeNum) && feeNum > 0) {
+                const perPlayerEntry = feeNum * holesSelected; // $ per hole * holes
+                const poolTotal = perPlayerEntry * included;   // entry/player * included players
+                const perWin = feeNum * Math.max(0, included - 1); // winner doesn't pay themselves
+                previewRight = `Entry/player: ${money(perPlayerEntry)} • Pool: ${money(poolTotal)} • Per win: ${money(perWin)}`;
+            } else {
+                previewRight = `Holes: ${holesSelected}`;
+            }
         } else if (type === "deuce_pot" || type === "putting_contest") {
             previewRight =
-                included > 0 && Number.isFinite(feeNum) && feeNum > 0 ? `Pool ~ ${money(feeNum * included)}` : `Included: ${included}`;
+                included > 0 && Number.isFinite(feeNum) && feeNum > 0 ? `Pool: ${money(feeNum * included)}` : `Included: ${included}`;
         } else if (type === "skins") {
             previewRight = feeNum > 0 ? `Per skin: ${money(feeNum)}` : "Value per skin";
         }
-
         return (
             <View key={fk || `${type}_${name}`} style={styles.premiumCard}>
                 <View style={styles.rowTop}>
@@ -676,7 +701,7 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
                     </View>
 
                     <View style={styles.previewRow}>
-                        <Text style={styles.previewText}>{roster ? `Roster: ${roster}` : "Roster: 0"}</Text>
+                        <Text style={styles.previewText}>{roster ? `Players: ${roster}` : "Players: 0"}</Text>
                         <Text style={styles.previewText}>{previewRight}</Text>
                     </View>
 
