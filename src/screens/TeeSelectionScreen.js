@@ -333,34 +333,34 @@ export default function TeeSelectionScreen({ navigation, route }) {
       <Pressable
         onPress={() => setSelectedCode(item.code)}
         style={({ pressed }) => [
-          styles.teeCard,
-          styles.rowShadow,
-          active && styles.teeCardActive,
+          styles.teeOuter,
+          active && styles.teeOuterActive,
           pressed && styles.pressed,
         ]}
       >
-        <View style={styles.teeTop}>
-          <Text style={styles.teeTitle} numberOfLines={1}>
-            {item.name}
-          </Text>
+        <View style={[styles.teeCard, styles.rowShadow, active && styles.teeCardActive]}>
+          <View style={styles.teeTop}>
+            <Text style={styles.teeTitle} numberOfLines={1}>
+              {item.name}
+            </Text>
 
-          {active ? (
-            <View style={styles.selectedPill}>
-              <Text style={styles.selectedText}>Selected</Text>
-            </View>
-          ) : null}
-        </View>
-
-        <View style={styles.teeMeta}>
-          <View style={styles.kmPill}>
-            <Text style={styles.kmText}>{formatYds(item.yardage)} yds</Text>
+            {active ? (
+              <View style={styles.selectedPill}>
+                <Text style={styles.selectedText}>Selected</Text>
+              </View>
+            ) : null}
           </View>
-          <Text style={styles.teeSub}>Tap to select</Text>
+
+          <View style={styles.teeMeta}>
+            <View style={styles.kmPill}>
+              <Text style={styles.kmText}>{formatYds(item.yardage)} yds</Text>
+            </View>
+            <Text style={styles.teeSub}>Tap to select</Text>
+          </View>
         </View>
       </Pressable>
     );
   }
-
   if (loading) {
     return (
       <SafeAreaView style={styles.safe}>
@@ -421,11 +421,11 @@ const styles = StyleSheet.create({
   headerBody: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 6 },
 
   editCard: {
-    borderRadius: 18,
+    borderRadius: 22,
     padding: 14,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    backgroundColor: "rgba(255,255,255,0.05)",
+    borderColor: "rgba(15,122,74,0.55)",
+    backgroundColor: "rgba(15,122,74,0.10)",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -465,11 +465,11 @@ const styles = StyleSheet.create({
 
   selectedSummary: {
     marginTop: 12,
-    borderRadius: 18,
+    borderRadius: 22,
     padding: 14,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
-    backgroundColor: "rgba(255,255,255,0.04)",
+    borderColor: "rgba(15,122,74,0.55)",
+    backgroundColor: "rgba(15,122,74,0.10)",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -498,20 +498,32 @@ const styles = StyleSheet.create({
   },
   summaryPillText: { color: "#fff", fontSize: 12, fontWeight: "900", opacity: 0.9 },
 
-  teeCard: {
+  teeOuter: {
     marginHorizontal: 16,
     marginTop: 12,
-    borderRadius: 20,
-    padding: 14,
+    borderRadius: 24,
+    padding: 3,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.05)",
+    borderColor: "rgba(255, 210, 92, 0.70)",
+    backgroundColor: "rgba(255, 210, 92, 0.20)",
   },
-  teeCardActive: {
-    borderColor: "rgba(15,122,74,0.78)",
-    backgroundColor: "rgba(15,122,74,0.16)",
+  teeOuterActive: {
+    borderColor: "rgba(255, 210, 92, 0.92)",
+    backgroundColor: "rgba(255, 210, 92, 0.26)",
   },
 
+  teeCard: {
+    borderRadius: 21,
+    padding: 16,
+    borderWidth: 0,
+    borderColor: "transparent",
+    backgroundColor: "rgba(18,22,30,0.74)",
+  },
+  teeCardActive: {
+    borderWidth: 0,
+    borderColor: "transparent",
+    backgroundColor: "rgba(15,122,74,0.16)",
+  },
   rowShadow: Platform.select({
     ios: {
       shadowColor: "#000",
