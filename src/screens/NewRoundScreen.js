@@ -698,12 +698,13 @@ const styles = StyleSheet.create({
   row: {
     borderRadius: 21,
     padding: 16,
-    borderWidth: 2,
-    borderColor: "rgba(255, 210, 92, 0.55)",
+    borderWidth: 0,
+    borderColor: "transparent",
     backgroundColor: "rgba(18,22,30,0.74)",
   },
   rowActive: {
-    borderColor: "rgba(255, 210, 92, 0.98)",
+    borderWidth: 0,
+    borderColor: "transparent",
     backgroundColor: "rgba(255, 210, 92, 0.14)",
   },
 

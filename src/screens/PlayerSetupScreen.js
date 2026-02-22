@@ -121,9 +121,8 @@ export default function PlayerSetupScreen({ navigation, route }) {
 
   const isDirty = hasValidDraft && Number(draftCount) !== Number(committedCount);
 
-  // Allow "Done" to re-confirm even if unchanged (prevents being forced to change the number)
-  const canDone = hasValidDraft;
-
+  // Done should only be enabled when there is a valid draft that differs from the committed value.
+  const canDone = hasValidDraft && isDirty;
   // Continue still requires a committed value and no pending edits
   const canContinue = !!committedCount && !isDirty;
 
@@ -144,13 +143,21 @@ export default function PlayerSetupScreen({ navigation, route }) {
   }
 
   async function onDone() {
-    if (!canDone) return;
+    if (!canDone) {
+      // If already committed and not dirty, "Change" just focuses the input.
+      if (committedCount != null && !isDirty) {
+        try {
+          inputRef.current?.focus?.();
+        } catch { }
+      }
+      return;
+    }
+
     const next = draftCount;
     setCommittedCount(next);
     Keyboard.dismiss();
     await persistPlayerCount(next);
   }
-
   async function onNext() {
     if (!canContinue) return;
     Keyboard.dismiss();
@@ -215,15 +222,17 @@ export default function PlayerSetupScreen({ navigation, route }) {
 
             <Pressable
               onPress={onDone}
-              disabled={!canDone}
+              disabled={committedCount == null ? !canDone : false}
               style={({ pressed }) => [
                 styles.donePill,
                 canDone && { backgroundColor: primary, borderColor: "rgba(255,255,255,0.22)" },
                 !canDone && styles.donePillDisabled,
-                pressed && canDone && styles.pressed,
+                pressed && styles.pressed,
               ]}
             >
-              <Text style={[styles.doneText, canDone && { color: "#fff" }]}>Done</Text>
+              <Text style={[styles.doneText, canDone && { color: "#fff" }]}>
+                {committedCount != null && !isDirty ? "Change" : "Done"}
+              </Text>
             </Pressable>
           </View>
 
@@ -255,8 +264,8 @@ export default function PlayerSetupScreen({ navigation, route }) {
   );
 }
 
-const GREEN_BG = "#0F7A4A";
-const GREEN_BORDER = "rgba(255,255,255,0.18)";
+const GREEN_BG = "rgba(15,122,74,0.18)";
+const GREEN_BORDER = "rgba(15,122,74,0.72)";
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: theme?.bg || theme?.colors?.bg || "#0B1220" },
@@ -280,8 +289,8 @@ const styles = StyleSheet.create({
     marginTop: 14,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.04)",
+    borderColor: GREEN_BORDER,
+    backgroundColor: "rgba(15,122,74,0.08)",
     padding: 16,
   },
   inputLabel: { color: "rgba(255,255,255,0.70)", fontWeight: "900", letterSpacing: 1.1, fontSize: 12 },
