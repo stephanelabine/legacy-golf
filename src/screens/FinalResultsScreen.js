@@ -724,22 +724,28 @@ export default function FinalResultsScreen({ navigation, route }) {
           name: String(s.name),
           putts: Number(s.puttsTotal || 0),
         }))
-        .filter((r) => Number.isFinite(r.putts))
+        .filter((r) => Number.isFinite(r.putts) && r.putts > 0)
         .filter((r) => (includeSet ? includeSet.has(String(r.id)) : true));
 
       rows.sort((a, b) => a.putts - b.putts || a.name.localeCompare(b.name));
-      if (!rows.length) return { first: [], second: [] };
+      if (!rows.length) return { first: [], second: [], third: [] };
 
       const firstPutts = rows[0].putts;
       const first = rows.filter((r) => r.putts === firstPutts);
 
-      const rest = rows.filter((r) => r.putts !== firstPutts);
-      if (!rest.length) return { first, second: [] };
+      const restAfterFirst = rows.filter((r) => r.putts !== firstPutts);
+      if (!restAfterFirst.length) return { first, second: [], third: [] };
 
-      const secondPutts = rest[0].putts;
-      const second = rest.filter((r) => r.putts === secondPutts);
+      const secondPutts = restAfterFirst[0].putts;
+      const second = restAfterFirst.filter((r) => r.putts === secondPutts);
 
-      return { first, second };
+      const restAfterSecond = restAfterFirst.filter((r) => r.putts !== secondPutts);
+      if (!restAfterSecond.length) return { first, second, third: [] };
+
+      const thirdPutts = restAfterSecond[0].putts;
+      const third = restAfterSecond.filter((r) => r.putts === thirdPutts);
+
+      return { first, second, third };
     },
     [stats]
   );
@@ -817,12 +823,32 @@ export default function FinalResultsScreen({ navigation, route }) {
     }
 
     if (type === "puttingcontest") {
-      const first = poolTotal * 0.75;
-      const second = poolTotal * 0.25;
+      const pools = getFormatPools(round || {}) || {};
+      const ppRaw = Number(pools?.[formatKey]?.payoutPlaces);
+      const payoutPlaces = ppRaw === 2 || ppRaw === 3 ? ppRaw : 1;
+
+      const splits =
+        payoutPlaces === 3
+          ? [0.6, 0.3, 0.1]
+          : payoutPlaces === 2
+            ? [0.75, 0.25]
+            : [1];
+
+      const amounts = splits.map((s) => poolTotal * s);
+      const headline = amounts.map((a) => money(a)).join(" / ");
+
+      const splitLine =
+        payoutPlaces === 3
+          ? "Split: 1st 60%, 2nd 30%, 3rd 10% of the total pool."
+          : payoutPlaces === 2
+            ? "Split: 1st 75% and 2nd 25% of the total pool."
+            : "Split: 1st place wins 100% of the total pool.";
+
       return {
-        headline: `${money(first)} / ${money(second)}`,
+        headline,
         lines: [
-          "Split: 1st place 75% and 2nd place 25% of the total pool.",
+          `Payout places: ${String(payoutPlaces)}`,
+          splitLine,
           `Buy-in (per player): ${money(buyIn)}`,
           `Players: ${playersCount}`,
           `Pool total: ${money(poolTotal)}`,
@@ -992,16 +1018,39 @@ export default function FinalResultsScreen({ navigation, route }) {
                           <Text style={styles.modalLine}>No putts recorded yet.</Text>
                         ) : (
                           <>
-                            <Text style={styles.modalLine}>
-                              1st: {puttingLeaders.first.map((r) => `${r.name} (${r.putts})`).join(", ")}
-                            </Text>
-                            {puttingLeaders.second.length ? (
-                              <Text style={styles.modalLine}>
-                                2nd: {puttingLeaders.second.map((r) => `${r.name} (${r.putts})`).join(", ")}
-                              </Text>
-                            ) : (
-                              <Text style={styles.modalLine}>2nd: —</Text>
-                            )}
+                            {(() => {
+                              const pools = getFormatPools(round || {}) || {};
+                              const ppRaw = Number(pools?.[formatKey]?.payoutPlaces);
+                              const payoutPlaces = ppRaw === 2 || ppRaw === 3 ? ppRaw : 1;
+
+                              return (
+                                <>
+                                  <Text style={styles.modalLine}>
+                                    1st: {puttingLeaders.first.map((r) => `${r.name} (${r.putts})`).join(", ")}
+                                  </Text>
+
+                                  {payoutPlaces >= 2 ? (
+                                    puttingLeaders.second.length ? (
+                                      <Text style={styles.modalLine}>
+                                        2nd: {puttingLeaders.second.map((r) => `${r.name} (${r.putts})`).join(", ")}
+                                      </Text>
+                                    ) : (
+                                      <Text style={styles.modalLine}>2nd: —</Text>
+                                    )
+                                  ) : null}
+
+                                  {payoutPlaces >= 3 ? (
+                                    puttingLeaders.third && puttingLeaders.third.length ? (
+                                      <Text style={styles.modalLine}>
+                                        3rd: {puttingLeaders.third.map((r) => `${r.name} (${r.putts})`).join(", ")}
+                                      </Text>
+                                    ) : (
+                                      <Text style={styles.modalLine}>3rd: —</Text>
+                                    )
+                                  ) : null}
+                                </>
+                              );
+                            })()}
                           </>
                         )}
                       </>
