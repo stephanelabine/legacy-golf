@@ -686,25 +686,25 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     marginBottom: 14,
     padding: 3,
-    backgroundColor: "rgba(255, 210, 92, 0.10)",
+    backgroundColor: "rgba(255, 210, 92, 0.20)",
     borderWidth: 1,
-    borderColor: "rgba(255, 210, 92, 0.18)",
+    borderColor: "rgba(255, 210, 92, 0.70)",
   },
   rowOuterActive: {
-    backgroundColor: "rgba(255, 210, 92, 0.18)",
-    borderColor: "rgba(255, 210, 92, 0.32)",
+    backgroundColor: "rgba(255, 210, 92, 0.26)",
+    borderColor: "rgba(255, 210, 92, 0.92)",
   },
 
   row: {
     borderRadius: 21,
     padding: 16,
     borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.16)",
-    backgroundColor: "rgba(18,22,30,0.72)",
+    borderColor: "rgba(255, 210, 92, 0.55)",
+    backgroundColor: "rgba(18,22,30,0.74)",
   },
   rowActive: {
-    borderColor: "rgba(255, 210, 92, 0.85)",
-    backgroundColor: "rgba(255, 210, 92, 0.10)",
+    borderColor: "rgba(255, 210, 92, 0.98)",
+    backgroundColor: "rgba(255, 210, 92, 0.14)",
   },
 
   rowShadow: Platform.select({
