@@ -423,7 +423,7 @@ export default function HistoryScreen({ navigation }) {
 
     // IMPORTANT: completion wins over status (status may be wrong)
     if (isRoundCompletedAnyShape(fsRound)) {
-      navigation.navigate({ name: ROUTES.ROUND_DETAILS, params: { roundId: rid } });
+      navigation.navigate({ name: ROUTES.FINAL_RESULTS, params: { roundId: rid } });
       return;
     }
 
@@ -542,7 +542,7 @@ export default function HistoryScreen({ navigation }) {
 
     const completedLocal = isRoundCompletedAnyShape(localRound);
     if (completedLocal) {
-      navigation.navigate({ name: ROUTES.ROUND_DETAILS, params: { roundId: rid } });
+      navigation.navigate({ name: ROUTES.FINAL_RESULTS, params: { roundId: rid } });
       return;
     }
 
