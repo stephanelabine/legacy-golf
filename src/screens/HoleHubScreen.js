@@ -19,6 +19,7 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, CommonActions } from "@react-navigation/native";
+import { BackHandler } from "react-native";
 import * as Location from "expo-location";
 import { doc, onSnapshot } from "firebase/firestore";
 
@@ -550,10 +551,23 @@ export default function HoleHubScreen({ navigation, route }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params?.hole]);
 
+  // Native-stack: disable iOS swipe-back gesture on HoleHub.
+  // Exit/Home is the only way out.
+  useEffect(() => {
+    navigation.setOptions({
+      gestureEnabled: false,
+      headerBackButtonMenuEnabled: false,
+    });
+  }, [navigation]);
+
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
       let sub = null;
+
+      // Block hardware back from exiting the round stack.
+      // We manage navigation via HoleHub controls + Home/Exit prompt only.
+      const bh = BackHandler.addEventListener("hardwareBackPress", () => true);
 
       (async () => {
         try {
@@ -598,6 +612,7 @@ export default function HoleHubScreen({ navigation, route }) {
       return () => {
         cancelled = true;
         if (sub) sub.remove();
+        bh.remove();
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [courseId])
@@ -881,12 +896,16 @@ export default function HoleHubScreen({ navigation, route }) {
         text: "Exit (no save)",
         style: "destructive",
         onPress: () => {
+          skipBeforeRemoveRef.current = true;
           navigation.dispatch(
             CommonActions.reset({
               index: 0,
               routes: [{ name: ROUTES.HOME }],
             })
           );
+          setTimeout(() => {
+            skipBeforeRemoveRef.current = false;
+          }, 600);
         },
       },
       {
@@ -894,12 +913,17 @@ export default function HoleHubScreen({ navigation, route }) {
         onPress: async () => {
           if (savingRound) return;
           await doSaveRoundNow({ status: "in_progress" });
+
+          skipBeforeRemoveRef.current = true;
           navigation.dispatch(
             CommonActions.reset({
               index: 0,
               routes: [{ name: ROUTES.HOME }],
             })
           );
+          setTimeout(() => {
+            skipBeforeRemoveRef.current = false;
+          }, 600);
         },
       },
     ]);
@@ -910,6 +934,7 @@ export default function HoleHubScreen({ navigation, route }) {
     getMissingHolesFromState((activeSnap || {}).activeRound || activeSnap || {}, players).length === 0;
 
   const holeListRef = useRef(null);
+  const skipBeforeRemoveRef = useRef(false);
   const [holeBarWidth, setHoleBarWidth] = useState(0);
 
   const sidePad = useMemo(() => {
