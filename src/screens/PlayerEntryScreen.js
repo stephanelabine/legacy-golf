@@ -1262,8 +1262,8 @@ export default function PlayerEntryScreen({ navigation, route }) {
   );
 }
 
-const GREEN_BG = "#0F7A4A";
-const GREEN_BORDER = "rgba(255,255,255,0.18)";
+const GREEN_BG = "rgba(15,122,74,0.18)";
+const GREEN_BORDER = "rgba(15,122,74,0.72)";
 
 // Premium green accents (same family as your other screens)
 const GREEN_ACCENT = "rgba(15, 122, 74, 0.92)";
@@ -1311,8 +1311,8 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginTop: 12,
     borderRadius: 20,
-    borderWidth: 2,
-    borderColor: "rgba(255, 210, 92, 0.40)",
+    borderWidth: 1,
+    borderColor: GREEN_BORDER,
     backgroundColor: GREEN_BG,
     padding: 14,
   },
