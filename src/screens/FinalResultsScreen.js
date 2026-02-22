@@ -816,9 +816,28 @@ export default function FinalResultsScreen({ navigation, route }) {
     const poolTotal = buyIn * playersCount;
 
     if (type === "deucepot") {
+      const r = round || {};
+      let totalDeuces = 0;
+
+      for (let i = 0; i < includedIds.length; i++) {
+        const pid = includedIds[i];
+        for (let h = 1; h <= 18; h++) {
+          const s = readStroke(r, h, pid);
+          if (Number.isFinite(s) && s === 2) totalDeuces += 1;
+        }
+      }
+
+      const perDeuce = totalDeuces > 0 ? poolTotal / totalDeuces : 0;
+
       return {
-        headline: "Split among deuces",
-        lines: [`Buy-in (per player): ${money(buyIn)}`, `Players: ${playersCount}`, `Pot total: ${money(poolTotal)}`],
+        headline: totalDeuces > 0 ? `${money(perDeuce)} per deuce` : "No deuces yet",
+        lines: [
+          `Buy-in (per player): ${money(buyIn)}`,
+          `Players: ${playersCount}`,
+          `Pot total: ${money(poolTotal)}`,
+          `Total deuces: ${String(totalDeuces)}`,
+          `Per deuce: ${totalDeuces > 0 ? money(perDeuce) : "—"}`,
+        ],
       };
     }
 
@@ -1061,11 +1080,29 @@ export default function FinalResultsScreen({ navigation, route }) {
                         {!deuceRows || deuceRows.length === 0 ? (
                           <Text style={styles.modalLine}>No deuces recorded yet.</Text>
                         ) : (
-                          deuceRows.map((r) => (
-                            <Text key={`deuce-${r.id}`} style={styles.modalLine}>
-                              {r.name} — {r.deuces} deuce{r.deuces === 1 ? "" : "s"}
-                            </Text>
-                          ))
+                          (() => {
+                            const buyIn = getEntryFee(round || {}, formatKey);
+                            const potTotal = Number.isFinite(buyIn) && buyIn > 0 ? buyIn * includedCount : 0;
+
+                            const totalDeuces = deuceRows.reduce((acc, x) => acc + (Number(x.deuces) || 0), 0);
+                            const perDeuce = totalDeuces > 0 ? potTotal / totalDeuces : 0;
+
+                            return (
+                              <>
+                                <Text style={styles.modalLine}>Total deuces: {String(totalDeuces)}</Text>
+                                <Text style={styles.modalLine}>Per deuce: {totalDeuces > 0 ? money(perDeuce) : "—"}</Text>
+
+                                {deuceRows.map((r) => {
+                                  const payout = perDeuce > 0 ? perDeuce * (Number(r.deuces) || 0) : 0;
+                                  return (
+                                    <Text key={`deuce-${r.id}`} style={styles.modalLine}>
+                                      {r.name} — {r.deuces} deuce{r.deuces === 1 ? "" : "s"} — {money(payout)}
+                                    </Text>
+                                  );
+                                })}
+                              </>
+                            );
+                          })()
                         )}
                       </>
                     ) : null}
