@@ -268,20 +268,37 @@ export default function NewRoundScreen({ navigation, route }) {
     return () => (active = false);
   }, []);
 
-  // Pinned local course only (Green Tee)
-  const pinnedLocalList = useMemo(() => {
-    const found = (Array.isArray(COURSES_LOCAL) ? COURSES_LOCAL : []).filter((c) => isGreenTeeLocal(c));
+  const NEARBY_LOCAL_LIMIT = 5;
 
-    // enrich with distance
-    return found.map((c) => {
-      const ll = getLatLngFromAny(c);
-      const d = ll ? haversineKm(center, ll) : null;
-      return {
-        ...c,
-        source: "local",
-        distanceKm: Number.isFinite(d) ? d : null,
-      };
-    });
+  // Local mode list:
+  // - DEV: show Green Tee pinned + nearest local courses
+  // - PROD: show nearest local courses only
+  const localCourseList = useMemo(() => {
+    const all = (Array.isArray(COURSES_LOCAL) ? COURSES_LOCAL : [])
+      .map((c) => {
+        const ll = getLatLngFromAny(c);
+        const d = ll ? haversineKm(center, ll) : null;
+        return {
+          ...c,
+          source: "local",
+          distanceKm: Number.isFinite(d) ? d : null,
+        };
+      })
+      .filter((c) => Number.isFinite(Number(c?.distanceKm)));
+
+    all.sort((a, b) => Number(a.distanceKm) - Number(b.distanceKm));
+
+    const green = __DEV__ ? all.find((c) => isGreenTeeLocal(c)) : null;
+
+    const nearby = all
+      .filter((c) => !isGreenTeeLocal(c))
+      .slice(0, NEARBY_LOCAL_LIMIT);
+
+    const out = [];
+    if (green) out.push(green);
+    out.push(...nearby);
+
+    return out;
   }, [center]);
 
   // API unified search (debounced) when query length >= 3
@@ -325,7 +342,7 @@ export default function NewRoundScreen({ navigation, route }) {
     };
   }, [useApiMode, qTrim, center]);
 
-  const listData = useApiMode ? apiResults : pinnedLocalList;
+  const listData = useApiMode ? apiResults : localCourseList;
 
   function tapCourse(item) {
     Keyboard.dismiss();
@@ -475,7 +492,7 @@ export default function NewRoundScreen({ navigation, route }) {
     ? "Online course search"
     : "Home course (local) • Type 3+ letters to search online";
 
-  const showLoadingState = (!useApiMode && loadingLoc && pinnedLocalList.length === 0) || (useApiMode && searching);
+  const showLoadingState = (!useApiMode && loadingLoc && localCourseList.length === 0) || (useApiMode && searching);
 
   const emptyTitle = useApiMode ? "No online matches" : "Home course not found";
   const emptySub = useApiMode
@@ -507,7 +524,11 @@ export default function NewRoundScreen({ navigation, route }) {
 
         {!useApiMode ? (
           <View style={styles.bannerHome}>
-            <Text style={styles.bannerTextHome}>Green Tee is protected. Search 3+ letters for online courses.</Text>
+            <Text style={styles.bannerTextHome}>
+              {__DEV__
+                ? "Green Tee is protected. Showing nearby courses. Search 3+ letters for online courses."
+                : "Showing nearby courses. Search 3+ letters for online courses."}
+            </Text>
           </View>
         ) : (
           <View style={styles.bannerApi}>
@@ -613,14 +634,14 @@ const styles = StyleSheet.create({
   },
 
   input: {
-    height: 50,
-    borderRadius: 16,
-    paddingHorizontal: 14,
+    height: 56,
+    borderRadius: 18,
+    paddingHorizontal: 16,
     backgroundColor: "rgba(255,255,255,0.06)",
     color: "#fff",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    fontSize: 14,
+    borderColor: "rgba(255,255,255,0.14)",
+    fontSize: 15,
     fontWeight: "800",
   },
 
@@ -662,25 +683,28 @@ const styles = StyleSheet.create({
   listContent: { paddingHorizontal: 16, paddingTop: 12 },
 
   rowOuter: {
-    borderRadius: 22,
-    marginBottom: 12,
-    padding: 2,
-    backgroundColor: "transparent",
+    borderRadius: 24,
+    marginBottom: 14,
+    padding: 3,
+    backgroundColor: "rgba(255, 210, 92, 0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 210, 92, 0.18)",
   },
   rowOuterActive: {
-    backgroundColor: "rgba(255, 210, 92, 0.16)",
+    backgroundColor: "rgba(255, 210, 92, 0.18)",
+    borderColor: "rgba(255, 210, 92, 0.32)",
   },
 
   row: {
-    borderRadius: 20,
-    padding: 14,
+    borderRadius: 21,
+    padding: 16,
     borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.05)",
+    borderColor: "rgba(255,255,255,0.16)",
+    backgroundColor: "rgba(18,22,30,0.72)",
   },
   rowActive: {
-    borderColor: "rgba(255, 210, 92, 0.75)",
-    backgroundColor: "rgba(255, 210, 92, 0.08)",
+    borderColor: "rgba(255, 210, 92, 0.85)",
+    backgroundColor: "rgba(255, 210, 92, 0.10)",
   },
 
   rowShadow: Platform.select({
