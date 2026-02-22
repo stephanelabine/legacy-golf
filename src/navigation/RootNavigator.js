@@ -63,6 +63,9 @@ import GameFormatDetailsScreen from "../screens/GameFormatDetailsScreen";
 // NEW: regular game money pools
 import GameFormatPoolsScreen from "../screens/GameFormatPoolsScreen";
 
+// NEW: regular game settle up (replaces temp tournament reuse)
+import RegularSettleUpScreen from "../screens/RegularSettleUpScreen";
+
 /* ---------------- tournaments ---------------- */
 
 import TournamentsScreen from "../screens/TournamentsScreen";
@@ -276,7 +279,9 @@ export default function RootNavigator() {
             <Stack.Screen name={ROUTES.TOURNAMENT_ROUND_FINAL_RESULTS} component={TournamentRoundFinalResultsScreen} />
 
             <Stack.Screen name={ROUTES.PAYOUTS} component={PayoutsScreen} />
-            <Stack.Screen name={ROUTES.SETTLE_UP} component={TournamentSettlePayoutsScreen} />
+
+            {/* Regular Settle Up (replaces temporary tournament reuse) */}
+            <Stack.Screen name={ROUTES.SETTLE_UP} component={RegularSettleUpScreen} />
           </Stack.Group>
         </>
       )}
