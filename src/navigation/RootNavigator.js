@@ -276,6 +276,7 @@ export default function RootNavigator() {
             <Stack.Screen name={ROUTES.TOURNAMENT_ROUND_FINAL_RESULTS} component={TournamentRoundFinalResultsScreen} />
 
             <Stack.Screen name={ROUTES.PAYOUTS} component={PayoutsScreen} />
+            <Stack.Screen name={ROUTES.SETTLE_UP} component={TournamentSettlePayoutsScreen} />
           </Stack.Group>
         </>
       )}

@@ -1,6 +1,6 @@
 // src/screens/FinalResultsScreen.js
 import React, { useCallback, useMemo, useState } from "react";
-import { SafeAreaView, View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
+import { SafeAreaView, View, Text, StyleSheet, ScrollView, Pressable, Alert } from "react-native";
 import { useFocusEffect, CommonActions } from "@react-navigation/native";
 
 import ROUTES from "../navigation/routes";
@@ -72,6 +72,31 @@ export default function FinalResultsScreen({ navigation, route }) {
   const roundId = String(params.roundId || "");
   const [round, setRound] = useState(null);
   const [expanded, setExpanded] = useState({}); // playerId -> bool
+  const [tab, setTab] = useState("leaderboard"); // "leaderboard" | "formats"
+
+  function onExit() {
+    // Round is already completed at this point; just confirm leaving results.
+    Alert.alert("Exit results?", "Return to Home?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Exit",
+        style: "destructive",
+        onPress: () => {
+          navigation.dispatch(
+            CommonActions.reset({
+              index: 0,
+              routes: [{ name: ROUTES.HOME }],
+            })
+          );
+        },
+      },
+    ]);
+  }
+
+  function onNextSettleUp() {
+    if (!roundId) return;
+    navigation.navigate(ROUTES.SETTLE_UP, { roundId });
+  }
 
   useFocusEffect(
     useCallback(() => {
@@ -166,12 +191,10 @@ export default function FinalResultsScreen({ navigation, route }) {
         }
       }
 
-      const puttsAvg = holesWithPutts ? (puttsTotal / holesWithPutts).toFixed(1) : "—";
-
       return {
         id: p.id,
         name: p.name,
-        puttsAvg,
+        puttsTotal,
         fir: fmtPct(firYes, firOpp),
         gir: fmtPct(girYes, girOpp),
         updown: fmtPct(upYes, upOpp),
@@ -222,66 +245,106 @@ export default function FinalResultsScreen({ navigation, route }) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScreenHeader navigation={navigation} title="Final Results" subtitle={subtitle} />
+      <ScreenHeader
+        navigation={navigation}
+        title="Final Results"
+        subtitle={subtitle}
+        leftLabel="Exit"
+        onLeftPress={onExit}
+      />
+
+      <View style={styles.tabsRow}>
+        <Pressable
+          onPress={() => setTab("leaderboard")}
+          style={({ pressed }) => [
+            styles.tabBtn,
+            tab === "leaderboard" && styles.tabBtnActive,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text style={[styles.tabText, tab === "leaderboard" && styles.tabTextActive]}>Leaderboard</Text>
+        </Pressable>
+
+        <Pressable
+          onPress={() => setTab("formats")}
+          style={({ pressed }) => [
+            styles.tabBtn,
+            tab === "formats" && styles.tabBtnActive,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text style={[styles.tabText, tab === "formats" && styles.tabTextActive]}>Formats</Text>
+        </Pressable>
+      </View>
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ padding: 16, paddingBottom: 28 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
         showsVerticalScrollIndicator={false}
+
       >
-        <View style={styles.greenRing}>
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Leaderboard</Text>
-            <Text style={styles.cardSub}>Gross strokes. Tap a player to expand hole-by-hole.</Text>
+        {tab === "leaderboard" ? (
+          <View style={styles.greenRing}>
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Leaderboard</Text>
+              <Text style={styles.cardSub}>Gross strokes. Tap a player to expand hole-by-hole.</Text>
 
-            <View style={{ marginTop: 12, gap: 10 }}>
-              {leaderboard.map((p, idx) => {
-                const isOpen = !!expanded[p.id];
-                return (
-                  <Pressable
-                    key={p.id}
-                    onPress={() => togglePlayer(p.id)}
-                    style={({ pressed }) => [styles.leaderRow, pressed && styles.pressed]}
-                  >
-                    <View style={styles.rankPill}>
-                      <Text style={styles.rankText}>{idx + 1}</Text>
-                    </View>
-
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={styles.leaderName} numberOfLines={1}>
-                        {p.name}
-                      </Text>
-                      <Text style={styles.leaderSub}>{isOpen ? "Tap to collapse" : "Tap to expand"}</Text>
-                    </View>
-
-                    <View style={styles.totalBox}>
-                      <Text style={styles.totalVal}>{p.total > 0 ? String(p.total) : "—"}</Text>
-                      <Text style={styles.totalFoot}>strokes</Text>
-                    </View>
-
-                    {isOpen ? (
-                      <View style={styles.expandWrap}>
-                        <View style={styles.expandDivider} />
-                        <View style={styles.holesGrid}>
-                          {Array.from({ length: 18 }).map((_, i) => {
-                            const h = i + 1;
-                            const v = readStroke(round, h, p.id);
-                            return (
-                              <View key={`${p.id}-${h}`} style={styles.holeChip}>
-                                <Text style={styles.holeChipTop}>{h}</Text>
-                                <Text style={styles.holeChipVal}>{v > 0 ? String(v) : "—"}</Text>
-                              </View>
-                            );
-                          })}
-                        </View>
+              <View style={{ marginTop: 12, gap: 10 }}>
+                {leaderboard.map((p, idx) => {
+                  const isOpen = !!expanded[p.id];
+                  return (
+                    <Pressable
+                      key={p.id}
+                      onPress={() => togglePlayer(p.id)}
+                      style={({ pressed }) => [styles.leaderRow, pressed && styles.pressed]}
+                    >
+                      <View style={styles.rankPill}>
+                        <Text style={styles.rankText}>{idx + 1}</Text>
                       </View>
-                    ) : null}
-                  </Pressable>
-                );
-              })}
+
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={styles.leaderName} numberOfLines={1}>
+                          {p.name}
+                        </Text>
+                        <Text style={styles.leaderSub}>{isOpen ? "Tap to collapse" : "Tap to expand"}</Text>
+                      </View>
+
+                      <View style={styles.totalBox}>
+                        <Text style={styles.totalVal}>{p.total > 0 ? String(p.total) : "—"}</Text>
+                        <Text style={styles.totalFoot}>strokes</Text>
+                      </View>
+
+                      {isOpen ? (
+                        <View style={styles.expandWrap}>
+                          <View style={styles.expandDivider} />
+                          <View style={styles.holesGrid}>
+                            {Array.from({ length: 18 }).map((_, i) => {
+                              const h = i + 1;
+                              const v = readStroke(round, h, p.id);
+                              return (
+                                <View key={`${p.id}-${h}`} style={styles.holeChip}>
+                                  <Text style={styles.holeChipTop}>{h}</Text>
+                                  <Text style={styles.holeChipVal}>{v > 0 ? String(v) : "—"}</Text>
+                                </View>
+                              );
+                            })}
+                          </View>
+                        </View>
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
             </View>
           </View>
-        </View>
+        ) : (
+          <View style={styles.greenRing}>
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Formats</Text>
+              <Text style={styles.cardSub}>Coming next: format winners + details.</Text>
+            </View>
+          </View>
+        )}
 
         <View style={styles.greenRing}>
           <View style={styles.card}>
@@ -305,7 +368,7 @@ export default function FinalResultsScreen({ navigation, route }) {
                     </View>
                     <View style={styles.statPill}>
                       <Text style={styles.statK}>Putts</Text>
-                      <Text style={styles.statV}>{s.puttsAvg}</Text>
+                      <Text style={styles.statV}>{Number(s.puttsTotal) > 0 ? String(s.puttsTotal) : "—"}</Text>
                     </View>
                     <View style={styles.statPill}>
                       <Text style={styles.statK}>U&D</Text>
@@ -374,16 +437,62 @@ export default function FinalResultsScreen({ navigation, route }) {
           </View>
         </View>
 
-        <Pressable onPress={onDone} style={({ pressed }) => [styles.cta, pressed && styles.pressed]}>
-          <Text style={styles.ctaText}>Done</Text>
-        </Pressable>
       </ScrollView>
+
+      <View style={styles.footer}>
+        <Pressable onPress={onNextSettleUp} style={({ pressed }) => [styles.footerBtn, pressed && styles.pressed]}>
+          <Text style={styles.footerBtnText}>Next: Settle Up</Text>
+        </Pressable>
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: BG },
+
+  tabsRow: {
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 6,
+  },
+  tabBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: INNER,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+  },
+  tabBtnActive: {
+    backgroundColor: "rgba(46,125,255,0.22)",
+    borderColor: "rgba(46,125,255,0.45)",
+  },
+  tabText: { color: MUTED, fontWeight: "900", letterSpacing: 0.3 },
+  tabTextActive: { color: WHITE },
+
+  footer: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 14,
+    backgroundColor: BG,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.08)",
+  },
+  footerBtn: {
+    height: 56,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(46,125,255,0.22)",
+    borderWidth: 3,
+    borderColor: "rgba(242,201,76,0.90)",
+  },
+  footerBtnText: { color: WHITE, fontWeight: "900", letterSpacing: 0.4, fontSize: 14 },
 
   greenRing: {
     borderRadius: 24,

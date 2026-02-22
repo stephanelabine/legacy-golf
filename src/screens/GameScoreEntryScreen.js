@@ -624,6 +624,30 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         goToHoleHub(nextHole, { roundId: res?.roundId || roundIdParam || null });
     }
 
+    async function onFinishRoundFromScoreEntry() {
+        Keyboard.dismiss();
+
+        if (!validateStrokesForThisHole()) return;
+
+        const res = await persistHole({ resumeHole: 18 });
+
+        navigation.dispatch(
+            CommonActions.navigate({
+                name: ROUTES.GAME_ROUND_CALCULATING,
+                params: {
+                    roundId: res?.roundId || roundIdParam || null,
+                    course,
+                    tee,
+                    players,
+                    holeMeta,
+                    courseName: course?.name,
+                    teeName: tee?.name,
+                },
+                merge: true,
+            })
+        );
+    }
+
     async function doneFixMode() {
         Keyboard.dismiss();
 
@@ -999,10 +1023,22 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
             <View style={[styles.footer, { paddingBottom: Math.max(10, (insets?.bottom || 0) + 8) }]}>
                 <Pressable
-                    onPress={isFixMode ? doneFixMode : onNextHole}
-                    style={({ pressed }) => [styles.primaryBtnFull, pressed && styles.pressed]}
+                    onPress={
+                        isFixMode
+                            ? doneFixMode
+                            : Number(holeNumber) >= 18
+                                ? onFinishRoundFromScoreEntry
+                                : onNextHole
+                    }
+                    style={({ pressed }) => [
+                        styles.primaryBtnFull,
+                        !isFixMode && Number(holeNumber) >= 18 && styles.primaryBtnFullFinish,
+                        pressed && styles.pressed,
+                    ]}
                 >
-                    <Text style={styles.primaryText}>{isFixMode ? "Done" : "Save • Next Hole"}</Text>
+                    <Text style={styles.primaryText}>
+                        {isFixMode ? "Done" : Number(holeNumber) >= 18 ? "Save • Finish Round" : "Save • Next Hole"}
+                    </Text>
                 </Pressable>
             </View>
 
@@ -1263,6 +1299,11 @@ const styles = StyleSheet.create({
         justifyContent: "center",
         borderWidth: 1,
         borderColor: "rgba(255,255,255,0.14)",
+    },
+    primaryBtnFullFinish: {
+        backgroundColor: "rgba(46,125,255,0.22)",
+        borderWidth: 3,
+        borderColor: YELLOW,
     },
 
     primaryText: { color: WHITE, fontWeight: "900" },
