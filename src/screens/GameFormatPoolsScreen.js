@@ -176,6 +176,9 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
     // fee strings keyed by formatKey (as stored in formatsSelected)
     const [feeByKey, setFeeByKey] = useState({});
 
+    // putting contest payout places keyed by formatKey (1 | 2 | 3)
+    const [payoutPlacesByKey, setPayoutPlacesByKey] = useState({});
+
     // excluded ids by formatKey
     const [excludedByKey, setExcludedByKey] = useState({});
 
@@ -350,6 +353,38 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
 
             pressed: { opacity: Platform.OS === "ios" ? 0.88 : 0.9, transform: [{ scale: 0.99 }] },
 
+            payoutPlacesRow: {
+                marginTop: 12,
+                paddingTop: 10,
+                borderTopWidth: 1,
+                borderTopColor: "rgba(255,255,255,0.10)",
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 10,
+            },
+            payoutPlacesLabel: { color: "rgba(255,255,255,0.72)", fontWeight: "900", fontSize: 12 },
+            payoutPlacesPills: { flexDirection: "row", gap: 8 },
+            payoutPill: {
+                height: 32,
+                minWidth: 36,
+                paddingHorizontal: 12,
+                borderRadius: 999,
+                alignItems: "center",
+                justifyContent: "center",
+                borderWidth: 1,
+            },
+            payoutPillIdle: {
+                backgroundColor: "rgba(255,255,255,0.06)",
+                borderColor: "rgba(255,255,255,0.14)",
+            },
+            payoutPillActive: {
+                backgroundColor: "rgba(242,201,76,0.18)",
+                borderColor: "rgba(242,201,76,0.55)",
+            },
+            payoutPillTextIdle: { color: "#FFFFFF", fontWeight: "900", fontSize: 12 },
+            payoutPillTextActive: { color: "rgba(242,201,76,0.98)", fontWeight: "900", fontSize: 12 },
+
             empty: {
                 borderRadius: 18,
                 padding: 14,
@@ -407,6 +442,7 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
 
                 const pools = safeObj(data?.formatPools);
                 const nextFeeByKey = {};
+                const nextPayoutPlacesByKey = {};
                 const nextExcludedByKey = {};
 
                 fsFormats.forEach((f) => {
@@ -426,6 +462,12 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
                         } else if (type === "deuce_pot" || type === "putting_contest") {
                             const v = Number(p?.entryFee);
                             nextFeeByKey[fk] = Number.isFinite(v) && v > 0 ? String(v) : "";
+
+                            // putting contest payout places (default 1)
+                            if (type === "putting_contest") {
+                                const pp = Number(p?.payoutPlaces);
+                                nextPayoutPlacesByKey[fk] = pp === 2 || pp === 3 ? pp : 1;
+                            }
                         } else if (type === "kp" || type === "longdrive" || type === "secondshotkp") {
                             const v = Number(p?.amountPerHole);
                             nextFeeByKey[fk] = Number.isFinite(v) && v > 0 ? String(v) : "";
@@ -435,7 +477,10 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
                     }
                 });
 
-                if (!dirtyRef.current) setFeeByKey(nextFeeByKey);
+                if (!dirtyRef.current) {
+                    setFeeByKey(nextFeeByKey);
+                    setPayoutPlacesByKey(nextPayoutPlacesByKey);
+                }
                 setExcludedByKey(nextExcludedByKey);
 
                 setLoading(false);
@@ -596,8 +641,20 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
                     nextPools[fk] = { amountPerSkin: parsed === null ? null : parsed, excludedIds };
                     return;
                 }
-                if (type === "deuce_pot" || type === "putting_contest") {
+                if (type === "deuce_pot") {
                     nextPools[fk] = { entryFee: parsed === null ? null : parsed, excludedIds };
+                    return;
+                }
+
+                if (type === "putting_contest") {
+                    const ppRaw = Number(payoutPlacesByKey?.[fk]);
+                    const payoutPlaces = ppRaw === 2 || ppRaw === 3 ? ppRaw : 1;
+
+                    nextPools[fk] = {
+                        entryFee: parsed === null ? null : parsed,
+                        payoutPlaces,
+                        excludedIds,
+                    };
                     return;
                 }
                 if (type === "kp" || type === "longdrive" || type === "secondshotkp") {
@@ -680,6 +737,36 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
                 </View>
 
                 {sub ? <Text style={styles.sub}>{sub}</Text> : null}
+
+                {type === "putting_contest" ? (
+                    <View style={styles.payoutPlacesRow}>
+                        <Text style={styles.payoutPlacesLabel}>Payout places</Text>
+
+                        <View style={styles.payoutPlacesPills}>
+                            {[1, 2, 3].map((n) => {
+                                const active = (Number(payoutPlacesByKey?.[fk]) || 1) === n;
+                                return (
+                                    <Pressable
+                                        key={`pp-${fk}-${n}`}
+                                        onPress={() => {
+                                            dirtyRef.current = true;
+                                            setPayoutPlacesByKey((prev) => ({ ...prev, [fk]: n }));
+                                        }}
+                                        style={({ pressed }) => [
+                                            styles.payoutPill,
+                                            active ? styles.payoutPillActive : styles.payoutPillIdle,
+                                            pressed && styles.pressed,
+                                        ]}
+                                    >
+                                        <Text style={active ? styles.payoutPillTextActive : styles.payoutPillTextIdle}>
+                                            {n}
+                                        </Text>
+                                    </Pressable>
+                                );
+                            })}
+                        </View>
+                    </View>
+                ) : null}
 
                 <View style={styles.innerSection}>
                     <View style={styles.feeRow}>

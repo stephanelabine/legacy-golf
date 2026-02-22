@@ -204,8 +204,25 @@ function getConfigByKeyFromRoundDoc(doc) {
 }
 
 function getFormatPools(roundDoc) {
-  const pools = roundDoc?.formatPools && typeof roundDoc.formatPools === "object" ? roundDoc.formatPools : null;
+  const pools =
+    roundDoc?.formatPools && typeof roundDoc.formatPools === "object"
+      ? roundDoc.formatPools
+      : null;
   return pools || null;
+}
+
+function getIncludedPlayerIds(roundDoc, formatKey, playersList) {
+  const pools = getFormatPools(roundDoc) || {};
+  const excluded = Array.isArray(pools?.[formatKey]?.excludedIds)
+    ? pools[formatKey].excludedIds
+    : [];
+
+  const excludedSet = new Set(excluded.map((x) => String(x)));
+  const list = Array.isArray(playersList) ? playersList : [];
+
+  return list
+    .map((p) => String(p?.id ?? ""))
+    .filter((id) => id && !excludedSet.has(id));
 }
 
 // IMPORTANT: detect “second shot kp” before “kp”
@@ -694,49 +711,73 @@ export default function FinalResultsScreen({ navigation, route }) {
     setSelectedFormat(null);
   }, []);
 
-  const computePuttingLeaders = useCallback(() => {
-    const rows = (stats || [])
-      .map((s) => ({ id: String(s.id), name: String(s.name), putts: Number(s.puttsTotal || 0) }))
-      .filter((r) => Number.isFinite(r.putts));
+  const computePuttingLeaders = useCallback(
+    (includedIds) => {
+      const includeSet =
+        Array.isArray(includedIds) && includedIds.length
+          ? new Set(includedIds.map((x) => String(x)))
+          : null;
 
-    rows.sort((a, b) => a.putts - b.putts || a.name.localeCompare(b.name));
-    if (!rows.length) return { first: [], second: [] };
+      const rows = (stats || [])
+        .map((s) => ({
+          id: String(s.id),
+          name: String(s.name),
+          putts: Number(s.puttsTotal || 0),
+        }))
+        .filter((r) => Number.isFinite(r.putts))
+        .filter((r) => (includeSet ? includeSet.has(String(r.id)) : true));
 
-    const firstPutts = rows[0].putts;
-    const first = rows.filter((r) => r.putts === firstPutts);
+      rows.sort((a, b) => a.putts - b.putts || a.name.localeCompare(b.name));
+      if (!rows.length) return { first: [], second: [] };
 
-    const rest = rows.filter((r) => r.putts !== firstPutts);
-    if (!rest.length) return { first, second: [] };
+      const firstPutts = rows[0].putts;
+      const first = rows.filter((r) => r.putts === firstPutts);
 
-    const secondPutts = rest[0].putts;
-    const second = rest.filter((r) => r.putts === secondPutts);
+      const rest = rows.filter((r) => r.putts !== firstPutts);
+      if (!rest.length) return { first, second: [] };
 
-    return { first, second };
-  }, [stats]);
+      const secondPutts = rest[0].putts;
+      const second = rest.filter((r) => r.putts === secondPutts);
 
-  const computeDeuceCounts = useCallback(() => {
-    const r = round || {};
-    const rows = [];
+      return { first, second };
+    },
+    [stats]
+  );
 
-    players.forEach((p) => {
-      let count = 0;
-      for (let h = 1; h <= 18; h++) {
-        const s = readStroke(r, h, p.id);
-        if (Number.isFinite(s) && s === 2) count += 1;
-      }
-      if (count > 0) rows.push({ id: p.id, name: p.name, deuces: count });
-    });
+  const computeDeuceCounts = useCallback(
+    (includedIds) => {
+      const r = round || {};
+      const rows = [];
 
-    rows.sort((a, b) => b.deuces - a.deuces || a.name.localeCompare(b.name));
-    return rows;
-  }, [round, players]);
+      const includeSet =
+        Array.isArray(includedIds) && includedIds.length
+          ? new Set(includedIds.map((x) => String(x)))
+          : null;
+
+      players
+        .filter((p) => (includeSet ? includeSet.has(String(p.id)) : true))
+        .forEach((p) => {
+          let count = 0;
+          for (let h = 1; h <= 18; h++) {
+            const s = readStroke(r, h, p.id);
+            if (Number.isFinite(s) && s === 2) count += 1;
+          }
+          if (count > 0) rows.push({ id: p.id, name: p.name, deuces: count });
+        });
+
+      rows.sort((a, b) => b.deuces - a.deuces || a.name.localeCompare(b.name));
+      return rows;
+    },
+    [round, players]
+  );
 
   function renderFormatPayout(formatKey, type, officialHoles) {
     // For hole-based formats, this value means "$ per hole (per event) per player"
     // For round-total formats, it means "$ buy-in per player"
     const baseAmount = getEntryFee(round || {}, formatKey);
 
-    const playersCount = Math.max(0, rosterCount);
+    const includedIds = getIncludedPlayerIds(round || {}, formatKey, players);
+    const playersCount = Math.max(0, includedIds.length);
 
     if (baseAmount <= 0) {
       return { headline: "No buy-in", lines: ["Set a buy-in in Formats / Money Pools to compute payouts."] };
@@ -823,12 +864,14 @@ export default function FinalResultsScreen({ navigation, route }) {
 
     const events = officialHoles.length;
 
+    const includedIds = getIncludedPlayerIds(round || {}, formatKey, players);
+    const includedCount = Math.max(0, includedIds.length);
+
     const perPlayerEntry = perHoleAmount > 0 && events > 0 ? perHoleAmount * events : 0;
-    const pool = perPlayerEntry > 0 ? perPlayerEntry * Math.max(0, rosterCount) : 0;
 
     // Winner should not “pay themselves”:
     // payout per win = per-hole amount * (players - 1)
-    const perWin = perHoleAmount > 0 ? perHoleAmount * Math.max(0, rosterCount - 1) : 0;
+    const perWin = perHoleAmount > 0 ? perHoleAmount * Math.max(0, includedCount - 1) : 0;
 
     const isAuto = type === "deucepot" || type === "puttingcontest";
 
@@ -901,9 +944,15 @@ export default function FinalResultsScreen({ navigation, route }) {
 
     const payout = renderFormatPayout(formatKey, type, officialHoles);
 
-    const puttingLeaders = isAuto && type === "puttingcontest" ? computePuttingLeaders() : null;
-    const deuceRows = isAuto && type === "deucepot" ? computeDeuceCounts() : null;
+    const puttingLeaders =
+      isAuto && type === "puttingcontest"
+        ? computePuttingLeaders(includedIds)
+        : null;
 
+    const deuceRows =
+      isAuto && type === "deucepot"
+        ? computeDeuceCounts(includedIds)
+        : null;
     return (
       <Modal visible={winnerModalOpen} transparent animationType="fade" onRequestClose={closeWinnerModal}>
         <View style={styles.modalOverlay}>
