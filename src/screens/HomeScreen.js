@@ -364,14 +364,14 @@ const styles = StyleSheet.create({
     fontSize: 10,
   },
 
-  brand: { alignItems: "center", paddingTop: 92 },
+  brand: { alignItems: "center", paddingTop: 112 },
 
   welcome: {
     fontFamily: "Cinzel",
     fontSize: 14,
     letterSpacing: 2.6,
     fontWeight: "600",
-    marginBottom: 6,
+    marginBottom: 2,
     textTransform: "uppercase",
   },
 
