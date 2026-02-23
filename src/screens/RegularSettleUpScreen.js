@@ -605,7 +605,7 @@ export default function RegularSettleUpScreen({ navigation, route }) {
 
                 <View style={styles.card}>
                     <View style={styles.cardTop}>
-                        <Text style={styles.title}>Suggested transfers</Text>
+                        <Text style={styles.title}>Who Pays Who</Text>
                         <View style={styles.pill}>
                             <MaterialCommunityIcons name="swap-horizontal" size={16} color="rgba(242,201,76,0.98)" />
                             <Text style={styles.pillText}>AUTO</Text>
@@ -621,16 +621,66 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                             </Text>
                             <View style={styles.divider} />
 
-                            {settleModel.transfers.map((t, idx) => (
-                                <View key={`t-${idx}`} style={styles.transferRow}>
-                                    <Text style={styles.transferText} numberOfLines={2}>
-                                        {t.fromName} pays {t.toName}
-                                    </Text>
-                                    <View style={styles.amountPill}>
-                                        <Text style={styles.amountText}>{money(t.amount)}</Text>
-                                    </View>
-                                </View>
-                            ))}
+                            {(() => {
+                                const byPayer = {};
+                                (settleModel?.transfers || []).forEach((t) => {
+                                    const fromId = String(t.fromId || "");
+                                    if (!fromId) return;
+                                    if (!byPayer[fromId]) byPayer[fromId] = [];
+                                    byPayer[fromId].push(t);
+                                });
+
+                                return (players || []).map((p) => {
+                                    const payerId = String(p.id || "");
+                                    const payerName = String(p.name || "Player");
+                                    const rows = (byPayer[payerId] || []).slice().sort(
+                                        (a, b) =>
+                                            (b.amount || 0) - (a.amount || 0) ||
+                                            String(a.toName || "").localeCompare(String(b.toName || ""))
+                                    );
+
+                                    const total = rows.reduce((sum, t) => sum + Number(t.amount || 0), 0);
+
+                                    if (!rows.length) {
+                                        return (
+                                            <View key={`payer-${payerId}`}>
+                                                <View style={[styles.transferRow, { opacity: 0.7 }]}>
+                                                    <Text style={styles.transferText} numberOfLines={2}>
+                                                        {payerName} pays no one
+                                                    </Text>
+                                                    <View style={styles.amountPill}>
+                                                        <Text style={styles.amountText}>{money(0)}</Text>
+                                                    </View>
+                                                </View>
+                                            </View>
+                                        );
+                                    }
+
+                                    return (
+                                        <View key={`payer-${payerId}`}>
+                                            <View style={styles.transferRow}>
+                                                <Text style={styles.transferText} numberOfLines={2}>
+                                                    {payerName} pays
+                                                </Text>
+                                                <View style={styles.amountPill}>
+                                                    <Text style={styles.amountText}>{money(total)}</Text>
+                                                </View>
+                                            </View>
+
+                                            {rows.map((t, idx) => (
+                                                <View key={`pay-${payerId}-${idx}`} style={styles.transferRow}>
+                                                    <Text style={styles.transferText} numberOfLines={2}>
+                                                        {payerName} pays {t.toName}
+                                                    </Text>
+                                                    <View style={styles.amountPill}>
+                                                        <Text style={styles.amountText}>{money(t.amount)}</Text>
+                                                    </View>
+                                                </View>
+                                            ))}
+                                        </View>
+                                    );
+                                });
+                            })()}
                         </>
                     )}
 
