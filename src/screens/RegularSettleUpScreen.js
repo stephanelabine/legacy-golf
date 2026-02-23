@@ -376,13 +376,22 @@ export default function RegularSettleUpScreen({ navigation, route }) {
 
             if (type === "kp" || type === "longdrive" || type === "secondshotkp") {
                 const holes = getOfficialHolesForFormat(r, formatKey);
-                const events = holes.length;
-                const perPlayerEntry = fee > 0 && events > 0 ? fee * events : 0;
-                includedIds.forEach((pid) => addPaid(pid, perPlayerEntry));
 
-                const perWin = fee > 0 ? fee * Math.max(0, includedCount - 1) : 0;
+                // RULE:
+                // - amountPerHole (fee) is TOTAL prize per hole (not per player)
+                // - ONLY resolved wins are funded/payed out
+                // - unclaimed holes contribute $0 (removed behind the scenes)
+                // - carry_over holes contribute ONLY if they get resolved later (stacked payouts)
+                // - winners must be INCLUDED in this format (respect excludedIds)
+                const perWin = fee > 0 ? fee : 0;
+
+                const includedSet = new Set((includedIds || []).map((x) => String(x)));
+
                 const nk = normKey(formatKey);
                 const claimsMap = claimsByFormat?.[nk] || {};
+
+                // Build a list of resolved payouts (each entry = one funded win)
+                const payoutWinnerIds = [];
 
                 for (let i = 0; i < holes.length; i++) {
                     const h = holes[i];
@@ -392,8 +401,8 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                     const isCarry = statusRaw === "carry_over" || statusRaw === "carryover";
 
                     const directWinnerId = String(c?.claimedByPlayerId || "").trim();
-                    if (directWinnerId) {
-                        addWon(directWinnerId, perWin);
+                    if (directWinnerId && includedSet.has(directWinnerId)) {
+                        payoutWinnerIds.push(directWinnerId);
                         continue;
                     }
 
@@ -403,13 +412,30 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                             const h2 = holes[j];
                             const c2 = claimsMap?.[String(h2)] || null;
                             const nm2 = String(c2?.claimedByPlayerId || "").trim();
-                            if (nm2) {
+                            if (nm2 && includedSet.has(nm2)) {
                                 resolvedId = nm2;
                                 break;
                             }
                         }
-                        if (resolvedId) addWon(resolvedId, perWin);
+                        if (resolvedId) payoutWinnerIds.push(resolvedId);
                     }
+                }
+
+                // Fund ONLY the resolved wins, split evenly across included players
+                const resolvedWins = payoutWinnerIds.length;
+                const totalPrize = perWin > 0 && resolvedWins > 0 ? perWin * resolvedWins : 0;
+
+                if (totalPrize > 0 && includedCount > 0) {
+                    const paidPerPlayer = totalPrize / includedCount;
+                    includedIds.forEach((pid) => addPaid(pid, paidPerPlayer));
+                }
+
+                // Pay winners per resolved win (carryovers stack naturally)
+                if (perWin > 0) {
+                    payoutWinnerIds.forEach((winnerId) => {
+                        const wid = String(winnerId || "").trim();
+                        if (wid && includedSet.has(wid)) addWon(wid, perWin);
+                    });
                 }
             } else if (type === "deucepot") {
                 includedIds.forEach((pid) => addPaid(pid, fee));
@@ -622,61 +648,88 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                             <View style={styles.divider} />
 
                             {(() => {
-                                const byPayer = {};
+                                // Build lookup: fromId -> toId -> amount
+                                const amtByFromTo = {};
                                 (settleModel?.transfers || []).forEach((t) => {
                                     const fromId = String(t.fromId || "");
-                                    if (!fromId) return;
-                                    if (!byPayer[fromId]) byPayer[fromId] = [];
-                                    byPayer[fromId].push(t);
+                                    const toId = String(t.toId || "");
+                                    const amt = Number(t.amount || 0);
+                                    if (!fromId || !toId) return;
+                                    if (!amtByFromTo[fromId]) amtByFromTo[fromId] = {};
+                                    amtByFromTo[fromId][toId] = (amtByFromTo[fromId][toId] || 0) + (Number.isFinite(amt) ? amt : 0);
                                 });
 
-                                return (players || []).map((p) => {
-                                    const payerId = String(p.id || "");
-                                    const payerName = String(p.name || "Player");
-                                    const rows = (byPayer[payerId] || []).slice().sort(
-                                        (a, b) =>
-                                            (b.amount || 0) - (a.amount || 0) ||
-                                            String(a.toName || "").localeCompare(String(b.toName || ""))
-                                    );
+                                const list = Array.isArray(players) ? players : [];
 
-                                    const total = rows.reduce((sum, t) => sum + Number(t.amount || 0), 0);
+                                // Display names: first name only; if duplicated first name, use "First L."
+                                const firstCounts = {};
+                                list.forEach((p) => {
+                                    const full = String(p?.name || "").trim();
+                                    const first = full.split(/\s+/).filter(Boolean)[0] || "";
+                                    const k = first.toLowerCase();
+                                    if (k) firstCounts[k] = (firstCounts[k] || 0) + 1;
+                                });
 
-                                    if (!rows.length) {
-                                        return (
-                                            <View key={`payer-${payerId}`}>
-                                                <View style={[styles.transferRow, { opacity: 0.7 }]}>
-                                                    <Text style={styles.transferText} numberOfLines={2}>
-                                                        {payerName} pays no one
-                                                    </Text>
-                                                    <View style={styles.amountPill}>
-                                                        <Text style={styles.amountText}>{money(0)}</Text>
-                                                    </View>
-                                                </View>
-                                            </View>
-                                        );
+                                const displayNameById = {};
+                                list.forEach((p) => {
+                                    const id = String(p?.id || "");
+                                    const full = String(p?.name || "Player").trim();
+                                    const parts = full.split(/\s+/).filter(Boolean);
+                                    const first = parts[0] || "Player";
+                                    const k = first.toLowerCase();
+
+                                    if ((firstCounts[k] || 0) > 1 && parts.length > 1) {
+                                        const last = parts[parts.length - 1] || "";
+                                        const li = last ? String(last[0] || "").toUpperCase() : "";
+                                        displayNameById[id] = li ? `${first} ${li}.` : first;
+                                    } else {
+                                        displayNameById[id] = first;
                                     }
+                                });
+
+                                const dispName = (id, fallback) => displayNameById[String(id)] || fallback || "Player";
+
+                                return list.map((payer) => {
+                                    const payerId = String(payer?.id || "");
+                                    const payerName = dispName(payerId, String(payer?.name || "Player"));
+
+                                    const payees = list.filter((x) => String(x?.id || "") !== payerId);
 
                                     return (
-                                        <View key={`payer-${payerId}`}>
-                                            <View style={styles.transferRow}>
-                                                <Text style={styles.transferText} numberOfLines={2}>
-                                                    {payerName} pays
-                                                </Text>
-                                                <View style={styles.amountPill}>
-                                                    <Text style={styles.amountText}>{money(total)}</Text>
-                                                </View>
-                                            </View>
+                                        <View key={`payer-${payerId}`} style={styles.payerCard}>
+                                            <Text style={styles.payerNameCentered} numberOfLines={1}>
+                                                {payerName}
+                                            </Text>
 
-                                            {rows.map((t, idx) => (
-                                                <View key={`pay-${payerId}-${idx}`} style={styles.transferRow}>
-                                                    <Text style={styles.transferText} numberOfLines={2}>
-                                                        {payerName} pays {t.toName}
-                                                    </Text>
-                                                    <View style={styles.amountPill}>
-                                                        <Text style={styles.amountText}>{money(t.amount)}</Text>
-                                                    </View>
-                                                </View>
-                                            ))}
+                                            <View style={{ marginTop: 10 }}>
+                                                {payees.map((payee) => {
+                                                    const toId = String(payee?.id || "");
+                                                    const toName = dispName(toId, String(payee?.name || "Player"));
+
+                                                    const amt = Number(amtByFromTo?.[payerId]?.[toId] || 0);
+                                                    const isZero = !Number.isFinite(amt) || Math.abs(amt) <= 0.005;
+
+                                                    return (
+                                                        <View
+                                                            key={`pay-${payerId}-${toId}`}
+                                                            style={[styles.payerLineRow, isZero && styles.payerLineRowZero]}
+                                                        >
+                                                            <Text
+                                                                style={[styles.payerLineText, isZero && styles.payerLineTextZero]}
+                                                                numberOfLines={1}
+                                                            >
+                                                                {payerName} pays {toName}
+                                                            </Text>
+
+                                                            <View style={[styles.amountPill, isZero && styles.amountPillZero]}>
+                                                                <Text style={[styles.amountText, isZero && styles.amountTextZero]}>
+                                                                    {money(isZero ? 0 : amt)}
+                                                                </Text>
+                                                            </View>
+                                                        </View>
+                                                    );
+                                                })}
+                                            </View>
                                         </View>
                                     );
                                 });
@@ -783,6 +836,36 @@ const styles = StyleSheet.create({
         borderColor: "rgba(255,255,255,0.10)",
         marginBottom: 10,
     },
+
+    payerCard: {
+        borderRadius: 18,
+        padding: 12,
+        backgroundColor: "rgba(105,230,180,0.06)",
+        borderWidth: 2,
+        borderColor: "rgba(105,230,180,0.45)",
+        marginBottom: 12,
+    },
+    payerName: { color: WHITE, fontWeight: "900", fontSize: 14 },
+    payerNameCentered: { color: WHITE, fontWeight: "900", fontSize: 14, textAlign: "center" },
+    payerLineRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 10,
+        paddingVertical: 8,
+        paddingHorizontal: 10,
+        borderRadius: 14,
+        backgroundColor: "rgba(255,255,255,0.04)",
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.10)",
+        marginBottom: 8,
+    },
+
+    payerLineRowZero: { backgroundColor: "rgba(255,255,255,0.02)", borderColor: "rgba(255,255,255,0.07)" },
+    payerLineTextZero: { color: "rgba(255,255,255,0.55)" },
+    amountPillZero: { backgroundColor: "rgba(242,201,76,0.10)", borderColor: "rgba(242,201,76,0.18)" },
+    amountTextZero: { color: "rgba(242,201,76,0.55)" },
+    payerLineText: { color: WHITE, fontWeight: "900", fontSize: 12, flex: 1 },
     transferText: { color: WHITE, fontWeight: "900", fontSize: 12, flex: 1 },
 
     amountPill: {

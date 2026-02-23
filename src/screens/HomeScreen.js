@@ -148,6 +148,10 @@ export default function HomeScreen({ navigation }) {
 
   const overlayColor = useMemo(() => safeOverlayColor(theme?.heroOverlay, isDark), [theme?.heroOverlay, isDark]);
 
+  // sizing for the carved center
+  const CENTER = 88;
+  const centerRadius = CENTER / 2;
+
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.bg }]}>
       <ImageBackground
@@ -198,11 +202,13 @@ export default function HomeScreen({ navigation }) {
             </Pressable>
 
             <View style={[styles.gridWrap, { borderColor: theme.border, backgroundColor: theme.card2 }]}>
-              <View style={[styles.gridRow, { marginBottom: 12 }]}>
+              {/* 2x2 cards (same actions/labels), but with icon positioning + center carve */}
+              <View style={[styles.gridRow, { marginBottom: 18 }]}>
                 <Pressable
                   onPress={() => navigation.navigate(ROUTES.PROFILE)}
                   style={({ pressed }) => [styles.gridCard, { borderColor: theme.border }, pressed && styles.pressedCard]}
                 >
+                  {/* Player Profile icon: top-left (same) */}
                   <View style={styles.gridIconWrap}>
                     <MaterialCommunityIcons name="account" size={16} color={isDark ? "#fff" : "#0A0F1A"} />
                   </View>
@@ -213,7 +219,8 @@ export default function HomeScreen({ navigation }) {
                   onPress={() => navigation.navigate(ROUTES.PLAYER_STATS)}
                   style={({ pressed }) => [styles.gridCard, { borderColor: theme.border }, pressed && styles.pressedCard]}
                 >
-                  <View style={styles.gridIconWrap}>
+                  {/* Player Stats icon: top-right */}
+                  <View style={[styles.gridIconWrap, styles.iconTopRight]}>
                     <MaterialCommunityIcons name="chart-line" size={16} color={isDark ? "#fff" : "#0A0F1A"} />
                   </View>
                   <Text style={[styles.gridTitle, { color: theme.text }]}>Player Stats</Text>
@@ -225,7 +232,8 @@ export default function HomeScreen({ navigation }) {
                   onPress={() => navigation.navigate(ROUTES.HISTORY)}
                   style={({ pressed }) => [styles.gridCard, { borderColor: theme.border }, pressed && styles.pressedCard]}
                 >
-                  <View style={styles.gridIconWrap}>
+                  {/* Round History icon: bottom-left */}
+                  <View style={[styles.gridIconWrap, styles.iconBottomLeft]}>
                     <MaterialCommunityIcons name="history" size={22} color={isDark ? "#fff" : "#0A0F1A"} />
                   </View>
                   <Text style={[styles.gridTitle, { color: theme.text }]}>Round History</Text>
@@ -235,12 +243,51 @@ export default function HomeScreen({ navigation }) {
                   onPress={() => navigation.navigate(ROUTES.BUDDIES)}
                   style={({ pressed }) => [styles.gridCard, { borderColor: theme.border }, pressed && styles.pressedCard]}
                 >
-                  <View style={styles.gridIconWrap}>
+                  {/* Buddy List icon: bottom-right */}
+                  <View style={[styles.gridIconWrap, styles.iconBottomRight]}>
                     <MaterialCommunityIcons name="account-multiple" size={16} color={isDark ? "#fff" : "#0A0F1A"} />
                   </View>
                   <Text style={[styles.gridTitle, { color: theme.text }]}>Buddy List</Text>
                 </Pressable>
               </View>
+
+              {/* Carve-out mask: hides the inner borders so it looks like the panel "wraps around" the circle */}
+              <View
+                pointerEvents="none"
+                style={[
+                  styles.centerMask,
+                  {
+                    width: CENTER + 12,
+                    height: CENTER + 12,
+                    borderRadius: (CENTER + 12) / 2,
+                    backgroundColor: theme.card2,
+                    marginLeft: -((CENTER + 12) / 2),
+                    marginTop: -((CENTER + 12) / 2),
+                    borderColor: theme.card2,
+                  },
+                ]}
+              />
+
+              {/* Center Quick Post button (transparent/glass like cards, no plus) */}
+              <Pressable
+                onPress={() => navigation.navigate(ROUTES.QUICK_POST)}
+                hitSlop={12}
+                style={({ pressed }) => [
+                  styles.quickPostCircle,
+                  {
+                    width: CENTER,
+                    height: CENTER,
+                    borderRadius: centerRadius,
+                    borderColor: theme.border,
+                    backgroundColor: "rgba(255,255,255,0.06)",
+                  },
+                  pressed && styles.pressedFab,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Quick Post"
+              >
+                <Text style={[styles.quickPostText, { color: theme.text }]}>Quick Post</Text>
+              </Pressable>
             </View>
           </View>
         </View>
@@ -254,9 +301,13 @@ const styles = StyleSheet.create({
   bg: { flex: 1 },
 
   gridWrap: {
+    position: "relative",
     padding: 14,
+    paddingTop: 18,
+    paddingBottom: 18,
     borderWidth: 1,
     borderRadius: 18,
+    overflow: "visible",
   },
   gridRow: {
     flexDirection: "row",
@@ -268,7 +319,7 @@ const styles = StyleSheet.create({
     flex: 1,
     borderWidth: 1,
     borderRadius: 16,
-    paddingVertical: 14,
+    paddingVertical: 18,
     paddingHorizontal: 14,
     backgroundColor: "rgba(255,255,255,0.06)",
   },
@@ -283,6 +334,24 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "rgba(255,255,255,0.08)",
   },
+
+  // icon position variants
+  iconTopRight: {
+    left: undefined,
+    right: 1,
+  },
+  iconBottomLeft: {
+    top: undefined,
+    bottom: 1,
+    left: 1,
+  },
+  iconBottomRight: {
+    top: undefined,
+    bottom: 1,
+    left: undefined,
+    right: 1,
+  },
+
   gridTitle: {
     fontFamily: "Cinzel",
     marginTop: 8,
@@ -294,6 +363,43 @@ const styles = StyleSheet.create({
   pressedCard: {
     opacity: 0.85,
     transform: [{ scale: 0.99 }],
+  },
+
+  // Center carve mask (covers inner borders)
+  centerMask: {
+    position: "absolute",
+    left: "50%",
+    top: "50%",
+    borderWidth: 2,
+  },
+
+  // Center Quick Post
+  quickPostCircle: {
+    position: "absolute",
+    left: "50%",
+    top: "50%",
+    marginLeft: -44,
+    marginTop: -44,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 10,
+  },
+  quickPostText: {
+    fontFamily: "Cinzel",
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: 0.7,
+    textAlign: "center",
+    paddingHorizontal: 10,
+  },
+  pressedFab: {
+    opacity: Platform.OS === "ios" ? 0.86 : 0.9,
+    transform: [{ scale: 0.98 }],
   },
 
   overlay: { ...StyleSheet.absoluteFillObject },
