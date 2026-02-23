@@ -1,5 +1,5 @@
 // src/screens/HomeScreen.js
-import React, { useMemo, useRef, useEffect } from "react";
+import React, { useMemo, useRef, useEffect, useState } from "react";
 import {
   SafeAreaView,
   View,
@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import Svg, { Circle, Rect, Path } from "react-native-svg";
 
 import ROUTES from "../navigation/routes";
 import { useTheme } from "../theme/ThemeProvider";
@@ -139,6 +140,36 @@ function ThemeToggle({ mode, setMode, theme }) {
   );
 }
 
+function CenterBorderRing({ size, radius, strokeColor, strokeWidth, coverColor }) {
+  return (
+    <View
+      pointerEvents="none"
+      style={{
+        position: "absolute",
+        left: "50%",
+        top: "50%",
+        width: size,
+        height: size,
+        marginLeft: -(size / 2),
+        marginTop: -(size / 2),
+        zIndex: 5,
+        elevation: 5,
+      }}
+    >
+      <Svg width={size} height={size}>
+        <Circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="transparent"
+          stroke={strokeColor}
+          strokeWidth={strokeWidth}
+        />
+      </Svg>
+    </View>
+  );
+}
+
 export default function HomeScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const { mode, scheme, theme, setMode } = useTheme();
@@ -151,6 +182,22 @@ export default function HomeScreen({ navigation }) {
   // sizing for the carved center
   const CENTER = 88;
   const centerRadius = CENTER / 2;
+
+  // geometry (must match styles below)
+  const PAD_X = 14;
+  const PAD_Y = 18;
+  const GAP = 12;      // column gap
+  const ROW_GAP = GAP; // row gap (must match)
+
+  const RING_GAP = 1; // gap between circle + borders
+  const RING_RADIUS = centerRadius + RING_GAP;
+  const STROKE = 1.5;
+
+  // slightly darker card borders to match the Quick Post ring
+  const CARD_STROKE = isDark ? "rgba(255,255,255,0.38)" : "rgba(0,0,0,0.35)";
+
+  const [gridBox, setGridBox] = useState({ w: 0, h: 0 });
+  const [tileBox, setTileBox] = useState({ w: 0, h: 0 });
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.bg }]}>
@@ -201,12 +248,210 @@ export default function HomeScreen({ navigation }) {
               </View>
             </Pressable>
 
-            <View style={[styles.gridWrap, { borderColor: theme.border, backgroundColor: theme.card2 }]}>
+            <View
+              style={[styles.gridWrap, { backgroundColor: "transparent" }]}
+              onLayout={(e) => {
+                const { width, height } = e.nativeEvent.layout;
+                setGridBox({ w: width, h: height });
+              }}
+            >
+              {gridBox.w > 0 && gridBox.h > 0 && tileBox.h > 0 ? (
+                <View pointerEvents="none" style={styles.borderOverlay}>
+                  <Svg width={gridBox.w} height={gridBox.h}>
+                    {(() => {
+                      const contentW = gridBox.w - PAD_X * 2;
+                      const cardW = (contentW - GAP) / 2;
+                      const cardH = tileBox.h;
+
+                      const xL = PAD_X;
+                      const xR = PAD_X + cardW + GAP;
+                      const yT = PAD_Y;
+                      const yB = PAD_Y + cardH + ROW_GAP;
+
+                      const cx = gridBox.w / 2;
+                      const cy = gridBox.h / 2;
+
+                      // mask radius to “carve” around the circle (uses panel background color)
+                      const maskR = RING_RADIUS + STROKE + 8;
+
+                      // divider lines stop before the ring
+                      const stop = RING_RADIUS + 6;
+
+                      const vX = PAD_X + cardW + GAP / 2;
+                      const hY = PAD_Y + cardH + ROW_GAP / 2;
+
+                      const innerTop = PAD_Y;
+                      const innerBottom = gridBox.h - PAD_Y;
+                      const innerLeft = PAD_X;
+                      const innerRight = gridBox.w - PAD_X;
+
+                      return (
+                        <>
+                          {/* 4 tile borders with inner-corner NOTCHES that wrap around the circle */}
+                          {(() => {
+                            const rx = 16;
+
+                            // notch radius (slightly larger than ring radius to create a clean gap)
+                            const notchR = RING_RADIUS + 10;
+
+                            const x1L = xL;
+                            const x2L = xL + cardW;
+                            const x1R = xR;
+                            const x2R = xR + cardW;
+
+                            const y1T = yT;
+                            const y2T = yT + cardH;
+
+                            const y1B = yB;
+                            const y2B = yB + cardH;
+
+                            function clamp(n, min, max) {
+                              return Math.max(min, Math.min(max, n));
+                            }
+
+                            function intersectV(xEdge, wantUpper) {
+                              const dx = xEdge - cx;
+                              const inside = notchR * notchR - dx * dx;
+                              if (inside <= 0) return null;
+                              const dy = Math.sqrt(inside);
+                              return wantUpper ? cy - dy : cy + dy;
+                            }
+
+                            function intersectH(yEdge, wantLeft) {
+                              const dy = yEdge - cy;
+                              const inside = notchR * notchR - dy * dy;
+                              if (inside <= 0) return null;
+                              const dx = Math.sqrt(inside);
+                              return wantLeft ? cx - dx : cx + dx;
+                            }
+
+                            // TL notch at bottom-right (edges: right=x2L, bottom=y2T)
+                            const tl_yOnRight = intersectV(x2L, true);
+                            const tl_xOnBottom = intersectH(y2T, true);
+
+                            // TR notch at bottom-left (edges: left=x1R, bottom=y2T)
+                            const tr_yOnLeft = intersectV(x1R, true);
+                            const tr_xOnBottom = intersectH(y2T, false);
+
+                            // BL notch at top-right (edges: right=x2L, top=y1B)
+                            const bl_yOnRight = intersectV(x2L, false);
+                            const bl_xOnTop = intersectH(y1B, true);
+
+                            // BR notch at top-left (edges: left=x1R, top=y1B)
+                            const br_yOnLeft = intersectV(x1R, false);
+                            const br_xOnTop = intersectH(y1B, false);
+
+                            // If any intersections fail (very small screens), fall back safely
+                            const TLrY = tl_yOnRight ?? y2T - rx;
+                            const TLbX = tl_xOnBottom ?? x2L - rx;
+
+                            const TRlY = tr_yOnLeft ?? y2T - rx;
+                            const TRbX = tr_xOnBottom ?? x1R + rx;
+
+                            const BLrY = bl_yOnRight ?? y1B + rx;
+                            const BLtX = bl_xOnTop ?? x2L - rx;
+
+                            const BRlY = br_yOnLeft ?? y1B + rx;
+                            const BRtX = br_xOnTop ?? x1R + rx;
+
+                            // clamp points to tile bounds
+                            const tl_rightY = clamp(TLrY, y1T + rx, y2T - rx);
+                            const tl_bottomX = clamp(TLbX, x1L + rx, x2L - rx);
+
+                            const tr_leftY = clamp(TRlY, y1T + rx, y2T - rx);
+                            const tr_bottomX = clamp(TRbX, x1R + rx, x2R - rx);
+
+                            const bl_rightY = clamp(BLrY, y1B + rx, y2B - rx);
+                            const bl_topX = clamp(BLtX, x1L + rx, x2L - rx);
+
+                            const br_leftY = clamp(BRlY, y1B + rx, y2B - rx);
+                            const br_topX = clamp(BRtX, x1R + rx, x2R - rx);
+
+                            // Arc flags: we want the SMALL arc around the center.
+                            // TL: from right-edge point to bottom-edge point (sweep=1)
+                            // TR: from bottom-edge point to left-edge point (sweep=1)
+                            // BL: from top-edge point to right-edge point (sweep=1)
+                            // BR: from left-edge point to top-edge point (sweep=1)
+
+                            const dTL = [
+                              `M ${x1L + rx} ${y1T}`,
+                              `H ${x2L - rx}`,
+                              `Q ${x2L} ${y1T} ${x2L} ${y1T + rx}`,
+                              `V ${tl_rightY}`,
+                              `A ${notchR} ${notchR} 0 0 0 ${tl_bottomX} ${y2T}`,
+                              `H ${x1L + rx}`,
+                              `Q ${x1L} ${y2T} ${x1L} ${y2T - rx}`,
+                              `V ${y1T + rx}`,
+                              `Q ${x1L} ${y1T} ${x1L + rx} ${y1T}`,
+                              `Z`,
+                            ].join(" ");
+
+                            const dTR = [
+                              `M ${x1R + rx} ${y1T}`,
+                              `H ${x2R - rx}`,
+                              `Q ${x2R} ${y1T} ${x2R} ${y1T + rx}`,
+                              `V ${y2T - rx}`,
+                              `Q ${x2R} ${y2T} ${x2R - rx} ${y2T}`,
+                              `H ${tr_bottomX}`,
+                              `A ${notchR} ${notchR} 0 0 0 ${x1R} ${tr_leftY}`,
+                              `V ${y1T + rx}`,
+                              `Q ${x1R} ${y1T} ${x1R + rx} ${y1T}`,
+                              `Z`,
+                            ].join(" ");
+
+                            const dBL = [
+                              `M ${x1L + rx} ${y1B}`,
+                              `H ${bl_topX}`,
+                              `A ${notchR} ${notchR} 0 0 0 ${x2L} ${bl_rightY}`,
+                              `V ${y2B - rx}`,
+                              `Q ${x2L} ${y2B} ${x2L - rx} ${y2B}`,
+                              `H ${x1L + rx}`,
+                              `Q ${x1L} ${y2B} ${x1L} ${y2B - rx}`,
+                              `V ${y1B + rx}`,
+                              `Q ${x1L} ${y1B} ${x1L + rx} ${y1B}`,
+                              `Z`,
+                            ].join(" ");
+
+                            const dBR = [
+                              `M ${br_topX} ${y1B}`,
+                              `H ${x2R - rx}`,
+                              `Q ${x2R} ${y1B} ${x2R} ${y1B + rx}`,
+                              `V ${y2B - rx}`,
+                              `Q ${x2R} ${y2B} ${x2R - rx} ${y2B}`,
+                              `H ${x1R + rx}`,
+                              `Q ${x1R} ${y2B} ${x1R} ${y2B - rx}`,
+                              `V ${br_leftY}`,
+                              `A ${notchR} ${notchR} 0 0 0 ${br_topX} ${y1B}`,
+                              `Z`,
+                            ].join(" ");
+
+                            return (
+                              <>
+                                <Path d={dTL} fill="transparent" stroke={CARD_STROKE} strokeWidth={STROKE} />
+                                <Path d={dTR} fill="transparent" stroke={CARD_STROKE} strokeWidth={STROKE} />
+                                <Path d={dBL} fill="transparent" stroke={CARD_STROKE} strokeWidth={STROKE} />
+                                <Path d={dBR} fill="transparent" stroke={CARD_STROKE} strokeWidth={STROKE} />
+                              </>
+                            );
+                          })()}
+
+                          {/* CIRCLE RING */}
+                        </>
+                      );
+                    })()}
+                  </Svg>
+                </View>
+              ) : null}
+
               {/* 2x2 cards (same actions/labels), but with icon positioning + center carve */}
-              <View style={[styles.gridRow, { marginBottom: 18 }]}>
+              <View style={[styles.gridRow, { marginBottom: GAP }]}>
                 <Pressable
                   onPress={() => navigation.navigate(ROUTES.PROFILE)}
-                  style={({ pressed }) => [styles.gridCard, { borderColor: theme.border }, pressed && styles.pressedCard]}
+                  onLayout={(e) => {
+                    const { width, height } = e.nativeEvent.layout;
+                    setTileBox({ w: width, h: height });
+                  }}
+                  style={({ pressed }) => [styles.gridCard, pressed && styles.pressedCard]}
                 >
                   {/* Player Profile icon: top-left (same) */}
                   <View style={styles.gridIconWrap}>
@@ -217,7 +462,7 @@ export default function HomeScreen({ navigation }) {
 
                 <Pressable
                   onPress={() => navigation.navigate(ROUTES.PLAYER_STATS)}
-                  style={({ pressed }) => [styles.gridCard, { borderColor: theme.border }, pressed && styles.pressedCard]}
+                  style={({ pressed }) => [styles.gridCard, pressed && styles.pressedCard]}
                 >
                   {/* Player Stats icon: top-right */}
                   <View style={[styles.gridIconWrap, styles.iconTopRight]}>
@@ -230,7 +475,7 @@ export default function HomeScreen({ navigation }) {
               <View style={styles.gridRow}>
                 <Pressable
                   onPress={() => navigation.navigate(ROUTES.HISTORY)}
-                  style={({ pressed }) => [styles.gridCard, { borderColor: theme.border }, pressed && styles.pressedCard]}
+                  style={({ pressed }) => [styles.gridCard, pressed && styles.pressedCard]}
                 >
                   {/* Round History icon: bottom-left */}
                   <View style={[styles.gridIconWrap, styles.iconBottomLeft]}>
@@ -241,7 +486,7 @@ export default function HomeScreen({ navigation }) {
 
                 <Pressable
                   onPress={() => navigation.navigate(ROUTES.BUDDIES)}
-                  style={({ pressed }) => [styles.gridCard, { borderColor: theme.border }, pressed && styles.pressedCard]}
+                  style={({ pressed }) => [styles.gridCard, pressed && styles.pressedCard]}
                 >
                   {/* Buddy List icon: bottom-right */}
                   <View style={[styles.gridIconWrap, styles.iconBottomRight]}>
@@ -251,22 +496,9 @@ export default function HomeScreen({ navigation }) {
                 </Pressable>
               </View>
 
-              {/* Carve-out mask: hides the inner borders so it looks like the panel "wraps around" the circle */}
-              <View
-                pointerEvents="none"
-                style={[
-                  styles.centerMask,
-                  {
-                    width: CENTER + 12,
-                    height: CENTER + 12,
-                    borderRadius: (CENTER + 12) / 2,
-                    backgroundColor: theme.card2,
-                    marginLeft: -((CENTER + 12) / 2),
-                    marginTop: -((CENTER + 12) / 2),
-                    borderColor: theme.card2,
-                  },
-                ]}
-              />
+              {/* (center mask removed) */}
+
+              {/* (old CenterBorderRing removed — SVG borderOverlay now draws everything) */}
 
               {/* Center Quick Post button (transparent/glass like cards, no plus) */}
               <Pressable
@@ -278,10 +510,25 @@ export default function HomeScreen({ navigation }) {
                     width: CENTER,
                     height: CENTER,
                     borderRadius: centerRadius,
-                    borderColor: theme.border,
-                    backgroundColor: "rgba(255,255,255,0.06)",
+
+                    // black/silver ring
+                    borderWidth: 2,
+                    borderColor: isDark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.55)",
+
+                    // gold flashy center (glass + glow)
+                    backgroundColor: isDark ? "rgba(242,201,76,0.18)" : "rgba(242,201,76,0.14)",
+                    shadowColor: "#F2C94C",
+                    shadowOpacity: isDark ? 0.55 : 0.35,
+                    shadowRadius: 14,
+                    shadowOffset: { width: 0, height: 8 },
+                    elevation: 12,
+
+                    transform: [
+                      { translateX: -centerRadius + 14.5 },
+                      { translateY: -centerRadius + 18 },
+                      ...(pressed ? [{ scale: 0.98 }] : []),
+                    ],
                   },
-                  pressed && styles.pressedFab,
                 ]}
                 accessibilityRole="button"
                 accessibilityLabel="Quick Post"
@@ -305,9 +552,13 @@ const styles = StyleSheet.create({
     padding: 14,
     paddingTop: 18,
     paddingBottom: 18,
-    borderWidth: 1,
     borderRadius: 18,
     overflow: "visible",
+  },
+  borderOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 4,
+    elevation: 4,
   },
   gridRow: {
     flexDirection: "row",
@@ -317,16 +568,15 @@ const styles = StyleSheet.create({
     position: "relative",
     justifyContent: "center",
     flex: 1,
-    borderWidth: 1,
     borderRadius: 16,
-    paddingVertical: 18,
+    paddingVertical: 26,
     paddingHorizontal: 14,
     backgroundColor: "rgba(255,255,255,0.06)",
   },
   gridIconWrap: {
     position: "absolute",
-    top: 1,
-    left: 1,
+    top: 8,
+    left: 8,
     width: 30,
     height: 30,
     borderRadius: 12,
@@ -338,18 +588,18 @@ const styles = StyleSheet.create({
   // icon position variants
   iconTopRight: {
     left: undefined,
-    right: 1,
+    right: 8,
   },
   iconBottomLeft: {
     top: undefined,
-    bottom: 1,
-    left: 1,
+    bottom: 8,
+    left: 8,
   },
   iconBottomRight: {
     top: undefined,
-    bottom: 1,
+    bottom: 8,
     left: undefined,
-    right: 1,
+    right: 8,
   },
 
   gridTitle: {
@@ -365,29 +615,23 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.99 }],
   },
 
-  // Center carve mask (covers inner borders)
-  centerMask: {
-    position: "absolute",
-    left: "50%",
-    top: "50%",
-    borderWidth: 2,
-  },
+  // (centerMask removed)
+
+  // (corner masks removed)
 
   // Center Quick Post
   quickPostCircle: {
     position: "absolute",
     left: "50%",
     top: "50%",
-    marginLeft: -44,
-    marginTop: -44,
-    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#000",
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 10,
+    shadowOpacity: 0.26,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
+    zIndex: 6,
+    elevation: 14,
   },
   quickPostText: {
     fontFamily: "Cinzel",
