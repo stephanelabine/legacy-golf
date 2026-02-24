@@ -6,6 +6,7 @@ const ROUTES = {
   AUTH_SIGNUP: "AuthSignup",
 
   HOME: "Home",
+  QUICK_POST: "QuickPost",
   GAMES: "Games",
   GAME_SETUP: "GameSetup",
   NEW_ROUND: "NewRound",

@@ -16,6 +16,7 @@ import SignupScreen from "../screens/SignupScreen";
 /* ---------------- core app ---------------- */
 
 import HomeScreen from "../screens/HomeScreen";
+import QuickPostScreen from "../screens/QuickPostScreen";
 import GamesScreen from "../screens/GamesScreen";
 import GameSetupScreen from "../screens/GameSetupScreen";
 import NewRoundScreen from "../screens/NewRoundScreen";
@@ -162,6 +163,7 @@ export default function RootNavigator() {
         <>
           {/* Core */}
           <Stack.Screen name={ROUTES.HOME} component={HomeScreen} />
+          <Stack.Screen name={ROUTES.QUICK_POST} component={QuickPostScreen} />
           <Stack.Screen name={ROUTES.GAMES} component={GamesScreen} />
           <Stack.Screen name={ROUTES.GAME_SETUP} component={GameSetupScreen} />
           <Stack.Screen name={ROUTES.NEW_ROUND} component={NewRoundScreen} />

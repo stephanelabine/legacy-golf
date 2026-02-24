@@ -18,6 +18,9 @@ const BORDER = "rgba(255,255,255,0.14)";
 const INNER = "rgba(0,0,0,0.18)";
 const GREEN_BORDER = "rgba(46,204,113,0.70)";
 
+// Quick Post accent (subtle orange)
+const QUICKPOST_BORDER = "rgba(255, 168, 76, 0.78)";
+
 const HOLE_FORMAT_KEYS = new Set(["kp", "longdrive", "secondshotkp"]);
 
 function pickFirstString(...vals) {
@@ -590,11 +593,13 @@ export default function HistoryScreen({ navigation }) {
           {
             borderWidth: 4,
             borderColor:
-              statusKind === "complete"
-                ? "rgba(255, 210, 92, 0.92)" // GOLD (Complete)
-                : statusKind === "setup"
-                  ? "rgba(46,204,113,0.88)"  // GREEN (In Setup)
-                  : "rgba(46,125,255,0.88)", // BLUE (In Progress)
+              statusKind === "quick_post"
+                ? QUICKPOST_BORDER              // ORANGE (Quick Post)
+                : statusKind === "complete"
+                  ? "rgba(255, 210, 92, 0.92)"  // GOLD (Complete)
+                  : statusKind === "setup"
+                    ? "rgba(46,204,113,0.88)"   // GREEN (In Setup)
+                    : "rgba(46,125,255,0.88)",  // BLUE (In Progress)
           },
           pressed && styles.pressed,
         ]}
@@ -612,11 +617,13 @@ export default function HistoryScreen({ navigation }) {
             <View
               style={[
                 styles.statusChip,
-                statusKind === "complete"
-                  ? styles.statusChipComplete
-                  : statusKind === "setup"
-                    ? styles.statusChipSetup
-                    : styles.statusChipProgress,
+                statusKind === "quick_post"
+                  ? styles.statusChipQuickPost
+                  : statusKind === "complete"
+                    ? styles.statusChipComplete
+                    : statusKind === "setup"
+                      ? styles.statusChipSetup
+                      : styles.statusChipProgress,
               ]}
             >
               <Text style={styles.statusText}>{statusText}</Text>
@@ -753,10 +760,15 @@ export default function HistoryScreen({ navigation }) {
 
               const userPlayer = pickUserPlayer(r);
               const userId = userPlayer?.id ? String(userPlayer.id) : "p1";
-              const gross = sumGrossAnyShape(r, userId);
+
+              const grossFromHoles = sumGrossAnyShape(r, userId);
+              const grossFromTotal = Number(r?.grossTotal);
+              const gross = grossFromHoles || (Number.isFinite(grossFromTotal) && grossFromTotal > 0 ? grossFromTotal : 0);
+
+              const isQuickPost = String(r?.entrySource || "").toLowerCase() === "quick_post";
 
               const rightPrimary = completed ? (gross ? String(gross) : "—") : holeNum ? `Hole ${holeNum}` : "Resume";
-              const rightSecondary = completed ? "Gross" : holeNum ? "Currently on" : "Tap to continue";
+              const rightSecondary = completed ? (isQuickPost ? "Quick Post" : "Gross") : holeNum ? "Currently on" : "Tap to continue";
 
               const editLabel = completed ? "View" : "Enter";
 
@@ -777,8 +789,8 @@ export default function HistoryScreen({ navigation }) {
                     {renderRowContent({
                       courseName,
                       dateText,
-                      statusText,
-                      statusKind: completed ? "complete" : status === "setup" ? "setup" : "in_progress",
+                      statusText: completed && String(r?.entrySource || "").toLowerCase() === "quick_post" ? "Quick Post" : statusText,
+                      statusKind: completed && String(r?.entrySource || "").toLowerCase() === "quick_post" ? "quick_post" : completed ? "complete" : status === "setup" ? "setup" : "in_progress",
                       rightPrimary,
                       rightSecondary,
                       onPress: () => openRound(r),
@@ -897,6 +909,7 @@ const styles = StyleSheet.create({
   statusChipSetup: { borderColor: "rgba(46,204,113,0.70)", backgroundColor: "rgba(46,204,113,0.16)" },
   statusChipProgress: { borderColor: "rgba(46,125,255,0.70)", backgroundColor: "rgba(46,125,255,0.16)" },
   statusChipComplete: { borderColor: "rgba(255, 210, 92, 0.75)", backgroundColor: "rgba(255, 210, 92, 0.16)" },
+  statusChipQuickPost: { borderColor: QUICKPOST_BORDER, backgroundColor: "rgba(255, 168, 76, 0.16)" },
   statusText: { color: WHITE, fontWeight: "900", fontSize: 11, letterSpacing: 0.9, opacity: 0.92 },
 
   rightBox: {
