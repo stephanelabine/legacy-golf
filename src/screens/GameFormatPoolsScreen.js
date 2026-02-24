@@ -171,7 +171,6 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
     const [formats, setFormats] = useState([]);
 
     // local editable strings
-    const [applyAll, setApplyAll] = useState("");
 
     // fee strings keyed by formatKey (as stored in formatsSelected)
     const [feeByKey, setFeeByKey] = useState({});
@@ -533,29 +532,6 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
         return ids.filter((id) => !excluded.has(String(id))).length;
     }
 
-    function applyFeeToAll() {
-        const v = parseFeeString(applyAll);
-        if (Number.isNaN(v)) {
-            Alert.alert("Amount", "Amount must be a number (example: 10 or 10.00).");
-            return;
-        }
-        const s = v === null ? "" : String(v);
-
-        dirtyRef.current = true;
-
-        const next = { ...(feeByKey || {}) };
-        (formats || []).forEach((f) => {
-            const type = detectFormatType(f);
-            if (type === "unknown") return;
-            const fk = getKey(f);
-            if (!fk) return;
-            next[fk] = s;
-        });
-
-        setFeeByKey(next);
-        Keyboard.dismiss();
-    }
-
     function toggleExclude(fk, pid) {
         const id = String(pid);
         setExcludedByKey((prev) => {
@@ -865,45 +841,6 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
                         </View>
                     ) : (
                         <>
-                            <Text style={styles.sectionTitle}>Quick apply</Text>
-
-                            <View style={styles.premiumCard}>
-                                <View style={styles.rowTop}>
-                                    <Text style={styles.name}>Apply one amount to all</Text>
-                                    <Text style={styles.hint}>optional</Text>
-                                </View>
-
-                                <Text style={styles.sub}>Set a single amount and apply it to every selected format.</Text>
-
-                                <View style={styles.innerSection}>
-                                    <View style={styles.feeRow}>
-                                        <TextInput
-                                            value={applyAll}
-                                            onChangeText={(s) => setApplyAll(String(s || "").replace(/[^0-9.]/g, ""))}
-                                            editable={!saving}
-                                            placeholder="5"
-                                            placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
-                                            style={[styles.feeInput, saving && { opacity: 0.7 }]}
-                                            keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
-                                            returnKeyType="done"
-                                            onSubmitEditing={applyFeeToAll}
-                                        />
-                                    </View>
-
-                                    <Pressable
-                                        onPress={applyFeeToAll}
-                                        disabled={saving}
-                                        style={({ pressed }) => [
-                                            styles.applyBtn,
-                                            pressed && !saving && styles.pressed,
-                                            saving && { opacity: 0.7 },
-                                        ]}
-                                    >
-                                        <Text style={styles.applyBtnText}>Apply to all formats</Text>
-                                    </Pressable>
-                                </View>
-                            </View>
-
                             <Text style={styles.sectionTitle}>Per format</Text>
                             {formats.map(renderFormatCard)}
                         </>

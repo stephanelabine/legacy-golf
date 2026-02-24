@@ -138,7 +138,6 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
   const [formatDocs, setFormatDocs] = useState([]);
   const [saving, setSaving] = useState(false);
 
-  const [applyAll, setApplyAll] = useState("");
   const [feeByKey, setFeeByKey] = useState({});
   const dirtyRef = useRef(false);
 
@@ -394,25 +393,6 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
     });
   }, [theme, isDark, footerPad]);
 
-  function applyFeeToAll() {
-    const v = parseFeeString(applyAll);
-    if (Number.isNaN(v)) {
-      Alert.alert("Entry fee", "Entry fee must be a number (example: 10 or 10.00).");
-      return;
-    }
-    const s = v === null ? "" : String(v);
-
-    dirtyRef.current = true;
-    const next = { ...(feeByKey || {}) };
-    (orderedFormats || []).forEach((f) => {
-      const key = String(f?.key || f?.id || "").trim();
-      if (!key) return;
-      next[key] = s;
-    });
-    setFeeByKey(next);
-    Keyboard.dismiss();
-  }
-
   async function saveAllFees() {
     if (!tournamentId) return;
 
@@ -560,45 +540,6 @@ export default function TournamentFormatPoolsScreen({ navigation, route }) {
             </View>
           ) : (
             <>
-              <Text style={styles.sectionTitle}>Quick apply</Text>
-
-              <View style={styles.premiumCard}>
-                <View style={styles.rowTop}>
-                  <Text style={styles.name}>Apply one fee to all</Text>
-                  <Text style={styles.hint}>optional</Text>
-                </View>
-
-                <Text style={styles.sub}>Set a single entry fee and apply it to every selected format.</Text>
-
-                <View style={styles.innerSection}>
-                  <View style={styles.feeRow}>
-                    <TextInput
-                      value={applyAll}
-                      onChangeText={(s) => setApplyAll(String(s || "").replace(/[^0-9.]/g, ""))}
-                      editable={!saving && isHost}
-                      placeholder="10"
-                      placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
-                      style={[styles.feeInput, (!isHost || saving) && { opacity: 0.7 }]}
-                      keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
-                      returnKeyType="done"
-                      onSubmitEditing={applyFeeToAll}
-                    />
-                  </View>
-
-                  <Pressable
-                    onPress={applyFeeToAll}
-                    disabled={!isHost || saving}
-                    style={({ pressed }) => [
-                      styles.applyBtn,
-                      pressed && !saving && styles.pressed,
-                      (!isHost || saving) && { opacity: 0.7 },
-                    ]}
-                  >
-                    <Text style={styles.applyBtnText}>Apply to all formats</Text>
-                  </Pressable>
-                </View>
-              </View>
-
               <Text style={styles.sectionTitle}>Per format</Text>
               {orderedFormats.map(renderFormatCard)}
             </>

@@ -328,32 +328,22 @@ export default function RegularSettleUpScreen({ navigation, route }) {
     const settleModel = useMemo(() => {
         const r = round || {};
 
-        // Used for WHO PAYS WHO (gross money flow)
+        // Net model:
+        // - pay-in (buy-ins) reduce net
+        // - payouts increase net
+        // - transfers are generated once from final net balances
         const netById = {};
         const paidById = {};
-        const wonById = {}; // gross winnings (full pots)
-
-        // Used for WHO WON WHAT (credit view)
-        // Shows ONLY what a player “won” based on their own entry fee for that format.
-        const wonCreditById = {};
-
-        // Track ONLY hole-format winnings (KP/LD/2ndKP) for the non-top balancing rule
-        const holeWonById = {};
+        const wonById = {};
 
         players.forEach((p) => {
             const id = String(p.id);
             netById[id] = 0;
             paidById[id] = 0;
             wonById[id] = 0;
-            wonCreditById[id] = 0;
-            holeWonById[id] = 0;
         });
 
-        // DETAILED settlement:
-        // - WHO PAYS WHO = per-format settlements combined (no global netting)
-        const detailedTransfers = [];
-
-        const addPaidGlobal = (pid, amt) => {
+        const addPaid = (pid, amt) => {
             const key = String(pid || "");
             const a = Number(amt || 0);
             if (!Number.isFinite(a) || a <= 0) return;
@@ -361,19 +351,12 @@ export default function RegularSettleUpScreen({ navigation, route }) {
             netById[key] = (netById[key] || 0) - a;
         };
 
-        const addWonGlobal = (pid, amt) => {
+        const addWon = (pid, amt) => {
             const key = String(pid || "");
             const a = Number(amt || 0);
             if (!Number.isFinite(a) || a <= 0) return;
             wonById[key] = (wonById[key] || 0) + a;
             netById[key] = (netById[key] || 0) + a;
-        };
-
-        const addWonCredit = (pid, amt) => {
-            const key = String(pid || "");
-            const a = Number(amt || 0);
-            if (!Number.isFinite(a) || a <= 0) return;
-            wonCreditById[key] = (wonCreditById[key] || 0) + a;
         };
 
         const readPutts = (holeNumber, pid) => {
@@ -383,13 +366,11 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                 r?.holes?.[h]?.players?.[p]?.putts ??
                 r?.holes?.[h]?.players?.[p]?.stats?.putts;
 
-            // If missing/blank, treat as “no data”, not a real 0.
             if (raw === undefined || raw === null || String(raw).trim() === "") {
                 return { has: false, n: 0 };
             }
 
             const n = toInt(raw);
-            // Allow 0 as valid (chip-in / holed out)
             if (!Number.isFinite(n) || n < 0) return { has: false, n: 0 };
             return { has: true, n };
         };
@@ -422,140 +403,60 @@ export default function RegularSettleUpScreen({ navigation, route }) {
 
             const includedIds = getIncludedPlayerIds(r, formatKey, players);
             const includedCount = includedIds.length;
+            if (!includedCount) return;
+
             const fee = getEntryFee(r, formatKey);
 
-            // Per-format mini-ledger (only included players participate)
-            const fmtNetById = {};
-            includedIds.forEach((pid) => {
-                fmtNetById[String(pid)] = 0;
-            });
-
-            const addPaidFmt = (pid, amt) => {
-                const a = Number(amt || 0);
-                const key = String(pid || "");
-                if (!Number.isFinite(a) || a <= 0) return;
-                if (!(key in fmtNetById)) return;
-                fmtNetById[key] = (fmtNetById[key] || 0) - a;
-            };
-
-            const addWonFmt = (pid, amt) => {
-                const a = Number(amt || 0);
-                const key = String(pid || "");
-                if (!Number.isFinite(a) || a <= 0) return;
-                if (!(key in fmtNetById)) return;
-                fmtNetById[key] = (fmtNetById[key] || 0) + a;
-            };
-
+            // Hole formats: FULL POOL PAYOUTS
+            // - each FUNDED hole unit costs fee per player
+            // - each funded hole unit pays fee * includedCount to the resolved winner
+            // - carry_over stacks units onto the next resolved hole
+            // - washed/unclaimed holes remove that hole unit (no pay-in, no payout)
             if (type === "kp" || type === "longdrive" || type === "secondshotkp") {
                 const holes = getOfficialHolesForFormat(r, formatKey);
-
-                // WIN-COUNT settlement model (your requested model):
-                // - Count funded wins per player (carryover stacks as extra funded wins)
-                // - Settle head-to-head differences:
-                //   if A has 2 wins and B has 1 win => B pays A $5
-                const perWin = fee > 0 ? fee : 0;
+                const perHole = fee > 0 ? fee : 0;
+                if (!perHole || !holes.length) return;
 
                 const includedSet = new Set((includedIds || []).map((x) => String(x)));
                 const nk = normKey(formatKey);
                 const claimsMap = claimsByFormat?.[nk] || {};
 
-                // Each entry = one funded win (carryovers become extra funded wins)
-                const payoutWinnerIds = [];
+                let carryUnits = 0;
+                let fundedUnits = 0;
 
-                for (let i = 0; i < holes.length; i++) {
-                    const h = holes[i];
+                holes.forEach((h) => {
                     const c = claimsMap?.[String(h)] || null;
-
                     const statusRaw = String(c?.status || "").toLowerCase();
                     const isCarry = statusRaw === "carry_over" || statusRaw === "carryover";
 
-                    const directWinnerId = String(c?.claimedByPlayerId || "").trim();
-                    if (directWinnerId && includedSet.has(directWinnerId)) {
-                        payoutWinnerIds.push(directWinnerId);
-                        continue;
-                    }
+                    const winnerId = String(c?.claimedByPlayerId || "").trim();
+                    const hasWinner = winnerId && includedSet.has(winnerId);
 
-                    if (isCarry) {
-                        let resolvedId = "";
-                        for (let j = i + 1; j < holes.length; j++) {
-                            const h2 = holes[j];
-                            const c2 = claimsMap?.[String(h2)] || null;
-                            const nm2 = String(c2?.claimedByPlayerId || "").trim();
-                            if (nm2 && includedSet.has(nm2)) {
-                                resolvedId = nm2;
-                                break;
-                            }
-                        }
-                        if (resolvedId) payoutWinnerIds.push(resolvedId);
-                    }
-                }
+                    if (hasWinner) {
+                        const units = 1 + carryUnits;
+                        fundedUnits += units;
+                        carryUnits = 0;
 
-                // Count wins per included player
-                const winsById = {};
-                includedIds.forEach((pid) => {
-                    winsById[String(pid)] = 0;
-                });
-
-                payoutWinnerIds.forEach((winnerId) => {
-                    const wid = String(winnerId || "").trim();
-                    if (!wid || !includedSet.has(wid)) return;
-                    winsById[wid] = (winsById[wid] || 0) + 1;
-
-                    // WHO WON WHAT (credit) = $5 per funded win (or whatever perWin is)
-                    if (perWin > 0) {
-                        addWonCredit(wid, perWin);
-
-                        // Track hole-format winnings only (for non-top balancing)
-                        holeWonById[wid] = (holeWonById[wid] || 0) + perWin;
+                        // payout = units * (fee * includedCount)
+                        addWon(winnerId, units * perHole * includedCount);
+                    } else if (isCarry) {
+                        carryUnits += 1;
+                    } else {
+                        // washed/unclaimed: reset carry (washed means removed from pot)
+                        carryUnits = 0;
                     }
                 });
 
-                // Build head-to-head transfers (THIS creates Don -> Bill / Guido style lines)
-                const ids = includedIds.map((x) => String(x)).filter(Boolean);
+                // If carry never resolved, treat as washed (no pay-in)
+                // Each included player pays only funded units
+                includedIds.forEach((pid) => addPaid(pid, fundedUnits * perHole));
+                return;
+            }
 
-                if (perWin > 0 && ids.length > 1) {
-                    for (let a = 0; a < ids.length; a++) {
-                        for (let b = a + 1; b < ids.length; b++) {
-                            const idA = ids[a];
-                            const idB = ids[b];
-
-                            const wA = Number(winsById?.[idA] || 0);
-                            const wB = Number(winsById?.[idB] || 0);
-                            if (!Number.isFinite(wA) || !Number.isFinite(wB) || wA === wB) continue;
-
-                            const diff = Math.abs(wA - wB);
-                            const amt = perWin * diff;
-                            if (!Number.isFinite(amt) || amt <= 0.005) continue;
-
-                            // If A has more wins, B pays A
-                            const fromId = wA > wB ? idB : idA;
-                            const toId = wA > wB ? idA : idB;
-
-                            // Update ledgers so fmtNetById and global nets stay coherent
-                            addPaidGlobal(fromId, amt);
-                            addWonGlobal(toId, amt);
-                            addPaidFmt(fromId, amt);
-                            addWonFmt(toId, amt);
-
-                            detailedTransfers.push({
-                                fromId,
-                                toId,
-                                amount: amt,
-                                fromName: playersById?.[fromId]?.name || "Player",
-                                toName: playersById?.[toId]?.name || "Player",
-                                __kind: "hole_win_count",
-                            });
-                        }
-                    }
-                }
-            } else if (type === "deucepot") {
-                // Pool: everyone buys in fee, pot split by deuces made
-
-                // WHO PAYS WHO uses gross pot (fee * players)
-                includedIds.forEach((pid) => {
-                    addPaidGlobal(pid, fee);
-                    addPaidFmt(pid, fee);
-                });
+            // Deuce pot: only fund if at least one deuce exists (else washed)
+            if (type === "deucepot") {
+                const perPlayer = fee > 0 ? fee : 0;
+                if (!perPlayer) return;
 
                 let totalDeuces = 0;
                 const deucesById = {};
@@ -571,33 +472,24 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                     }
                 });
 
-                // Gross pot payout (WHO PAYS WHO)
-                const potTotalGross = fee > 0 ? fee * includedCount : 0;
-                const perDeuceGross = totalDeuces > 0 ? potTotalGross / totalDeuces : 0;
+                if (!totalDeuces) return; // washed
+
+                includedIds.forEach((pid) => addPaid(pid, perPlayer));
+
+                const pot = perPlayer * includedCount;
+                const perDeuce = pot / totalDeuces;
 
                 Object.keys(deucesById).forEach((pid) => {
-                    const amt = perDeuceGross * deucesById[pid];
-                    addWonGlobal(pid, amt);
-                    addWonFmt(pid, amt);
+                    addWon(pid, perDeuce * Number(deucesById[pid] || 0));
                 });
 
-                // Credit pot payout (WHO WON WHAT) = ONLY one entry fee worth of credit
-                // Split by deuces made
-                const potTotalCredit = fee > 0 ? fee : 0;
-                const perDeuceCredit = totalDeuces > 0 ? potTotalCredit / totalDeuces : 0;
+                return;
+            }
 
-                Object.keys(deucesById).forEach((pid) => {
-                    const credit = perDeuceCredit * deucesById[pid];
-                    addWonCredit(pid, credit);
-                });
-            } else if (type === "puttingcontest") {
-                // Pool: everyone buys in fee, pot paid by places (ties split)
-
-                // WHO PAYS WHO uses gross pot (fee * players)
-                includedIds.forEach((pid) => {
-                    addPaidGlobal(pid, fee);
-                    addPaidFmt(pid, fee);
-                });
+            // Putting contest: only fund if we have any putts data (else washed)
+            if (type === "puttingcontest") {
+                const perPlayer = fee > 0 ? fee : 0;
+                if (!perPlayer) return;
 
                 const pools = getFormatPools(r) || {};
                 const ppRaw = Number(pools?.[formatKey]?.payoutPlaces);
@@ -609,9 +501,6 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                         : payoutPlaces === 2
                             ? [0.75, 0.25]
                             : [1];
-
-                const potTotalGross = fee > 0 ? fee * includedCount : 0;
-                const potTotalCredit = fee > 0 ? fee : 0; // IMPORTANT: credit view uses ONLY the winner’s own entry fee
 
                 const rows = includedIds
                     .map((pid) => {
@@ -628,11 +517,10 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                     })
                     .filter((x) => x.holesWithData > 0);
 
-                // Winner selection + tie-break:
-                // 1) lowest total putts
-                // 2) most 0-putts
-                // 3) least 3-putts
-                // 4) most 1-putts
+                if (!rows.length) return; // washed
+
+                includedIds.forEach((pid) => addPaid(pid, perPlayer));
+
                 rows.sort((a, b) => {
                     if (a.total !== b.total) return a.total - b.total;
                     if (a.zero !== b.zero) return b.zero - a.zero;
@@ -641,7 +529,6 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                     return a.name.localeCompare(b.name);
                 });
 
-                // Group “true ties” only when ALL tie-break fields match
                 const groups = [];
                 for (let i = 0; i < rows.length; i++) {
                     const row = rows[i];
@@ -666,126 +553,35 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                     }
                 }
 
+                const pot = perPlayer * includedCount;
+
                 for (let place = 0; place < splits.length; place++) {
                     const g = groups[place];
                     if (!g || !g.rows.length) continue;
 
-                    // WHO PAYS WHO (gross)
-                    const payoutForPlaceGross = potTotalGross * splits[place];
-                    const eachGross = payoutForPlaceGross / g.rows.length;
+                    const payoutForPlace = pot * splits[place];
+                    const each = payoutForPlace / g.rows.length;
 
-                    // WHO WON WHAT (credit)
-                    const payoutForPlaceCredit = potTotalCredit * splits[place];
-                    const eachCredit = payoutForPlaceCredit / g.rows.length;
-
-                    g.rows.forEach((x) => {
-                        addWonGlobal(x.id, eachGross);
-                        addWonFmt(x.id, eachGross);
-                        addWonCredit(x.id, eachCredit);
-                    });
+                    g.rows.forEach((x) => addWon(x.id, each));
                 }
-            } else {
-                // Other pool-style formats: everyone buys in; (no payouts computed here)
-                includedIds.forEach((pid) => {
-                    addPaidGlobal(pid, fee);
-                    addPaidFmt(pid, fee);
-                });
+
+                return;
             }
 
-            // Convert THIS format’s net positions into transfers, and append (do NOT globally net)
-            // IMPORTANT:
-            // - Hole-based formats (kp/ld/2ndkp) already pushed WIN-COUNT transfers directly above.
-            // - If we also greedy-settle here, we DOUBLE-COUNT and totals inflate.
-            const isHoleWinCount =
-                type === "kp" || type === "longdrive" || type === "secondshotkp";
-
-            if (!isHoleWinCount) {
-                const fmtTransfers = greedySettlement(fmtNetById, playersById) || [];
-                fmtTransfers.forEach((t) => {
-                    detailedTransfers.push(t);
-                });
-            }
-        });
-        // NON-TOP HOLE BALANCING (your rule)
-        // - We do NOT want per-format head-to-head creating "Bill pays Don" just because Don won one sub-format.
-        // - Instead: look at TOTAL hole-format winnings across KP/LD/2ndKP combined.
-        // - Identify the TOP hole winner (usually Steph), EXCLUDE them from this balancing.
-        // - Among the remaining players, if A won less than B in hole formats, A pays B the difference.
-        //
-        // This produces the expected:
-        // Don ($5) pays Bill ($10) $5
-        // Don ($5) pays Guido ($10) $5
-        // and prevents Bill/Guido paying Don.
-        const allIds = players.map((p) => String(p.id)).filter(Boolean);
-
-        // Find top hole winner id (max holeWonById)
-        let topHoleId = "";
-        let topHoleAmt = -1;
-        allIds.forEach((id) => {
-            const v = Number(holeWonById?.[id] || 0);
-            if (Number.isFinite(v) && v > topHoleAmt) {
-                topHoleAmt = v;
-                topHoleId = id;
-            }
+            // Unknown / other: treat as washed (no pay-in, no payout)
         });
 
-        // Remove hole_win_count transfers that are BETWEEN NON-TOP players
-        // (keep transfers involving topHoleId untouched)
-        const filteredTransfers = (detailedTransfers || []).filter((t) => {
-            const kind = String(t?.__kind || "");
-            if (kind !== "hole_win_count") return true;
-
-            const fromId = String(t?.fromId || "");
-            const toId = String(t?.toId || "");
-
-            // If either side is the top hole winner, keep it.
-            if (fromId === topHoleId || toId === topHoleId) return true;
-
-            // Otherwise remove (we will replace with correct combined-hole balancing)
-            return false;
-        });
-
-        // Add the correct combined-hole balancing transfers among NON-TOP players only
-        const nonTopIds = allIds.filter((id) => id && id !== topHoleId);
-
-        for (let a = 0; a < nonTopIds.length; a++) {
-            for (let b = 0; b < nonTopIds.length; b++) {
-                if (a === b) continue;
-
-                const idA = nonTopIds[a];
-                const idB = nonTopIds[b];
-
-                const wA = Number(holeWonById?.[idA] || 0);
-                const wB = Number(holeWonById?.[idB] || 0);
-
-                if (!Number.isFinite(wA) || !Number.isFinite(wB)) continue;
-                if (wA >= wB) continue;
-
-                const amt = wB - wA;
-                if (!Number.isFinite(amt) || amt <= 0.005) continue;
-
-                filteredTransfers.push({
-                    fromId: idA,
-                    toId: idB,
-                    amount: amt,
-                    fromName: playersById?.[idA]?.name || "Player",
-                    toName: playersById?.[idB]?.name || "Player",
-                    __kind: "hole_non_top_balance",
-                });
-            }
-        }
-
-        return { netById, paidById, wonById, wonCreditById, transfers: filteredTransfers };
+        const transfers = greedySettlement(netById, playersById) || [];
+        return { netById, paidById, wonById, transfers };
     }, [round, players, playersById, formatsSelected, claimsByFormat]);
 
     const wonRows = useMemo(() => {
         const rows = players.map((p) => {
-            // WHO WON WHAT = credit view (not gross pot totals)
-            const won = Number(settleModel?.wonCreditById?.[p.id] || 0);
+            // WHO WON WHAT = full payouts (must add up to total pot minus washed)
+            const won = Number(settleModel?.wonById?.[p.id] || 0);
             return { id: p.id, name: p.name, won };
         });
 
-        // Sort by most won, then name
         rows.sort((a, b) => b.won - a.won || a.name.localeCompare(b.name));
         return rows;
     }, [players, settleModel]);
@@ -909,17 +705,6 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                             <View style={styles.divider} />
 
                             {(() => {
-                                // Build lookup: fromId -> toId -> amount
-                                const amtByFromTo = {};
-                                (settleModel?.transfers || []).forEach((t) => {
-                                    const fromId = String(t.fromId || "");
-                                    const toId = String(t.toId || "");
-                                    const amt = Number(t.amount || 0);
-                                    if (!fromId || !toId) return;
-                                    if (!amtByFromTo[fromId]) amtByFromTo[fromId] = {};
-                                    amtByFromTo[fromId][toId] = (amtByFromTo[fromId][toId] || 0) + (Number.isFinite(amt) ? amt : 0);
-                                });
-
                                 const list = Array.isArray(players) ? players : [];
 
                                 // Display names: first name only; if duplicated first name, use "First L."
@@ -950,11 +735,27 @@ export default function RegularSettleUpScreen({ navigation, route }) {
 
                                 const dispName = (id, fallback) => displayNameById[String(id)] || fallback || "Player";
 
-                                return list.map((payer) => {
-                                    const payerId = String(payer?.id || "");
-                                    const payerName = dispName(payerId, String(payer?.name || "Player"));
+                                // Group transfers by payer (fromId), and render only non-zero lines
+                                const byFrom = {};
+                                (settleModel?.transfers || []).forEach((t) => {
+                                    const fromId = String(t?.fromId || "");
+                                    const toId = String(t?.toId || "");
+                                    const amt = Number(t?.amount || 0);
+                                    if (!fromId || !toId) return;
+                                    if (!Number.isFinite(amt) || amt <= 0.005) return;
 
-                                    const payees = list.filter((x) => String(x?.id || "") !== payerId);
+                                    if (!byFrom[fromId]) byFrom[fromId] = [];
+                                    byFrom[fromId].push({ toId, amount: amt });
+                                });
+
+                                const payerIds = Object.keys(byFrom);
+
+                                return payerIds.map((payerId) => {
+                                    const payerName = dispName(payerId, playersById?.[payerId]?.name || "Player");
+                                    const lines = byFrom[payerId] || [];
+
+                                    // sort biggest payments first
+                                    lines.sort((a, b) => b.amount - a.amount);
 
                                     return (
                                         <View key={`payer-${payerId}`} style={styles.payerCard}>
@@ -963,28 +764,18 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                                             </Text>
 
                                             <View style={{ marginTop: 10 }}>
-                                                {payees.map((payee) => {
-                                                    const toId = String(payee?.id || "");
-                                                    const toName = dispName(toId, String(payee?.name || "Player"));
-
-                                                    const amt = Number(amtByFromTo?.[payerId]?.[toId] || 0);
-                                                    const isZero = !Number.isFinite(amt) || Math.abs(amt) <= 0.005;
+                                                {lines.map((ln) => {
+                                                    const toName = dispName(ln.toId, playersById?.[ln.toId]?.name || "Player");
 
                                                     return (
-                                                        <View
-                                                            key={`pay-${payerId}-${toId}`}
-                                                            style={[styles.payerLineRow, isZero && styles.payerLineRowZero]}
-                                                        >
-                                                            <Text
-                                                                style={[styles.payerLineText, isZero && styles.payerLineTextZero]}
-                                                                numberOfLines={1}
-                                                            >
+                                                        <View key={`pay-${payerId}-${ln.toId}`} style={styles.payerLineRow}>
+                                                            <Text style={styles.payerLineText} numberOfLines={1}>
                                                                 {payerName} pays {toName}
                                                             </Text>
 
-                                                            <View style={[styles.amountPill, isZero && styles.amountPillZero]}>
-                                                                <Text style={[styles.amountText, isZero && styles.amountTextZero]}>
-                                                                    {money(isZero ? 0 : amt)}
+                                                            <View style={styles.amountPill}>
+                                                                <Text style={styles.amountText}>
+                                                                    {money(ln.amount)}
                                                                 </Text>
                                                             </View>
                                                         </View>
