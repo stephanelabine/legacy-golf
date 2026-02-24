@@ -660,8 +660,29 @@ export default function HistoryScreen({ navigation }) {
     if (s === "in_progress" || s.includes("progress") || s === "active") return "In Progress";
     return "In Setup";
   })();
-  const activeRightPrimary = activeHoleNum ? `Hole ${activeHoleNum}` : "Resume";
-  const activeRightSecondary = activeHoleNum ? "Currently on" : "Tap to continue";
+  const activeRightPrimary = (() => {
+    const completed = isRoundCompletedAnyShape(activeFsRound);
+    if (completed) {
+      const grossFromHoles = sumGrossAnyShape(activeFsRound || {}, pickUserPlayer(activeFsRound || {})?.id ? String(pickUserPlayer(activeFsRound || {})?.id) : "p1");
+      const grossFromTotal = Number(activeFsRound?.grossTotal);
+      const gross = grossFromHoles || (Number.isFinite(grossFromTotal) && grossFromTotal > 0 ? grossFromTotal : 0);
+      return gross ? String(gross) : "—";
+    }
+    return activeHoleNum ? `Hole ${activeHoleNum}` : "Resume";
+  })();
+
+  const activeRightSecondary = (() => {
+    const completed = isRoundCompletedAnyShape(activeFsRound);
+    if (completed) {
+      const isQuickPost = String(activeFsRound?.entrySource || "").toLowerCase() === "quick_post";
+      const hasFormats =
+        (Array.isArray(activeFsRound?.formatsSelected) && activeFsRound.formatsSelected.length > 0) ||
+        Number(activeFsRound?.formatsSelectedCount || 0) > 0;
+
+      return isQuickPost ? "Quick Post" : hasFormats ? "Settle Up" : "Gross";
+    }
+    return activeHoleNum ? "Currently on" : "Tap to continue";
+  })();
 
   return (
     <View style={[styles.screen, { paddingTop: headerPadTop }]}>
@@ -767,8 +788,16 @@ export default function HistoryScreen({ navigation }) {
 
               const isQuickPost = String(r?.entrySource || "").toLowerCase() === "quick_post";
 
+              const hasFormats =
+                (Array.isArray(r?.formatsSelected) && r.formatsSelected.length > 0) ||
+                Number(r?.formatsSelectedCount || 0) > 0;
+
               const rightPrimary = completed ? (gross ? String(gross) : "—") : holeNum ? `Hole ${holeNum}` : "Resume";
-              const rightSecondary = completed ? (isQuickPost ? "Quick Post" : "Gross") : holeNum ? "Currently on" : "Tap to continue";
+              const rightSecondary = completed
+                ? (isQuickPost ? "Quick Post" : hasFormats ? "Settle Up" : "Gross")
+                : holeNum
+                  ? "Currently on"
+                  : "Tap to continue";
 
               const editLabel = completed ? "View" : "Enter";
 

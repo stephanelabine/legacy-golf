@@ -12,7 +12,7 @@ import {
   Modal,
 } from "react-native";
 import { useFocusEffect, CommonActions } from "@react-navigation/native";
-import { collection, onSnapshot } from "firebase/firestore";
+import { collection, onSnapshot, doc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 import ROUTES from "../navigation/routes";
@@ -344,7 +344,23 @@ export default function FinalResultsScreen({ navigation, route }) {
       {
         text: "Exit",
         style: "destructive",
-        onPress: () => {
+        onPress: async () => {
+          try {
+            const uid = auth?.currentUser?.uid;
+            const rid = String(roundId || "");
+            if (uid && rid) {
+              await updateDoc(doc(db, "users", String(uid), "rounds", rid), {
+                status: "completed",
+                inProgress: false,
+                isActive: false,
+                completedAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+              });
+            }
+          } catch (e) {
+            // non-blocking: still allow exit
+          }
+
           navigation.dispatch(
             CommonActions.reset({
               index: 0,

@@ -1079,19 +1079,19 @@ const styles = StyleSheet.create({
 
     playerCard: {
         backgroundColor: CARD,
-        borderRadius: 22,
-        padding: 12,
-        marginBottom: 10,
+        borderRadius: 20,
+        padding: 10,
+        marginBottom: 8,
         borderWidth: 1,
         borderColor: "rgba(242,201,76,0.35)",
     },
 
-    playerTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
-    playerName: { flex: 1, color: WHITE, fontWeight: "900", fontSize: 16, letterSpacing: 0.2 },
+    playerTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+    playerName: { flex: 1, color: WHITE, fontWeight: "900", fontSize: 15, letterSpacing: 0.2 },
 
     statsPill: {
-        height: 34,
-        paddingHorizontal: 12,
+        height: 30,
+        paddingHorizontal: 10,
         borderRadius: 999,
         borderWidth: 1,
         alignItems: "center",
@@ -1099,10 +1099,10 @@ const styles = StyleSheet.create({
     },
     statsPillOn: { backgroundColor: "rgba(46,204,113,0.16)", borderColor: "rgba(46,204,113,0.30)" },
     statsPillOff: { backgroundColor: "rgba(255,255,255,0.06)", borderColor: "rgba(255,255,255,0.14)" },
-    statsPillText: { color: WHITE, fontWeight: "900", fontSize: 12, letterSpacing: 0.2 },
+    statsPillText: { color: WHITE, fontWeight: "900", fontSize: 11, letterSpacing: 0.2 },
 
     claimBtn: {
-        height: 36,
+        height: 32,
         borderRadius: 14,
         paddingHorizontal: 12,
         alignItems: "center",
@@ -1181,28 +1181,28 @@ const styles = StyleSheet.create({
     sideBtnText: { color: WHITE, fontWeight: "900", fontSize: 13, letterSpacing: 0.2 },
 
 
-    inputRow: { flexDirection: "row", gap: 12, marginTop: 10 },
+    inputRow: { flexDirection: "row", gap: 10, marginTop: 8 },
     fieldWrap: {
         flex: 1,
         backgroundColor: INNER,
-        borderRadius: 18,
-        padding: 12,
+        borderRadius: 16,
+        padding: 10,
         borderWidth: 1,
         borderColor: "rgba(46,204,113,0.35)",
     },
-    fieldLabel: { color: MUTED, fontWeight: "900", fontSize: 11, letterSpacing: 0.6 },
+    fieldLabel: { color: MUTED, fontWeight: "900", fontSize: 10, letterSpacing: 0.6 },
     valueBox: {
-        marginTop: 10,
-        height: 52,
-        borderRadius: 16,
+        marginTop: 8,
+        height: 44,
+        borderRadius: 14,
         backgroundColor: "rgba(0,0,0,0.22)",
         borderWidth: 1,
         borderColor: "rgba(255,255,255,0.14)",
         alignItems: "center",
         justifyContent: "center",
     },
-    valueText: { color: WHITE, fontSize: 22, fontWeight: "900", letterSpacing: 0.2 },
-    fieldHint: { marginTop: 8, color: "rgba(255,255,255,0.60)", fontWeight: "800", fontSize: 10, letterSpacing: 0.2 },
+    valueText: { color: WHITE, fontSize: 19, fontWeight: "900", letterSpacing: 0.2 },
+    fieldHint: { marginTop: 6, color: "rgba(255,255,255,0.60)", fontWeight: "800", fontSize: 9, letterSpacing: 0.2 },
 
     divider: { marginTop: 14, height: 1, backgroundColor: "rgba(255,255,255,0.10)" },
 
