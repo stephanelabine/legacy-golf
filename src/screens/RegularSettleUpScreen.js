@@ -513,15 +513,14 @@ export default function RegularSettleUpScreen({ navigation, route }) {
         return { netById, paidById, wonById, transfers };
     }, [round, players, playersById, formatsSelected, claimsByFormat]);
 
-    const netRows = useMemo(() => {
+    const wonRows = useMemo(() => {
         const rows = players.map((p) => {
-            const paid = Number(settleModel?.paidById?.[p.id] || 0);
             const won = Number(settleModel?.wonById?.[p.id] || 0);
-            const net = Number(settleModel?.netById?.[p.id] || 0);
-            return { id: p.id, name: p.name, paid, won, net };
+            return { id: p.id, name: p.name, won };
         });
 
-        rows.sort((a, b) => b.net - a.net || a.name.localeCompare(b.name));
+        // Sort by most won, then name
+        rows.sort((a, b) => b.won - a.won || a.name.localeCompare(b.name));
         return rows;
     }, [players, settleModel]);
 
@@ -593,7 +592,7 @@ export default function RegularSettleUpScreen({ navigation, route }) {
             >
                 <View style={styles.card}>
                     <View style={styles.cardTop}>
-                        <Text style={styles.title}>Net positions</Text>
+                        <Text style={styles.title}>Who Won What</Text>
                         <View style={styles.pill}>
                             <MaterialCommunityIcons name="cash-multiple" size={16} color="rgba(242,201,76,0.98)" />
                             <Text style={styles.pillText}>REGULAR</Text>
@@ -601,27 +600,23 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                     </View>
 
                     <Text style={styles.sub}>
-                        Net = winnings - paid in. Positive receives. Negative pays.
+                        Below are the details of who won what.
                     </Text>
 
                     <View style={styles.divider} />
 
-                    {netRows.map((r) => {
-                        const isRecv = r.net > 0.005;
-                        const isPay = r.net < -0.005;
+                    {wonRows.map((r) => {
+                        const isPos = r.won > 0.005;
 
                         return (
-                            <View key={`net-${r.id}`} style={styles.row}>
+                            <View key={`won-${r.id}`} style={styles.row}>
                                 <View style={{ flex: 1, minWidth: 0 }}>
                                     <Text style={styles.rowName} numberOfLines={1}>{r.name}</Text>
-                                    <Text style={styles.rowSub}>
-                                        Paid: {money(r.paid)} • Won: {money(r.won)}
-                                    </Text>
                                 </View>
 
-                                <View style={[styles.netChip, isRecv ? styles.netChipPos : isPay ? styles.netChipNeg : styles.netChipZero]}>
+                                <View style={[styles.netChip, isPos ? styles.netChipPos : styles.netChipZero]}>
                                     <Text style={styles.netChipText}>
-                                        {isRecv ? `+${money(r.net)}` : isPay ? `-${money(Math.abs(r.net))}` : money(0)}
+                                        {money(r.won)}
                                     </Text>
                                 </View>
                             </View>
