@@ -211,7 +211,7 @@ export default function HomeScreen({ navigation }) {
 
         <Image
           source={LOGO}
-          style={[styles.floatingLogo, { top: Math.max(0, (insets?.top || 0) - 50) }]}
+          style={[styles.floatingLogo, { top: (insets?.top || 0) - 96 }]}
           resizeMode="contain"
           pointerEvents="none"
         />

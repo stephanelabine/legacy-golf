@@ -15,13 +15,15 @@ import {
   Modal,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect } from "@react-navigation/native";
 import { signOut } from "firebase/auth";
-import { auth } from "../firebase/firebase";
+import { doc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
+
+import { auth, db } from "../firebase/firebase";
 import ROUTES from "../navigation/routes";
+import { getRounds } from "../storage/rounds";
 
 const COLORS = {
   bg: "#0B1220",
@@ -29,26 +31,18 @@ const COLORS = {
   gold: "rgba(242,201,76,0.85)",
 };
 
-const PROFILE_KEY = "LEGACY_GOLF_PROFILE_V1";
-
-const ROUND_KEYS_TO_TRY = [
-  "LEGACY_GOLF_ROUNDS_V1",
-  "LEGACY_GOLF_ROUNDS",
-  "LEGACY_GOLF_HISTORY_V1",
-  "LEGACY_GOLF_HISTORY",
-  "LEGACY_GOLF_SAVED_ROUNDS_V1",
-  "LEGACY_GOLF_SAVED_ROUNDS",
-  "LEGACY_GOLF_ROUND_HISTORY_V1",
-];
-
 const DEFAULT_PROFILE = {
-  name: "Stephane L",
-  nickname: "Steph",
-  homeCourse: "Green Tee Country Club",
-  email: "steph@example.com",
+  name: "",
+  nickname: "",
+  homeCourse: "",
+  email: "",
   phone: "",
-  handicap: "12.4",
   photoUri: "",
+
+  // Handicap single source of truth (Firestore user doc)
+  handicapManual: null, // number | null
+  handicapIndex: null, // number | null
+  handicapSource: "manual", // "manual" | "calculated"
 
   equipmentBag: [],
 
@@ -61,19 +55,20 @@ const DEFAULT_PROFILE = {
   upAndDown: "18",
 };
 
-function safeParse(raw) {
-  try {
-    const obj = JSON.parse(raw);
-    return obj && typeof obj === "object" ? obj : null;
-  } catch {
-    return null;
-  }
-}
-
 function formatHandicap(v) {
   const n = Number(v);
   if (!Number.isFinite(n)) return "—";
   return n.toFixed(1);
+}
+
+function parseHandicapNumber(v) {
+  const raw = String(v ?? "").trim();
+  if (!raw) return null;
+  const m = raw.match(/-?\d+(\.\d+)?/);
+  if (!m) return null;
+  const n = Number(m[0]);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n * 10) / 10;
 }
 
 export default function ProfileScreen({ navigation }) {
@@ -85,28 +80,106 @@ export default function ProfileScreen({ navigation }) {
   const [showIdentity, setShowIdentity] = useState(false);
 
   const signedInEmail = auth?.currentUser?.email || "";
+  const uid = String(auth?.currentUser?.uid || "").trim();
 
-  const loadProfile = useCallback(async () => {
-    const raw = await AsyncStorage.getItem(PROFILE_KEY);
-    const parsed = raw ? safeParse(raw) : null;
-    if (parsed) setProfile({ ...DEFAULT_PROFILE, ...parsed });
+  // Live user profile from Firestore (single source of truth)
+  useEffect(() => {
+    if (!uid) return;
+
+    const ref = doc(db, "users", uid);
+
+    const unsub = onSnapshot(
+      ref,
+      (snap) => {
+        if (!snap.exists()) {
+          setProfile((p) => ({
+            ...DEFAULT_PROFILE,
+            email: signedInEmail || p.email || "",
+          }));
+          return;
+        }
+
+        const d = snap.data() || {};
+
+        const dn = String(d.displayName || d.name || d.fullName || "").trim();
+        const nn = String(d.nickname || d.nickName || "").trim();
+        const hc = String(d.homeCourse || d.home_course || "").trim();
+        const em = String(d.email || signedInEmail || "").trim();
+        const ph = String(d.phone || "").trim();
+
+        const photoUri = String(d.photoUri || d.photoURL || d.photoUrl || "").trim();
+
+        const hIndexRaw = d.handicapIndex ?? d.handicap ?? d.handicapManual;
+        const hManualRaw = d.handicapManual ?? d.handicap ?? null;
+
+        const hIndex =
+          typeof hIndexRaw === "number"
+            ? hIndexRaw
+            : hIndexRaw === null || hIndexRaw === undefined || hIndexRaw === ""
+              ? null
+              : Number(String(hIndexRaw).trim());
+
+        const hManual =
+          typeof hManualRaw === "number"
+            ? hManualRaw
+            : hManualRaw === null || hManualRaw === undefined || hManualRaw === ""
+              ? null
+              : Number(String(hManualRaw).trim());
+
+        const safeIndex = Number.isFinite(hIndex) ? Math.round(hIndex * 10) / 10 : null;
+        const safeManual = Number.isFinite(hManual) ? Math.round(hManual * 10) / 10 : null;
+
+        const source = String(d.handicapSource || "").trim() || (safeIndex != null ? "calculated" : "manual");
+
+        setProfile((prev) => ({
+          ...DEFAULT_PROFILE,
+          ...prev,
+
+          name: dn || prev.name || "",
+          nickname: nn || prev.nickname || "",
+          homeCourse: hc || prev.homeCourse || "",
+          email: em || prev.email || "",
+          phone: ph || prev.phone || "",
+          photoUri: photoUri || prev.photoUri || "",
+
+          handicapIndex: safeIndex,
+          handicapManual: safeManual,
+          handicapSource: source === "calculated" ? "calculated" : "manual",
+
+          equipmentBag: Array.isArray(d.equipmentBag) ? d.equipmentBag : prev.equipmentBag,
+
+          rounds: String(d.rounds ?? prev.rounds ?? "18"),
+          avgScore: String(d.avgScore ?? prev.avgScore ?? "85.2"),
+          best: String(d.best ?? prev.best ?? "78"),
+          fairwaysHit: String(d.fairwaysHit ?? prev.fairwaysHit ?? "52"),
+          gir: String(d.gir ?? prev.gir ?? "34"),
+          puttsPerRound: String(d.puttsPerRound ?? prev.puttsPerRound ?? "31.1"),
+          upAndDown: String(d.upAndDown ?? prev.upAndDown ?? "18"),
+        }));
+      },
+      () => {
+        // leave current state
+      }
+    );
+
+    return () => unsub();
+  }, [uid, signedInEmail]);
+
+  // Rounds played from Firestore rounds collection
+  const loadRoundsPlayed = useCallback(async () => {
+    try {
+      const list = await getRounds();
+      setRoundsPlayed(Array.isArray(list) ? list.length : 0);
+    } catch {
+      setRoundsPlayed(0);
+    }
   }, []);
 
-  useEffect(() => {
-    loadProfile();
-  }, [loadProfile]);
-
-  async function persist(next) {
-    setProfile(next);
-    await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(next));
-  }
-
-  async function onDone() {
-    Keyboard.dismiss();
-    await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
-    setEditing(false);
-    navigation.navigate(ROUTES.HOME);
-  }
+  useFocusEffect(
+    useCallback(() => {
+      loadRoundsPlayed();
+    }, [loadRoundsPlayed])
+  );
 
   async function ensureImagePermissions() {
     const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -129,8 +202,7 @@ export default function ProfileScreen({ navigation }) {
     const uri = res?.assets?.[0]?.uri;
     if (!uri) return;
 
-    const next = { ...profile, photoUri: uri };
-    await persist(next);
+    setProfile((p) => ({ ...p, photoUri: uri }));
   }
 
   async function pickFromCamera() {
@@ -147,8 +219,7 @@ export default function ProfileScreen({ navigation }) {
     const uri = res?.assets?.[0]?.uri;
     if (!uri) return;
 
-    const next = { ...profile, photoUri: uri };
-    await persist(next);
+    setProfile((p) => ({ ...p, photoUri: uri }));
   }
 
   function onPressAvatar() {
@@ -187,8 +258,6 @@ export default function ProfileScreen({ navigation }) {
     return (a + b).toUpperCase() || "LG";
   }, [profile.name]);
 
-  const handicapDisplay = formatHandicap(profile.handicap);
-
   const displayName = useMemo(() => {
     const nn = String(profile.nickname || "").trim();
     if (nn) return nn;
@@ -196,50 +265,10 @@ export default function ProfileScreen({ navigation }) {
     return full || "—";
   }, [profile.nickname, profile.name]);
 
-  const loadRoundsPlayed = useCallback(async () => {
-    for (const key of ROUND_KEYS_TO_TRY) {
-      const raw = await AsyncStorage.getItem(key);
-      if (!raw) continue;
-
-      const parsed = safeParse(raw);
-      if (!parsed) continue;
-
-      if (Array.isArray(parsed)) {
-        setRoundsPlayed(parsed.length);
-        return;
-      }
-
-      if (parsed && typeof parsed === "object") {
-        const candidates = [parsed.rounds, parsed.items, parsed.history, parsed.savedRounds, parsed.data];
-
-        for (const c of candidates) {
-          if (Array.isArray(c)) {
-            setRoundsPlayed(c.length);
-            return;
-          }
-        }
-
-        if (typeof parsed.count === "number" && Number.isFinite(parsed.count)) {
-          setRoundsPlayed(parsed.count);
-          return;
-        }
-      }
-    }
-
-    const fallback = Number(profile.rounds);
-    setRoundsPlayed(Number.isFinite(fallback) ? fallback : 0);
-  }, [profile.rounds]);
-
-  useFocusEffect(
-    useCallback(() => {
-      loadProfile();
-      loadRoundsPlayed();
-    }, [loadProfile, loadRoundsPlayed])
-  );
-
-  function goEquipment() {
-    navigation.navigate(ROUTES.EQUIPMENT);
-  }
+  const handicapDisplay = useMemo(() => {
+    const v = profile.handicapIndex != null ? profile.handicapIndex : profile.handicapManual;
+    return formatHandicap(v);
+  }, [profile.handicapIndex, profile.handicapManual]);
 
   function openIdentity() {
     if (editing) return;
@@ -248,6 +277,62 @@ export default function ProfileScreen({ navigation }) {
 
   function closeIdentity() {
     setShowIdentity(false);
+  }
+
+  function goEquipment() {
+    navigation.navigate(ROUTES.EQUIPMENT);
+  }
+
+  async function onDone() {
+    Keyboard.dismiss();
+
+    if (!uid) {
+      Alert.alert("Not signed in", "Please sign in to save your profile.");
+      return;
+    }
+
+    const n = String(profile.name || "").trim();
+    const nn = String(profile.nickname || "").trim();
+    const hc = String(profile.homeCourse || "").trim();
+    const em = String(profile.email || "").trim();
+    const ph = String(profile.phone || "").trim();
+
+    const manual = parseHandicapNumber(profile.handicapManual);
+    if (manual == null) {
+      Alert.alert("Handicap required", "Please enter a valid handicap (example: 4.0).");
+      return;
+    }
+
+    try {
+      await setDoc(
+        doc(db, "users", uid),
+        {
+          displayName: n,
+          nickname: nn,
+          homeCourse: hc,
+          email: em,
+          phone: ph,
+          photoUri: String(profile.photoUri || "").trim(),
+
+          // Handicap single source of truth (profile)
+          handicapManual: manual,
+          handicapIndex: manual,
+          handicapSource: "manual",
+          handicapUpdatedAt: serverTimestamp(),
+
+          // Back-compat mirror
+          handicap: manual,
+
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      setEditing(false);
+      navigation.navigate(ROUTES.HOME);
+    } catch (e) {
+      Alert.alert("Save failed", String(e?.message || "Could not save profile."));
+    }
   }
 
   return (
@@ -417,12 +502,12 @@ export default function ProfileScreen({ navigation }) {
           <Field
             icon="percent"
             label="Handicap"
-            value={String(profile.handicap ?? "")}
+            value={String(profile.handicapManual ?? "")}
             editing={editing}
-            placeholder="12.4"
+            placeholder="4.0"
             keyboardType="decimal-pad"
             autoCapitalize="none"
-            onChange={(v) => setProfile((p) => ({ ...p, handicap: v }))}
+            onChange={(v) => setProfile((p) => ({ ...p, handicapManual: String(v || "").replace(/[^0-9.]/g, "") }))}
           />
 
           <EquipmentField onPress={goEquipment} />

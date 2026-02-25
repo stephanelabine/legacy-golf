@@ -28,8 +28,22 @@ function makeId() {
 function clampHandicap(n) {
   const x = Number(n);
   if (!Number.isFinite(x)) return 0;
-  const rounded = Math.round(x);
-  return Math.max(0, Math.min(36, rounded));
+  const clamped = Math.max(0, Math.min(36, x));
+  return Math.round(clamped * 10) / 10; // keep 1 decimal
+}
+
+function formatHcp1(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return "0.0";
+  return (Math.round(x * 10) / 10).toFixed(1);
+}
+
+function cleanHcpInput(s) {
+  const raw = String(s || "");
+  const cleaned = raw.replace(/[^0-9.]/g, "");
+  const parts = cleaned.split(".");
+  if (parts.length <= 1) return cleaned;
+  return `${parts[0]}.${parts.slice(1).join("").slice(0, 1)}`; // max 1 decimal digit
 }
 
 function cleanPhone(s) {
@@ -144,7 +158,7 @@ export default function BuddyListScreen({ navigation }) {
       return;
     }
 
-    const h = clampHandicap(Number.parseInt(String(handicap || "").trim() || "0", 10));
+    const h = clampHandicap(Number(String(handicap || "").trim() || "0"));
     const p = cleanPhone(phone);
     const e = String(email || "").trim();
 
@@ -200,7 +214,7 @@ export default function BuddyListScreen({ navigation }) {
       return;
     }
 
-    const h = clampHandicap(Number.parseInt(String(editHandicap || "").trim() || "0", 10));
+    const h = clampHandicap(Number(String(editHandicap || "").trim() || "0"));
     const p = cleanPhone(editPhone);
     const e = String(editEmail || "").trim();
     const notes = String(editNotes || "").trim();
@@ -301,7 +315,7 @@ export default function BuddyListScreen({ navigation }) {
           </Text>
 
           <Text style={styles.buddyMeta}>
-            HCP: {item.handicap ?? 0}
+            HCP: {formatHcp1(item.handicap ?? 0)}
             {(item.phone || item.email) ? " • " : ""}
             {item.phone ? formatPhoneForDisplay(item.phone) : ""}
             {item.phone && item.email ? " • " : ""}
@@ -368,11 +382,11 @@ export default function BuddyListScreen({ navigation }) {
           <TextInput
             style={styles.hcapInput}
             value={handicap}
-            onChangeText={(t) => setHandicap(String(t || "").replace(/[^\d]/g, ""))}
+            onChangeText={(t) => setHandicap(cleanHcpInput(t))}
             placeholder="HCP"
             placeholderTextColor="rgba(255,255,255,0.35)"
-            keyboardType="number-pad"
-            maxLength={2}
+            keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
+            maxLength={5}
             returnKeyType="done"
           />
 
@@ -493,11 +507,11 @@ export default function BuddyListScreen({ navigation }) {
                   <TextInput
                     style={[styles.modalInput, { flex: 1 }]}
                     value={editHandicap}
-                    onChangeText={(t) => setEditHandicap(String(t || "").replace(/[^\d]/g, ""))}
+                    onChangeText={(t) => setEditHandicap(cleanHcpInput(t))}
                     placeholder="Handicap (0–36)"
                     placeholderTextColor="rgba(255,255,255,0.35)"
-                    keyboardType="number-pad"
-                    maxLength={2}
+                    keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
+                    maxLength={5}
                     returnKeyType="next"
                   />
                   <TextInput

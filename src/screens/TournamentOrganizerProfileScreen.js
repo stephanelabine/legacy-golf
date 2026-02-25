@@ -48,14 +48,14 @@ export default function TournamentOrganizerProfileScreen({ navigation }) {
           const em = String(d.email || "").trim();
           const ph = String(d.phone || "").trim();
 
-          const h = d.handicap;
+          const h = d.handicapIndex ?? d.handicap ?? d.handicapManual;
           const hNum =
             typeof h === "number"
               ? h
               : h === null || h === undefined || h === ""
-              ? NaN
-              : Number(String(h).trim());
-          const hStr = Number.isFinite(hNum) ? String(Math.round(hNum * 10) / 10) : "";
+                ? NaN
+                : Number(String(h).trim());
+          const hStr = Number.isFinite(hNum) ? (Math.round(hNum * 10) / 10).toFixed(1) : "";
 
           if (dn) setName(dn);
           if (em) setEmail(em);
@@ -188,8 +188,16 @@ export default function TournamentOrganizerProfileScreen({ navigation }) {
           displayName: n,
           email: e,
           phone: p,
+
+          // Handicap single source of truth (profile)
+          handicapManual: h.value,
+          handicapIndex: h.value,
+          handicapSource: "manual",
+          handicapUpdatedAt: serverTimestamp(),
+
+          // Back-compat mirror (safe until all screens migrate)
           handicap: h.value,
-          createdAt: serverTimestamp(),
+
           updatedAt: serverTimestamp(),
         },
         { merge: true }

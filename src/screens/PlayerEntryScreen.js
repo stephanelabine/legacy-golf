@@ -47,6 +47,12 @@ function makeJoinCode() {
   return out;
 }
 
+function formatHcp1(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "0.0";
+  return (Math.round(n * 10) / 10).toFixed(1);
+}
+
 function pickGameLabel(params) {
   const raw =
     params?.gameFormat ||
@@ -1072,7 +1078,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
                         <Text style={styles.pickName} numberOfLines={1}>
                           {item.name}
                         </Text>
-                        <Text style={styles.pickMeta}>HCP {item.handicap ?? 0}</Text>
+                        <Text style={styles.pickMeta}>HCP {formatHcp1(item.handicap)}</Text>
                       </View>
 
                       <Pressable
@@ -1189,7 +1195,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
                       <Text style={styles.joinedName} numberOfLines={1}>
                         {displayNameFirstLastInitial(m.name)} {m.role === "host" ? "(Host)" : ""}
                       </Text>
-                      <Text style={styles.joinedMeta}>HCP {m.handicap}</Text>
+                      <Text style={styles.joinedMeta}>HCP {formatHcp1(m.handicap)}</Text>
                     </View>
                     <View style={styles.joinedBadge}>
                       <Text style={styles.joinedBadgeText}>Joined</Text>
