@@ -17,7 +17,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
-import { getRoundById } from "../storage/rounds";
+import { getRoundById, saveRound } from "../storage/rounds";
 import { auth, db } from "../firebase/firebase";
 
 const BG = "#06150F";
@@ -339,12 +339,33 @@ export default function FinalResultsScreen({ navigation, route }) {
   const teeName = String(round?.teeName || round?.tee?.name || "Tees");
 
   function onExit() {
-    Alert.alert("Exit results?", "Return to Home?", [
+    Alert.alert("Exit results?", "What would you like to do?", [
       { text: "Cancel", style: "cancel" },
       {
-        text: "Exit",
+        text: "Exit (no save)",
         style: "destructive",
+        onPress: () => {
+          navigation.dispatch(
+            CommonActions.reset({
+              index: 0,
+              routes: [{ name: ROUTES.HOME }],
+            })
+          );
+        },
+      },
+      {
+        text: "Exit & Save",
         onPress: async () => {
+          // Derive endHole for 9/18 (front/back)
+          const hcRaw = Number(round?.holesCount ?? round?.meta?.holesCount);
+          const holesCount = hcRaw === 9 || hcRaw === 18 ? hcRaw : 18;
+
+          const sideRaw = String(round?.holesSide ?? round?.meta?.holesSide ?? "").toLowerCase().trim();
+          const holesSide = sideRaw === "back" ? "back" : sideRaw === "front" ? "front" : null;
+
+          const endHole = holesCount === 9 ? (holesSide === "back" ? 18 : 9) : 18;
+
+          // 1) Update Firestore status to completed (so active doc + cross-device is correct)
           try {
             const uid = auth?.currentUser?.uid;
             const rid = String(roundId || "");
@@ -353,12 +374,41 @@ export default function FinalResultsScreen({ navigation, route }) {
                 status: "completed",
                 inProgress: false,
                 isActive: false,
+                currentHole: endHole,
+                lastHole: endHole,
+                holeNumber: endHole,
+                hole: endHole,
+                holeIndex: endHole - 1,
                 completedAt: serverTimestamp(),
                 updatedAt: serverTimestamp(),
               });
             }
-          } catch (e) {
+          } catch {
             // non-blocking: still allow exit
+          }
+
+          // 2) Update local Round History record (AsyncStorage) so History shows COMPLETE immediately
+          try {
+            const rid = String(roundId || "");
+            if (rid) {
+              await saveRound({
+                ...(round || {}),
+                id: rid,
+                roundId: rid,
+                status: "completed",
+                inProgress: false,
+                isActive: false,
+                currentHole: endHole,
+                lastHole: endHole,
+                holeNumber: endHole,
+                hole: endHole,
+                holeIndex: endHole - 1,
+                completedAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              });
+            }
+          } catch {
+            // non-blocking
           }
 
           navigation.dispatch(

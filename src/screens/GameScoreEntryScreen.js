@@ -10,17 +10,16 @@ import {
     Alert,
     Keyboard,
     Modal,
-    ScrollView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CommonActions, StackActions } from "@react-navigation/native";
+import { doc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
 
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import theme from "../theme";
 import { auth, db } from "../firebase/firebase";
 import { loadActiveRound, saveActiveRound } from "../storage/roundState";
-import { doc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
 
 const BG = "#0B1220";
 const CARD = "#1D3557";
@@ -29,7 +28,6 @@ const MUTED = "#AFC3DA";
 const WHITE = "#FFFFFF";
 const GREEN = "#2ECC71";
 const GREEN_TEXT = "#0B1F12";
-const YELLOW = "#F2C94C";
 const BLUE = theme?.colors?.primary || "#2E7DFF";
 
 const DEFAULT_PARS = [4, 4, 3, 5, 4, 4, 3, 4, 5, 4, 3, 4, 4, 5, 4, 3, 4, 4];
@@ -55,20 +53,7 @@ function safePlayerName(p, idx) {
     return String(p?.name || p?.displayName || p?.fullName || `Player ${idx + 1}`);
 }
 
-function uniqIds(list) {
-    const out = [];
-    const seen = new Set();
-    (Array.isArray(list) ? list : []).forEach((x) => {
-        const s = String(x || "").trim();
-        if (!s) return;
-        if (seen.has(s)) return;
-        seen.add(s);
-        out.push(s);
-    });
-    return out;
-}
-
-function defaultTrackStatsForPlayer(p) {
+function defaultTrackStatsForPlayer() {
     // Regular games: default Stats OFF for all players.
     // Strokes + Putts are always tracked regardless.
     return false;
@@ -89,11 +74,7 @@ function Seg3({ value, onChange }) {
                     <Pressable
                         key={o.k}
                         onPress={() => onChange(o.k)}
-                        style={({ pressed }) => [
-                            styles.segBtn,
-                            active && styles.segBtnActive,
-                            pressed && styles.pressed,
-                        ]}
+                        style={({ pressed }) => [styles.segBtn, active && styles.segBtnActive, pressed && styles.pressed]}
                     >
                         <Text style={[styles.segText, active && styles.segTextActive]}>{o.t}</Text>
                     </Pressable>
@@ -157,12 +138,18 @@ export default function GameScoreEntryScreen({ navigation, route }) {
     const isFixMode = !!fixMissing;
 
     const holesCount = Number(holesCountParam) === 9 || Number(holesCountParam) === 18 ? Number(holesCountParam) : 18;
-    const holesSide = String(holesSideParam || "").toLowerCase().trim() === "back" ? "back" : String(holesSideParam || "").toLowerCase().trim() === "front" ? "front" : null;
+    const holesSide =
+        String(holesSideParam || "").toLowerCase().trim() === "back"
+            ? "back"
+            : String(holesSideParam || "").toLowerCase().trim() === "front"
+                ? "front"
+                : null;
 
     const rangeStart = holesCount === 9 ? (holesSide === "back" ? 10 : 1) : 1;
     const rangeEnd = holesCount === 9 ? (holesSide === "back" ? 18 : 9) : 18;
 
     const holeNumber = Number(hole || rangeStart);
+
     const holeMeta = useMemo(() => {
         return holeMetaParam && typeof holeMetaParam === "object" ? holeMetaParam : buildDefaultHoleMeta();
     }, [holeMetaParam]);
@@ -175,10 +162,8 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         const meUid = String(auth?.currentUser?.uid || "");
         return list.map((p, idx) => {
             const source = p?.source || null;
-
             return {
                 // IMPORTANT: keep player ids stable for the entire round (p1/p2/...)
-                // Do NOT swap "me" to Firebase UID here or missing-hole checks will break.
                 id: safePlayerId(p, String(idx)),
                 name: safePlayerName(p, idx),
                 handicap: p?.handicap ?? 0,
@@ -251,7 +236,6 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             const meUid = String(auth?.currentUser?.uid || "");
             const claimedByPlayerId = String(pid || "").trim();
             const claimedByPlayerName = String(name || "Player").trim();
-
             if (!claimedByPlayerId) return false;
 
             try {
@@ -285,7 +269,6 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             const meUid = String(auth?.currentUser?.uid || "");
             const claimedByPlayerId = String(pid || "").trim();
             const claimedByPlayerName = String(name || "Player").trim();
-
             if (!claimedByPlayerId) return false;
 
             try {
@@ -319,7 +302,6 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             const meUid = String(auth?.currentUser?.uid || "");
             const claimedByPlayerId = String(pid || "").trim();
             const claimedByPlayerName = String(name || "Player").trim();
-
             if (!claimedByPlayerId) return false;
 
             try {
@@ -344,10 +326,12 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             }
         },
         [claimRef, roundIdParam, holeNumber, sideGameKey]
-    )
+    );
 
+    // -----------------------------
+    // Seed inputs
+    // -----------------------------
     useEffect(() => {
-        // Seed inputs once playerRows arrives (and keep any existing edits)
         setInputs((prev) => {
             const next = { ...(prev || {}) };
 
@@ -357,7 +341,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
                 if (!next[pid]) {
                     next[pid] = {
-                        trackStats: defaultTrackStatsForPlayer(p),
+                        trackStats: defaultTrackStatsForPlayer(),
                         strokes: 0,
                         putts: 0,
                         _hasPuttsSaved: false,
@@ -376,6 +360,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
     // Load saved hole values from active round state
     useEffect(() => {
         let live = true;
+
         (async () => {
             const state = await loadActiveRound();
             if (!live) return;
@@ -385,6 +370,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
             setInputs((prev) => {
                 const next = { ...(prev || {}) };
+
                 playerRows.forEach((p) => {
                     const pid = String(p._pid);
                     const saved = savedHole[String(pid)];
@@ -395,7 +381,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                             ? saved.trackStats
                             : typeof next?.[pid]?.trackStats === "boolean"
                                 ? next[pid].trackStats
-                                : defaultTrackStatsForPlayer(p);
+                                : defaultTrackStatsForPlayer();
 
                     const sStrokes = toInt(saved?.strokes);
                     const sPutts = toInt(saved?.putts);
@@ -413,6 +399,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                         updown: saved?.updown ?? next[pid]?.updown ?? "na",
                     };
                 });
+
                 return next;
             });
         })();
@@ -427,7 +414,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         setInputs((prev) => {
             const next = { ...(prev || {}) };
             const cur = next[id] || {
-                trackStats: defaultTrackStatsForPlayer({ source: null }),
+                trackStats: defaultTrackStatsForPlayer(),
                 strokes: 0,
                 putts: 0,
                 _hasPuttsSaved: false,
@@ -440,7 +427,6 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             if (field === "trackStats") {
                 const nextOn = !!value;
 
-                // if turning OFF -> clear ONLY the extra stats (keep strokes/putts)
                 if (!nextOn) {
                     next[id] = {
                         ...cur,
@@ -452,7 +438,6 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                     };
                     return next;
                 }
-
 
                 next[id] = { ...cur, trackStats: true };
                 return next;
@@ -493,16 +478,9 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                 meta: {},
             };
 
-            const existingId =
-                state?.id ||
-                state?.roundId ||
-                state?.activeRound?.id ||
-                state?.round?.id ||
-                roundIdParam;
+            const existingId = state?.id || state?.roundId || state?.activeRound?.id || state?.round?.id || roundIdParam;
 
-            const safeId =
-                String(existingId || "") ||
-                (Number.isFinite(state?.startedAt) ? `r_${state.startedAt}` : `r_${Date.now()}`);
+            const safeId = String(existingId || "") || (Number.isFinite(state?.startedAt) ? `r_${state.startedAt}` : `r_${Date.now()}`);
 
             state.id = safeId;
             state.roundId = safeId;
@@ -512,6 +490,10 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             state.courseName = state.courseName || state.course?.name || course?.name || "Course";
             state.teeName = state.teeName || state.tee?.name || tee?.name || "Tees";
             state.players = normalizedPlayers;
+
+            // persist 9-hole metadata so History can render correctly
+            state.holesCount = holesCount;
+            state.holesSide = holesCount === 9 ? holesSide : null;
 
             if (!state.holes) state.holes = {};
             if (!state.meta) state.meta = {};
@@ -528,7 +510,6 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                 payload[String(pid)] = {
                     trackStats: track,
                     strokes: String(toInt(val.strokes) || ""),
-                    // Putts are always tracked (needed for games like Putting Contest), even when Stats is OFF.
                     putts: String(toInt(val.putts) || ""),
                     fairway: track ? (val.fairway ?? "na") : "na",
                     green: track ? (val.green ?? "na") : "na",
@@ -544,10 +525,8 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             state.isActive = true;
             state.updatedAt = Date.now();
 
-            // Only advance the round's resume hole when we explicitly say so (Next Hole).
             if (Number.isFinite(Number(opts?.resumeHole))) {
                 const resumeHole = Math.max(1, Math.min(18, Number(opts.resumeHole)));
-
                 state.currentHole = resumeHole;
                 state.holeNumber = resumeHole;
                 state.hole = resumeHole;
@@ -558,7 +537,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             if (!ok) Alert.alert("Save failed", "Could not save hole data.");
             return { ok, roundId: safeId };
         },
-        [course, tee, normalizedPlayers, playerRows, inputs, holeMeta, holeNumber, roundIdParam]
+        [course, tee, normalizedPlayers, playerRows, inputs, holeMeta, holeNumber, roundIdParam, holesCount, holesSide]
     );
 
     // autosave on navigation away
@@ -575,7 +554,6 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
             (async () => {
                 try {
-                    // IMPORTANT: backing out should NOT advance resume hole
                     await persistHole({ skipResumeUpdate: true });
                 } catch { }
                 navigation.dispatch(e.data.action);
@@ -599,6 +577,8 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                     roundId: roundIdParam || null,
                     courseName: course?.name,
                     teeName: tee?.name,
+                    holesCount,
+                    holesSide,
                     ...extraParams,
                 },
                 merge: true,
@@ -610,43 +590,25 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         Keyboard.dismiss();
 
         if (isFixMode) {
-            goToHoleHub(Number(finishReturnHole || 18));
+            goToHoleHub(Number(finishReturnHole || rangeEnd));
             return;
         }
 
-        // IMPORTANT: Back should save, but NOT advance resume hole
         const res = await persistHole({ skipResumeUpdate: true });
         goToHoleHub(holeNumber, { roundId: res?.roundId || roundIdParam || null });
     }
 
-
-
-    async function onScorecard() {
-        Keyboard.dismiss();
-        const res = await persistHole();
-
-        navigation.navigate(ROUTES.SCORECARD, {
-            course,
-            tee,
-            players,
-            holeMeta,
-            roundId: res?.roundId || roundIdParam || null,
-        });
-    }
-
     async function onNextHole() {
         Keyboard.dismiss();
-
         if (!validateStrokesForThisHole()) return;
 
-        const nextHole = holeNumber >= 18 ? 18 : holeNumber + 1;
+        const nextHole = holeNumber >= rangeEnd ? rangeEnd : holeNumber + 1;
         const res = await persistHole({ resumeHole: nextHole });
-        goToHoleHub(nextHole, { roundId: res?.roundId || roundIdParam || null });
+        goToHoleHub(nextHole, { roundId: res?.roundId || roundIdParam || null, hole: nextHole });
     }
 
     async function doneFixMode() {
         Keyboard.dismiss();
-
         if (!validateStrokesForThisHole()) return;
 
         await persistHole({ skipResumeUpdate: true });
@@ -657,8 +619,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         if (!remaining.length) {
             const ret = Number.isFinite(Number(finishReturnHole)) ? Number(finishReturnHole) : rangeEnd;
 
-            // IMPORTANT: when fix-mode completes, force the round resume/current hole to the return hole,
-            // otherwise HoleHub will snap back to the old saved currentHole (often 1).
+            // force resume/current hole to return hole so HoleHub stays put
             await persistHole({ resumeHole: ret });
 
             goToHoleHub(ret, {
@@ -689,7 +650,6 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             if (nextIdx < 0) nextIdx = 0;
         }
 
-        // Safety: never leave the selected range in fix mode
         if (Number(nextHole) < rangeStart || Number(nextHole) > rangeEnd) {
             nextHole = remaining[0];
         }
@@ -702,7 +662,9 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                 fixMissing: true,
                 missingHoles: original.length ? original : remaining,
                 missingIndex: nextIdx,
-                finishReturnHole: Number(finishReturnHole || 18),
+                finishReturnHole: Number(finishReturnHole || rangeEnd),
+                holesCount,
+                holesSide,
             })
         );
 
@@ -711,7 +673,9 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         });
     }
 
-    // picker
+    // -----------------------------
+    // Number picker (top-level hooks)
+    // -----------------------------
     const [pickOpen, setPickOpen] = useState(false);
     const [pickPid, setPickPid] = useState("");
     const [pickField, setPickField] = useState("strokes"); // "strokes" | "putts"
@@ -751,6 +715,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                 title={title}
                 subtitle={isFixMode ? "Fix missing scores • Tap a box to pick a value." : "Tap a box to pick a value."}
                 safeTop={false}
+                onBack={onBack}
             />
 
             <View style={styles.body}>
@@ -766,18 +731,17 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                         const trackStats = !!val.trackStats;
                         const showPutts = val?._hasPuttsSaved === true || String(val?.putts ?? "").length > 0;
 
-
                         return (
                             <View style={styles.playerCard}>
                                 <View style={styles.playerTopRow}>
                                     <View style={{ flex: 1, minWidth: 0 }}>
                                         <Text style={styles.playerName}>{item._name}</Text>
+
                                         {claimable ? (
                                             <View style={{ marginTop: 8 }}>
                                                 <Pressable
                                                     disabled={toInt(val.strokes) <= 0}
                                                     onPress={async () => {
-                                                        // Check if the format is eligible to claim
                                                         const ok = await saveClaim(pid, item._name);
                                                         if (!ok) {
                                                             Alert.alert("Claim failed", "Could not save the claim. Please try again.");
@@ -785,63 +749,10 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                                                         }
                                                         Alert.alert("Claim saved", `Format claimed for ${item._name}.`);
                                                     }}
-                                                    style={({ pressed }) => [
-                                                        styles.claimBtn,
-                                                        toInt(val.strokes) <= 0 && styles.claimBtnDisabled,
-                                                        pressed && styles.pressed,
-                                                    ]}
+                                                    style={({ pressed }) => [styles.claimBtn, toInt(val.strokes) <= 0 && styles.claimBtnDisabled, pressed && styles.pressed]}
                                                 >
-                                                    <Text style={styles.claimBtnText}>
-                                                        {toInt(val.strokes) <= 0 ? "Claim (enter strokes first)" : "Claim"}
-                                                    </Text>
+                                                    <Text style={styles.claimBtnText}>{toInt(val.strokes) <= 0 ? "Claim (enter strokes first)" : "Claim"}</Text>
                                                 </Pressable>
-
-                                                {/* Carryover button */}
-                                                <Pressable
-                                                    disabled={toInt(val.strokes) <= 0}
-                                                    onPress={async () => {
-                                                        // Handle carryover logic here
-                                                        const ok = await saveCarryover(pid, item._name);
-                                                        if (!ok) {
-                                                            Alert.alert("Carryover failed", "Could not save the carryover. Please try again.");
-                                                            return;
-                                                        }
-                                                        Alert.alert("Carryover saved", `Format carryover for ${item._name}.`);
-                                                    }}
-                                                    style={({ pressed }) => [
-                                                        styles.carryoverBtn,
-                                                        toInt(val.strokes) <= 0 && styles.carryoverBtnDisabled,
-                                                        pressed && styles.pressed,
-                                                    ]}
-                                                >
-                                                    <Text style={styles.claimBtnText}>Carryover</Text>
-                                                </Pressable>
-
-                                                {/* Unclaimed button */}
-                                                <Pressable
-                                                    disabled={toInt(val.strokes) <= 0}
-                                                    onPress={async () => {
-                                                        // Handle unclaimed logic here
-                                                        const ok = await saveUnclaimed(pid, item._name);
-                                                        if (!ok) {
-                                                            Alert.alert("Unclaimed failed", "Could not mark as unclaimed. Please try again.");
-                                                            return;
-                                                        }
-                                                        Alert.alert("Unclaimed saved", `Format marked as unclaimed for ${item._name}.`);
-                                                    }}
-                                                    style={({ pressed }) => [
-                                                        styles.unclaimedBtn,
-                                                        toInt(val.strokes) <= 0 && styles.unclaimedBtnDisabled,
-                                                        pressed && styles.pressed,
-                                                    ]}
-                                                >
-                                                    <Text style={styles.claimBtnText}>Unclaimed</Text>
-                                                </Pressable>
-
-                                                {/* Display current holder or unclaimed */}
-                                                <Text style={styles.claimMetaText}>
-                                                    {holderName ? `Current holder: ${holderName}` : "Currently unclaimed"}
-                                                </Text>
 
                                                 <Pressable
                                                     disabled={toInt(val.strokes) <= 0}
@@ -853,11 +764,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                                                         }
                                                         Alert.alert("Carryover saved", `Format carryover for ${item._name}.`);
                                                     }}
-                                                    style={({ pressed }) => [
-                                                        styles.carryoverBtn,
-                                                        toInt(val.strokes) <= 0 && styles.carryoverBtnDisabled,
-                                                        pressed && styles.pressed,
-                                                    ]}
+                                                    style={({ pressed }) => [styles.carryoverBtn, toInt(val.strokes) <= 0 && styles.carryoverBtnDisabled, pressed && styles.pressed]}
                                                 >
                                                     <Text style={styles.claimBtnText}>Carryover</Text>
                                                 </Pressable>
@@ -872,57 +779,19 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                                                         }
                                                         Alert.alert("Unclaimed saved", `Format marked as unclaimed for ${item._name}.`);
                                                     }}
-                                                    style={({ pressed }) => [
-                                                        styles.unclaimedBtn,
-                                                        toInt(val.strokes) <= 0 && styles.unclaimedBtnDisabled,
-                                                        pressed && styles.pressed,
-                                                    ]}
+                                                    style={({ pressed }) => [styles.unclaimedBtn, toInt(val.strokes) <= 0 && styles.unclaimedBtnDisabled, pressed && styles.pressed]}
                                                 >
                                                     <Text style={styles.claimBtnText}>Unclaimed</Text>
                                                 </Pressable>
 
-                                                <Text style={styles.claimMetaText}>
-                                                    {holderName ? `Current holder: ${holderName}` : "Currently unclaimed"}
-                                                </Text>
-                                            </View>
-                                        ) : null}
-                                        {claimable ? (
-                                            <View style={{ marginTop: 8 }}>
-                                                <Pressable
-                                                    disabled={toInt(val.strokes) <= 0}
-                                                    onPress={async () => {
-                                                        const ok = await saveClaim(pid, item._name);
-                                                        if (!ok) {
-                                                            Alert.alert("Claim failed", "Could not save the claim. Please try again.");
-                                                            return;
-                                                        }
-                                                        Alert.alert("Claim saved", `Format claimed for ${item._name}.`);
-                                                    }}
-                                                    style={({ pressed }) => [
-                                                        styles.claimBtn,
-                                                        toInt(val.strokes) <= 0 && styles.claimBtnDisabled,
-                                                        pressed && styles.pressed,
-                                                    ]}
-                                                >
-                                                    <Text style={styles.claimBtnText}>
-                                                        {toInt(val.strokes) <= 0 ? "Claim (enter strokes first)" : "Claim"}
-                                                    </Text>
-                                                </Pressable>
-
-                                                <Text style={styles.claimMetaText}>
-                                                    {holderName ? `Current holder: ${holderName}` : "Currently unclaimed"}
-                                                </Text>
+                                                <Text style={styles.claimMetaText}>{holderName ? `Current holder: ${holderName}` : "Currently unclaimed"}</Text>
                                             </View>
                                         ) : null}
                                     </View>
 
                                     <Pressable
                                         onPress={() => setPlayerField(pid, "trackStats", !trackStats)}
-                                        style={({ pressed }) => [
-                                            styles.statsPill,
-                                            trackStats ? styles.statsPillOn : styles.statsPillOff,
-                                            pressed && styles.pressed,
-                                        ]}
+                                        style={({ pressed }) => [styles.statsPill, trackStats ? styles.statsPillOn : styles.statsPillOff, pressed && styles.pressed]}
                                     >
                                         <Text style={styles.statsPillText}>Stats {trackStats ? "ON" : "OFF"}</Text>
                                     </Pressable>
@@ -937,11 +806,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                                         <Text style={styles.fieldHint}>1–10</Text>
                                     </Pressable>
 
-                                    <Pressable
-                                        onPress={() => openPicker(pid, "putts")}
-                                        style={({ pressed }) => [styles.fieldWrap, pressed && styles.pressed]}
-                                    >
-
+                                    <Pressable onPress={() => openPicker(pid, "putts")} style={({ pressed }) => [styles.fieldWrap, pressed && styles.pressed]}>
                                         <Text style={styles.fieldLabel}>Putts</Text>
                                         <View style={styles.valueBox}>
                                             <Text style={styles.valueText}>{showPutts ? String(Math.max(0, Math.min(10, putts))) : "—"}</Text>
@@ -1000,14 +865,10 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             </View>
 
             <View style={[styles.footer, { paddingBottom: Math.max(10, (insets?.bottom || 0) + 8) }]}>
-                <Pressable
-                    onPress={isFixMode ? doneFixMode : onNextHole}
-                    style={({ pressed }) => [styles.primaryBtnFull, pressed && styles.pressed]}
-                >
+                <Pressable onPress={isFixMode ? doneFixMode : onNextHole} style={({ pressed }) => [styles.primaryBtnFull, pressed && styles.pressed]}>
                     <Text style={styles.primaryText}>{isFixMode ? "Done" : "Save • Next Hole"}</Text>
                 </Pressable>
             </View>
-
 
             <Modal visible={pickOpen} transparent animationType="fade" onRequestClose={closePicker}>
                 <Pressable style={styles.pickerBackdrop} onPress={closePicker} />
@@ -1076,13 +937,37 @@ const styles = StyleSheet.create({
         backgroundColor: "rgba(242,201,76,0.18)",
         borderWidth: 1,
         borderColor: "rgba(242,201,76,0.42)",
+        marginBottom: 8,
     },
-    claimBtnDisabled: {
-        opacity: 0.45,
-    },
+    claimBtnDisabled: { opacity: 0.45 },
     claimBtnText: { color: WHITE, fontWeight: "900", fontSize: 12, letterSpacing: 0.4 },
     claimMetaText: { marginTop: 6, color: "rgba(255,255,255,0.72)", fontWeight: "800", fontSize: 12 },
 
+    carryoverBtn: {
+        height: 36,
+        borderRadius: 14,
+        paddingHorizontal: 12,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "rgba(46,125,255,0.16)",
+        borderWidth: 1,
+        borderColor: "rgba(46,125,255,0.42)",
+        marginBottom: 8,
+    },
+    carryoverBtnDisabled: { opacity: 0.45 },
+
+    unclaimedBtn: {
+        height: 36,
+        borderRadius: 14,
+        paddingHorizontal: 12,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "rgba(255,80,80,0.12)",
+        borderWidth: 1,
+        borderColor: "rgba(255,80,80,0.35)",
+        marginBottom: 2,
+    },
+    unclaimedBtnDisabled: { opacity: 0.45 },
 
     inputRow: { flexDirection: "row", gap: 12, marginTop: 10 },
     fieldWrap: {
@@ -1134,10 +1019,7 @@ const styles = StyleSheet.create({
         alignItems: "center",
         justifyContent: "center",
     },
-    segBtnActive: {
-        borderColor: "rgba(46,125,255,0.65)",
-        backgroundColor: "rgba(46,125,255,0.22)",
-    },
+    segBtnActive: { borderColor: "rgba(46,125,255,0.65)", backgroundColor: "rgba(46,125,255,0.22)" },
     segText: { color: WHITE, fontWeight: "900", fontSize: 12, opacity: 0.85 },
     segTextActive: { opacity: 1 },
 
@@ -1158,42 +1040,7 @@ const styles = StyleSheet.create({
         borderTopWidth: 1,
         borderTopColor: "rgba(255,255,255,0.08)",
     },
-    footerRow: { flexDirection: "row", gap: 10 },
 
-    secondaryBtn: {
-        width: 80,
-        height: 56,
-        borderRadius: 999,
-        backgroundColor: "rgba(255,255,255,0.08)",
-        alignItems: "center",
-        justifyContent: "center",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.12)",
-    },
-    secondaryText: { color: WHITE, fontWeight: "900" },
-
-    midBtn: {
-        width: 110,
-        height: 56,
-        borderRadius: 999,
-        backgroundColor: "rgba(255,255,255,0.08)",
-        alignItems: "center",
-        justifyContent: "center",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.12)",
-    },
-    midText: { color: WHITE, fontWeight: "900" },
-
-    primaryBtn: {
-        flex: 1,
-        height: 54,
-        borderRadius: 16,
-        backgroundColor: GREEN,
-        alignItems: "center",
-        justifyContent: "center",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.14)",
-    },
     primaryBtnFull: {
         height: 56,
         borderRadius: 18,
@@ -1203,7 +1050,6 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: "rgba(255,255,255,0.14)",
     },
-
     primaryText: { color: WHITE, fontWeight: "900" },
 
     pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },

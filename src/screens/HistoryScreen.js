@@ -14,9 +14,7 @@ import PremiumSwipeRow from "../components/PremiumSwipeRow";
 const BG = "#0B1220";
 const WHITE = "#FFFFFF";
 const CARD = "rgba(255,255,255,0.05)";
-const BORDER = "rgba(255,255,255,0.14)";
 const INNER = "rgba(0,0,0,0.18)";
-const GREEN_BORDER = "rgba(46,204,113,0.70)";
 
 // Quick Post accent (subtle orange)
 const QUICKPOST_BORDER = "rgba(255, 168, 76, 0.78)";
@@ -84,9 +82,73 @@ function readStroke(roundRoot, holeNumber, playerId) {
   return 0;
 }
 
-function sumGrossAnyShape(roundRoot, playerId) {
-  let total = 0;
+function inferHoleRangeFromScores(r) {
+  // If holesCount/holesSide are missing in older/local rounds, infer:
+  // - if we only have scores in 1..9 -> front 9
+  // - if we only have scores in 10..18 -> back 9
+  // - otherwise -> 18
+  const holesObj = r?.holes && typeof r.holes === "object" ? r.holes : null;
+  if (!holesObj) return { startHole: 1, endHole: 18, holesCount: 18, holesSide: null };
+
+  const players = Array.isArray(r?.players) ? r.players : [];
+  const ids = players.map((p, idx) => String(p?.id ?? String(idx)));
+
+  let any1to9 = false;
+  let any10to18 = false;
+
   for (let h = 1; h <= 18; h++) {
+    for (const pid of ids) {
+      const s = readStroke(r, h, pid);
+      if (toInt(s) > 0) {
+        if (h <= 9) any1to9 = true;
+        if (h >= 10) any10to18 = true;
+        break;
+      }
+    }
+  }
+
+  if (any1to9 && !any10to18) return { startHole: 1, endHole: 9, holesCount: 9, holesSide: "front" };
+  if (!any1to9 && any10to18) return { startHole: 10, endHole: 18, holesCount: 9, holesSide: "back" };
+
+  return { startHole: 1, endHole: 18, holesCount: 18, holesSide: null };
+}
+
+function deriveHoleRangeAny(r) {
+  const hcRaw = Number(r?.holesCount ?? r?.totalHoles ?? r?.meta?.holesCount);
+  const holesCount = hcRaw === 9 || hcRaw === 18 ? hcRaw : null;
+
+  const sideRaw = String(r?.holesSide ?? r?.side ?? r?.meta?.holesSide ?? "")
+    .toLowerCase()
+    .trim();
+  const holesSide = holesCount === 9 && (sideRaw === "front" || sideRaw === "back") ? sideRaw : null;
+
+  if (holesCount === 9) {
+    if (holesSide === "back") return { startHole: 10, endHole: 18, holesCount: 9, holesSide: "back" };
+    return { startHole: 1, endHole: 9, holesCount: 9, holesSide: "front" };
+  }
+
+  if (holesCount === 18) {
+    return { startHole: 1, endHole: 18, holesCount: 18, holesSide: null };
+  }
+
+  // Fallback inference for older/local rounds that don’t store holesCount
+  return inferHoleRangeFromScores(r || {});
+}
+
+function holesLabelAny(r) {
+  const { holesCount, holesSide } = deriveHoleRangeAny(r || {});
+  if (holesCount === 9) {
+    const side = holesSide === "back" ? "Back" : "Front";
+    return `9 (${side})`;
+  }
+  return "18 holes";
+}
+
+function sumGrossAnyShape(roundRoot, playerId) {
+  const { startHole, endHole } = deriveHoleRangeAny(roundRoot || {});
+  let total = 0;
+
+  for (let h = startHole; h <= endHole; h++) {
     const n = readStroke(roundRoot, h, playerId);
     if (n > 0) total += n;
   }
@@ -103,13 +165,13 @@ function formatDateAny(round) {
 function isRoundCompletedAnyShape(r) {
   const s = String(r?.status || "").trim().toLowerCase();
   if (s.includes("complete") || s.includes("finished") || s.includes("done")) return true;
-  if (s.includes("in_progress") || s.includes("active") || s.includes("progress")) return false;
 
   const players = Array.isArray(r?.players) ? r.players : [];
   const ids = players.map((p, idx) => String(p?.id ?? String(idx)));
   if (!ids.length) return false;
 
-  for (let h = 1; h <= 18; h++) {
+  const { startHole, endHole } = deriveHoleRangeAny(r || {});
+  for (let h = startHole; h <= endHole; h++) {
     for (const pid of ids) {
       const v = readStroke(r, h, pid);
       if (toInt(v) <= 0) return false;
@@ -120,9 +182,9 @@ function isRoundCompletedAnyShape(r) {
 
 function pickHoleNumberAny(r, fallback = null) {
   const holeRaw = pickFirstNumber(r?.holeNumber, r?.currentHole, r?.hole, r?.lastHole, r?.resumeHole, r?.holeIndex);
-
   let holeNumber = holeRaw;
 
+  // if this looks like an index (0..17), convert to 1..18
   if (holeNumber !== null && holeNumber >= 0 && holeNumber <= 17) {
     const isIndex = r?.holeIndex !== undefined || holeNumber === 0;
     if (isIndex) holeNumber = holeNumber + 1;
@@ -133,17 +195,14 @@ function pickHoleNumberAny(r, fallback = null) {
   return holeNumber;
 }
 
-function holesLabelAny(r) {
-  const hcRaw = Number(r?.holesCount ?? r?.totalHoles ?? r?.holes ?? r?.meta?.holesCount);
-  const holesCount = hcRaw === 9 || hcRaw === 18 ? hcRaw : 18;
+function pickHoleNumberForDisplay(r, fallback = null) {
+  const n = pickHoleNumberAny(r, fallback);
+  if (!Number.isFinite(Number(n))) return fallback;
 
-  if (holesCount === 9) {
-    const sideRaw = String(r?.holesSide ?? r?.side ?? r?.meta?.holesSide ?? "").toLowerCase().trim();
-    const side = sideRaw === "back" ? "Back" : "Front";
-    return `9 (${side})`;
-  }
-
-  return "18 holes";
+  const { startHole, endHole } = deriveHoleRangeAny(r || {});
+  if (Number(n) < startHole) return startHole;
+  if (Number(n) > endHole) return endHole;
+  return Number(n);
 }
 
 function getSignedInUserKey() {
@@ -214,19 +273,11 @@ function hasAnyFeeForSelectedFormats(roundDoc) {
   const pools = roundDoc?.formatPools && typeof roundDoc.formatPools === "object" ? roundDoc.formatPools : null;
   if (pools) {
     for (const raw of selected) {
-      const key =
-        typeof raw === "string"
-          ? String(raw).trim()
-          : String(raw?.key || raw?.id || "").trim();
-
+      const key = typeof raw === "string" ? String(raw).trim() : String(raw?.key || raw?.id || "").trim();
       if (!key) continue;
 
       const p = pools?.[key];
-      const amt =
-        Number(p?.amountPerHole) ||
-        Number(p?.entryFee) ||
-        Number(p?.amountPerSkin);
-
+      const amt = Number(p?.amountPerHole) || Number(p?.entryFee) || Number(p?.amountPerSkin);
       if (Number.isFinite(amt) && amt > 0) return true;
     }
   }
@@ -234,11 +285,7 @@ function hasAnyFeeForSelectedFormats(roundDoc) {
   // Legacy shapes
   const feeByKey = getFeeByKeyFromRoundDoc(roundDoc);
   for (const raw of selected) {
-    const key =
-      typeof raw === "string"
-        ? String(raw).trim()
-        : String(raw?.key || raw?.id || "").trim();
-
+    const key = typeof raw === "string" ? String(raw).trim() : String(raw?.key || raw?.id || "").trim();
     if (!key) continue;
 
     const n = Number(feeByKey?.[key]);
@@ -259,14 +306,12 @@ function needsHoleDetails(roundDoc) {
     if (!HOLE_FORMAT_KEYS.has(key)) continue;
 
     const cfg = configByKey?.[key];
-
     const holes = Array.isArray(cfg?.holes) ? cfg.holes : null;
     const holesSelected = Array.isArray(cfg?.holesSelected) ? cfg.holesSelected : null;
     const holesByRound = cfg?.holesByRound && typeof cfg.holesByRound === "object" ? cfg.holesByRound : null;
     const holesR1 = holesByRound && Array.isArray(holesByRound?.r1) ? holesByRound.r1 : null;
 
     const any = (holes && holes.length) || (holesSelected && holesSelected.length) || (holesR1 && holesR1.length);
-
     if (!any) return true;
   }
 
@@ -281,14 +326,7 @@ function buildHoleHubParamsFromRoundDoc(roundDoc, rid) {
 
   const scoring = roundDoc?.scoring || roundDoc?.scoringType || "net";
 
-  const hcRaw = Number(roundDoc?.holesCount ?? roundDoc?.totalHoles ?? roundDoc?.holes ?? roundDoc?.meta?.holesCount);
-  const holesCount = hcRaw === 9 || hcRaw === 18 ? hcRaw : 18;
-
-  const sideRaw = String(roundDoc?.holesSide ?? roundDoc?.side ?? roundDoc?.meta?.holesSide ?? "").toLowerCase().trim();
-  const holesSide = holesCount === 9 && (sideRaw === "front" || sideRaw === "back") ? sideRaw : null;
-
-  const derivedStartHole = holesCount === 9 ? (holesSide === "back" ? 10 : 1) : 1;
-
+  const { startHole, holesCount, holesSide } = deriveHoleRangeAny(roundDoc || {});
   const courseName = pickFirstString(roundDoc?.courseName, course?.name);
   const holeMeta = roundDoc?.holeMeta ?? roundDoc?.meta?.holeMeta ?? null;
 
@@ -301,9 +339,9 @@ function buildHoleHubParamsFromRoundDoc(roundDoc, rid) {
     scoring,
     holesCount,
     holesSide,
-    startHole: derivedStartHole,
-    hole: derivedStartHole,
-    holeIndex: derivedStartHole - 1,
+    startHole,
+    hole: startHole,
+    holeIndex: startHole - 1,
     courseName: courseName || course?.name,
     roundId: rid || roundDoc?.roundId || roundDoc?.id || null,
   };
@@ -324,6 +362,8 @@ function buildHydrationPatchFromLocal(localRound, rid) {
 
   const currentHole = pickHoleNumberAny(localRound, 1);
 
+  const { holesCount, holesSide } = deriveHoleRangeAny(localRound || {});
+
   const patch = {
     roundId: rid || localRound?.roundId || localRound?.id || null,
 
@@ -337,8 +377,11 @@ function buildHydrationPatchFromLocal(localRound, rid) {
 
     scoring,
 
+    holesCount,
+    holesSide,
+
     currentHole,
-    startHole: localRound?.startHole ? Number(localRound.startHole) : 1,
+    startHole: localRound?.startHole ? Number(localRound.startHole) : holesCount === 9 ? (holesSide === "back" ? 10 : 1) : 1,
 
     // keep formats if they exist locally
     formatsSelected: Array.isArray(localRound?.formatsSelected) ? localRound.formatsSelected : undefined,
@@ -355,7 +398,6 @@ function buildHydrationPatchFromLocal(localRound, rid) {
           : "setup",
   };
 
-  // remove undefined keys so merge is clean
   Object.keys(patch).forEach((k) => {
     if (patch[k] === undefined) delete patch[k];
   });
@@ -467,13 +509,11 @@ export default function HistoryScreen({ navigation }) {
     }
 
     // setup routing (HISTORY -> rebuild stack so Back behaves like normal setup flow)
-    const statusNorm = String(fsRound?.status || "").trim().toLowerCase();
     const hasGame = !!(fsRound?.gameId || fsRound?.gameTitle);
     const hasCourse2 = !!fsRound?.course;
     const hasTee2 = !!fsRound?.tee;
     const hasPlayers2 = Array.isArray(fsRound?.players) && fsRound.players.length > 0;
 
-    // Build base stack that always matches the normal setup sequence.
     const routes = [
       { name: ROUTES.HISTORY },
       { name: ROUTES.GAME_SETUP, params: { roundId: rid } },
@@ -482,7 +522,6 @@ export default function HistoryScreen({ navigation }) {
       { name: ROUTES.PLAYER_ENTRY, params: { roundId: rid } },
     ];
 
-    // If any core setup step is missing, land on that step (last incomplete).
     if (!hasGame) {
       navigation.reset({ index: 1, routes });
       return;
@@ -500,46 +539,38 @@ export default function HistoryScreen({ navigation }) {
       return;
     }
 
-    // Formats flow
     const selected = Array.isArray(fsRound?.formatsSelected) ? fsRound.formatsSelected : [];
     const needDetails = !!selected.length && needsHoleDetails(fsRound);
 
     const poolsReady = fsRound?.poolsReady === true;
     const hasFees = !!selected.length && hasAnyFeeForSelectedFormats(fsRound);
 
-    // Always include Formats so Back works predictably.
     routes.push({ name: ROUTES.GAME_FORMATS, params: { roundId: rid } });
 
-    // If no formats chosen, land on Formats.
     if (!selected.length) {
       navigation.reset({ index: routes.length - 1, routes });
       return;
     }
 
-    // If details are needed, include Details and land there.
     if (needDetails) {
       routes.push({ name: ROUTES.GAME_FORMAT_DETAILS, params: { roundId: rid } });
       navigation.reset({ index: routes.length - 1, routes });
       return;
     }
 
-    // If any fees exist, Pools must be part of the stack.
     if (hasFees) {
       routes.push({ name: ROUTES.GAME_FORMAT_POOLS, params: { roundId: rid } });
 
-      // If pools are complete, include Briefing and land there.
       if (poolsReady) {
         routes.push({ name: ROUTES.GAME_ROUND_BRIEFING, params: { roundId: rid } });
         navigation.reset({ index: routes.length - 1, routes });
         return;
       }
 
-      // Pools not complete -> land on Pools.
       navigation.reset({ index: routes.length - 1, routes });
       return;
     }
 
-    // No fees -> go straight to Briefing.
     routes.push({ name: ROUTES.GAME_ROUND_BRIEFING, params: { roundId: rid } });
     navigation.reset({ index: routes.length - 1, routes });
   }
@@ -602,19 +633,9 @@ export default function HistoryScreen({ navigation }) {
     ]);
   }
 
-  function RoundRowShell({ pinned, children }) {
-    return <View style={{}}>{children}</View>;
-  }
-
   function renderRowContent({ courseName, dateText, statusText, statusKind, rightPrimary, rightSecondary, onPress }) {
     return (
-      <Pressable
-        onPress={onPress}
-        style={({ pressed }) => [
-          styles.rowCard,
-          pressed && styles.pressed,
-        ]}
-      >
+      <Pressable onPress={onPress} style={({ pressed }) => [styles.rowCard, pressed && styles.pressed]}>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={styles.course} numberOfLines={2}>
             {shortCourseTitle(courseName)}
@@ -661,7 +682,7 @@ export default function HistoryScreen({ navigation }) {
   // active row display values (from Firestore active doc)
   const activeCourseName = pickFirstString(activeFsRound?.courseName, activeFsRound?.course?.name, "Current Round");
   const activeDateText = formatDateAny(activeFsRound || {});
-  const activeHoleNum = pickHoleNumberAny(activeFsRound || {}, null);
+  const activeHoleNum = pickHoleNumberForDisplay(activeFsRound || {}, null);
 
   const activeStatusText = (() => {
     const completed = isRoundCompletedAnyShape(activeFsRound);
@@ -671,10 +692,13 @@ export default function HistoryScreen({ navigation }) {
     if (s === "in_progress" || s.includes("progress") || s === "active") return "In Progress";
     return "In Setup";
   })();
+
   const activeRightPrimary = (() => {
     const completed = isRoundCompletedAnyShape(activeFsRound);
     if (completed) {
-      const grossFromHoles = sumGrossAnyShape(activeFsRound || {}, pickUserPlayer(activeFsRound || {})?.id ? String(pickUserPlayer(activeFsRound || {})?.id) : "p1");
+      const user = pickUserPlayer(activeFsRound || {});
+      const uid = user?.id ? String(user.id) : "p1";
+      const grossFromHoles = sumGrossAnyShape(activeFsRound || {}, uid);
       const grossFromTotal = Number(activeFsRound?.grossTotal);
       const gross = grossFromHoles || (Number.isFinite(grossFromTotal) && grossFromTotal > 0 ? grossFromTotal : 0);
       return gross ? String(gross) : "—";
@@ -682,9 +706,7 @@ export default function HistoryScreen({ navigation }) {
     return activeHoleNum ? `Hole ${activeHoleNum}` : "Resume";
   })();
 
-  const activeRightSecondary = (() => {
-    return holesLabelAny(activeFsRound || {});
-  })();
+  const activeRightSecondary = holesLabelAny(activeFsRound || {});
 
   return (
     <View style={[styles.screen, { paddingTop: headerPadTop }]}>
@@ -737,45 +759,43 @@ export default function HistoryScreen({ navigation }) {
         ) : (
           <View style={{ gap: 12 }}>
             {hasActive ? (
-              <RoundRowShell pinned>
-                <PremiumSwipeRow
-                  openSwipeRef={openSwipeRef}
-                  closeAnyOpenSwipe={closeAnyOpenSwipe}
-                  radius={22}
-                  actionWidth={120}
-                  borderWidth={2}
-                  borderColor={(() => {
+              <PremiumSwipeRow
+                openSwipeRef={openSwipeRef}
+                closeAnyOpenSwipe={closeAnyOpenSwipe}
+                radius={22}
+                actionWidth={120}
+                borderWidth={2}
+                borderColor={(() => {
+                  const completed = isRoundCompletedAnyShape(activeFsRound);
+                  if (completed) return "rgba(255, 210, 92, 0.92)"; // GOLD
+                  const s = String(activeFsRound?.status || "").trim().toLowerCase();
+                  if (String(activeFsRound?.entrySource || "").toLowerCase() === "quick_post") return "rgba(255, 168, 76, 0.92)"; // ORANGE
+                  if (s === "setup") return "rgba(46,204,113,0.92)"; // GREEN
+                  return "rgba(46,125,255,0.92)"; // BLUE
+                })()}
+                backgroundColor="transparent"
+                editLabel="Enter"
+                onEdit={openActivePinned}
+                deleteLabel="Delete"
+                onDelete={() => confirmDeleteOne({ id: activePinnedId, isActivePinned: true })}
+              >
+                {renderRowContent({
+                  courseName: activeCourseName,
+                  dateText: activeDateText,
+                  statusText: activeStatusText,
+                  statusKind: (() => {
                     const completed = isRoundCompletedAnyShape(activeFsRound);
-                    if (completed) return "rgba(255, 210, 92, 0.92)"; // GOLD
+                    if (completed) return "complete";
                     const s = String(activeFsRound?.status || "").trim().toLowerCase();
-                    if (String(activeFsRound?.entrySource || "").toLowerCase() === "quick_post") return "rgba(255, 168, 76, 0.92)"; // ORANGE
-                    if (s === "setup") return "rgba(46,204,113,0.92)"; // GREEN
-                    return "rgba(46,125,255,0.92)"; // BLUE
-                  })()}
-                  backgroundColor="transparent"
-                  editLabel="Enter"
-                  onEdit={openActivePinned}
-                  deleteLabel="Delete"
-                  onDelete={() => confirmDeleteOne({ id: activePinnedId, isActivePinned: true })}
-                >
-                  {renderRowContent({
-                    courseName: activeCourseName,
-                    dateText: activeDateText,
-                    statusText: activeStatusText,
-                    statusKind: (() => {
-                      const completed = isRoundCompletedAnyShape(activeFsRound);
-                      if (completed) return "complete";
-                      const s = String(activeFsRound?.status || "").trim().toLowerCase();
-                      if (s === "setup") return "setup";
-                      if (s === "in_progress" || s.includes("progress") || s === "active") return "in_progress";
-                      return "setup";
-                    })(),
-                    rightPrimary: activeRightPrimary,
-                    rightSecondary: activeRightSecondary,
-                    onPress: openActivePinned,
-                  })}
-                </PremiumSwipeRow>
-              </RoundRowShell>
+                    if (s === "setup") return "setup";
+                    if (s === "in_progress" || s.includes("progress") || s === "active") return "in_progress";
+                    return "setup";
+                  })(),
+                  rightPrimary: activeRightPrimary,
+                  rightSecondary: activeRightSecondary,
+                  onPress: openActivePinned,
+                })}
+              </PremiumSwipeRow>
             ) : null}
 
             {items.map((r) => {
@@ -787,7 +807,7 @@ export default function HistoryScreen({ navigation }) {
               const status = String(r?.status || "").trim().toLowerCase();
               const statusText = completed ? "Complete" : status === "setup" ? "In Setup" : "In Progress";
 
-              const holeNum = pickHoleNumberAny(r, null);
+              const holeNum = pickHoleNumberForDisplay(r, null);
 
               const userPlayer = pickUserPlayer(r);
               const userId = userPlayer?.id ? String(userPlayer.id) : "p1";
@@ -798,49 +818,44 @@ export default function HistoryScreen({ navigation }) {
 
               const isQuickPost = String(r?.entrySource || "").toLowerCase() === "quick_post";
 
-              const hasFormats =
-                (Array.isArray(r?.formatsSelected) && r.formatsSelected.length > 0) ||
-                Number(r?.formatsSelectedCount || 0) > 0;
-
               const rightPrimary = completed ? (gross ? String(gross) : "—") : holeNum ? `Hole ${holeNum}` : "Resume";
               const rightSecondary = holesLabelAny(r || {});
 
               const editLabel = completed ? "View" : "Enter";
 
               return (
-                <RoundRowShell key={rid}>
-                  <PremiumSwipeRow
-                    openSwipeRef={openSwipeRef}
-                    closeAnyOpenSwipe={closeAnyOpenSwipe}
-                    radius={22}
-                    actionWidth={120}
-                    borderWidth={2}
-                    borderColor={
-                      completed && isQuickPost
-                        ? "rgba(255, 168, 76, 0.92)"    // ORANGE
-                        : completed
-                          ? "rgba(255, 210, 92, 0.92)"  // GOLD
-                          : status === "setup"
-                            ? "rgba(46,204,113,0.92)"   // GREEN
-                            : "rgba(46,125,255,0.92)"   // BLUE
-                    }
-                    backgroundColor="transparent"
-                    editLabel={editLabel}
-                    onEdit={() => openRound(r)}
-                    deleteLabel="Delete"
-                    onDelete={() => confirmDeleteOne({ id: rid, isActivePinned: false })}
-                  >
-                    {renderRowContent({
-                      courseName,
-                      dateText,
-                      statusText: completed && String(r?.entrySource || "").toLowerCase() === "quick_post" ? "Quick Post" : statusText,
-                      statusKind: completed && String(r?.entrySource || "").toLowerCase() === "quick_post" ? "quick_post" : completed ? "complete" : status === "setup" ? "setup" : "in_progress",
-                      rightPrimary,
-                      rightSecondary,
-                      onPress: () => openRound(r),
-                    })}
-                  </PremiumSwipeRow>
-                </RoundRowShell>
+                <PremiumSwipeRow
+                  key={rid}
+                  openSwipeRef={openSwipeRef}
+                  closeAnyOpenSwipe={closeAnyOpenSwipe}
+                  radius={22}
+                  actionWidth={120}
+                  borderWidth={2}
+                  borderColor={
+                    completed && isQuickPost
+                      ? "rgba(255, 168, 76, 0.92)" // ORANGE
+                      : completed
+                        ? "rgba(255, 210, 92, 0.92)" // GOLD
+                        : status === "setup"
+                          ? "rgba(46,204,113,0.92)" // GREEN
+                          : "rgba(46,125,255,0.92)" // BLUE
+                  }
+                  backgroundColor="transparent"
+                  editLabel={editLabel}
+                  onEdit={() => openRound(r)}
+                  deleteLabel="Delete"
+                  onDelete={() => confirmDeleteOne({ id: rid, isActivePinned: false })}
+                >
+                  {renderRowContent({
+                    courseName,
+                    dateText,
+                    statusText: completed && isQuickPost ? "Quick Post" : statusText,
+                    statusKind: completed && isQuickPost ? "quick_post" : completed ? "complete" : status === "setup" ? "setup" : "in_progress",
+                    rightPrimary,
+                    rightSecondary,
+                    onPress: () => openRound(r),
+                  })}
+                </PremiumSwipeRow>
               );
             })}
           </View>
@@ -918,8 +933,6 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { color: WHITE, fontSize: 14, fontWeight: "900" },
   emptyText: { color: "rgba(255,255,255,0.65)", fontSize: 12, fontWeight: "800", textAlign: "center" },
-
-  // (removed outer ring wrapper; swipe rows now own the single border)
 
   rowCard: {
     flexDirection: "row",
