@@ -149,6 +149,27 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
     const isFixMode = !!fixMissing;
 
+    // Live round doc (for formatConfig lookup during fix-missing)
+    const [roundDoc, setRoundDoc] = useState(null);
+
+    useEffect(() => {
+        const uid = auth?.currentUser?.uid || null;
+        const rid = String(roundIdParam || "").trim();
+        if (!uid || !rid) {
+            setRoundDoc(null);
+            return;
+        }
+
+        const ref = doc(db, "users", String(uid), "rounds", String(rid));
+        const unsub = onSnapshot(
+            ref,
+            (snap) => setRoundDoc(snap?.exists?.() ? (snap.data() || null) : null),
+            () => setRoundDoc(null)
+        );
+
+        return () => unsub();
+    }, [roundIdParam]);
+
     const holeNumber = Number(hole || 1);
     const holeMeta = useMemo(() => {
         return holeMetaParam && typeof holeMetaParam === "object" ? holeMetaParam : buildDefaultHoleMeta();
@@ -190,7 +211,38 @@ export default function GameScoreEntryScreen({ navigation, route }) {
     // -----------------------------
     // Regular format claim (Firestore)
     // -----------------------------
-    const sideGameKey = useMemo(() => String(sideGameKeyParam || "").trim(), [sideGameKeyParam]);
+    const sideGameKeyFromConfig = useMemo(() => {
+        if (!isFixMode) return "";
+        const h = Number(holeNumber || 1);
+
+        const cfg = roundDoc?.formatConfig && typeof roundDoc.formatConfig === "object" ? roundDoc.formatConfig : null;
+        if (!cfg) return "";
+
+        const listFor = (k) => {
+            const entry = cfg?.[k];
+            if (!entry || typeof entry !== "object") return [];
+            const a = Array.isArray(entry?.holes) ? entry.holes : [];
+            const b = Array.isArray(entry?.holesSelected) ? entry.holesSelected : [];
+            const hbr = entry?.holesByRound && typeof entry.holesByRound === "object" ? entry.holesByRound : null;
+            const r1 = hbr && Array.isArray(hbr?.r1) ? hbr.r1 : [];
+            const list = (r1.length ? r1 : b.length ? b : a).map((x) => Number(x)).filter((n) => Number.isFinite(n));
+            return list;
+        };
+
+        const hasHole = (k) => listFor(k).includes(h);
+
+        // Priority: second shot KP, then long drive, then KP
+        if (hasHole("secondshotkp") || hasHole("second_shot_kp") || hasHole("secondshot") || hasHole("2ndshotkp")) return "secondshotkp";
+        if (hasHole("longdrive") || hasHole("long_drive") || hasHole("ld")) return "longdrive";
+        if (hasHole("kp")) return "kp";
+
+        return "";
+    }, [isFixMode, holeNumber, roundDoc]);
+
+    const sideGameKey = useMemo(() => {
+        if (isFixMode) return String(sideGameKeyFromConfig || "").trim();
+        return String(sideGameKeyParam || "").trim();
+    }, [isFixMode, sideGameKeyParam, sideGameKeyFromConfig]);
 
     const claimable = useMemo(() => {
         const k = sideGameKey.toLowerCase();
@@ -629,8 +681,70 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
         if (!validateStrokesForThisHole()) return;
 
+        // Save current hole first (resumeHole stays 18)
         const res = await persistHole({ resumeHole: 18 });
 
+        // Now validate the entire round for missing strokes
+        const state = (await loadActiveRound()) || {};
+        const remaining = getMissingHolesFromState(state, normalizedPlayers);
+
+        if (remaining.length) {
+            Alert.alert(
+                "Unentered scores",
+                `Missing strokes on holes:\n\n${remaining.join(", ")}`,
+                [
+                    { text: "Cancel", style: "cancel" },
+                    {
+                        text: "Fix now",
+                        style: "default",
+                        onPress: () => {
+                            const firstMissing = Number(remaining[0] || 1);
+                            skipBeforeRemoveRef.current = true;
+
+                            navigation.dispatch(
+                                StackActions.replace(ROUTES.SCORE_ENTRY, {
+                                    ...params,
+                                    sideGameKey: null,
+                                    hole: firstMissing,
+                                    fixMissing: true,
+                                    missingHoles: remaining,
+                                    missingIndex: 0,
+                                    finishReturnHole: 18,
+                                })
+                            );
+
+                            requestAnimationFrame(() => {
+                                skipBeforeRemoveRef.current = false;
+                            });
+                        },
+                    },
+                    {
+                        text: "Finish anyway",
+                        style: "destructive",
+                        onPress: () => {
+                            navigation.dispatch(
+                                CommonActions.navigate({
+                                    name: ROUTES.GAME_ROUND_CALCULATING,
+                                    params: {
+                                        roundId: res?.roundId || roundIdParam || null,
+                                        course,
+                                        tee,
+                                        players,
+                                        holeMeta,
+                                        courseName: course?.name,
+                                        teeName: tee?.name,
+                                    },
+                                    merge: true,
+                                })
+                            );
+                        },
+                    },
+                ]
+            );
+            return;
+        }
+
+        // No missing holes -> proceed to results
         navigation.dispatch(
             CommonActions.navigate({
                 name: ROUTES.GAME_ROUND_CALCULATING,
@@ -691,6 +805,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         navigation.dispatch(
             StackActions.replace(ROUTES.SCORE_ENTRY, {
                 ...params,
+                sideGameKey: null,
                 hole: nextHole,
                 fixMissing: true,
                 missingHoles: original.length ? original : remaining,
