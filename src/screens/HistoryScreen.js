@@ -133,6 +133,19 @@ function pickHoleNumberAny(r, fallback = null) {
   return holeNumber;
 }
 
+function holesLabelAny(r) {
+  const hcRaw = Number(r?.holesCount ?? r?.totalHoles ?? r?.holes ?? r?.meta?.holesCount);
+  const holesCount = hcRaw === 9 || hcRaw === 18 ? hcRaw : 18;
+
+  if (holesCount === 9) {
+    const sideRaw = String(r?.holesSide ?? r?.side ?? r?.meta?.holesSide ?? "").toLowerCase().trim();
+    const side = sideRaw === "back" ? "Back" : "Front";
+    return `9 (${side})`;
+  }
+
+  return "18 holes";
+}
+
 function getSignedInUserKey() {
   const uid = auth?.currentUser?.uid;
   return uid ? String(uid) : null;
@@ -267,7 +280,14 @@ function buildHoleHubParamsFromRoundDoc(roundDoc, rid) {
   if (!course || !tee || !players || !players.length) return null;
 
   const scoring = roundDoc?.scoring || roundDoc?.scoringType || "net";
-  const startHole = pickHoleNumberAny(roundDoc, 1);
+
+  const hcRaw = Number(roundDoc?.holesCount ?? roundDoc?.totalHoles ?? roundDoc?.holes ?? roundDoc?.meta?.holesCount);
+  const holesCount = hcRaw === 9 || hcRaw === 18 ? hcRaw : 18;
+
+  const sideRaw = String(roundDoc?.holesSide ?? roundDoc?.side ?? roundDoc?.meta?.holesSide ?? "").toLowerCase().trim();
+  const holesSide = holesCount === 9 && (sideRaw === "front" || sideRaw === "back") ? sideRaw : null;
+
+  const derivedStartHole = holesCount === 9 ? (holesSide === "back" ? 10 : 1) : 1;
 
   const courseName = pickFirstString(roundDoc?.courseName, course?.name);
   const holeMeta = roundDoc?.holeMeta ?? roundDoc?.meta?.holeMeta ?? null;
@@ -279,9 +299,11 @@ function buildHoleHubParamsFromRoundDoc(roundDoc, rid) {
     players,
     holeMeta: holeMeta && typeof holeMeta === "object" ? holeMeta : undefined,
     scoring,
-    startHole,
-    hole: startHole,
-    holeIndex: startHole - 1,
+    holesCount,
+    holesSide,
+    startHole: derivedStartHole,
+    hole: derivedStartHole,
+    holeIndex: derivedStartHole - 1,
     courseName: courseName || course?.name,
     roundId: rid || roundDoc?.roundId || roundDoc?.id || null,
   };
@@ -581,7 +603,7 @@ export default function HistoryScreen({ navigation }) {
   }
 
   function RoundRowShell({ pinned, children }) {
-    return <View style={[styles.greenRing, pinned && styles.blueRing]}>{children}</View>;
+    return <View style={{}}>{children}</View>;
   }
 
   function renderRowContent({ courseName, dateText, statusText, statusKind, rightPrimary, rightSecondary, onPress }) {
@@ -590,17 +612,6 @@ export default function HistoryScreen({ navigation }) {
         onPress={onPress}
         style={({ pressed }) => [
           styles.rowCard,
-          {
-            borderWidth: 4,
-            borderColor:
-              statusKind === "quick_post"
-                ? QUICKPOST_BORDER              // ORANGE (Quick Post)
-                : statusKind === "complete"
-                  ? "rgba(255, 210, 92, 0.92)"  // GOLD (Complete)
-                  : statusKind === "setup"
-                    ? "rgba(46,204,113,0.88)"   // GREEN (In Setup)
-                    : "rgba(46,125,255,0.88)",  // BLUE (In Progress)
-          },
           pressed && styles.pressed,
         ]}
       >
@@ -672,16 +683,7 @@ export default function HistoryScreen({ navigation }) {
   })();
 
   const activeRightSecondary = (() => {
-    const completed = isRoundCompletedAnyShape(activeFsRound);
-    if (completed) {
-      const isQuickPost = String(activeFsRound?.entrySource || "").toLowerCase() === "quick_post";
-      const hasFormats =
-        (Array.isArray(activeFsRound?.formatsSelected) && activeFsRound.formatsSelected.length > 0) ||
-        Number(activeFsRound?.formatsSelectedCount || 0) > 0;
-
-      return isQuickPost ? "Quick Post" : hasFormats ? "Settle Up" : "Gross";
-    }
-    return activeHoleNum ? "Currently on" : "Tap to continue";
+    return holesLabelAny(activeFsRound || {});
   })();
 
   return (
@@ -741,7 +743,15 @@ export default function HistoryScreen({ navigation }) {
                   closeAnyOpenSwipe={closeAnyOpenSwipe}
                   radius={22}
                   actionWidth={120}
-                  borderColor="transparent"
+                  borderWidth={2}
+                  borderColor={(() => {
+                    const completed = isRoundCompletedAnyShape(activeFsRound);
+                    if (completed) return "rgba(255, 210, 92, 0.92)"; // GOLD
+                    const s = String(activeFsRound?.status || "").trim().toLowerCase();
+                    if (String(activeFsRound?.entrySource || "").toLowerCase() === "quick_post") return "rgba(255, 168, 76, 0.92)"; // ORANGE
+                    if (s === "setup") return "rgba(46,204,113,0.92)"; // GREEN
+                    return "rgba(46,125,255,0.92)"; // BLUE
+                  })()}
                   backgroundColor="transparent"
                   editLabel="Enter"
                   onEdit={openActivePinned}
@@ -793,11 +803,7 @@ export default function HistoryScreen({ navigation }) {
                 Number(r?.formatsSelectedCount || 0) > 0;
 
               const rightPrimary = completed ? (gross ? String(gross) : "—") : holeNum ? `Hole ${holeNum}` : "Resume";
-              const rightSecondary = completed
-                ? (isQuickPost ? "Quick Post" : hasFormats ? "Settle Up" : "Gross")
-                : holeNum
-                  ? "Currently on"
-                  : "Tap to continue";
+              const rightSecondary = holesLabelAny(r || {});
 
               const editLabel = completed ? "View" : "Enter";
 
@@ -808,7 +814,16 @@ export default function HistoryScreen({ navigation }) {
                     closeAnyOpenSwipe={closeAnyOpenSwipe}
                     radius={22}
                     actionWidth={120}
-                    borderColor="transparent"
+                    borderWidth={2}
+                    borderColor={
+                      completed && isQuickPost
+                        ? "rgba(255, 168, 76, 0.92)"    // ORANGE
+                        : completed
+                          ? "rgba(255, 210, 92, 0.92)"  // GOLD
+                          : status === "setup"
+                            ? "rgba(46,204,113,0.92)"   // GREEN
+                            : "rgba(46,125,255,0.92)"   // BLUE
+                    }
                     backgroundColor="transparent"
                     editLabel={editLabel}
                     onEdit={() => openRound(r)}
@@ -904,24 +919,15 @@ const styles = StyleSheet.create({
   emptyTitle: { color: WHITE, fontSize: 14, fontWeight: "900" },
   emptyText: { color: "rgba(255,255,255,0.65)", fontSize: 12, fontWeight: "800", textAlign: "center" },
 
-  greenRing: {
-    borderRadius: 24,
-    padding: 2,
-    borderWidth: 1,
-    borderColor: GREEN_BORDER,
-    backgroundColor: "transparent",
-  },
-  blueRing: {
-    borderColor: "rgba(46,125,255,0.60)",
-  },
+  // (removed outer ring wrapper; swipe rows now own the single border)
 
   rowCard: {
     flexDirection: "row",
     alignItems: "center",
     borderRadius: 22,
     padding: 14,
-    borderWidth: 1,
-    borderColor: BORDER,
+    borderWidth: 0,
+    borderColor: "transparent",
     backgroundColor: CARD,
   },
 

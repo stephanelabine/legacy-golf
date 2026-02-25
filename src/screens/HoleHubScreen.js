@@ -116,6 +116,48 @@ function unwrapRound(state) {
   return state?.activeRound || state?.currentRound || state?.round || state;
 }
 
+function clampHole(h, startHole, endHole) {
+  const n = Number(h);
+  if (!Number.isFinite(n)) return startHole;
+  if (n < startHole) return startHole;
+  if (n > endHole) return endHole;
+  return n;
+}
+
+function deriveHoleRangeFromRound(root, params) {
+  const holesCountRaw = Number(
+    root?.holesCount ??
+    root?.totalHoles ??
+    root?.holes ??
+    root?.meta?.holesCount ??
+    params?.holesCount ??
+    params?.totalHoles ??
+    18
+  );
+
+  const holesCount = holesCountRaw === 9 || holesCountRaw === 18 ? holesCountRaw : 18;
+
+  const sideRaw = String(
+    root?.holesSide ??
+    root?.side ??
+    root?.meta?.holesSide ??
+    params?.holesSide ??
+    params?.side ??
+    ""
+  )
+    .toLowerCase()
+    .trim();
+
+  const holesSide = sideRaw === "front" || sideRaw === "back" ? sideRaw : null;
+
+  if (holesCount === 9) {
+    if (holesSide === "back") return { startHole: 10, endHole: 18, holesCount, holesSide };
+    return { startHole: 1, endHole: 9, holesCount, holesSide: "front" };
+  }
+
+  return { startHole: 1, endHole: 18, holesCount, holesSide: null };
+}
+
 function pickHoleFromActive(activeState) {
   const root = unwrapRound(activeState);
   if (!root) return null;
@@ -170,12 +212,17 @@ function pickCourseCenterAny(obj) {
   return obj?.courseCenter ?? c?.center ?? c?.courseCenter ?? null;
 }
 
-function getMissingHolesFromState(state, playersList) {
+function getMissingHolesFromState(state, playersList, startHole = 1, endHole = 18) {
   const players = Array.isArray(playersList) ? playersList : [];
   const ids = players.map((p, idx) => String(p?.id ?? String(idx)));
 
+  const s = Number(startHole);
+  const e = Number(endHole);
+  const start = Number.isFinite(s) ? s : 1;
+  const end = Number.isFinite(e) ? e : 18;
+
   const missing = [];
-  for (let h = 1; h <= 18; h++) {
+  for (let h = start; h <= end; h++) {
     let holeOk = true;
     for (const pid of ids) {
       const strokes = state?.holes?.[String(h)]?.players?.[String(pid)]?.strokes;
@@ -339,14 +386,21 @@ export default function HoleHubScreen({ navigation, route }) {
   const [activeSnap, setActiveSnap] = useState(null);
 
   const activeRoot = useMemo(() => unwrapRound(activeSnap), [activeSnap]);
+  const roundId = params.roundId ?? activeRoot?.id ?? activeRoot?.roundId ?? null;
+
+  const { startHole, endHole, holesCount, holesSide } = useMemo(() => {
+    const root = activeRoot || null;
+    return deriveHoleRangeFromRound(root, params);
+  }, [activeRoot, params]);
 
   // IMPORTANT: params.players is often empty in the regular flow.
   // Always fall back to active round snapshot players.
-  const players = Array.isArray(params.players) && params.players.length
-    ? params.players
-    : (Array.isArray(activeRoot?.players) ? activeRoot.players : []);
-
-  const roundId = params.roundId ?? activeRoot?.id ?? activeRoot?.roundId ?? null;
+  const players =
+    Array.isArray(params.players) && params.players.length
+      ? params.players
+      : Array.isArray(activeRoot?.players)
+        ? activeRoot.players
+        : [];
 
   const courseId = useMemo(() => {
     return courseIdFromParams ? String(courseIdFromParams) : pickCourseIdAny(activeRoot);
@@ -391,6 +445,22 @@ export default function HoleHubScreen({ navigation, route }) {
     // Last resort
     return buildDefaultHoleMeta();
   }, [activeSnap, params?.holeMeta]);
+
+  // Ensure currentHole is always within the selected range.
+  useEffect(() => {
+    setCurrentHole((prev) => clampHole(prev, startHole, endHole));
+  }, [startHole, endHole]);
+
+  // If navigation provided a hole, clamp to the range.
+  useEffect(() => {
+    const incoming = Number(params?.hole);
+    if (Number.isFinite(incoming)) {
+      const next = clampHole(incoming, startHole, endHole);
+      if (next !== currentHole) setCurrentHole(next);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params?.hole, startHole, endHole]);
+
   const par = holeMeta?.[String(currentHole)]?.par ?? 4;
 
   /* -------------------------- */
@@ -509,7 +579,6 @@ export default function HoleHubScreen({ navigation, route }) {
 
     return false;
   }, [prevClaimDoc]);
-  // NOTE: sgOnceKey removed — we now compute a local onceKey in the focus effect
 
   function clearSgTimer() {
     if (sgTimerRef.current) {
@@ -543,14 +612,6 @@ export default function HoleHubScreen({ navigation, route }) {
     };
   }, []);
 
-  useEffect(() => {
-    const incoming = Number(params?.hole);
-    if (Number.isFinite(incoming) && incoming >= 1 && incoming <= 18 && incoming !== currentHole) {
-      setCurrentHole(incoming);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params?.hole]);
-
   // Native-stack: disable iOS swipe-back gesture on HoleHub.
   // Exit/Home is the only way out.
   useEffect(() => {
@@ -575,9 +636,16 @@ export default function HoleHubScreen({ navigation, route }) {
           if (cancelled) return;
           setActiveSnap(s || null);
 
+          const root = unwrapRound(s) || {};
+          const range = deriveHoleRangeFromRound(root, params);
+
           const fromActive = pickHoleFromActive(s);
           if (fromActive) {
-            setCurrentHole((prev) => (fromActive !== prev ? fromActive : prev));
+            const next = clampHole(fromActive, range.startHole, range.endHole);
+            setCurrentHole((prev) => (next !== prev ? next : prev));
+          } else {
+            // If nothing persisted, default to the start of the selected range.
+            setCurrentHole((prev) => clampHole(prev, range.startHole, range.endHole));
           }
         } catch {
           if (!cancelled) setActiveSnap(null);
@@ -615,7 +683,7 @@ export default function HoleHubScreen({ navigation, route }) {
         bh.remove();
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [courseId])
+    }, [courseId, startHole, endHole, holesCount, holesSide])
   );
 
   const savedGpsHole = useMemo(() => {
@@ -701,6 +769,9 @@ export default function HoleHubScreen({ navigation, route }) {
 
       // Always compute the format hole key for the CURRENT hole (so jumping back works correctly)
       sideGameKey: sideGameKeyForHole(activeRoot, currentHole) || null,
+
+      holesCount,
+      holesSide,
 
       ...extra,
     });
@@ -845,7 +916,7 @@ export default function HoleHubScreen({ navigation, route }) {
 
     try {
       const active = (await RoundState.loadActiveRound()) || {};
-      const missing = getMissingHolesFromState(active, players);
+      const missing = getMissingHolesFromState(active, players, startHole, endHole);
 
       if (missing.length) {
         const list = missing.join(", ");
@@ -860,7 +931,7 @@ export default function HoleHubScreen({ navigation, route }) {
                 fixMissing: true,
                 missingHoles: missing,
                 missingIndex: 0,
-                finishReturnHole: 18,
+                finishReturnHole: endHole,
               });
             },
           },
@@ -930,8 +1001,8 @@ export default function HoleHubScreen({ navigation, route }) {
   }
 
   const showFinish =
-    currentHole === 18 &&
-    getMissingHolesFromState((activeSnap || {}).activeRound || activeSnap || {}, players).length === 0;
+    currentHole === endHole &&
+    getMissingHolesFromState((activeSnap || {}).activeRound || activeSnap || {}, players, startHole, endHole).length === 0;
 
   const holeListRef = useRef(null);
   const skipBeforeRemoveRef = useRef(false);
@@ -943,23 +1014,33 @@ export default function HoleHubScreen({ navigation, route }) {
     return Math.max(0, Math.round(pad));
   }, [holeBarWidth]);
 
-  const holesData = useMemo(() => Array.from({ length: 18 }).map((_, i) => i + 1), []);
+  const holesData = useMemo(() => {
+    const out = [];
+    for (let h = startHole; h <= endHole; h++) out.push(h);
+    return out;
+  }, [startHole, endHole]);
 
   const getItemLayout = useCallback((data, index) => {
     return { length: HOLE_STEP, offset: HOLE_STEP * index, index };
   }, []);
 
-  const scrollHoleToCenter = useCallback((h, animated = true) => {
-    if (!holeListRef.current) return;
-    const idx = Math.min(17, Math.max(0, Number(h || 1) - 1));
-    const offset = HOLE_STEP * idx;
+  const scrollHoleToCenter = useCallback(
+    (h, animated = true) => {
+      if (!holeListRef.current) return;
 
-    InteractionManager.runAfterInteractions(() => {
-      requestAnimationFrame(() => {
-        holeListRef.current?.scrollToOffset?.({ offset, animated });
+      const total = Math.max(1, holesData.length);
+      const idxRaw = Number(h || startHole) - startHole;
+      const idx = Math.min(total - 1, Math.max(0, idxRaw));
+      const offset = HOLE_STEP * idx;
+
+      InteractionManager.runAfterInteractions(() => {
+        requestAnimationFrame(() => {
+          holeListRef.current?.scrollToOffset?.({ offset, animated });
+        });
       });
-    });
-  }, []);
+    },
+    [holesData.length, startHole]
+  );
 
   useEffect(() => {
     if (!holeBarWidth) return;
@@ -987,13 +1068,13 @@ export default function HoleHubScreen({ navigation, route }) {
         title={useMemo(() => shortCourseTitle(courseName), [courseName])}
         subtitle={`${teeName} • Hole ${currentHole} • Par ${par}`}
         safeTop={false}
-        leftLabel={currentHole <= 1 ? "Exit" : "Back"}
+        leftLabel={currentHole <= startHole ? "Exit" : "Back"}
         onLeftPress={() => {
-          if (currentHole <= 1) {
+          if (currentHole <= startHole) {
             onPressHome();
             return;
           }
-          setCurrentHole((prev) => Math.max(1, Number(prev || 1) - 1));
+          setCurrentHole((prev) => Math.max(startHole, Number(prev || startHole) - 1));
         }}
         rightLabel="Home"
         onRightPress={onPressHome}
@@ -1105,19 +1186,25 @@ export default function HoleHubScreen({ navigation, route }) {
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: Math.max(10, (insets?.bottom || 0) + 8) }]}>
-        <Pressable style={styles.greenBtn} onPress={() => openScoreEntry()}>
-          <Text style={styles.greenText}>Input Scores</Text>
+        <Pressable
+          style={[
+            styles.greenBtn,
+            currentHole === endHole && styles.greenBtnFinish,
+            savingRound && currentHole === endHole && { opacity: 0.7 },
+          ]}
+          onPress={() => {
+            if (currentHole === endHole) {
+              onPressFinishRound();
+              return;
+            }
+            openScoreEntry();
+          }}
+          disabled={savingRound && currentHole === endHole}
+        >
+          <Text style={[styles.greenText, currentHole === endHole && styles.greenTextFinish]}>
+            {currentHole === endHole ? (savingRound ? "Saving…" : "Finish Round") : "Input Scores"}
+          </Text>
         </Pressable>
-
-        {showFinish ? (
-          <Pressable
-            onPress={onPressFinishRound}
-            disabled={savingRound}
-            style={({ pressed }) => [styles.finishBtn, pressed && styles.pressed, savingRound && { opacity: 0.7 }]}
-          >
-            <Text style={styles.finishBtnText}>{savingRound ? "Saving…" : "Finish Round"}</Text>
-          </Pressable>
-        ) : null}
       </View>
 
       <Modal visible={yardageOpen} transparent animationType="fade" onRequestClose={() => setYardageOpen(false)}>
@@ -1304,6 +1391,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   greenText: { color: GREEN_TEXT, fontSize: 17, fontWeight: "900" },
+
+  greenBtnFinish: {
+    backgroundColor: "rgba(255, 210, 92, 0.95)",
+  },
+  greenTextFinish: {
+    color: "#1A1A1A",
+  },
 
   finishBtn: {
     marginTop: 10,

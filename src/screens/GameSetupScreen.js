@@ -8,6 +8,7 @@ import {
   Pressable,
   ScrollView,
   Alert,
+  Modal,
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -73,6 +74,26 @@ export default function GameSetupScreen({ navigation, route }) {
       const r = await loadActiveRound(roundId);
       setFsGameId(r?.gameId || null);
       setFsGameTitle(r?.gameTitle || null);
+
+      const h = Number(r?.holesCount);
+      if (h === 9 || h === 18) {
+        setHolesCount(h);
+      } else {
+        setHolesCount(null);
+      }
+
+      const sideRaw = String(r?.holesSide || "").toLowerCase();
+      const side = sideRaw === "front" || sideRaw === "back" ? sideRaw : null;
+      if (h === 9) {
+        setHolesSide(side);
+      } else {
+        setHolesSide(null);
+      }
+
+      const s = String(r?.scoringMode || r?.scoring || "").toLowerCase();
+      if (s === "gross" || s === "net") {
+        setScoringMode(s);
+      }
     } catch {
       // non-blocking
     } finally {
@@ -130,6 +151,35 @@ export default function GameSetupScreen({ navigation, route }) {
     ICONS[effectiveGameId] || { name: "circle-small", color: "rgba(255,255,255,0.80)" };
 
   const [scoringMode, setScoringMode] = useState("net");
+  const [holesCount, setHolesCount] = useState(null); // null | 9 | 18
+  const [holesSide, setHolesSide] = useState(null); // null | "front" | "back" (only used when holesCount === 9)
+  const [nineSideModalOpen, setNineSideModalOpen] = useState(false);
+
+  function openNineSideModal() {
+    setNineSideModalOpen(true);
+  }
+
+  function closeNineSideModal() {
+    setNineSideModalOpen(false);
+  }
+
+  function chooseFrontNine() {
+    setHolesCount(9);
+    setHolesSide("front");
+    setNineSideModalOpen(false);
+  }
+
+  function chooseBackNine() {
+    setHolesCount(9);
+    setHolesSide("back");
+    setNineSideModalOpen(false);
+  }
+
+  function chooseEighteen() {
+    setHolesCount(18);
+    setHolesSide(null);
+    setNineSideModalOpen(false);
+  }
 
   async function goNext() {
     if (roundLoading) return;
@@ -139,10 +189,20 @@ export default function GameSetupScreen({ navigation, route }) {
       return;
     }
 
-    // Persist scoringMode so History reset stacks are stable across devices.
+    if (holesCount !== 9 && holesCount !== 18) {
+      Alert.alert("Select round length", "Choose 9 holes or 18 holes to continue.");
+      return;
+    }
+
+    if (holesCount === 9 && holesSide !== "front" && holesSide !== "back") {
+      Alert.alert("Select which 9", "Choose front 9 or back 9 to continue.");
+      return;
+    }
+
+    // Persist scoringMode + holesCount (+ holesSide) so History reset stacks are stable across devices.
     if (roundId) {
       try {
-        await updateActiveRound({ scoringMode, updatedAt: Date.now() }, roundId);
+        await updateActiveRound({ scoringMode, holesCount, holesSide: holesCount === 9 ? holesSide : null, updatedAt: Date.now() }, roundId);
       } catch {
         // non-blocking
       }
@@ -154,6 +214,8 @@ export default function GameSetupScreen({ navigation, route }) {
       gameId: effectiveGameId,
       gameTitle: game?.title || effectiveGameTitle || "Game",
       scoringMode, // "net" or "gross"
+      holesCount, // 9 or 18
+      holesSide: holesCount === 9 ? holesSide : null, // "front" | "back" | null
     });
   }
 
@@ -161,6 +223,9 @@ export default function GameSetupScreen({ navigation, route }) {
 
   const isGross = scoringMode === "gross";
   const isNet = scoringMode === "net";
+
+  const is9 = holesCount === 9;
+  const is18 = holesCount === 18;
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: BG }]}>
@@ -242,13 +307,7 @@ export default function GameSetupScreen({ navigation, route }) {
                   pressed && styles.pressed,
                 ]}
               >
-                <View style={styles.choiceTopRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.choiceTitle, isGross && styles.choiceTitleActive]}>
-                      Gross
-                    </Text>
-                  </View>
-
+                <View style={{ width: "100%", alignItems: "center", marginBottom: 8 }}>
                   {isGross ? (
                     <View style={styles.selectedPill}>
                       <MaterialCommunityIcons
@@ -266,6 +325,13 @@ export default function GameSetupScreen({ navigation, route }) {
                   )}
                 </View>
 
+                <Text
+                  style={[styles.choiceTitle, isGross && styles.choiceTitleActive, { textAlign: "center", width: "100%" }]}
+                  numberOfLines={1}
+                >
+                  Gross
+                </Text>
+
                 <Text style={[styles.choiceDesc, isGross && styles.choiceDescActive]}>
                   Raw strokes
                 </Text>
@@ -281,13 +347,7 @@ export default function GameSetupScreen({ navigation, route }) {
                   pressed && styles.pressed,
                 ]}
               >
-                <View style={styles.choiceTopRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.choiceTitle, isNet && styles.choiceTitleActive]}>
-                      Net
-                    </Text>
-                  </View>
-
+                <View style={{ width: "100%", alignItems: "center", marginBottom: 8 }}>
                   {isNet ? (
                     <View style={styles.selectedPill}>
                       <MaterialCommunityIcons
@@ -305,6 +365,13 @@ export default function GameSetupScreen({ navigation, route }) {
                   )}
                 </View>
 
+                <Text
+                  style={[styles.choiceTitle, isNet && styles.choiceTitleActive, { textAlign: "center", width: "100%" }]}
+                  numberOfLines={1}
+                >
+                  Net
+                </Text>
+
                 <Text style={[styles.choiceDesc, isNet && styles.choiceDescActive]}>
                   Handicap adjusted
                 </Text>
@@ -320,7 +387,135 @@ export default function GameSetupScreen({ navigation, route }) {
             </View>
           </View>
         </View>
+
+        {/* ROUND LENGTH selector (required) */}
+        <View style={styles.goldHero}>
+          <View style={styles.goldHeroInner}>
+            <Text style={styles.goldKicker}>ROUND LENGTH</Text>
+            <Text style={styles.goldTitle}>9 or 18 Holes</Text>
+            <Text style={styles.goldSub}>Choose how many holes you’re playing.</Text>
+
+            <View style={styles.choiceWrap}>
+              {/* 9 HOLES */}
+              <Pressable
+                onPress={openNineSideModal}
+                style={({ pressed }) => [
+                  styles.choiceBox,
+                  !is9 && styles.choiceBoxDim,
+                  is9 && styles.choiceBoxActive,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <View style={{ width: "100%", alignItems: "center", marginBottom: 8 }}>
+                  {is9 ? (
+                    <View style={styles.selectedPill}>
+                      <MaterialCommunityIcons
+                        name="check"
+                        size={14}
+                        color={GOLD}
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={styles.selectedPillText}>SELECTED</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.unselectedPill}>
+                      <Text style={styles.unselectedPillText}>TAP</Text>
+                    </View>
+                  )}
+                </View>
+
+                <Text
+                  style={[styles.choiceTitle, is9 && styles.choiceTitleActive, { textAlign: "center", width: "100%" }]}
+                  numberOfLines={1}
+                >
+                  9 Holes
+                </Text>
+                <Text style={[styles.choiceDesc, is9 && styles.choiceDescActive]}>
+                  Front nine
+                </Text>
+              </Pressable>
+
+              {/* 18 HOLES */}
+              <Pressable
+                onPress={chooseEighteen}
+                style={({ pressed }) => [
+                  styles.choiceBox,
+                  !is18 && styles.choiceBoxDim,
+                  is18 && styles.choiceBoxActive,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <View style={{ width: "100%", alignItems: "center", marginBottom: 8 }}>
+                  {is18 ? (
+                    <View style={styles.selectedPill}>
+                      <MaterialCommunityIcons
+                        name="check"
+                        size={14}
+                        color={GOLD}
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={styles.selectedPillText}>SELECTED</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.unselectedPill}>
+                      <Text style={styles.unselectedPillText}>TAP</Text>
+                    </View>
+                  )}
+                </View>
+
+                <Text
+                  style={[styles.choiceTitle, is18 && styles.choiceTitleActive, { textAlign: "center", width: "100%" }]}
+                  numberOfLines={1}
+                >
+                  18 Holes
+                </Text>
+
+                <Text style={[styles.choiceDesc, is18 && styles.choiceDescActive]}>
+                  Full round
+                </Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.microNoteWrap}>
+              <Text style={styles.microNote}>
+                {holesCount === 9
+                  ? holesSide === "front"
+                    ? "This round will run the front 9."
+                    : holesSide === "back"
+                      ? "This round will run the back 9."
+                      : "Choose front 9 or back 9 to continue."
+                  : holesCount === 18
+                    ? "This round will run 18 holes."
+                    : "Selection is required to continue."}
+              </Text>
+            </View>
+          </View>
+        </View>
       </ScrollView>
+
+      <Modal visible={nineSideModalOpen} transparent animationType="fade" onRequestClose={closeNineSideModal}>
+        <Pressable style={styles.modalOverlay} onPress={closeNineSideModal}>
+          <Pressable style={styles.modalCard} onPress={() => { }}>
+            <Text style={styles.modalKicker}>9 HOLE ROUND</Text>
+            <Text style={styles.modalTitle}>Which 9?</Text>
+            <Text style={styles.modalSub}>Choose front nine or back nine.</Text>
+
+            <View style={styles.modalRow}>
+              <Pressable onPress={chooseFrontNine} style={({ pressed }) => [styles.modalBtn, styles.modalBtnPrimary, pressed && styles.pressed]}>
+                <Text style={styles.modalBtnTextPrimary}>Front 9</Text>
+              </Pressable>
+
+              <Pressable onPress={chooseBackNine} style={({ pressed }) => [styles.modalBtn, pressed && styles.pressed]}>
+                <Text style={styles.modalBtnText}>Back 9</Text>
+              </Pressable>
+            </View>
+
+            <Pressable onPress={closeNineSideModal} style={({ pressed }) => [styles.modalClose, pressed && styles.pressed]}>
+              <Text style={styles.modalCloseText}>Cancel</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <View style={[styles.footer, { paddingBottom: footerPad, backgroundColor: BG }]}>
         <Pressable
@@ -422,59 +617,61 @@ const styles = StyleSheet.create({
   mainContent: { paddingHorizontal: 16, paddingTop: 14 },
 
   goldHero: {
-    borderRadius: 24,
-    borderWidth: 5,
+    borderRadius: 20,
+    borderWidth: 3,
     borderColor: "rgba(255, 210, 92, 0.92)",
     backgroundColor: "rgba(255,255,255,0.04)",
     overflow: "hidden",
-    marginBottom: 14,
+    marginBottom: 10,
   },
   goldHeroInner: {
-    margin: 10,
-    borderRadius: 18,
+    margin: 7,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: "rgba(255, 210, 92, 0.22)",
     backgroundColor: "rgba(0,0,0,0.12)",
-    padding: 18,
+    padding: 10,
     alignItems: "center",
   },
 
   goldKicker: {
     color: "rgba(255,255,255,0.72)",
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "900",
-    letterSpacing: 1.4,
+    letterSpacing: 1.25,
   },
   goldTitle: {
-    marginTop: 10,
+    marginTop: 6,
     color: "#fff",
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: "900",
-    letterSpacing: 0.2,
+    letterSpacing: 0.13,
   },
   goldSub: {
-    marginTop: 8,
+    marginTop: 4,
     color: "rgba(255,255,255,0.70)",
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "800",
     textAlign: "center",
-    lineHeight: 17,
+    lineHeight: 14,
   },
 
   choiceWrap: {
-    marginTop: 18,
+    marginTop: 9,
     width: "100%",
+    flexDirection: "row",
     gap: 12,
   },
 
   choiceBox: {
-    width: "100%",
-    borderRadius: 18,
+    flex: 1,
+    minHeight: 86,
+    borderRadius: 16,
     borderWidth: 2,
     borderColor: GREEN_BORDER,
     backgroundColor: "rgba(255,255,255,0.04)",
-    paddingVertical: 18,
-    paddingHorizontal: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -499,8 +696,8 @@ const styles = StyleSheet.create({
   selectedPill: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: "rgba(255, 210, 92, 0.85)",
@@ -509,14 +706,14 @@ const styles = StyleSheet.create({
 
   selectedPillText: {
     color: "rgba(255, 210, 92, 0.95)",
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "900",
-    letterSpacing: 0.9,
+    letterSpacing: 0.75,
   },
 
   unselectedPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: "rgba(46,204,113,0.45)",
@@ -525,25 +722,25 @@ const styles = StyleSheet.create({
 
   unselectedPillText: {
     color: "rgba(255,255,255,0.82)",
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "900",
-    letterSpacing: 0.9,
+    letterSpacing: 0.75,
   },
 
-  choiceTitle: { color: "#fff", fontSize: 18, fontWeight: "900", opacity: 0.9 },
+  choiceTitle: { color: "#fff", fontSize: 16, fontWeight: "900", opacity: 0.9 },
   choiceTitleActive: { opacity: 1 },
 
-  choiceDesc: { marginTop: 8, color: "rgba(255,255,255,0.70)", fontSize: 12, fontWeight: "800" },
+  choiceDesc: { marginTop: 4, color: "rgba(255,255,255,0.70)", fontSize: 11, fontWeight: "800" },
   choiceDescActive: { color: "rgba(255,255,255,0.82)" },
 
   microNoteWrap: {
-    marginTop: 16,
-    paddingTop: 14,
+    marginTop: 8,
+    paddingTop: 7,
     borderTopWidth: 1,
     borderTopColor: "rgba(255,255,255,0.10)",
     width: "100%",
   },
-  microNote: { color: "rgba(255,255,255,0.72)", fontSize: 12, fontWeight: "700", textAlign: "center" },
+  microNote: { color: "rgba(255,255,255,0.72)", fontSize: 10, fontWeight: "700", textAlign: "center" },
 
   footer: {
     position: "absolute",
@@ -563,6 +760,93 @@ const styles = StyleSheet.create({
     backgroundColor: PRIMARY,
   },
   primaryText: { color: "#fff", fontSize: 16, fontWeight: "900", letterSpacing: 0.4 },
+
+  modalOverlay: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 18,
+  },
+  modalCard: {
+    width: "100%",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(255, 210, 92, 0.28)",
+    backgroundColor: "rgba(10,14,22,0.96)",
+    padding: 16,
+  },
+  modalKicker: {
+    color: "rgba(255,255,255,0.70)",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1.4,
+    textAlign: "center",
+  },
+  modalTitle: {
+    marginTop: 10,
+    color: "#fff",
+    fontSize: 22,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  modalSub: {
+    marginTop: 8,
+    color: "rgba(255,255,255,0.72)",
+    fontSize: 13,
+    fontWeight: "800",
+    textAlign: "center",
+    lineHeight: 18,
+  },
+  modalRow: {
+    marginTop: 14,
+    flexDirection: "row",
+    gap: 12,
+  },
+  modalBtn: {
+    flex: 1,
+    height: 54,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "rgba(46,204,113,0.55)",
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
+  modalBtnPrimary: {
+    borderColor: "rgba(255, 210, 92, 0.90)",
+    backgroundColor: "rgba(255, 210, 92, 0.18)",
+  },
+  modalBtnText: {
+    color: "rgba(255,255,255,0.92)",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  modalBtnTextPrimary: {
+    color: "rgba(255, 210, 92, 0.95)",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  modalClose: {
+    marginTop: 12,
+    height: 46,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
+  modalCloseText: {
+    color: "rgba(255,255,255,0.86)",
+    fontSize: 13,
+    fontWeight: "900",
+    letterSpacing: 0.3,
+  },
 
   pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
 });

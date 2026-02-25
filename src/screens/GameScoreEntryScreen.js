@@ -111,11 +111,16 @@ function NumberChip({ n, active, onPress }) {
     );
 }
 
-function getMissingHolesFromState(state, normalizedPlayers) {
+function getMissingHolesFromState(state, normalizedPlayers, startHole = 1, endHole = 18) {
     const ids = (normalizedPlayers || []).map((p) => String(p.id));
     const missing = [];
 
-    for (let h = 1; h <= 18; h++) {
+    const s = Number(startHole);
+    const e = Number(endHole);
+    const start = Number.isFinite(s) ? s : 1;
+    const end = Number.isFinite(e) ? e : 18;
+
+    for (let h = start; h <= end; h++) {
         let ok = true;
         for (const pid of ids) {
             const strokes = state?.holes?.[String(h)]?.players?.[String(pid)]?.strokes;
@@ -145,32 +150,19 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         missingHoles,
         missingIndex,
         finishReturnHole,
+        holesCount: holesCountParam,
+        holesSide: holesSideParam,
     } = params;
 
     const isFixMode = !!fixMissing;
 
-    // Live round doc (for formatConfig lookup during fix-missing)
-    const [roundDoc, setRoundDoc] = useState(null);
+    const holesCount = Number(holesCountParam) === 9 || Number(holesCountParam) === 18 ? Number(holesCountParam) : 18;
+    const holesSide = String(holesSideParam || "").toLowerCase().trim() === "back" ? "back" : String(holesSideParam || "").toLowerCase().trim() === "front" ? "front" : null;
 
-    useEffect(() => {
-        const uid = auth?.currentUser?.uid || null;
-        const rid = String(roundIdParam || "").trim();
-        if (!uid || !rid) {
-            setRoundDoc(null);
-            return;
-        }
+    const rangeStart = holesCount === 9 ? (holesSide === "back" ? 10 : 1) : 1;
+    const rangeEnd = holesCount === 9 ? (holesSide === "back" ? 18 : 9) : 18;
 
-        const ref = doc(db, "users", String(uid), "rounds", String(rid));
-        const unsub = onSnapshot(
-            ref,
-            (snap) => setRoundDoc(snap?.exists?.() ? (snap.data() || null) : null),
-            () => setRoundDoc(null)
-        );
-
-        return () => unsub();
-    }, [roundIdParam]);
-
-    const holeNumber = Number(hole || 1);
+    const holeNumber = Number(hole || rangeStart);
     const holeMeta = useMemo(() => {
         return holeMetaParam && typeof holeMetaParam === "object" ? holeMetaParam : buildDefaultHoleMeta();
     }, [holeMetaParam]);
@@ -183,10 +175,11 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         const meUid = String(auth?.currentUser?.uid || "");
         return list.map((p, idx) => {
             const source = p?.source || null;
-            const forcedMeId = source === "me" && meUid ? meUid : null;
 
             return {
-                id: forcedMeId || safePlayerId(p, String(idx)),
+                // IMPORTANT: keep player ids stable for the entire round (p1/p2/...)
+                // Do NOT swap "me" to Firebase UID here or missing-hole checks will break.
+                id: safePlayerId(p, String(idx)),
                 name: safePlayerName(p, idx),
                 handicap: p?.handicap ?? 0,
                 source,
@@ -211,38 +204,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
     // -----------------------------
     // Regular format claim (Firestore)
     // -----------------------------
-    const sideGameKeyFromConfig = useMemo(() => {
-        if (!isFixMode) return "";
-        const h = Number(holeNumber || 1);
-
-        const cfg = roundDoc?.formatConfig && typeof roundDoc.formatConfig === "object" ? roundDoc.formatConfig : null;
-        if (!cfg) return "";
-
-        const listFor = (k) => {
-            const entry = cfg?.[k];
-            if (!entry || typeof entry !== "object") return [];
-            const a = Array.isArray(entry?.holes) ? entry.holes : [];
-            const b = Array.isArray(entry?.holesSelected) ? entry.holesSelected : [];
-            const hbr = entry?.holesByRound && typeof entry.holesByRound === "object" ? entry.holesByRound : null;
-            const r1 = hbr && Array.isArray(hbr?.r1) ? hbr.r1 : [];
-            const list = (r1.length ? r1 : b.length ? b : a).map((x) => Number(x)).filter((n) => Number.isFinite(n));
-            return list;
-        };
-
-        const hasHole = (k) => listFor(k).includes(h);
-
-        // Priority: second shot KP, then long drive, then KP
-        if (hasHole("secondshotkp") || hasHole("second_shot_kp") || hasHole("secondshot") || hasHole("2ndshotkp")) return "secondshotkp";
-        if (hasHole("longdrive") || hasHole("long_drive") || hasHole("ld")) return "longdrive";
-        if (hasHole("kp")) return "kp";
-
-        return "";
-    }, [isFixMode, holeNumber, roundDoc]);
-
-    const sideGameKey = useMemo(() => {
-        if (isFixMode) return String(sideGameKeyFromConfig || "").trim();
-        return String(sideGameKeyParam || "").trim();
-    }, [isFixMode, sideGameKeyParam, sideGameKeyFromConfig]);
+    const sideGameKey = useMemo(() => String(sideGameKeyParam || "").trim(), [sideGameKeyParam]);
 
     const claimable = useMemo(() => {
         const k = sideGameKey.toLowerCase();
@@ -280,17 +242,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         return () => unsub();
     }, [claimRef]);
 
-    const claimStatus = useMemo(() => String(claimDoc?.status || "").trim().toLowerCase(), [claimDoc]);
-    const holderPid = useMemo(() => String(claimDoc?.claimedByPlayerId || "").trim(), [claimDoc]);
     const holderName = useMemo(() => String(claimDoc?.claimedByPlayerName || "").trim(), [claimDoc]);
-
-    const sideGameTitle = useMemo(() => {
-        const k = String(sideGameKey || "").trim().toLowerCase();
-        if (k === "kp") return "KP";
-        if (k === "long_drive" || k === "longdrive" || k === "ld") return "Long Drive";
-        if (k === "second_shot_kp" || k === "secondshotkp" || k === "2nd_kp") return "Second Shot KP";
-        return "Side Game";
-    }, [sideGameKey]);
 
     const saveClaim = useCallback(
         async (pid, name) => {
@@ -326,57 +278,73 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         [claimRef, roundIdParam, holeNumber, sideGameKey]
     );
 
-    const markUnclaimed = useCallback(async () => {
-        if (!claimRef) return false;
+    const saveCarryover = useCallback(
+        async (pid, name) => {
+            if (!claimRef) return false;
 
-        const meUid = String(auth?.currentUser?.uid || "");
-        try {
-            await setDoc(
-                claimRef,
-                {
-                    roundId: String(roundIdParam || ""),
-                    holeNumber: Number(holeNumber || 1),
-                    formatKey: String(sideGameKey || ""),
-                    status: "unclaimed",
-                    claimedByPlayerId: null,
-                    claimedByPlayerName: null,
-                    claimedAt: null,
-                    updatedAt: serverTimestamp(),
-                    updatedByUid: meUid,
-                },
-                { merge: true }
-            );
-            return true;
-        } catch {
-            return false;
-        }
-    }, [claimRef, roundIdParam, holeNumber, sideGameKey]);
+            const meUid = String(auth?.currentUser?.uid || "");
+            const claimedByPlayerId = String(pid || "").trim();
+            const claimedByPlayerName = String(name || "Player").trim();
 
-    const markCarryOver = useCallback(async () => {
-        if (!claimRef) return false;
+            if (!claimedByPlayerId) return false;
 
-        const meUid = String(auth?.currentUser?.uid || "");
-        try {
-            await setDoc(
-                claimRef,
-                {
-                    roundId: String(roundIdParam || ""),
-                    holeNumber: Number(holeNumber || 1),
-                    formatKey: String(sideGameKey || ""),
-                    status: "carry_over",
-                    claimedByPlayerId: null,
-                    claimedByPlayerName: null,
-                    claimedAt: null,
-                    updatedAt: serverTimestamp(),
-                    updatedByUid: meUid,
-                },
-                { merge: true }
-            );
-            return true;
-        } catch {
-            return false;
-        }
-    }, [claimRef, roundIdParam, holeNumber, sideGameKey]);
+            try {
+                await setDoc(
+                    claimRef,
+                    {
+                        roundId: String(roundIdParam || ""),
+                        holeNumber: Number(holeNumber || 1),
+                        formatKey: String(sideGameKey || ""),
+                        claimedByPlayerId,
+                        claimedByPlayerName,
+                        status: "carryover",
+                        carryoverAt: serverTimestamp(),
+                        updatedAt: serverTimestamp(),
+                        updatedByUid: meUid,
+                    },
+                    { merge: true }
+                );
+                return true;
+            } catch {
+                return false;
+            }
+        },
+        [claimRef, roundIdParam, holeNumber, sideGameKey]
+    );
+
+    const saveUnclaimed = useCallback(
+        async (pid, name) => {
+            if (!claimRef) return false;
+
+            const meUid = String(auth?.currentUser?.uid || "");
+            const claimedByPlayerId = String(pid || "").trim();
+            const claimedByPlayerName = String(name || "Player").trim();
+
+            if (!claimedByPlayerId) return false;
+
+            try {
+                await setDoc(
+                    claimRef,
+                    {
+                        roundId: String(roundIdParam || ""),
+                        holeNumber: Number(holeNumber || 1),
+                        formatKey: String(sideGameKey || ""),
+                        claimedByPlayerId,
+                        claimedByPlayerName,
+                        status: "unclaimed",
+                        unclaimedAt: serverTimestamp(),
+                        updatedAt: serverTimestamp(),
+                        updatedByUid: meUid,
+                    },
+                    { merge: true }
+                );
+                return true;
+            } catch {
+                return false;
+            }
+        },
+        [claimRef, roundIdParam, holeNumber, sideGameKey]
+    )
 
     useEffect(() => {
         // Seed inputs once playerRows arrives (and keep any existing edits)
@@ -676,92 +644,6 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         goToHoleHub(nextHole, { roundId: res?.roundId || roundIdParam || null });
     }
 
-    async function onFinishRoundFromScoreEntry() {
-        Keyboard.dismiss();
-
-        if (!validateStrokesForThisHole()) return;
-
-        // Save current hole first (resumeHole stays 18)
-        const res = await persistHole({ resumeHole: 18 });
-
-        // Now validate the entire round for missing strokes
-        const state = (await loadActiveRound()) || {};
-        const remaining = getMissingHolesFromState(state, normalizedPlayers);
-
-        if (remaining.length) {
-            Alert.alert(
-                "Unentered scores",
-                `Missing strokes on holes:\n\n${remaining.join(", ")}`,
-                [
-                    { text: "Cancel", style: "cancel" },
-                    {
-                        text: "Fix now",
-                        style: "default",
-                        onPress: () => {
-                            const firstMissing = Number(remaining[0] || 1);
-                            skipBeforeRemoveRef.current = true;
-
-                            navigation.dispatch(
-                                StackActions.replace(ROUTES.SCORE_ENTRY, {
-                                    ...params,
-                                    sideGameKey: null,
-                                    hole: firstMissing,
-                                    fixMissing: true,
-                                    missingHoles: remaining,
-                                    missingIndex: 0,
-                                    finishReturnHole: 18,
-                                })
-                            );
-
-                            requestAnimationFrame(() => {
-                                skipBeforeRemoveRef.current = false;
-                            });
-                        },
-                    },
-                    {
-                        text: "Finish anyway",
-                        style: "destructive",
-                        onPress: () => {
-                            navigation.dispatch(
-                                CommonActions.navigate({
-                                    name: ROUTES.GAME_ROUND_CALCULATING,
-                                    params: {
-                                        roundId: res?.roundId || roundIdParam || null,
-                                        course,
-                                        tee,
-                                        players,
-                                        holeMeta,
-                                        courseName: course?.name,
-                                        teeName: tee?.name,
-                                    },
-                                    merge: true,
-                                })
-                            );
-                        },
-                    },
-                ]
-            );
-            return;
-        }
-
-        // No missing holes -> proceed to results
-        navigation.dispatch(
-            CommonActions.navigate({
-                name: ROUTES.GAME_ROUND_CALCULATING,
-                params: {
-                    roundId: res?.roundId || roundIdParam || null,
-                    course,
-                    tee,
-                    players,
-                    holeMeta,
-                    courseName: course?.name,
-                    teeName: tee?.name,
-                },
-                merge: true,
-            })
-        );
-    }
-
     async function doneFixMode() {
         Keyboard.dismiss();
 
@@ -770,12 +652,18 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         await persistHole({ skipResumeUpdate: true });
 
         const state = (await loadActiveRound()) || {};
-        const remaining = getMissingHolesFromState(state, normalizedPlayers);
+        const remaining = getMissingHolesFromState(state, normalizedPlayers, rangeStart, rangeEnd);
 
         if (!remaining.length) {
-            goToHoleHub(Number(finishReturnHole || 18), {
+            const ret = Number.isFinite(Number(finishReturnHole)) ? Number(finishReturnHole) : rangeEnd;
+
+            // IMPORTANT: when fix-mode completes, force the round resume/current hole to the return hole,
+            // otherwise HoleHub will snap back to the old saved currentHole (often 1).
+            await persistHole({ resumeHole: ret });
+
+            goToHoleHub(ret, {
                 showFinishPrompt: true,
-                hole: Number(finishReturnHole || 18),
+                hole: ret,
             });
             return;
         }
@@ -801,11 +689,15 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             if (nextIdx < 0) nextIdx = 0;
         }
 
+        // Safety: never leave the selected range in fix mode
+        if (Number(nextHole) < rangeStart || Number(nextHole) > rangeEnd) {
+            nextHole = remaining[0];
+        }
+
         skipBeforeRemoveRef.current = true;
         navigation.dispatch(
             StackActions.replace(ROUTES.SCORE_ENTRY, {
                 ...params,
-                sideGameKey: null,
                 hole: nextHole,
                 fixMissing: true,
                 missingHoles: original.length ? original : remaining,
@@ -862,130 +754,6 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             />
 
             <View style={styles.body}>
-                {claimable ? (
-                    <View style={styles.sideGameBanner}>
-                        <Text style={styles.sideGameTitle}>
-                            {sideGameTitle === "Second Shot KP"
-                                ? `Second Shot • KP • Hole ${holeNumber}`
-                                : sideGameTitle === "KP"
-                                    ? `KP • Hole ${holeNumber}`
-                                    : `${sideGameTitle} • Hole ${holeNumber}`}
-                        </Text>
-
-                        <Text style={styles.sideGameSub}>
-                            {claimStatus === "claimed" && holderName
-                                ? `Current holder: ${holderName}`
-                                : claimStatus === "carry_over"
-                                    ? "Carry over requested"
-                                    : claimStatus === "unclaimed"
-                                        ? "Marked unclaimed"
-                                        : "Currently unclaimed"}
-                        </Text>
-
-                        <View style={styles.sideGameBtnsRow}>
-                            <Pressable
-                                onPress={async () => {
-                                    const isClaimed = claimStatus === "claimed" && !!holderPid;
-
-                                    if (isClaimed) {
-                                        Alert.alert(
-                                            "Change from claimed?",
-                                            `This hole is currently claimed by ${holderName || "Player"}. Mark it unclaimed instead?`,
-                                            [
-                                                { text: "Cancel", style: "cancel" },
-                                                {
-                                                    text: "Mark Unclaimed",
-                                                    style: "default",
-                                                    onPress: async () => {
-                                                        const ok = await markUnclaimed();
-                                                        if (!ok) Alert.alert("Save failed", "Could not mark unclaimed. Please try again.");
-                                                    },
-                                                },
-                                            ]
-                                        );
-                                        return;
-                                    }
-
-                                    Alert.alert(
-                                        "Mark unclaimed?",
-                                        "This sets this format hole as unclaimed. You can change it anytime.",
-                                        [
-                                            { text: "Cancel", style: "cancel" },
-                                            {
-                                                text: "Mark Unclaimed",
-                                                style: "default",
-                                                onPress: async () => {
-                                                    const ok = await markUnclaimed();
-                                                    if (!ok) Alert.alert("Save failed", "Could not mark unclaimed. Please try again.");
-                                                },
-                                            },
-                                        ]
-                                    );
-                                }}
-                                style={({ pressed }) => [
-                                    styles.sideBtn,
-                                    styles.sideBtnUnclaimed,
-                                    claimStatus === "unclaimed" && styles.sideBtnUnclaimedOn,
-                                    claimStatus === "claimed" && styles.sideBtnMuted,
-                                    pressed && styles.pressed,
-                                ]}
-                            >
-                                <Text style={[styles.sideBtnText, claimStatus === "claimed" && styles.sideBtnTextMuted]}>Unclaimed</Text>
-                            </Pressable>
-
-                            <Pressable
-                                onPress={async () => {
-                                    const isClaimed = claimStatus === "claimed" && !!holderPid;
-
-                                    if (isClaimed) {
-                                        Alert.alert(
-                                            "Change from claimed?",
-                                            `This hole is currently claimed by ${holderName || "Player"}. Carry it over instead?`,
-                                            [
-                                                { text: "Cancel", style: "cancel" },
-                                                {
-                                                    text: "Carry Over",
-                                                    style: "default",
-                                                    onPress: async () => {
-                                                        const ok = await markCarryOver();
-                                                        if (!ok) Alert.alert("Save failed", "Could not mark carry over. Please try again.");
-                                                    },
-                                                },
-                                            ]
-                                        );
-                                        return;
-                                    }
-
-                                    Alert.alert(
-                                        "Carry over?",
-                                        "This carries this hole’s value forward to the next matching format hole. You can change it anytime.",
-                                        [
-                                            { text: "Cancel", style: "cancel" },
-                                            {
-                                                text: "Carry Over",
-                                                style: "default",
-                                                onPress: async () => {
-                                                    const ok = await markCarryOver();
-                                                    if (!ok) Alert.alert("Save failed", "Could not mark carry over. Please try again.");
-                                                },
-                                            },
-                                        ]
-                                    );
-                                }}
-                                style={({ pressed }) => [
-                                    styles.sideBtn,
-                                    styles.sideBtnCarry,
-                                    claimStatus === "carry_over" && styles.sideBtnCarryOn,
-                                    claimStatus === "claimed" && styles.sideBtnMuted,
-                                    pressed && styles.pressed,
-                                ]}
-                            >
-                                <Text style={[styles.sideBtnText, claimStatus === "claimed" && styles.sideBtnTextMuted]}>Carry Over</Text>
-                            </Pressable>
-                        </View>
-                    </View>
-                ) : null}
-
                 <FlatList
                     data={playerRows}
                     keyExtractor={(item) => String(item._pid)}
@@ -1004,51 +772,146 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                                 <View style={styles.playerTopRow}>
                                     <View style={{ flex: 1, minWidth: 0 }}>
                                         <Text style={styles.playerName}>{item._name}</Text>
-
                                         {claimable ? (
                                             <View style={{ marginTop: 8 }}>
                                                 <Pressable
                                                     disabled={toInt(val.strokes) <= 0}
                                                     onPress={async () => {
-                                                        const isClaimed = claimStatus === "claimed" && !!holderPid;
-                                                        const isOtherHolder = isClaimed && holderPid !== pid;
-
-                                                        if (isOtherHolder) {
-                                                            Alert.alert(
-                                                                "Overwrite claim?",
-                                                                `Current holder is ${holderName || "Player"}. Claim for ${item._name}?`,
-                                                                [
-                                                                    { text: "Cancel", style: "cancel" },
-                                                                    {
-                                                                        text: "Claim",
-                                                                        style: "default",
-                                                                        onPress: async () => {
-                                                                            const ok = await saveClaim(pid, item._name);
-                                                                            if (!ok) Alert.alert("Claim failed", "Could not save the claim. Please try again.");
-                                                                        },
-                                                                    },
-                                                                ]
-                                                            );
-                                                            return;
-                                                        }
-
+                                                        // Check if the format is eligible to claim
                                                         const ok = await saveClaim(pid, item._name);
                                                         if (!ok) {
                                                             Alert.alert("Claim failed", "Could not save the claim. Please try again.");
                                                             return;
                                                         }
+                                                        Alert.alert("Claim saved", `Format claimed for ${item._name}.`);
                                                     }}
                                                     style={({ pressed }) => [
                                                         styles.claimBtn,
-                                                        claimStatus === "claimed" && holderPid === pid && styles.claimBtnClaimed,
                                                         toInt(val.strokes) <= 0 && styles.claimBtnDisabled,
                                                         pressed && styles.pressed,
                                                     ]}
                                                 >
-                                                    <Text style={[styles.claimBtnText, claimStatus === "claimed" && holderPid === pid && styles.claimBtnTextClaimed]}>
-                                                        {claimStatus === "claimed" && holderPid === pid ? "Claimed" : toInt(val.strokes) <= 0 ? "Claim (enter strokes first)" : "Claim"}
+                                                    <Text style={styles.claimBtnText}>
+                                                        {toInt(val.strokes) <= 0 ? "Claim (enter strokes first)" : "Claim"}
                                                     </Text>
                                                 </Pressable>
+
+                                                {/* Carryover button */}
+                                                <Pressable
+                                                    disabled={toInt(val.strokes) <= 0}
+                                                    onPress={async () => {
+                                                        // Handle carryover logic here
+                                                        const ok = await saveCarryover(pid, item._name);
+                                                        if (!ok) {
+                                                            Alert.alert("Carryover failed", "Could not save the carryover. Please try again.");
+                                                            return;
+                                                        }
+                                                        Alert.alert("Carryover saved", `Format carryover for ${item._name}.`);
+                                                    }}
+                                                    style={({ pressed }) => [
+                                                        styles.carryoverBtn,
+                                                        toInt(val.strokes) <= 0 && styles.carryoverBtnDisabled,
+                                                        pressed && styles.pressed,
+                                                    ]}
+                                                >
+                                                    <Text style={styles.claimBtnText}>Carryover</Text>
+                                                </Pressable>
+
+                                                {/* Unclaimed button */}
+                                                <Pressable
+                                                    disabled={toInt(val.strokes) <= 0}
+                                                    onPress={async () => {
+                                                        // Handle unclaimed logic here
+                                                        const ok = await saveUnclaimed(pid, item._name);
+                                                        if (!ok) {
+                                                            Alert.alert("Unclaimed failed", "Could not mark as unclaimed. Please try again.");
+                                                            return;
+                                                        }
+                                                        Alert.alert("Unclaimed saved", `Format marked as unclaimed for ${item._name}.`);
+                                                    }}
+                                                    style={({ pressed }) => [
+                                                        styles.unclaimedBtn,
+                                                        toInt(val.strokes) <= 0 && styles.unclaimedBtnDisabled,
+                                                        pressed && styles.pressed,
+                                                    ]}
+                                                >
+                                                    <Text style={styles.claimBtnText}>Unclaimed</Text>
+                                                </Pressable>
+
+                                                {/* Display current holder or unclaimed */}
+                                                <Text style={styles.claimMetaText}>
+                                                    {holderName ? `Current holder: ${holderName}` : "Currently unclaimed"}
+                                                </Text>
+
+                                                <Pressable
+                                                    disabled={toInt(val.strokes) <= 0}
+                                                    onPress={async () => {
+                                                        const ok = await saveCarryover(pid, item._name);
+                                                        if (!ok) {
+                                                            Alert.alert("Carryover failed", "Could not save the carryover. Please try again.");
+                                                            return;
+                                                        }
+                                                        Alert.alert("Carryover saved", `Format carryover for ${item._name}.`);
+                                                    }}
+                                                    style={({ pressed }) => [
+                                                        styles.carryoverBtn,
+                                                        toInt(val.strokes) <= 0 && styles.carryoverBtnDisabled,
+                                                        pressed && styles.pressed,
+                                                    ]}
+                                                >
+                                                    <Text style={styles.claimBtnText}>Carryover</Text>
+                                                </Pressable>
+
+                                                <Pressable
+                                                    disabled={toInt(val.strokes) <= 0}
+                                                    onPress={async () => {
+                                                        const ok = await saveUnclaimed(pid, item._name);
+                                                        if (!ok) {
+                                                            Alert.alert("Unclaimed failed", "Could not mark as unclaimed. Please try again.");
+                                                            return;
+                                                        }
+                                                        Alert.alert("Unclaimed saved", `Format marked as unclaimed for ${item._name}.`);
+                                                    }}
+                                                    style={({ pressed }) => [
+                                                        styles.unclaimedBtn,
+                                                        toInt(val.strokes) <= 0 && styles.unclaimedBtnDisabled,
+                                                        pressed && styles.pressed,
+                                                    ]}
+                                                >
+                                                    <Text style={styles.claimBtnText}>Unclaimed</Text>
+                                                </Pressable>
+
+                                                <Text style={styles.claimMetaText}>
+                                                    {holderName ? `Current holder: ${holderName}` : "Currently unclaimed"}
+                                                </Text>
+                                            </View>
+                                        ) : null}
+                                        {claimable ? (
+                                            <View style={{ marginTop: 8 }}>
+                                                <Pressable
+                                                    disabled={toInt(val.strokes) <= 0}
+                                                    onPress={async () => {
+                                                        const ok = await saveClaim(pid, item._name);
+                                                        if (!ok) {
+                                                            Alert.alert("Claim failed", "Could not save the claim. Please try again.");
+                                                            return;
+                                                        }
+                                                        Alert.alert("Claim saved", `Format claimed for ${item._name}.`);
+                                                    }}
+                                                    style={({ pressed }) => [
+                                                        styles.claimBtn,
+                                                        toInt(val.strokes) <= 0 && styles.claimBtnDisabled,
+                                                        pressed && styles.pressed,
+                                                    ]}
+                                                >
+                                                    <Text style={styles.claimBtnText}>
+                                                        {toInt(val.strokes) <= 0 ? "Claim (enter strokes first)" : "Claim"}
+                                                    </Text>
+                                                </Pressable>
+
+                                                <Text style={styles.claimMetaText}>
+                                                    {holderName ? `Current holder: ${holderName}` : "Currently unclaimed"}
+                                                </Text>
                                             </View>
                                         ) : null}
                                     </View>
@@ -1138,22 +1001,10 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
             <View style={[styles.footer, { paddingBottom: Math.max(10, (insets?.bottom || 0) + 8) }]}>
                 <Pressable
-                    onPress={
-                        isFixMode
-                            ? doneFixMode
-                            : Number(holeNumber) >= 18
-                                ? onFinishRoundFromScoreEntry
-                                : onNextHole
-                    }
-                    style={({ pressed }) => [
-                        styles.primaryBtnFull,
-                        !isFixMode && Number(holeNumber) >= 18 && styles.primaryBtnFullFinish,
-                        pressed && styles.pressed,
-                    ]}
+                    onPress={isFixMode ? doneFixMode : onNextHole}
+                    style={({ pressed }) => [styles.primaryBtnFull, pressed && styles.pressed]}
                 >
-                    <Text style={styles.primaryText}>
-                        {isFixMode ? "Done" : Number(holeNumber) >= 18 ? "Save • Finish Round" : "Save • Next Hole"}
-                    </Text>
+                    <Text style={styles.primaryText}>{isFixMode ? "Done" : "Save • Next Hole"}</Text>
                 </Pressable>
             </View>
 
@@ -1194,19 +1045,19 @@ const styles = StyleSheet.create({
 
     playerCard: {
         backgroundColor: CARD,
-        borderRadius: 20,
-        padding: 10,
-        marginBottom: 8,
+        borderRadius: 22,
+        padding: 12,
+        marginBottom: 10,
         borderWidth: 1,
         borderColor: "rgba(242,201,76,0.35)",
     },
 
-    playerTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-    playerName: { flex: 1, color: WHITE, fontWeight: "900", fontSize: 15, letterSpacing: 0.2 },
+    playerTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+    playerName: { flex: 1, color: WHITE, fontWeight: "900", fontSize: 16, letterSpacing: 0.2 },
 
     statsPill: {
-        height: 30,
-        paddingHorizontal: 10,
+        height: 34,
+        paddingHorizontal: 12,
         borderRadius: 999,
         borderWidth: 1,
         alignItems: "center",
@@ -1214,10 +1065,10 @@ const styles = StyleSheet.create({
     },
     statsPillOn: { backgroundColor: "rgba(46,204,113,0.16)", borderColor: "rgba(46,204,113,0.30)" },
     statsPillOff: { backgroundColor: "rgba(255,255,255,0.06)", borderColor: "rgba(255,255,255,0.14)" },
-    statsPillText: { color: WHITE, fontWeight: "900", fontSize: 11, letterSpacing: 0.2 },
+    statsPillText: { color: WHITE, fontWeight: "900", fontSize: 12, letterSpacing: 0.2 },
 
     claimBtn: {
-        height: 32,
+        height: 36,
         borderRadius: 14,
         paddingHorizontal: 12,
         alignItems: "center",
@@ -1229,95 +1080,32 @@ const styles = StyleSheet.create({
     claimBtnDisabled: {
         opacity: 0.45,
     },
-    claimBtnClaimed: {
-        backgroundColor: "rgba(242,201,76,0.75)",
-        borderColor: "rgba(242,201,76,0.95)",
-    },
-    claimBtnTextClaimed: {
-        color: "#0B1220",
-    },
     claimBtnText: { color: WHITE, fontWeight: "900", fontSize: 12, letterSpacing: 0.4 },
     claimMetaText: { marginTop: 6, color: "rgba(255,255,255,0.72)", fontWeight: "800", fontSize: 12 },
 
-    sideGameBanner: {
-        marginTop: 10,
-        marginBottom: 8,
-        borderRadius: 22,
-        padding: 12,
-        borderWidth: 1,
-        borderColor: "rgba(242,201,76,0.28)",
-        backgroundColor: "rgba(255,255,255,0.06)",
-        alignItems: "center",
-    },
-    sideGameTitle: { color: WHITE, fontWeight: "900", fontSize: 13, letterSpacing: 0.6, textAlign: "center" },
-    sideGameSub: { marginTop: 8, color: "rgba(255,255,255,0.72)", fontWeight: "800", fontSize: 12, textAlign: "center" },
 
-    sideGameBtnsRow: {
-        marginTop: 10,
-        width: "100%",
-        flexDirection: "row",
-        gap: 10,
-        alignItems: "stretch",
-        justifyContent: "space-between",
-    },
-    sideBtn: {
-        flex: 1,
-        height: 44,
-        paddingHorizontal: 12,
-        borderRadius: 14,
-        alignItems: "center",
-        justifyContent: "center",
-        borderWidth: 1,
-    },
-    sideBtnMuted: {
-        backgroundColor: "rgba(255,255,255,0.04)",
-        borderColor: "rgba(255,255,255,0.10)",
-        opacity: 0.60,
-    },
-    sideBtnTextMuted: {
-        opacity: 0.70,
-    },
-    sideBtnUnclaimed: {
-        backgroundColor: "rgba(255,80,80,0.10)",
-        borderColor: "rgba(255,80,80,0.22)",
-    },
-    sideBtnUnclaimedOn: {
-        backgroundColor: "rgba(255,80,80,0.18)",
-        borderColor: "rgba(255,80,80,0.45)",
-    },
-    sideBtnCarry: {
-        backgroundColor: "rgba(46,125,255,0.14)",
-        borderColor: "rgba(46,125,255,0.28)",
-    },
-    sideBtnCarryOn: {
-        backgroundColor: "rgba(46,125,255,0.26)",
-        borderColor: "rgba(46,125,255,0.60)",
-    },
-    sideBtnText: { color: WHITE, fontWeight: "900", fontSize: 13, letterSpacing: 0.2 },
-
-
-    inputRow: { flexDirection: "row", gap: 10, marginTop: 8 },
+    inputRow: { flexDirection: "row", gap: 12, marginTop: 10 },
     fieldWrap: {
         flex: 1,
         backgroundColor: INNER,
-        borderRadius: 16,
-        padding: 10,
+        borderRadius: 18,
+        padding: 12,
         borderWidth: 1,
         borderColor: "rgba(46,204,113,0.35)",
     },
-    fieldLabel: { color: MUTED, fontWeight: "900", fontSize: 10, letterSpacing: 0.6 },
+    fieldLabel: { color: MUTED, fontWeight: "900", fontSize: 11, letterSpacing: 0.6 },
     valueBox: {
-        marginTop: 8,
-        height: 44,
-        borderRadius: 14,
+        marginTop: 10,
+        height: 52,
+        borderRadius: 16,
         backgroundColor: "rgba(0,0,0,0.22)",
         borderWidth: 1,
         borderColor: "rgba(255,255,255,0.14)",
         alignItems: "center",
         justifyContent: "center",
     },
-    valueText: { color: WHITE, fontSize: 19, fontWeight: "900", letterSpacing: 0.2 },
-    fieldHint: { marginTop: 6, color: "rgba(255,255,255,0.60)", fontWeight: "800", fontSize: 9, letterSpacing: 0.2 },
+    valueText: { color: WHITE, fontSize: 22, fontWeight: "900", letterSpacing: 0.2 },
+    fieldHint: { marginTop: 8, color: "rgba(255,255,255,0.60)", fontWeight: "800", fontSize: 10, letterSpacing: 0.2 },
 
     divider: { marginTop: 14, height: 1, backgroundColor: "rgba(255,255,255,0.10)" },
 
@@ -1414,11 +1202,6 @@ const styles = StyleSheet.create({
         justifyContent: "center",
         borderWidth: 1,
         borderColor: "rgba(255,255,255,0.14)",
-    },
-    primaryBtnFullFinish: {
-        backgroundColor: "rgba(46,125,255,0.22)",
-        borderWidth: 3,
-        borderColor: YELLOW,
     },
 
     primaryText: { color: WHITE, fontWeight: "900" },
