@@ -166,21 +166,17 @@ export default function GameSetupScreen({ navigation, route }) {
   function chooseFrontNine() {
     setHolesCount(9);
     setHolesSide("front");
-    setNineSideModalOpen(false);
   }
 
   function chooseBackNine() {
     setHolesCount(9);
     setHolesSide("back");
-    setNineSideModalOpen(false);
   }
 
   function chooseEighteen() {
     setHolesCount(18);
     setHolesSide(null);
-    setNineSideModalOpen(false);
   }
-
   async function goNext() {
     if (roundLoading) return;
 
@@ -501,18 +497,46 @@ export default function GameSetupScreen({ navigation, route }) {
             <Text style={styles.modalSub}>Choose front nine or back nine.</Text>
 
             <View style={styles.modalRow}>
-              <Pressable onPress={chooseFrontNine} style={({ pressed }) => [styles.modalBtn, styles.modalBtnPrimary, pressed && styles.pressed]}>
-                <Text style={styles.modalBtnTextPrimary}>Front 9</Text>
+              <Pressable
+                onPress={chooseFrontNine}
+                style={({ pressed }) => [
+                  styles.modalBtn,
+                  holesSide === "front" && styles.modalBtnPrimary,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={holesSide === "front" ? styles.modalBtnTextPrimary : styles.modalBtnText}>Front 9</Text>
               </Pressable>
 
-              <Pressable onPress={chooseBackNine} style={({ pressed }) => [styles.modalBtn, pressed && styles.pressed]}>
-                <Text style={styles.modalBtnText}>Back 9</Text>
+              <Pressable
+                onPress={chooseBackNine}
+                style={({ pressed }) => [
+                  styles.modalBtn,
+                  holesSide === "back" && styles.modalBtnPrimary,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={holesSide === "back" ? styles.modalBtnTextPrimary : styles.modalBtnText}>Back 9</Text>
               </Pressable>
             </View>
 
-            <Pressable onPress={closeNineSideModal} style={({ pressed }) => [styles.modalClose, pressed && styles.pressed]}>
-              <Text style={styles.modalCloseText}>Cancel</Text>
-            </Pressable>
+            <View style={styles.modalFooterCol}>
+              <Pressable onPress={closeNineSideModal} style={({ pressed }) => [styles.modalCloseFull, pressed && styles.pressed]}>
+                <Text style={styles.modalCloseText}>Cancel</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={closeNineSideModal}
+                disabled={holesSide !== "front" && holesSide !== "back"}
+                style={({ pressed }) => [
+                  styles.modalContinueFull,
+                  (holesSide !== "front" && holesSide !== "back") && { opacity: 0.45 },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.modalContinueText}>Continue</Text>
+              </Pressable>
+            </View>
           </Pressable>
         </Pressable>
       </Modal>
@@ -831,8 +855,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "900",
   },
-  modalClose: {
+  modalFooterCol: {
     marginTop: 12,
+    gap: 12,
+  },
+
+  modalCloseFull: {
+    width: "100%",
     height: 46,
     borderRadius: 14,
     alignItems: "center",
@@ -841,8 +870,27 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.14)",
     backgroundColor: "rgba(255,255,255,0.06)",
   },
+
+  modalContinueFull: {
+    width: "100%",
+    height: 46,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255, 210, 92, 0.70)",
+    backgroundColor: "rgba(255, 210, 92, 0.18)",
+  },
+
   modalCloseText: {
     color: "rgba(255,255,255,0.86)",
+    fontSize: 13,
+    fontWeight: "900",
+    letterSpacing: 0.3,
+  },
+
+  modalContinueText: {
+    color: "rgba(255, 210, 92, 0.95)",
     fontSize: 13,
     fontWeight: "900",
     letterSpacing: 0.3,
