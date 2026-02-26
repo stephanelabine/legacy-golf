@@ -180,6 +180,7 @@ function normalizePlayersForRound(players) {
 export default function PlayerEntryScreen({ navigation, route }) {
   const params = route?.params || {};
   const roundIdParam = params?.roundId || null;
+  const isShared = String(roundIdParam || "").startsWith("sr_");
 
   const course = params?.course || null;
   const tee = params?.tee || null;
@@ -224,7 +225,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
 
   const [inviteModal, setInviteModal] = useState(false);
 
-  // Host code (generated once)
+  // Host code (generated once) - SOLO only
   const hostJoinCode = useMemo(() => makeJoinCode(), []);
 
   // Join UI (for now, inside Invite modal)
@@ -232,9 +233,8 @@ export default function PlayerEntryScreen({ navigation, route }) {
   const [joining, setJoining] = useState(false);
 
   // Live lobby state
-  const [lobbyCode, setLobbyCode] = useState(hostJoinCode);
+  const [lobbyCode, setLobbyCode] = useState(isShared ? "" : hostJoinCode);
   const [lobbyDoc, setLobbyDoc] = useState(null);
-
   const lobbyUnsubRef = useRef(null);
   const lobbyCreatedRef = useRef(false);
 
@@ -418,7 +418,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
   async function onShareInvite() {
     try {
       await Share.share({
-        message: `Legacy Golf — Join my game\nJoin Code: ${lobbyCode}\n(QR join coming soon)`,
+        message: `Legacy Golf — Join my round\nJoin Code: ${lobbyCode}\nHome → Start Round → Join a round`,
       });
     } catch { }
   }
@@ -611,7 +611,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
       scoring,
       players,
       playerCount,
-      joinCode: lobbyCode,
+      ...(isShared ? {} : { joinCode: lobbyCode }),
     });
   }
 
@@ -645,8 +645,10 @@ export default function PlayerEntryScreen({ navigation, route }) {
 
   const doneIsPrimary = buddyAddedThisSession;
 
-  // LOBBY: create + subscribe
+  // LOBBY: create + subscribe (SOLO only)
   async function ensureLobbyCreated() {
+    if (isShared) return;
+
     const uid = auth?.currentUser?.uid || null;
     if (!uid) return;
 
@@ -759,8 +761,42 @@ export default function PlayerEntryScreen({ navigation, route }) {
     }
   }
 
-  // Create lobby when screen mounts (host flow)
+  // SHARED: subscribe to sharedRounds/{roundId} to display the canonical joinCode (no lobbies)
   useEffect(() => {
+    if (!isShared) return;
+    if (!roundIdParam) return;
+
+    let unsub = null;
+
+    try {
+      const ref = doc(db, "sharedRounds", String(roundIdParam));
+      unsub = onSnapshot(
+        ref,
+        (snap) => {
+          if (!snap.exists()) return;
+          const data = snap.data() || {};
+          const code = normalizeJoinCode(data?.joinCode || "");
+          if (code) setLobbyCode(code);
+        },
+        () => {
+          // non-blocking
+        }
+      );
+    } catch {
+      // ignore
+    }
+
+    return () => {
+      try {
+        unsub && unsub();
+      } catch { }
+    };
+  }, [isShared, roundIdParam]);
+
+  // SOLO: Create lobby when screen mounts (host flow)
+  useEffect(() => {
+    if (isShared) return;
+
     ensureLobbyCreated();
 
     return () => {
@@ -770,7 +806,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isShared]);
 
   // JOIN: enter code, join lobby, then subscribe
   async function joinLobbyByCode() {
@@ -1167,8 +1203,12 @@ export default function PlayerEntryScreen({ navigation, route }) {
 
             <View style={styles.codeCard}>
               <Text style={styles.codeLabel}>JOIN CODE</Text>
-              <Text style={styles.codeValue}>{lobbyCode}</Text>
-              <Text style={styles.codeNote}>Share now. Players can join by entering this code.</Text>
+              <Text style={styles.codeValue}>{lobbyCode || "—"}</Text>
+              <Text style={styles.codeNote}>
+                {isShared
+                  ? "Share now. Players join from Home → Start Round → Join a round."
+                  : "Share now. Players can join by entering this code."}
+              </Text>
             </View>
 
             <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
@@ -1184,53 +1224,57 @@ export default function PlayerEntryScreen({ navigation, route }) {
               </Pressable>
             </View>
 
-            <View style={styles.modalSectionDivider} />
+            {!isShared ? (
+              <>
+                <View style={styles.modalSectionDivider} />
 
-            <Text style={styles.sectionTitle}>Joined Players</Text>
-            {lobbyMembersList.length ? (
-              <View style={{ marginTop: 8 }}>
-                {lobbyMembersList.map((m) => (
-                  <View key={m.uid} style={styles.joinedRow}>
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={styles.joinedName} numberOfLines={1}>
-                        {displayNameFirstLastInitial(m.name)} {m.role === "host" ? "(Host)" : ""}
-                      </Text>
-                      <Text style={styles.joinedMeta}>HCP {formatHcp1(m.handicap)}</Text>
-                    </View>
-                    <View style={styles.joinedBadge}>
-                      <Text style={styles.joinedBadgeText}>Joined</Text>
-                    </View>
+                <Text style={styles.sectionTitle}>Joined Players</Text>
+                {lobbyMembersList.length ? (
+                  <View style={{ marginTop: 8 }}>
+                    {lobbyMembersList.map((m) => (
+                      <View key={m.uid} style={styles.joinedRow}>
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <Text style={styles.joinedName} numberOfLines={1}>
+                            {displayNameFirstLastInitial(m.name)} {m.role === "host" ? "(Host)" : ""}
+                          </Text>
+                          <Text style={styles.joinedMeta}>HCP {formatHcp1(m.handicap)}</Text>
+                        </View>
+                        <View style={styles.joinedBadge}>
+                          <Text style={styles.joinedBadgeText}>Joined</Text>
+                        </View>
+                      </View>
+                    ))}
                   </View>
-                ))}
-              </View>
-            ) : (
-              <Text style={styles.emptyText}>No one has joined yet.</Text>
-            )}
+                ) : (
+                  <Text style={styles.emptyText}>No one has joined yet.</Text>
+                )}
 
-            <View style={styles.modalSectionDivider} />
+                <View style={styles.modalSectionDivider} />
 
-            <Text style={styles.sectionTitle}>Join a Game (for testing)</Text>
-            <TextInput
-              style={styles.modalInput}
-              value={joinCodeInput}
-              onChangeText={(v) => setJoinCodeInput(normalizeJoinCode(v))}
-              placeholder="Enter join code"
-              placeholderTextColor="rgba(255,255,255,0.35)"
-              autoCapitalize="characters"
-              returnKeyType="done"
-            />
+                <Text style={styles.sectionTitle}>Join a Game (for testing)</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={joinCodeInput}
+                  onChangeText={(v) => setJoinCodeInput(normalizeJoinCode(v))}
+                  placeholder="Enter join code"
+                  placeholderTextColor="rgba(255,255,255,0.35)"
+                  autoCapitalize="characters"
+                  returnKeyType="done"
+                />
 
-            <Pressable
-              onPress={joinLobbyByCode}
-              disabled={joining}
-              style={({ pressed }) => [
-                styles.joinBtn,
-                joining && { opacity: 0.7 },
-                pressed && !joining && styles.pressed,
-              ]}
-            >
-              <Text style={styles.joinBtnText}>{joining ? "Joining..." : "Join Game"}</Text>
-            </Pressable>
+                <Pressable
+                  onPress={joinLobbyByCode}
+                  disabled={joining}
+                  style={({ pressed }) => [
+                    styles.joinBtn,
+                    joining && { opacity: 0.7 },
+                    pressed && !joining && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.joinBtnText}>{joining ? "Joining..." : "Join Game"}</Text>
+                </Pressable>
+              </>
+            ) : null}
           </Pressable>
         </Pressable>
       </Modal>
