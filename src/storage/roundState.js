@@ -6,11 +6,6 @@ import {
   setDoc,
   updateDoc,
   serverTimestamp,
-  collection,
-  getDocs,
-  query,
-  where,
-  limit,
   arrayUnion,
 } from "firebase/firestore";
 
@@ -33,6 +28,9 @@ function roundRef(uid, roundId) {
 }
 function sharedRoundRef(roundId) {
   return doc(db, "sharedRounds", String(roundId));
+}
+function sharedRoundCodeRef(code) {
+  return doc(db, "sharedRoundCodes", String(code));
 }
 
 function uidOrNull() {
@@ -185,7 +183,22 @@ export async function createSharedSetupRound(initial = {}) {
   };
 
   try {
+    // shared round doc
     await setDoc(sharedRoundRef(roundId), base, { merge: true });
+
+    // join-code lookup doc (readable by signed-in users)
+    await setDoc(
+      sharedRoundCodeRef(joinCode),
+      {
+        roundId,
+        hostUid: uid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    // active pointer for host
     await setDoc(activeMetaRef(uid), { activeRoundId: roundId, updatedAt: serverTimestamp() }, { merge: true });
     await cacheRoundId(roundId);
 
@@ -196,7 +209,7 @@ export async function createSharedSetupRound(initial = {}) {
   }
 }
 
-// Find a shared round by join code
+// Find a shared round by join code (via sharedRoundCodes/{CODE})
 export async function findSharedRoundByJoinCode(codeRaw) {
   const uid = uidOrNull();
   if (!uid) return null;
@@ -205,15 +218,14 @@ export async function findSharedRoundByJoinCode(codeRaw) {
   if (!code) return null;
 
   try {
-    const q = query(collection(db, "sharedRounds"), where("joinCode", "==", code), limit(1));
-    const snap = await getDocs(q);
-    if (snap.empty) return null;
+    const snap = await getDoc(sharedRoundCodeRef(code));
+    if (!snap.exists()) return null;
 
-    const docSnap = snap.docs[0];
-    const data = docSnap.data() || {};
-    const roundId = String(docSnap.id);
+    const data = snap.data() || {};
+    const roundId = String(data.roundId || "");
+    if (!roundId) return null;
 
-    return { ...data, roundId };
+    return { ...data, roundId, joinCode: code };
   } catch {
     return null;
   }
@@ -228,14 +240,17 @@ export async function joinSharedRoundByCode(codeRaw) {
   if (!found?.roundId) return null;
 
   try {
+    // join update (allowed by rules even before participant)
     await updateDoc(sharedRoundRef(found.roundId), {
       participantUids: arrayUnion(uid),
       updatedAt: serverTimestamp(),
     });
 
+    // set active pointer for joiner
     await setDoc(activeMetaRef(uid), { activeRoundId: found.roundId, updatedAt: serverTimestamp() }, { merge: true });
     await cacheRoundId(found.roundId);
 
+    // now that we are a participant, we can read the round doc
     const snap = await getDoc(sharedRoundRef(found.roundId));
     return snap.exists() ? { ...(snap.data() || {}), roundId: found.roundId } : { ...found, roundId: found.roundId };
   } catch {

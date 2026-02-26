@@ -109,10 +109,25 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
             return;
         }
 
-        const ref = doc(db, "users", uid, "rounds", String(roundId));
+        const isShared = String(roundId).startsWith("sr_");
+        const ref = isShared
+            ? doc(db, "sharedRounds", String(roundId))
+            : doc(db, "users", uid, "rounds", String(roundId));
+
         const unsub = onSnapshot(
             ref,
-            (snap) => setRoundDoc(snap.exists() ? snap.data() : null),
+            (snap) => {
+                const roundData = snap.exists() ? snap.data() : null;
+                setRoundDoc(roundData);
+
+                if (isShared && roundData?.status !== "in_progress") {
+                    // If it's a shared round and not in progress, show "Waiting for host" message
+                    if (roundData?.status === "waiting_for_host") {
+                        Alert.alert("Waiting for host", "The host has not started the round yet.");
+                        navigation.goBack();  // Routing back to Home screen if the host hasn't started
+                    }
+                }
+            },
             (err) => Alert.alert("Round error", err?.message || "Could not load round.")
         );
 
@@ -446,6 +461,11 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
 
             <View style={styles.footer}>
                 <Pressable
+                    disabled={
+                        String(roundId || "").startsWith("sr_") &&
+                        String(roundDoc?.hostUid || "") &&
+                        String(roundDoc?.hostUid || "") !== String(auth?.currentUser?.uid || "")
+                    }
                     onPress={async () => {
                         try {
                             const uid = auth?.currentUser?.uid || null;
@@ -458,7 +478,18 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
                                 return;
                             }
 
-                            const ref = doc(db, "users", uid, "rounds", String(roundId));
+                            const isShared = String(roundId).startsWith("sr_");
+                            const hostUid = String(roundDoc?.hostUid || "");
+
+                            if (isShared && hostUid && hostUid !== String(uid)) {
+                                Alert.alert("Waiting for host", "Only the host can start the round.");
+                                return;
+                            }
+
+                            const ref = isShared
+                                ? doc(db, "sharedRounds", String(roundId))
+                                : doc(db, "users", uid, "rounds", String(roundId));
+
                             const snap = await getDoc(ref);
                             const data = snap.exists() ? (snap.data() || {}) : {};
 
@@ -483,9 +514,21 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
                             Alert.alert("Start failed", e?.message || "Could not start the round.");
                         }
                     }}
-                    style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}
+                    style={({ pressed }) => [
+                        styles.primaryBtn,
+                        String(roundId || "").startsWith("sr_") &&
+                        String(roundDoc?.hostUid || "") &&
+                        String(roundDoc?.hostUid || "") !== String(auth?.currentUser?.uid || "") && { opacity: 0.55 },
+                        pressed && styles.pressed,
+                    ]}
                 >
-                    <Text style={styles.primaryText}>Start Round</Text>
+                    <Text style={styles.primaryText}>
+                        {String(roundId || "").startsWith("sr_") &&
+                            String(roundDoc?.hostUid || "") &&
+                            String(roundDoc?.hostUid || "") !== String(auth?.currentUser?.uid || "")
+                            ? "Waiting for host"
+                            : "Start Round"}
+                    </Text>
                 </Pressable>
             </View>
         </View>

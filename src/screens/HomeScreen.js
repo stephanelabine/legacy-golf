@@ -224,13 +224,11 @@ export default function HomeScreen({ navigation }) {
 
     closeRoundSheet();
 
-    Alert.alert(
-      "Waiting for host",
-      "The host is still setting up the round. Please wait until they reach the Round Briefing screen, then try again.",
-      [{ text: "OK" }]
-    );
+    navigation.navigate(ROUTES.GAMES, {
+      mode: "join",
+      joinCode: code,
+    });
   }
-
   const sheetY = sheetAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [SHEET_H + 40, 0],
