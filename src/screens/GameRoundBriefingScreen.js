@@ -463,7 +463,7 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
                 <Pressable
                     disabled={
                         String(roundId || "").startsWith("sr_") &&
-                        String(roundDoc?.hostUid || "") &&
+                        !!String(roundDoc?.hostUid || "") &&
                         String(roundDoc?.hostUid || "") !== String(auth?.currentUser?.uid || "")
                     }
                     onPress={async () => {
@@ -517,14 +517,14 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
                     style={({ pressed }) => [
                         styles.primaryBtn,
                         String(roundId || "").startsWith("sr_") &&
-                        String(roundDoc?.hostUid || "") &&
+                        !!String(roundDoc?.hostUid || "") &&
                         String(roundDoc?.hostUid || "") !== String(auth?.currentUser?.uid || "") && { opacity: 0.55 },
                         pressed && styles.pressed,
                     ]}
                 >
                     <Text style={styles.primaryText}>
                         {String(roundId || "").startsWith("sr_") &&
-                            String(roundDoc?.hostUid || "") &&
+                            !!String(roundDoc?.hostUid || "") &&
                             String(roundDoc?.hostUid || "") !== String(auth?.currentUser?.uid || "")
                             ? "Waiting for host"
                             : "Start Round"}
