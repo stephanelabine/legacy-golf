@@ -279,7 +279,7 @@ export async function getActiveRoundId() {
   return cached || null;
 }
 
-// Load active round (Firestore) - SOLO only (existing behavior)
+// Load active round (Firestore) - SOLO or SHARED (based on roundId prefix)
 export async function loadActiveRound(roundIdArg) {
   const uid = uidOrNull();
   if (!uid) return null;
@@ -287,8 +287,11 @@ export async function loadActiveRound(roundIdArg) {
   const roundId = roundIdArg || (await getActiveRoundId());
   if (!roundId) return null;
 
+  const isShared = String(roundId).startsWith("sr_");
+  const ref = isShared ? sharedRoundRef(roundId) : roundRef(uid, roundId);
+
   try {
-    const snap = await getDoc(roundRef(uid, roundId));
+    const snap = await getDoc(ref);
     if (!snap.exists()) return null;
     const data = snap.data() || {};
     return { ...data, roundId };
@@ -297,7 +300,7 @@ export async function loadActiveRound(roundIdArg) {
   }
 }
 
-// Merge update active round (Firestore) - SOLO only (existing behavior)
+// Merge update active round (Firestore) - SOLO or SHARED (based on roundId prefix)
 export async function updateActiveRound(patch, roundIdArg) {
   const uid = uidOrNull();
   if (!uid) return null;
@@ -305,15 +308,17 @@ export async function updateActiveRound(patch, roundIdArg) {
   const roundId = roundIdArg || (await getActiveRoundId());
   if (!roundId) return null;
 
-  try {
-    const ref = roundRef(uid, roundId);
+  const isShared = String(roundId).startsWith("sr_");
+  const ref = isShared ? sharedRoundRef(roundId) : roundRef(uid, roundId);
 
+  try {
     try {
       await updateDoc(ref, { ...(patch || {}), updatedAt: serverTimestamp() });
     } catch {
       await setDoc(ref, { ...(patch || {}), updatedAt: serverTimestamp() }, { merge: true });
     }
 
+    // Always keep this user’s active pointer in sync (even for shared rounds)
     await setDoc(activeMetaRef(uid), { activeRoundId: roundId, updatedAt: serverTimestamp() }, { merge: true });
     await cacheRoundId(roundId);
 
@@ -325,7 +330,7 @@ export async function updateActiveRound(patch, roundIdArg) {
   }
 }
 
-// Full replace (kept for compatibility) - SOLO only (existing behavior)
+// Full replace (kept for compatibility) - SOLO or SHARED (based on roundId prefix)
 export async function saveActiveRound(state, roundIdArg) {
   const uid = uidOrNull();
   if (!uid) return false;
@@ -333,8 +338,11 @@ export async function saveActiveRound(state, roundIdArg) {
   const roundId = roundIdArg || state?.roundId || (await getActiveRoundId());
   if (!roundId) return false;
 
+  const isShared = String(roundId).startsWith("sr_");
+  const ref = isShared ? sharedRoundRef(roundId) : roundRef(uid, roundId);
+
   try {
-    await setDoc(roundRef(uid, roundId), { ...(state || {}), updatedAt: serverTimestamp() }, { merge: true });
+    await setDoc(ref, { ...(state || {}), updatedAt: serverTimestamp() }, { merge: true });
     await setDoc(activeMetaRef(uid), { activeRoundId: roundId, updatedAt: serverTimestamp() }, { merge: true });
     await cacheRoundId(roundId);
     return true;
