@@ -15,6 +15,7 @@ import {
   KeyboardAvoidingView,
   TouchableWithoutFeedback,
   Keyboard,
+  Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
@@ -223,9 +224,11 @@ export default function HomeScreen({ navigation }) {
 
     closeRoundSheet();
 
-    // For now, route into the regular flow with params.
-    // Next task will wire this code into Firestore lookup + shared round join.
-    navigation.navigate(ROUTES.GAMES, { joinCode: code, mode: "join" });
+    Alert.alert(
+      "Waiting for host",
+      "The host is still setting up the round. Please wait until they reach the Round Briefing screen, then try again.",
+      [{ text: "OK" }]
+    );
   }
 
   const sheetY = sheetAnim.interpolate({

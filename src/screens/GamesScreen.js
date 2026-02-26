@@ -1,5 +1,5 @@
 // src/screens/GamesScreen.js
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, Pressable, FlatList, Alert, ScrollView, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -8,7 +8,7 @@ import BottomSheet from "../components/BottomSheet";
 import ScreenHeader from "../components/ScreenHeader";
 import gameFormats from "../data/gameFormats.json";
 import { useTheme } from "../theme/ThemeProvider";
-import { createSetupRound } from "../storage/roundState";
+import { createSetupRound, createSharedSetupRound, joinSharedRoundByCode } from "../storage/roundState";
 
 const FALLBACK_INFO = {
   tournaments: {
@@ -125,7 +125,7 @@ const GAMES = [
   { id: "legacy_points", title: "Legacy Points", subtitle: "A points-based game built for the Legacy vibe.", supported: true },
 ];
 
-export default function GamesScreen({ navigation }) {
+export default function GamesScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const { scheme, theme } = useTheme();
   const isDark = scheme === "dark";
@@ -133,15 +133,47 @@ export default function GamesScreen({ navigation }) {
   const [selectedId, setSelectedId] = useState(null);
   const [infoId, setInfoId] = useState(null);
 
+  const [joiningShared, setJoiningShared] = useState(false);
+
+  const selected = useMemo(() => GAMES.find((x) => x.id === selectedId), [selectedId]);
+  const selectedSupported = !!selected?.supported;
+
+  // If we arrived from Home "Join a round", handle it once here.
+  useEffect(() => {
+    const mode = String(route?.params?.mode || "");
+    const joinCode = String(route?.params?.joinCode || "").trim();
+
+    if (mode !== "join" || !joinCode) return;
+    if (joiningShared) return;
+
+    setJoiningShared(true);
+
+    (async () => {
+      try {
+        const joined = await joinSharedRoundByCode(joinCode);
+        if (!joined?.roundId) {
+          Alert.alert("Join failed", "No round found for that code (or you don’t have access).");
+          return;
+        }
+
+        Alert.alert("Joined", "You joined the round.");
+        navigation.setParams({ mode: null, joinCode: null });
+        navigation.goBack();
+      } catch (e) {
+        Alert.alert("Join failed", e?.message || "Could not join that round.");
+      } finally {
+        setJoiningShared(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route?.params?.mode, route?.params?.joinCode]);
+
   const items = useMemo(() => {
     return [
       { type: "section", id: "formats", title: "Game Formats", subtitle: "Choose how you’re playing today." },
       ...GAMES.map((g) => ({ type: "game", rowId: `g-${g.id}`, ...g })),
     ];
   }, []);
-
-  const selected = useMemo(() => GAMES.find((x) => x.id === selectedId), [selectedId]);
-  const selectedSupported = !!selected?.supported;
 
   const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
@@ -157,8 +189,6 @@ export default function GamesScreen({ navigation }) {
       return;
     }
 
-    // LAW: Firestore is the single source of truth.
-    // Create the setup round at the FIRST commit moment (right here).
     const created = await createSetupRound({
       gameId: selected.id,
       gameTitle: selected.title,
@@ -177,6 +207,34 @@ export default function GamesScreen({ navigation }) {
     });
   }
 
+  async function onContinueLongPress() {
+    if (!selectedId) {
+      Alert.alert("Select game to continue");
+      return;
+    }
+    if (!selectedSupported) return;
+
+    if (selectedId === "tournaments") {
+      Alert.alert("Not supported here", "Shared test rounds are for regular games (not tournaments).");
+      return;
+    }
+
+    const created = await createSharedSetupRound({
+      gameId: selected.id,
+      gameTitle: selected.title,
+      status: "setup",
+    });
+
+    if (!created?.roundId) {
+      Alert.alert("Sign in required", "Please sign in to start a round.");
+      return;
+    }
+
+    Alert.alert(
+      "Shared round created",
+      `Invite Code: ${created.joinCode}\n\nShare this code. Another user can join from Home → Start Round → Join a round.`
+    );
+  }
 
   const info = useMemo(() => {
     if (!infoId) return null;
@@ -520,7 +578,12 @@ export default function GamesScreen({ navigation }) {
       />
 
       <View style={styles.footer}>
-        <Pressable onPress={onContinue} style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}>
+        <Pressable
+          onPress={onContinue}
+          onLongPress={onContinueLongPress}
+          delayLongPress={350}
+          style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}
+        >
           <Text style={styles.primaryText}>Continue</Text>
         </Pressable>
       </View>
