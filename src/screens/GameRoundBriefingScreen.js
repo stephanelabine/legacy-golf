@@ -154,6 +154,11 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
     const formatConfig = safeObj(roundDoc?.formatConfig);
     const formatPools = safeObj(roundDoc?.formatPools);
 
+    const isSharedRound = String(roundId || "").startsWith("sr_");
+    const hostUid = String(roundDoc?.hostUid || "").trim();
+    const currentUid = String(auth?.currentUser?.uid || "").trim();
+    const isJoinerInShared = isSharedRound && !!hostUid && hostUid !== currentUid;
+
     function includedCountForKey(fk) {
         const ids = players.map((p, idx) => playerId(p, idx)).filter(Boolean);
         const excluded = new Set(safeArr(formatPools?.[fk]?.excludedIds).map((x) => String(x)));
@@ -461,11 +466,7 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
 
             <View style={styles.footer}>
                 <Pressable
-                    disabled={
-                        String(roundId || "").startsWith("sr_") &&
-                        !!String(roundDoc?.hostUid || "") &&
-                        String(roundDoc?.hostUid || "") !== String(auth?.currentUser?.uid || "")
-                    }
+                    disabled={isJoinerInShared}
                     onPress={async () => {
                         try {
                             const uid = auth?.currentUser?.uid || null;
@@ -516,18 +517,12 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
                     }}
                     style={({ pressed }) => [
                         styles.primaryBtn,
-                        String(roundId || "").startsWith("sr_") &&
-                        !!String(roundDoc?.hostUid || "") &&
-                        String(roundDoc?.hostUid || "") !== String(auth?.currentUser?.uid || "") && { opacity: 0.55 },
+                        isJoinerInShared && { opacity: 0.55 },
                         pressed && styles.pressed,
                     ]}
                 >
                     <Text style={styles.primaryText}>
-                        {String(roundId || "").startsWith("sr_") &&
-                            !!String(roundDoc?.hostUid || "") &&
-                            String(roundDoc?.hostUid || "") !== String(auth?.currentUser?.uid || "")
-                            ? "Waiting for host"
-                            : "Start Round"}
+                        {isJoinerInShared ? "Waiting for host" : "Start Round"}
                     </Text>
                 </Pressable>
             </View>
