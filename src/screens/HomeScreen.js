@@ -10,10 +10,15 @@ import {
   Pressable,
   Platform,
   Animated,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  TouchableWithoutFeedback,
+  Keyboard,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import Svg, { Circle, Rect, Path } from "react-native-svg";
+import Svg, { Circle, Path } from "react-native-svg";
 
 import ROUTES from "../navigation/routes";
 import { useTheme } from "../theme/ThemeProvider";
@@ -140,43 +145,12 @@ function ThemeToggle({ mode, setMode, theme }) {
   );
 }
 
-function CenterBorderRing({ size, radius, strokeColor, strokeWidth, coverColor }) {
-  return (
-    <View
-      pointerEvents="none"
-      style={{
-        position: "absolute",
-        left: "50%",
-        top: "50%",
-        width: size,
-        height: size,
-        marginLeft: -(size / 2),
-        marginTop: -(size / 2),
-        zIndex: 5,
-        elevation: 5,
-      }}
-    >
-      <Svg width={size} height={size}>
-        <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="transparent"
-          stroke={strokeColor}
-          strokeWidth={strokeWidth}
-        />
-      </Svg>
-    </View>
-  );
-}
-
 export default function HomeScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const { mode, scheme, theme, setMode } = useTheme();
   const isDark = scheme === "dark";
 
   const bottomPad = useMemo(() => Math.max(18, (insets?.bottom || 0) + 14), [insets?.bottom]);
-
   const overlayColor = useMemo(() => safeOverlayColor(theme?.heroOverlay, isDark), [theme?.heroOverlay, isDark]);
 
   // sizing for the carved center
@@ -186,7 +160,7 @@ export default function HomeScreen({ navigation }) {
   // geometry (must match styles below)
   const PAD_X = 14;
   const PAD_Y = 18;
-  const GAP = 12;      // column gap
+  const GAP = 12; // column gap
   const ROW_GAP = GAP; // row gap (must match)
 
   const RING_GAP = 1; // gap between circle + borders
@@ -199,14 +173,76 @@ export default function HomeScreen({ navigation }) {
   const [gridBox, setGridBox] = useState({ w: 0, h: 0 });
   const [tileBox, setTileBox] = useState({ w: 0, h: 0 });
 
+  // Round Mode sheet
+  const [roundSheetOpen, setRoundSheetOpen] = useState(false);
+  const [roundSheetStep, setRoundSheetStep] = useState("choose"); // "choose" | "join"
+  const [joinCode, setJoinCode] = useState("");
+  const sheetAnim = useRef(new Animated.Value(0)).current; // 0 closed, 1 open
+
+  const SHEET_H = 340;
+
+  function openRoundSheet() {
+    setJoinCode("");
+    setRoundSheetStep("choose");
+    setRoundSheetOpen(true);
+    requestAnimationFrame(() => {
+      Animated.timing(sheetAnim, {
+        toValue: 1,
+        duration: 220,
+        useNativeDriver: true,
+      }).start();
+    });
+  }
+
+  function closeRoundSheet() {
+    Keyboard.dismiss();
+    Animated.timing(sheetAnim, {
+      toValue: 0,
+      duration: 180,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) setRoundSheetOpen(false);
+    });
+  }
+
+  function goStartNewRound() {
+    closeRoundSheet();
+    navigation.navigate(ROUTES.GAMES);
+  }
+
+  function goJoinStep() {
+    setRoundSheetStep("join");
+    requestAnimationFrame(() => {
+      // focus will be manual by tap; keep it simple/stable
+    });
+  }
+
+  function doJoinRound() {
+    const code = (joinCode || "").trim().toUpperCase();
+    if (!code || code.length < 4) return;
+
+    closeRoundSheet();
+
+    // For now, route into the regular flow with params.
+    // Next task will wire this code into Firestore lookup + shared round join.
+    navigation.navigate(ROUTES.GAMES, { joinCode: code, mode: "join" });
+  }
+
+  const sheetY = sheetAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [SHEET_H + 40, 0],
+  });
+
+  const backdropOpacity = sheetAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1],
+  });
+
+  const joinDisabled = (joinCode || "").trim().length < 4;
+
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.bg }]}>
-      <ImageBackground
-        source={HERO_BG}
-        defaultSource={HERO_BG} // iOS fallback so the hero never appears “missing”
-        style={styles.bg}
-        resizeMode="cover"
-      >
+      <ImageBackground source={HERO_BG} defaultSource={HERO_BG} style={styles.bg} resizeMode="cover">
         <View style={[styles.overlay, { backgroundColor: overlayColor }]} />
 
         <Image
@@ -224,15 +260,13 @@ export default function HomeScreen({ navigation }) {
 
           <View style={styles.brand}>
             <Text style={[styles.welcome, { color: theme.muted }]}>WELCOME TO</Text>
-
             <Text style={[styles.title, { color: theme.text }]}>{"Legacy\u2009Golf"}</Text>
-
             <Text style={[styles.tagline, { color: theme.muted }]}>Start building your legacy</Text>
           </View>
 
           <View style={styles.actions}>
             <Pressable
-              onPress={() => navigation.navigate(ROUTES.GAMES)}
+              onPress={openRoundSheet}
               style={({ pressed }) => [
                 styles.btn,
                 styles.btnPrimary,
@@ -271,171 +305,142 @@ export default function HomeScreen({ navigation }) {
                       const cx = gridBox.w / 2;
                       const cy = gridBox.h / 2;
 
-                      // mask radius to “carve” around the circle (uses panel background color)
-                      const maskR = RING_RADIUS + STROKE + 8;
+                      // notch radius (slightly larger than ring radius to create a clean gap)
+                      const notchR = RING_RADIUS + 10;
 
-                      // divider lines stop before the ring
-                      const stop = RING_RADIUS + 6;
+                      function clamp(n, min, max) {
+                        return Math.max(min, Math.min(max, n));
+                      }
 
-                      const vX = PAD_X + cardW + GAP / 2;
-                      const hY = PAD_Y + cardH + ROW_GAP / 2;
+                      function intersectV(xEdge, wantUpper) {
+                        const dx = xEdge - cx;
+                        const inside = notchR * notchR - dx * dx;
+                        if (inside <= 0) return null;
+                        const dy = Math.sqrt(inside);
+                        return wantUpper ? cy - dy : cy + dy;
+                      }
 
-                      const innerTop = PAD_Y;
-                      const innerBottom = gridBox.h - PAD_Y;
-                      const innerLeft = PAD_X;
-                      const innerRight = gridBox.w - PAD_X;
+                      function intersectH(yEdge, wantLeft) {
+                        const dy = yEdge - cy;
+                        const inside = notchR * notchR - dy * dy;
+                        if (inside <= 0) return null;
+                        const dx = Math.sqrt(inside);
+                        return wantLeft ? cx - dx : cx + dx;
+                      }
+
+                      const rx = 16;
+
+                      const x1L = xL;
+                      const x2L = xL + cardW;
+                      const x1R = xR;
+                      const x2R = xR + cardW;
+
+                      const y1T = yT;
+                      const y2T = yT + cardH;
+
+                      const y1B = yB;
+                      const y2B = yB + cardH;
+
+                      // TL notch at bottom-right (edges: right=x2L, bottom=y2T)
+                      const tl_yOnRight = intersectV(x2L, true);
+                      const tl_xOnBottom = intersectH(y2T, true);
+
+                      // TR notch at bottom-left (edges: left=x1R, bottom=y2T)
+                      const tr_yOnLeft = intersectV(x1R, true);
+                      const tr_xOnBottom = intersectH(y2T, false);
+
+                      // BL notch at top-right (edges: right=x2L, top=y1B)
+                      const bl_yOnRight = intersectV(x2L, false);
+                      const bl_xOnTop = intersectH(y1B, true);
+
+                      // BR notch at top-left (edges: left=x1R, top=y1B)
+                      const br_yOnLeft = intersectV(x1R, false);
+                      const br_xOnTop = intersectH(y1B, false);
+
+                      // fallbacks
+                      const TLrY = tl_yOnRight ?? y2T - rx;
+                      const TLbX = tl_xOnBottom ?? x2L - rx;
+
+                      const TRlY = tr_yOnLeft ?? y2T - rx;
+                      const TRbX = tr_xOnBottom ?? x1R + rx;
+
+                      const BLrY = bl_yOnRight ?? y1B + rx;
+                      const BLtX = bl_xOnTop ?? x2L - rx;
+
+                      const BRlY = br_yOnLeft ?? y1B + rx;
+                      const BRtX = br_xOnTop ?? x1R + rx;
+
+                      // clamp points
+                      const tl_rightY = clamp(TLrY, y1T + rx, y2T - rx);
+                      const tl_bottomX = clamp(TLbX, x1L + rx, x2L - rx);
+
+                      const tr_leftY = clamp(TRlY, y1T + rx, y2T - rx);
+                      const tr_bottomX = clamp(TRbX, x1R + rx, x2R - rx);
+
+                      const bl_rightY = clamp(BLrY, y1B + rx, y2B - rx);
+                      const bl_topX = clamp(BLtX, x1L + rx, x2L - rx);
+
+                      const br_leftY = clamp(BRlY, y1B + rx, y2B - rx);
+                      const br_topX = clamp(BRtX, x1R + rx, x2R - rx);
+
+                      const dTL = [
+                        `M ${x1L + rx} ${y1T}`,
+                        `H ${x2L - rx}`,
+                        `Q ${x2L} ${y1T} ${x2L} ${y1T + rx}`,
+                        `V ${tl_rightY}`,
+                        `A ${notchR} ${notchR} 0 0 0 ${tl_bottomX} ${y2T}`,
+                        `H ${x1L + rx}`,
+                        `Q ${x1L} ${y2T} ${x1L} ${y2T - rx}`,
+                        `V ${y1T + rx}`,
+                        `Q ${x1L} ${y1T} ${x1L + rx} ${y1T}`,
+                        `Z`,
+                      ].join(" ");
+
+                      const dTR = [
+                        `M ${x1R + rx} ${y1T}`,
+                        `H ${x2R - rx}`,
+                        `Q ${x2R} ${y1T} ${x2R} ${y1T + rx}`,
+                        `V ${y2T - rx}`,
+                        `Q ${x2R} ${y2T} ${x2R - rx} ${y2T}`,
+                        `H ${tr_bottomX}`,
+                        `A ${notchR} ${notchR} 0 0 0 ${x1R} ${tr_leftY}`,
+                        `V ${y1T + rx}`,
+                        `Q ${x1R} ${y1T} ${x1R + rx} ${y1T}`,
+                        `Z`,
+                      ].join(" ");
+
+                      const dBL = [
+                        `M ${x1L + rx} ${y1B}`,
+                        `H ${bl_topX}`,
+                        `A ${notchR} ${notchR} 0 0 0 ${x2L} ${bl_rightY}`,
+                        `V ${y2B - rx}`,
+                        `Q ${x2L} ${y2B} ${x2L - rx} ${y2B}`,
+                        `H ${x1L + rx}`,
+                        `Q ${x1L} ${y2B} ${x1L} ${y2B - rx}`,
+                        `V ${y1B + rx}`,
+                        `Q ${x1L} ${y1B} ${x1L + rx} ${y1B}`,
+                        `Z`,
+                      ].join(" ");
+
+                      const dBR = [
+                        `M ${br_topX} ${y1B}`,
+                        `H ${x2R - rx}`,
+                        `Q ${x2R} ${y1B} ${x2R} ${y1B + rx}`,
+                        `V ${y2B - rx}`,
+                        `Q ${x2R} ${y2B} ${x2R - rx} ${y2B}`,
+                        `H ${x1R + rx}`,
+                        `Q ${x1R} ${y2B} ${x1R} ${y2B - rx}`,
+                        `V ${br_leftY}`,
+                        `A ${notchR} ${notchR} 0 0 0 ${br_topX} ${y1B}`,
+                        `Z`,
+                      ].join(" ");
 
                       return (
                         <>
-                          {/* 4 tile borders with inner-corner NOTCHES that wrap around the circle */}
-                          {(() => {
-                            const rx = 16;
-
-                            // notch radius (slightly larger than ring radius to create a clean gap)
-                            const notchR = RING_RADIUS + 10;
-
-                            const x1L = xL;
-                            const x2L = xL + cardW;
-                            const x1R = xR;
-                            const x2R = xR + cardW;
-
-                            const y1T = yT;
-                            const y2T = yT + cardH;
-
-                            const y1B = yB;
-                            const y2B = yB + cardH;
-
-                            function clamp(n, min, max) {
-                              return Math.max(min, Math.min(max, n));
-                            }
-
-                            function intersectV(xEdge, wantUpper) {
-                              const dx = xEdge - cx;
-                              const inside = notchR * notchR - dx * dx;
-                              if (inside <= 0) return null;
-                              const dy = Math.sqrt(inside);
-                              return wantUpper ? cy - dy : cy + dy;
-                            }
-
-                            function intersectH(yEdge, wantLeft) {
-                              const dy = yEdge - cy;
-                              const inside = notchR * notchR - dy * dy;
-                              if (inside <= 0) return null;
-                              const dx = Math.sqrt(inside);
-                              return wantLeft ? cx - dx : cx + dx;
-                            }
-
-                            // TL notch at bottom-right (edges: right=x2L, bottom=y2T)
-                            const tl_yOnRight = intersectV(x2L, true);
-                            const tl_xOnBottom = intersectH(y2T, true);
-
-                            // TR notch at bottom-left (edges: left=x1R, bottom=y2T)
-                            const tr_yOnLeft = intersectV(x1R, true);
-                            const tr_xOnBottom = intersectH(y2T, false);
-
-                            // BL notch at top-right (edges: right=x2L, top=y1B)
-                            const bl_yOnRight = intersectV(x2L, false);
-                            const bl_xOnTop = intersectH(y1B, true);
-
-                            // BR notch at top-left (edges: left=x1R, top=y1B)
-                            const br_yOnLeft = intersectV(x1R, false);
-                            const br_xOnTop = intersectH(y1B, false);
-
-                            // If any intersections fail (very small screens), fall back safely
-                            const TLrY = tl_yOnRight ?? y2T - rx;
-                            const TLbX = tl_xOnBottom ?? x2L - rx;
-
-                            const TRlY = tr_yOnLeft ?? y2T - rx;
-                            const TRbX = tr_xOnBottom ?? x1R + rx;
-
-                            const BLrY = bl_yOnRight ?? y1B + rx;
-                            const BLtX = bl_xOnTop ?? x2L - rx;
-
-                            const BRlY = br_yOnLeft ?? y1B + rx;
-                            const BRtX = br_xOnTop ?? x1R + rx;
-
-                            // clamp points to tile bounds
-                            const tl_rightY = clamp(TLrY, y1T + rx, y2T - rx);
-                            const tl_bottomX = clamp(TLbX, x1L + rx, x2L - rx);
-
-                            const tr_leftY = clamp(TRlY, y1T + rx, y2T - rx);
-                            const tr_bottomX = clamp(TRbX, x1R + rx, x2R - rx);
-
-                            const bl_rightY = clamp(BLrY, y1B + rx, y2B - rx);
-                            const bl_topX = clamp(BLtX, x1L + rx, x2L - rx);
-
-                            const br_leftY = clamp(BRlY, y1B + rx, y2B - rx);
-                            const br_topX = clamp(BRtX, x1R + rx, x2R - rx);
-
-                            // Arc flags: we want the SMALL arc around the center.
-                            // TL: from right-edge point to bottom-edge point (sweep=1)
-                            // TR: from bottom-edge point to left-edge point (sweep=1)
-                            // BL: from top-edge point to right-edge point (sweep=1)
-                            // BR: from left-edge point to top-edge point (sweep=1)
-
-                            const dTL = [
-                              `M ${x1L + rx} ${y1T}`,
-                              `H ${x2L - rx}`,
-                              `Q ${x2L} ${y1T} ${x2L} ${y1T + rx}`,
-                              `V ${tl_rightY}`,
-                              `A ${notchR} ${notchR} 0 0 0 ${tl_bottomX} ${y2T}`,
-                              `H ${x1L + rx}`,
-                              `Q ${x1L} ${y2T} ${x1L} ${y2T - rx}`,
-                              `V ${y1T + rx}`,
-                              `Q ${x1L} ${y1T} ${x1L + rx} ${y1T}`,
-                              `Z`,
-                            ].join(" ");
-
-                            const dTR = [
-                              `M ${x1R + rx} ${y1T}`,
-                              `H ${x2R - rx}`,
-                              `Q ${x2R} ${y1T} ${x2R} ${y1T + rx}`,
-                              `V ${y2T - rx}`,
-                              `Q ${x2R} ${y2T} ${x2R - rx} ${y2T}`,
-                              `H ${tr_bottomX}`,
-                              `A ${notchR} ${notchR} 0 0 0 ${x1R} ${tr_leftY}`,
-                              `V ${y1T + rx}`,
-                              `Q ${x1R} ${y1T} ${x1R + rx} ${y1T}`,
-                              `Z`,
-                            ].join(" ");
-
-                            const dBL = [
-                              `M ${x1L + rx} ${y1B}`,
-                              `H ${bl_topX}`,
-                              `A ${notchR} ${notchR} 0 0 0 ${x2L} ${bl_rightY}`,
-                              `V ${y2B - rx}`,
-                              `Q ${x2L} ${y2B} ${x2L - rx} ${y2B}`,
-                              `H ${x1L + rx}`,
-                              `Q ${x1L} ${y2B} ${x1L} ${y2B - rx}`,
-                              `V ${y1B + rx}`,
-                              `Q ${x1L} ${y1B} ${x1L + rx} ${y1B}`,
-                              `Z`,
-                            ].join(" ");
-
-                            const dBR = [
-                              `M ${br_topX} ${y1B}`,
-                              `H ${x2R - rx}`,
-                              `Q ${x2R} ${y1B} ${x2R} ${y1B + rx}`,
-                              `V ${y2B - rx}`,
-                              `Q ${x2R} ${y2B} ${x2R - rx} ${y2B}`,
-                              `H ${x1R + rx}`,
-                              `Q ${x1R} ${y2B} ${x1R} ${y2B - rx}`,
-                              `V ${br_leftY}`,
-                              `A ${notchR} ${notchR} 0 0 0 ${br_topX} ${y1B}`,
-                              `Z`,
-                            ].join(" ");
-
-                            return (
-                              <>
-                                <Path d={dTL} fill="transparent" stroke={CARD_STROKE} strokeWidth={STROKE} />
-                                <Path d={dTR} fill="transparent" stroke={CARD_STROKE} strokeWidth={STROKE} />
-                                <Path d={dBL} fill="transparent" stroke={CARD_STROKE} strokeWidth={STROKE} />
-                                <Path d={dBR} fill="transparent" stroke={CARD_STROKE} strokeWidth={STROKE} />
-                              </>
-                            );
-                          })()}
-
-                          {/* CIRCLE RING */}
+                          <Path d={dTL} fill="transparent" stroke={CARD_STROKE} strokeWidth={STROKE} />
+                          <Path d={dTR} fill="transparent" stroke={CARD_STROKE} strokeWidth={STROKE} />
+                          <Path d={dBL} fill="transparent" stroke={CARD_STROKE} strokeWidth={STROKE} />
+                          <Path d={dBR} fill="transparent" stroke={CARD_STROKE} strokeWidth={STROKE} />
                         </>
                       );
                     })()}
@@ -443,7 +448,6 @@ export default function HomeScreen({ navigation }) {
                 </View>
               ) : null}
 
-              {/* 2x2 cards (same actions/labels), but with icon positioning + center carve */}
               <View style={[styles.gridRow, { marginBottom: GAP }]}>
                 <Pressable
                   onPress={() => navigation.navigate(ROUTES.PROFILE)}
@@ -453,7 +457,6 @@ export default function HomeScreen({ navigation }) {
                   }}
                   style={({ pressed }) => [styles.gridCard, pressed && styles.pressedCard]}
                 >
-                  {/* Player Profile icon: top-left (same) */}
                   <View style={styles.gridIconWrap}>
                     <MaterialCommunityIcons name="account" size={16} color={isDark ? "#fff" : "#0A0F1A"} />
                   </View>
@@ -464,7 +467,6 @@ export default function HomeScreen({ navigation }) {
                   onPress={() => navigation.navigate(ROUTES.PLAYER_STATS)}
                   style={({ pressed }) => [styles.gridCard, pressed && styles.pressedCard]}
                 >
-                  {/* Player Stats icon: top-right */}
                   <View style={[styles.gridIconWrap, styles.iconTopRight]}>
                     <MaterialCommunityIcons name="chart-line" size={16} color={isDark ? "#fff" : "#0A0F1A"} />
                   </View>
@@ -477,7 +479,6 @@ export default function HomeScreen({ navigation }) {
                   onPress={() => navigation.navigate(ROUTES.HISTORY)}
                   style={({ pressed }) => [styles.gridCard, pressed && styles.pressedCard]}
                 >
-                  {/* Round History icon: bottom-left */}
                   <View style={[styles.gridIconWrap, styles.iconBottomLeft]}>
                     <MaterialCommunityIcons name="history" size={22} color={isDark ? "#fff" : "#0A0F1A"} />
                   </View>
@@ -488,7 +489,6 @@ export default function HomeScreen({ navigation }) {
                   onPress={() => navigation.navigate(ROUTES.BUDDIES)}
                   style={({ pressed }) => [styles.gridCard, pressed && styles.pressedCard]}
                 >
-                  {/* Buddy List icon: bottom-right */}
                   <View style={[styles.gridIconWrap, styles.iconBottomRight]}>
                     <MaterialCommunityIcons name="account-multiple" size={16} color={isDark ? "#fff" : "#0A0F1A"} />
                   </View>
@@ -496,11 +496,6 @@ export default function HomeScreen({ navigation }) {
                 </Pressable>
               </View>
 
-              {/* (center mask removed) */}
-
-              {/* (old CenterBorderRing removed — SVG borderOverlay now draws everything) */}
-
-              {/* Center Quick Post button (transparent/glass like cards, no plus) */}
               <Pressable
                 onPress={() => navigation.navigate(ROUTES.QUICK_POST)}
                 hitSlop={12}
@@ -510,19 +505,14 @@ export default function HomeScreen({ navigation }) {
                     width: CENTER,
                     height: CENTER,
                     borderRadius: centerRadius,
-
-                    // black/silver ring
                     borderWidth: 2,
                     borderColor: isDark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.55)",
-
-                    // gold flashy center (glass + glow)
                     backgroundColor: isDark ? "rgba(242,201,76,0.18)" : "rgba(242,201,76,0.14)",
                     shadowColor: "#F2C94C",
                     shadowOpacity: isDark ? 0.55 : 0.35,
                     shadowRadius: 14,
                     shadowOffset: { width: 0, height: 8 },
                     elevation: 12,
-
                     transform: [
                       { translateX: -centerRadius + 14.5 },
                       { translateY: -centerRadius + 18 },
@@ -538,6 +528,173 @@ export default function HomeScreen({ navigation }) {
             </View>
           </View>
         </View>
+
+        <Modal transparent visible={roundSheetOpen} animationType="none" onRequestClose={closeRoundSheet}>
+          <TouchableWithoutFeedback onPress={closeRoundSheet}>
+            <Animated.View style={[styles.sheetBackdrop, { opacity: backdropOpacity }]} />
+          </TouchableWithoutFeedback>
+
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.sheetKAV}>
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+              <Animated.View
+                style={[
+                  styles.sheetWrap,
+                  {
+                    transform: [{ translateY: sheetY }],
+                    paddingBottom: Math.max(14, (insets?.bottom || 0) + 10),
+                    backgroundColor: isDark ? "rgba(12,16,24,0.92)" : "rgba(245,246,248,0.92)",
+                    borderColor: isDark ? "rgba(255,255,255,0.16)" : "rgba(0,0,0,0.12)",
+                  },
+                ]}
+              >
+                <View style={[styles.sheetHandle, { backgroundColor: isDark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.18)" }]} />
+
+                {roundSheetStep === "choose" ? (
+                  <>
+                    <Text style={[styles.sheetTitle, { color: theme.text }]}>Round Mode</Text>
+                    <Text style={[styles.sheetSub, { color: theme.muted }]}>Start a new round or join an existing one.</Text>
+
+                    <Pressable
+                      onPress={goStartNewRound}
+                      style={({ pressed }) => [
+                        styles.sheetBigBtn,
+                        {
+                          borderColor: isDark ? "rgba(255,255,255,0.16)" : "rgba(0,0,0,0.12)",
+                          backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(10,15,26,0.06)",
+                        },
+                        pressed && styles.pressedRow,
+                      ]}
+                    >
+                      <View style={styles.sheetBigLeft}>
+                        <View
+                          style={[
+                            styles.sheetIconPill,
+                            {
+                              backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(10,15,26,0.08)",
+                              borderColor: isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.10)",
+                            },
+                          ]}
+                        >
+                          <MaterialCommunityIcons name="flag-checkered" size={18} color={theme.text} />
+                        </View>
+                        <View style={{ gap: 2 }}>
+                          <Text style={[styles.sheetBigText, { color: theme.text }]}>Start a new round</Text>
+                          <Text style={[styles.sheetBigHelp, { color: theme.muted }]}>Create the round and invite players.</Text>
+                        </View>
+                      </View>
+                      <MaterialCommunityIcons name="chevron-right" size={20} color={theme.muted} />
+                    </Pressable>
+
+                    <Pressable
+                      onPress={goJoinStep}
+                      style={({ pressed }) => [
+                        styles.sheetBigBtn,
+                        {
+                          borderColor: isDark ? "rgba(255,255,255,0.16)" : "rgba(0,0,0,0.12)",
+                          backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(10,15,26,0.06)",
+                        },
+                        pressed && styles.pressedRow,
+                      ]}
+                    >
+                      <View style={styles.sheetBigLeft}>
+                        <View
+                          style={[
+                            styles.sheetIconPill,
+                            {
+                              backgroundColor: isDark ? "rgba(242,201,76,0.14)" : "rgba(242,201,76,0.12)",
+                              borderColor: isDark ? "rgba(242,201,76,0.30)" : "rgba(242,201,76,0.24)",
+                            },
+                          ]}
+                        >
+                          <MaterialCommunityIcons name="account-multiple-plus" size={18} color={theme.text} />
+                        </View>
+                        <View style={{ gap: 2 }}>
+                          <Text style={[styles.sheetBigText, { color: theme.text }]}>Join a round</Text>
+                          <Text style={[styles.sheetBigHelp, { color: theme.muted }]}>Enter a code to join your group.</Text>
+                        </View>
+                      </View>
+                      <MaterialCommunityIcons name="chevron-right" size={20} color={theme.muted} />
+                    </Pressable>
+
+                    <Pressable onPress={closeRoundSheet} style={({ pressed }) => [styles.sheetCancel, pressed && styles.pressedTiny]}>
+                      <Text style={[styles.sheetCancelText, { color: theme.muted }]}>Cancel</Text>
+                    </Pressable>
+                  </>
+                ) : (
+                  <>
+                    <View style={styles.sheetTopRow}>
+                      <Pressable onPress={() => setRoundSheetStep("choose")} hitSlop={10} style={({ pressed }) => [styles.sheetBack, pressed && styles.pressedTiny]}>
+                        <MaterialCommunityIcons name="chevron-left" size={22} color={theme.text} />
+                      </Pressable>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.sheetTitle, { color: theme.text, textAlign: "center" }]}>Join Round</Text>
+                        <Text style={[styles.sheetSub, { color: theme.muted, textAlign: "center" }]}>Enter the invite code.</Text>
+                      </View>
+                      <View style={{ width: 34 }} />
+                    </View>
+
+                    <View
+                      style={[
+                        styles.codeBox,
+                        {
+                          borderColor: isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.14)",
+                          backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(10,15,26,0.05)",
+                        },
+                      ]}
+                    >
+                      <TextInput
+                        value={joinCode}
+                        onChangeText={(t) => setJoinCode((t || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8))}
+                        autoCapitalize="characters"
+                        autoCorrect={false}
+                        placeholder="CODE"
+                        placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.35)"}
+                        style={[
+                          styles.codeInput,
+                          {
+                            color: theme.text,
+                          },
+                        ]}
+                        maxLength={8}
+                        returnKeyType="done"
+                        onSubmitEditing={doJoinRound}
+                      />
+                    </View>
+
+                    <Pressable
+                      onPress={doJoinRound}
+                      disabled={joinDisabled}
+                      style={({ pressed }) => [
+                        styles.joinBtn,
+                        {
+                          backgroundColor: joinDisabled
+                            ? isDark
+                              ? "rgba(255,255,255,0.18)"
+                              : "rgba(10,15,26,0.18)"
+                            : isDark
+                              ? "rgba(242,201,76,0.22)"
+                              : "rgba(242,201,76,0.22)",
+                          borderColor: isDark ? "rgba(255,255,255,0.16)" : "rgba(0,0,0,0.12)",
+                          opacity: joinDisabled ? 0.6 : 1,
+                        },
+                        pressed && !joinDisabled && styles.pressedRow,
+                      ]}
+                    >
+                      <View style={styles.btnRow}>
+                        <MaterialCommunityIcons name="key" size={18} color={theme.text} />
+                        <Text style={[styles.joinBtnText, { color: theme.text }]}>Join</Text>
+                      </View>
+                    </Pressable>
+
+                    <Pressable onPress={closeRoundSheet} style={({ pressed }) => [styles.sheetCancel, pressed && styles.pressedTiny]}>
+                      <Text style={[styles.sheetCancelText, { color: theme.muted }]}>Cancel</Text>
+                    </Pressable>
+                  </>
+                )}
+              </Animated.View>
+            </TouchableWithoutFeedback>
+          </KeyboardAvoidingView>
+        </Modal>
       </ImageBackground>
     </SafeAreaView>
   );
@@ -585,7 +742,6 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.08)",
   },
 
-  // icon position variants
   iconTopRight: {
     left: undefined,
     right: 8,
@@ -615,11 +771,6 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.99 }],
   },
 
-  // (centerMask removed)
-
-  // (corner masks removed)
-
-  // Center Quick Post
   quickPostCircle: {
     position: "absolute",
     left: "50%",
@@ -640,10 +791,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.7,
     textAlign: "center",
     paddingHorizontal: 10,
-  },
-  pressedFab: {
-    opacity: Platform.OS === "ios" ? 0.86 : 0.9,
-    transform: [{ scale: 0.98 }],
   },
 
   overlay: { ...StyleSheet.absoluteFillObject },
@@ -758,33 +905,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 
-  quickCard: { borderRadius: 22, borderWidth: 1, overflow: "hidden" },
-  quickRow: {
-    height: 58,
-    paddingHorizontal: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  quickLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
-  quickIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderWidth: 1,
-  },
-  quickText: {
-    fontFamily: "Cinzel",
-    fontSize: 16,
-    fontWeight: "700",
-    letterSpacing: 0.2,
-  },
-
-  divider: { height: 1 },
-
   pressed: {
     opacity: Platform.OS === "ios" ? 0.85 : 0.9,
     transform: [{ scale: 0.99 }],
@@ -794,5 +914,140 @@ const styles = StyleSheet.create({
   },
   pressedTiny: {
     opacity: Platform.OS === "ios" ? 0.9 : 0.92,
+  },
+
+  // Sheet
+  sheetBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.55)",
+  },
+  sheetKAV: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  sheetWrap: {
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+  },
+  sheetHandle: {
+    alignSelf: "center",
+    width: 44,
+    height: 5,
+    borderRadius: 999,
+    marginBottom: 10,
+  },
+  sheetTitle: {
+    fontFamily: "Cinzel",
+    fontSize: 18,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+    textAlign: "center",
+  },
+  sheetSub: {
+    fontFamily: "Cinzel",
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: 0.6,
+    marginTop: 6,
+    marginBottom: 14,
+    textAlign: "center",
+    opacity: 0.85,
+  },
+  sheetBigBtn: {
+    height: 72,
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  sheetBigLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  sheetIconPill: {
+    width: 38,
+    height: 38,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
+  sheetBigText: {
+    fontFamily: "Cinzel",
+    fontSize: 14,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+  },
+  sheetBigHelp: {
+    fontFamily: "Cinzel",
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0.4,
+    opacity: 0.85,
+  },
+  sheetCancel: {
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
+    marginBottom: 8,
+  },
+  sheetCancelText: {
+    fontFamily: "Cinzel",
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+    opacity: 0.9,
+  },
+  sheetTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  sheetBack: {
+    width: 34,
+    height: 34,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  codeBox: {
+    height: 62,
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    justifyContent: "center",
+    marginTop: 4,
+    marginBottom: 12,
+  },
+  codeInput: {
+    fontFamily: "Cinzel",
+    fontSize: 20,
+    fontWeight: "800",
+    letterSpacing: 3,
+    textAlign: "center",
+    paddingVertical: 8,
+  },
+  joinBtn: {
+    height: 58,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
+  },
+  joinBtnText: {
+    fontFamily: "Cinzel",
+    fontSize: 16,
+    fontWeight: "800",
+    letterSpacing: 0.6,
   },
 });
