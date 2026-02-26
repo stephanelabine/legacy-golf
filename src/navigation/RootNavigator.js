@@ -55,6 +55,7 @@ import GameFormatsScreen from "../screens/GameFormatsScreen";
 
 // NEW: regular game money pools + briefing
 import GameRoundBriefingScreen from "../screens/GameRoundBriefingScreen";
+import SharedWaitingScreen from "../screens/SharedWaitingScreen";
 
 // NEW: regular game round start splash (Start Round -> Hole Hub runway)
 import GameRoundStartSplashScreen from "../screens/GameRoundStartSplashScreen";
@@ -200,6 +201,9 @@ export default function RootNavigator() {
 
           {/* NEW: regular game money pools */}
           <Stack.Screen name={ROUTES.GAME_FORMAT_POOLS} component={GameFormatPoolsScreen} />
+
+          {/* NEW: joiner waiting room for shared rounds */}
+          <Stack.Screen name={ROUTES.SHARED_WAITING} component={SharedWaitingScreen} />
 
           {/* NEW: regular game round briefing (post money pools) */}
           <Stack.Screen name={ROUTES.GAME_ROUND_BRIEFING} component={GameRoundBriefingScreen} />

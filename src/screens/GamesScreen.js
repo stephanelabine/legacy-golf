@@ -159,7 +159,7 @@ export default function GamesScreen({ navigation, route }) {
         Alert.alert("Joined", "You joined the round.");
         navigation.setParams({ mode: null, joinCode: null });
 
-        navigation.replace(ROUTES.GAME_SETUP, {
+        navigation.replace(ROUTES.SHARED_WAITING, {
           roundId: joined.roundId,
         });
       } catch (e) {

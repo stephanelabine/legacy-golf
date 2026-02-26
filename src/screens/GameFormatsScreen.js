@@ -386,6 +386,23 @@ export default function GameFormatsScreen({ navigation, route }) {
         // Explicitly choose zero formats for this round
         await setSelectedKeys(new Set());
 
+        // If this is a shared round, mark setup ready so joiners can move to briefing.
+        try {
+            const uid = auth?.currentUser?.uid || null;
+            if (uid) {
+                const isShared = String(roundId).startsWith("sr_");
+                const ref = isShared
+                    ? doc(db, "sharedRounds", String(roundId))
+                    : doc(db, "users", uid, "rounds", String(roundId));
+
+                if (isShared) {
+                    await updateDoc(ref, { setupReady: true, updatedAt: Date.now() });
+                }
+            }
+        } catch {
+            // non-blocking
+        }
+
         // Continue forward with no formats (skip details/pools entirely)
         navigation.navigate(ROUTES.GAME_ROUND_BRIEFING, {
             ...(params || {}),

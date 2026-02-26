@@ -58,6 +58,9 @@ const ROUTES = {
   // NEW: regular game round briefing (post money pools)
   GAME_ROUND_BRIEFING: "GameRoundBriefing",
 
+  // NEW: joiner waiting room for shared rounds
+  SHARED_WAITING: "SharedWaiting",
+
   /* ---------------- Tournaments ---------------- */
 
   TOURNAMENTS: "Tournaments",

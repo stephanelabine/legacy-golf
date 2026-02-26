@@ -508,6 +508,11 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
                                 patch.startedAt = serverTimestamp();
                             }
 
+                            // Host-only: mark shared setup as ready before starting (joiners will be listening)
+                            if (isShared) {
+                                patch.setupReady = true;
+                            }
+
                             await updateDoc(ref, patch);
 
                             navigation.replace(ROUTES.GAME_ROUND_START_SPLASH, { roundId, ms: 3000 });
