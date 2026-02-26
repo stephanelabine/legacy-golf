@@ -1,5 +1,5 @@
 // src/screens/GameRoundBriefingScreen.js
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, Pressable, ScrollView, Platform, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { doc, onSnapshot, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
@@ -92,6 +92,7 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
     const roundId = route?.params?.roundId || null;
 
     const [roundDoc, setRoundDoc] = useState(null);
+    const routedRef = useRef(false);
 
     const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
@@ -117,15 +118,17 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
         const unsub = onSnapshot(
             ref,
             (snap) => {
-                const roundData = snap.exists() ? snap.data() : null;
+                const roundData = snap.exists() ? (snap.data() || null) : null;
                 setRoundDoc(roundData);
 
-                if (isShared && roundData?.status !== "in_progress") {
-                    // If it's a shared round and not in progress, show "Waiting for host" message
-                    if (roundData?.status === "waiting_for_host") {
-                        Alert.alert("Waiting for host", "The host has not started the round yet.");
-                        navigation.goBack();  // Routing back to Home screen if the host hasn't started
-                    }
+                if (!isShared) return;
+
+                const status = String(roundData?.status || "").trim();
+
+                // Joiners sitting on Briefing should auto-enter play when host starts.
+                if (status === "in_progress" && !routedRef.current) {
+                    routedRef.current = true;
+                    navigation.replace(ROUTES.GAME_ROUND_START_SPLASH, { roundId, ms: 2500 });
                 }
             },
             (err) => Alert.alert("Round error", err?.message || "Could not load round.")
