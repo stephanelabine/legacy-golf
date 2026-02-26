@@ -13,13 +13,12 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CommonActions, StackActions } from "@react-navigation/native";
-import { doc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
 
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import theme from "../theme";
 import { auth, db } from "../firebase/firebase";
-import { loadActiveRound, saveActiveRound } from "../storage/roundState";
+import { doc, onSnapshot, setDoc, serverTimestamp, getDoc } from "firebase/firestore";
 
 const BG = "#0B1220";
 const CARD = "#1D3557";
@@ -27,7 +26,7 @@ const INNER = "#243E63";
 const MUTED = "#AFC3DA";
 const WHITE = "#FFFFFF";
 const GREEN = "#2ECC71";
-const GREEN_TEXT = "#0B1F12";
+const YELLOW = "#F2C94C";
 const BLUE = theme?.colors?.primary || "#2E7DFF";
 
 const DEFAULT_PARS = [4, 4, 3, 5, 4, 4, 3, 4, 5, 4, 3, 4, 4, 5, 4, 3, 4, 4];
@@ -92,16 +91,11 @@ function NumberChip({ n, active, onPress }) {
     );
 }
 
-function getMissingHolesFromState(state, normalizedPlayers, startHole = 1, endHole = 18) {
+function getMissingHolesFromState(state, normalizedPlayers) {
     const ids = (normalizedPlayers || []).map((p) => String(p.id));
     const missing = [];
 
-    const s = Number(startHole);
-    const e = Number(endHole);
-    const start = Number.isFinite(s) ? s : 1;
-    const end = Number.isFinite(e) ? e : 18;
-
-    for (let h = start; h <= end; h++) {
+    for (let h = 1; h <= 18; h++) {
         let ok = true;
         for (const pid of ids) {
             const strokes = state?.holes?.[String(h)]?.players?.[String(pid)]?.strokes;
@@ -113,6 +107,36 @@ function getMissingHolesFromState(state, normalizedPlayers, startHole = 1, endHo
         if (!ok) missing.push(h);
     }
     return missing;
+}
+
+function isSharedRoundId(roundId) {
+    return String(roundId || "").startsWith("sr_");
+}
+
+function roundDocRef(roundId) {
+    const rid = String(roundId || "").trim();
+    const uid = auth?.currentUser?.uid || null;
+    if (!rid) return null;
+
+    if (isSharedRoundId(rid)) {
+        return doc(db, "sharedRounds", rid);
+    }
+
+    if (!uid) return null;
+    return doc(db, "users", String(uid), "rounds", rid);
+}
+
+function claimDocRef(roundId, docId) {
+    const rid = String(roundId || "").trim();
+    const uid = auth?.currentUser?.uid || null;
+    if (!rid) return null;
+
+    if (isSharedRoundId(rid)) {
+        return doc(db, "sharedRounds", rid, "formatClaims", String(docId));
+    }
+
+    if (!uid) return null;
+    return doc(db, "users", String(uid), "rounds", rid, "formatClaims", String(docId));
 }
 
 export default function GameScoreEntryScreen({ navigation, route }) {
@@ -131,24 +155,11 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         missingHoles,
         missingIndex,
         finishReturnHole,
-        holesCount: holesCountParam,
-        holesSide: holesSideParam,
     } = params;
 
     const isFixMode = !!fixMissing;
 
-    const holesCount = Number(holesCountParam) === 9 || Number(holesCountParam) === 18 ? Number(holesCountParam) : 18;
-    const holesSide =
-        String(holesSideParam || "").toLowerCase().trim() === "back"
-            ? "back"
-            : String(holesSideParam || "").toLowerCase().trim() === "front"
-                ? "front"
-                : null;
-
-    const rangeStart = holesCount === 9 ? (holesSide === "back" ? 10 : 1) : 1;
-    const rangeEnd = holesCount === 9 ? (holesSide === "back" ? 18 : 9) : 18;
-
-    const holeNumber = Number(hole || rangeStart);
+    const holeNumber = Number(hole || 1);
 
     const holeMeta = useMemo(() => {
         return holeMetaParam && typeof holeMetaParam === "object" ? holeMetaParam : buildDefaultHoleMeta();
@@ -159,16 +170,15 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
     const normalizedPlayers = useMemo(() => {
         const list = Array.isArray(players) ? players : [];
-        const meUid = String(auth?.currentUser?.uid || "");
         return list.map((p, idx) => {
             const source = p?.source || null;
             return {
-                // IMPORTANT: keep player ids stable for the entire round (p1/p2/...)
+                // IMPORTANT: keep player ids stable for the entire round (do NOT force to auth uid)
                 id: safePlayerId(p, String(idx)),
                 name: safePlayerName(p, idx),
                 handicap: p?.handicap ?? 0,
                 source,
-                uid: p?.uid || p?.userId || (source === "me" ? meUid : null) || null,
+                uid: p?.uid || p?.userId || null,
                 email: p?.email || null,
             };
         });
@@ -199,19 +209,17 @@ export default function GameScoreEntryScreen({ navigation, route }) {
     const [claimDoc, setClaimDoc] = useState(null);
 
     const claimRef = useMemo(() => {
-        const uid = auth?.currentUser?.uid || null;
         const rid = String(roundIdParam || "").trim();
         const h = Number(holeNumber || 1);
         const k = String(sideGameKey || "").trim();
 
-        if (!uid) return null;
         if (!rid) return null;
         if (!claimable) return null;
         if (!k) return null;
         if (!Number.isFinite(h) || h < 1 || h > 18) return null;
 
         const docId = `${k}_h${String(h)}`;
-        return doc(db, "users", String(uid), "rounds", String(rid), "formatClaims", String(docId));
+        return claimDocRef(rid, docId);
     }, [roundIdParam, sideGameKey, holeNumber, claimable]);
 
     useEffect(() => {
@@ -227,7 +235,17 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         return () => unsub();
     }, [claimRef]);
 
+    const claimStatus = useMemo(() => String(claimDoc?.status || "").trim().toLowerCase(), [claimDoc]);
+    const holderPid = useMemo(() => String(claimDoc?.claimedByPlayerId || "").trim(), [claimDoc]);
     const holderName = useMemo(() => String(claimDoc?.claimedByPlayerName || "").trim(), [claimDoc]);
+
+    const sideGameTitle = useMemo(() => {
+        const k = String(sideGameKey || "").trim().toLowerCase();
+        if (k === "kp") return "KP";
+        if (k === "long_drive" || k === "longdrive" || k === "ld") return "Long Drive";
+        if (k === "second_shot_kp" || k === "secondshotkp" || k === "2nd_kp") return "Second Shot KP";
+        return "Side Game";
+    }, [sideGameKey]);
 
     const saveClaim = useCallback(
         async (pid, name) => {
@@ -236,6 +254,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             const meUid = String(auth?.currentUser?.uid || "");
             const claimedByPlayerId = String(pid || "").trim();
             const claimedByPlayerName = String(name || "Player").trim();
+
             if (!claimedByPlayerId) return false;
 
             try {
@@ -262,71 +281,57 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         [claimRef, roundIdParam, holeNumber, sideGameKey]
     );
 
-    const saveCarryover = useCallback(
-        async (pid, name) => {
-            if (!claimRef) return false;
+    const markUnclaimed = useCallback(async () => {
+        if (!claimRef) return false;
 
-            const meUid = String(auth?.currentUser?.uid || "");
-            const claimedByPlayerId = String(pid || "").trim();
-            const claimedByPlayerName = String(name || "Player").trim();
-            if (!claimedByPlayerId) return false;
+        const meUid = String(auth?.currentUser?.uid || "");
+        try {
+            await setDoc(
+                claimRef,
+                {
+                    roundId: String(roundIdParam || ""),
+                    holeNumber: Number(holeNumber || 1),
+                    formatKey: String(sideGameKey || ""),
+                    status: "unclaimed",
+                    claimedByPlayerId: null,
+                    claimedByPlayerName: null,
+                    claimedAt: null,
+                    updatedAt: serverTimestamp(),
+                    updatedByUid: meUid,
+                },
+                { merge: true }
+            );
+            return true;
+        } catch {
+            return false;
+        }
+    }, [claimRef, roundIdParam, holeNumber, sideGameKey]);
 
-            try {
-                await setDoc(
-                    claimRef,
-                    {
-                        roundId: String(roundIdParam || ""),
-                        holeNumber: Number(holeNumber || 1),
-                        formatKey: String(sideGameKey || ""),
-                        claimedByPlayerId,
-                        claimedByPlayerName,
-                        status: "carryover",
-                        carryoverAt: serverTimestamp(),
-                        updatedAt: serverTimestamp(),
-                        updatedByUid: meUid,
-                    },
-                    { merge: true }
-                );
-                return true;
-            } catch {
-                return false;
-            }
-        },
-        [claimRef, roundIdParam, holeNumber, sideGameKey]
-    );
+    const markCarryOver = useCallback(async () => {
+        if (!claimRef) return false;
 
-    const saveUnclaimed = useCallback(
-        async (pid, name) => {
-            if (!claimRef) return false;
-
-            const meUid = String(auth?.currentUser?.uid || "");
-            const claimedByPlayerId = String(pid || "").trim();
-            const claimedByPlayerName = String(name || "Player").trim();
-            if (!claimedByPlayerId) return false;
-
-            try {
-                await setDoc(
-                    claimRef,
-                    {
-                        roundId: String(roundIdParam || ""),
-                        holeNumber: Number(holeNumber || 1),
-                        formatKey: String(sideGameKey || ""),
-                        claimedByPlayerId,
-                        claimedByPlayerName,
-                        status: "unclaimed",
-                        unclaimedAt: serverTimestamp(),
-                        updatedAt: serverTimestamp(),
-                        updatedByUid: meUid,
-                    },
-                    { merge: true }
-                );
-                return true;
-            } catch {
-                return false;
-            }
-        },
-        [claimRef, roundIdParam, holeNumber, sideGameKey]
-    );
+        const meUid = String(auth?.currentUser?.uid || "");
+        try {
+            await setDoc(
+                claimRef,
+                {
+                    roundId: String(roundIdParam || ""),
+                    holeNumber: Number(holeNumber || 1),
+                    formatKey: String(sideGameKey || ""),
+                    status: "carry_over",
+                    claimedByPlayerId: null,
+                    claimedByPlayerName: null,
+                    claimedAt: null,
+                    updatedAt: serverTimestamp(),
+                    updatedByUid: meUid,
+                },
+                { merge: true }
+            );
+            return true;
+        } catch {
+            return false;
+        }
+    }, [claimRef, roundIdParam, holeNumber, sideGameKey]);
 
     // -----------------------------
     // Seed inputs
@@ -357,57 +362,67 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         });
     }, [playerRows]);
 
-    // Load saved hole values from active round state
+    // Load saved hole values from Firestore round doc (SOLO or SHARED)
     useEffect(() => {
         let live = true;
 
         (async () => {
-            const state = await loadActiveRound();
-            if (!live) return;
+            const rid = String(roundIdParam || "").trim();
+            const ref = roundDocRef(rid);
+            if (!ref) return;
 
-            const savedHole = state?.holes?.[String(holeNumber)]?.players || null;
-            if (!savedHole) return;
+            try {
+                const snap = await getDoc(ref);
+                if (!live) return;
+                const state = snap.exists() ? (snap.data() || {}) : null;
+                if (!state) return;
 
-            setInputs((prev) => {
-                const next = { ...(prev || {}) };
+                const savedHole = state?.holes?.[String(holeNumber)]?.players || null;
+                if (!savedHole) return;
 
-                playerRows.forEach((p) => {
-                    const pid = String(p._pid);
-                    const saved = savedHole[String(pid)];
-                    if (!saved) return;
+                setInputs((prev) => {
+                    const next = { ...(prev || {}) };
 
-                    const track =
-                        typeof saved?.trackStats === "boolean"
-                            ? saved.trackStats
-                            : typeof next?.[pid]?.trackStats === "boolean"
-                                ? next[pid].trackStats
-                                : defaultTrackStatsForPlayer();
+                    playerRows.forEach((p) => {
+                        const pid = String(p._pid);
+                        const saved = savedHole[String(pid)];
+                        if (!saved) return;
 
-                    const sStrokes = toInt(saved?.strokes);
-                    const sPutts = toInt(saved?.putts);
-                    const hasPutts = String(saved?.putts ?? "").length > 0;
+                        const track =
+                            typeof saved?.trackStats === "boolean"
+                                ? saved.trackStats
+                                : typeof next?.[pid]?.trackStats === "boolean"
+                                    ? next[pid].trackStats
+                                    : defaultTrackStatsForPlayer();
 
-                    next[pid] = {
-                        ...(next[pid] || {}),
-                        trackStats: !!track,
-                        strokes: Number.isFinite(Number(sStrokes)) ? sStrokes : 0,
-                        putts: Number.isFinite(Number(sPutts)) ? sPutts : 0,
-                        _hasPuttsSaved: hasPutts,
-                        fairway: saved?.fairway ?? next[pid]?.fairway ?? "na",
-                        green: saved?.green ?? next[pid]?.green ?? "na",
-                        sandSave: saved?.sandSave ?? next[pid]?.sandSave ?? "na",
-                        updown: saved?.updown ?? next[pid]?.updown ?? "na",
-                    };
+                        const sStrokes = toInt(saved?.strokes);
+                        const sPutts = toInt(saved?.putts);
+                        const hasPutts = String(saved?.putts ?? "").length > 0;
+
+                        next[pid] = {
+                            ...(next[pid] || {}),
+                            trackStats: !!track,
+                            strokes: Number.isFinite(Number(sStrokes)) ? sStrokes : 0,
+                            putts: Number.isFinite(Number(sPutts)) ? sPutts : 0,
+                            _hasPuttsSaved: hasPutts,
+                            fairway: saved?.fairway ?? next[pid]?.fairway ?? "na",
+                            green: saved?.green ?? next[pid]?.green ?? "na",
+                            sandSave: saved?.sandSave ?? next[pid]?.sandSave ?? "na",
+                            updown: saved?.updown ?? next[pid]?.updown ?? "na",
+                        };
+                    });
+
+                    return next;
                 });
-
-                return next;
-            });
+            } catch {
+                // ignore
+            }
         })();
 
         return () => {
             live = false;
         };
-    }, [holeNumber, playerRows]);
+    }, [roundIdParam, holeNumber, playerRows]);
 
     function setPlayerField(pid, field, value) {
         const id = String(pid);
@@ -427,6 +442,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             if (field === "trackStats") {
                 const nextOn = !!value;
 
+                // if turning OFF -> clear ONLY the extra stats (keep strokes/putts)
                 if (!nextOn) {
                     next[id] = {
                         ...cur,
@@ -470,7 +486,20 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
     const persistHole = useCallback(
         async (opts = {}) => {
-            const state = (await loadActiveRound()) || {
+            const rid = String(roundIdParam || "").trim();
+            if (!rid) {
+                Alert.alert("Round error", "Missing roundId. Please start the round again.");
+                return { ok: false, roundId: null };
+            }
+
+            const ref = roundDocRef(rid);
+            if (!ref) {
+                Alert.alert("Round error", "Not signed in. Please sign in again.");
+                return { ok: false, roundId: rid };
+            }
+
+            let state = {
+                roundId: rid,
                 course,
                 tee,
                 players: normalizedPlayers,
@@ -478,22 +507,19 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                 meta: {},
             };
 
-            const existingId = state?.id || state?.roundId || state?.activeRound?.id || state?.round?.id || roundIdParam;
+            try {
+                const snap = await getDoc(ref);
+                if (snap.exists()) state = { ...(snap.data() || {}), roundId: rid };
+            } catch {
+                // ignore
+            }
 
-            const safeId = String(existingId || "") || (Number.isFinite(state?.startedAt) ? `r_${state.startedAt}` : `r_${Date.now()}`);
-
-            state.id = safeId;
-            state.roundId = safeId;
-
+            state.roundId = rid;
             state.course = state.course || course;
             state.tee = state.tee || tee;
             state.courseName = state.courseName || state.course?.name || course?.name || "Course";
             state.teeName = state.teeName || state.tee?.name || tee?.name || "Tees";
             state.players = normalizedPlayers;
-
-            // persist 9-hole metadata so History can render correctly
-            state.holesCount = holesCount;
-            state.holesSide = holesCount === 9 ? holesSide : null;
 
             if (!state.holes) state.holes = {};
             if (!state.meta) state.meta = {};
@@ -510,6 +536,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                 payload[String(pid)] = {
                     trackStats: track,
                     strokes: String(toInt(val.strokes) || ""),
+                    // Putts are always tracked (needed for games like Putting Contest), even when Stats is OFF.
                     putts: String(toInt(val.putts) || ""),
                     fairway: track ? (val.fairway ?? "na") : "na",
                     green: track ? (val.green ?? "na") : "na",
@@ -523,8 +550,8 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             state.status = "in_progress";
             state.inProgress = true;
             state.isActive = true;
-            state.updatedAt = Date.now();
 
+            // Only advance resume hole when explicitly provided
             if (Number.isFinite(Number(opts?.resumeHole))) {
                 const resumeHole = Math.max(1, Math.min(18, Number(opts.resumeHole)));
                 state.currentHole = resumeHole;
@@ -533,11 +560,22 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                 state.holeIndex = resumeHole - 1;
             }
 
-            const ok = await saveActiveRound(state);
-            if (!ok) Alert.alert("Save failed", "Could not save hole data.");
-            return { ok, roundId: safeId };
+            try {
+                await setDoc(
+                    ref,
+                    {
+                        ...state,
+                        updatedAt: serverTimestamp(),
+                    },
+                    { merge: true }
+                );
+                return { ok: true, roundId: rid };
+            } catch {
+                Alert.alert("Save failed", "Could not save hole data.");
+                return { ok: false, roundId: rid };
+            }
         },
-        [course, tee, normalizedPlayers, playerRows, inputs, holeMeta, holeNumber, roundIdParam, holesCount, holesSide]
+        [roundIdParam, course, tee, normalizedPlayers, playerRows, inputs, holeMeta, holeNumber]
     );
 
     // autosave on navigation away
@@ -554,6 +592,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
             (async () => {
                 try {
+                    // backing out should NOT advance resume hole
                     await persistHole({ skipResumeUpdate: true });
                 } catch { }
                 navigation.dispatch(e.data.action);
@@ -577,8 +616,6 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                     roundId: roundIdParam || null,
                     courseName: course?.name,
                     teeName: tee?.name,
-                    holesCount,
-                    holesSide,
                     ...extraParams,
                 },
                 merge: true,
@@ -586,25 +623,36 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         );
     }
 
-    async function onBack() {
-        Keyboard.dismiss();
-
-        if (isFixMode) {
-            goToHoleHub(Number(finishReturnHole || rangeEnd));
-            return;
-        }
-
-        const res = await persistHole({ skipResumeUpdate: true });
-        goToHoleHub(holeNumber, { roundId: res?.roundId || roundIdParam || null });
-    }
-
     async function onNextHole() {
         Keyboard.dismiss();
         if (!validateStrokesForThisHole()) return;
 
-        const nextHole = holeNumber >= rangeEnd ? rangeEnd : holeNumber + 1;
+        const nextHole = holeNumber >= 18 ? 18 : holeNumber + 1;
         const res = await persistHole({ resumeHole: nextHole });
-        goToHoleHub(nextHole, { roundId: res?.roundId || roundIdParam || null, hole: nextHole });
+        goToHoleHub(nextHole, { roundId: res?.roundId || roundIdParam || null });
+    }
+
+    async function onFinishRoundFromScoreEntry() {
+        Keyboard.dismiss();
+        if (!validateStrokesForThisHole()) return;
+
+        const res = await persistHole({ resumeHole: 18 });
+
+        navigation.dispatch(
+            CommonActions.navigate({
+                name: ROUTES.GAME_ROUND_CALCULATING,
+                params: {
+                    roundId: res?.roundId || roundIdParam || null,
+                    course,
+                    tee,
+                    players,
+                    holeMeta,
+                    courseName: course?.name,
+                    teeName: tee?.name,
+                },
+                merge: true,
+            })
+        );
     }
 
     async function doneFixMode() {
@@ -613,18 +661,23 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
         await persistHole({ skipResumeUpdate: true });
 
-        const state = (await loadActiveRound()) || {};
-        const remaining = getMissingHolesFromState(state, normalizedPlayers, rangeStart, rangeEnd);
+        // reload from firestore (so missing calc is authoritative)
+        const rid = String(roundIdParam || "").trim();
+        const ref = roundDocRef(rid);
+        let state = {};
+        try {
+            const snap = ref ? await getDoc(ref) : null;
+            state = snap && snap.exists() ? (snap.data() || {}) : {};
+        } catch {
+            state = {};
+        }
+
+        const remaining = getMissingHolesFromState(state, normalizedPlayers);
 
         if (!remaining.length) {
-            const ret = Number.isFinite(Number(finishReturnHole)) ? Number(finishReturnHole) : rangeEnd;
-
-            // force resume/current hole to return hole so HoleHub stays put
-            await persistHole({ resumeHole: ret });
-
-            goToHoleHub(ret, {
+            goToHoleHub(Number(finishReturnHole || 18), {
                 showFinishPrompt: true,
-                hole: ret,
+                hole: Number(finishReturnHole || 18),
             });
             return;
         }
@@ -650,10 +703,6 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             if (nextIdx < 0) nextIdx = 0;
         }
 
-        if (Number(nextHole) < rangeStart || Number(nextHole) > rangeEnd) {
-            nextHole = remaining[0];
-        }
-
         skipBeforeRemoveRef.current = true;
         navigation.dispatch(
             StackActions.replace(ROUTES.SCORE_ENTRY, {
@@ -662,9 +711,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                 fixMissing: true,
                 missingHoles: original.length ? original : remaining,
                 missingIndex: nextIdx,
-                finishReturnHole: Number(finishReturnHole || rangeEnd),
-                holesCount,
-                holesSide,
+                finishReturnHole: Number(finishReturnHole || 18),
             })
         );
 
@@ -673,9 +720,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         });
     }
 
-    // -----------------------------
-    // Number picker (top-level hooks)
-    // -----------------------------
+    // picker
     const [pickOpen, setPickOpen] = useState(false);
     const [pickPid, setPickPid] = useState("");
     const [pickField, setPickField] = useState("strokes"); // "strokes" | "putts"
@@ -715,10 +760,121 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                 title={title}
                 subtitle={isFixMode ? "Fix missing scores • Tap a box to pick a value." : "Tap a box to pick a value."}
                 safeTop={false}
-                onBack={onBack}
             />
 
             <View style={styles.body}>
+                {claimable ? (
+                    <View style={styles.sideGameBanner}>
+                        <Text style={styles.sideGameTitle}>
+                            {sideGameTitle === "Second Shot KP"
+                                ? `Second Shot • KP • Hole ${holeNumber}`
+                                : sideGameTitle === "KP"
+                                    ? `KP • Hole ${holeNumber}`
+                                    : `${sideGameTitle} • Hole ${holeNumber}`}
+                        </Text>
+
+                        <Text style={styles.sideGameSub}>
+                            {claimStatus === "claimed" && holderName
+                                ? `Current holder: ${holderName}`
+                                : claimStatus === "carry_over"
+                                    ? "Carry over requested"
+                                    : claimStatus === "unclaimed"
+                                        ? "Washed"
+                                        : "Currently unclaimed"}
+                        </Text>
+
+                        <View style={styles.sideGameBtnsRow}>
+                            <Pressable
+                                onPress={async () => {
+                                    const isClaimed = claimStatus === "claimed" && !!holderPid;
+
+                                    if (isClaimed) {
+                                        Alert.alert(
+                                            "Change from claimed?",
+                                            `This hole is currently claimed by ${holderName || "Player"}. Mark it washed instead?`,
+                                            [
+                                                { text: "Cancel", style: "cancel" },
+                                                {
+                                                    text: "Mark Washed",
+                                                    style: "default",
+                                                    onPress: async () => {
+                                                        const ok = await markUnclaimed();
+                                                        if (!ok) Alert.alert("Save failed", "Could not mark washed. Please try again.");
+                                                    },
+                                                },
+                                            ]
+                                        );
+                                        return;
+                                    }
+
+                                    Alert.alert("Mark washed?", "This sets this format hole as washed. You can change it anytime.", [
+                                        { text: "Cancel", style: "cancel" },
+                                        {
+                                            text: "Mark Washed",
+                                            style: "default",
+                                            onPress: async () => {
+                                                const ok = await markUnclaimed();
+                                                if (!ok) Alert.alert("Save failed", "Could not mark washed. Please try again.");
+                                            },
+                                        },
+                                    ]);
+                                }}
+                                style={({ pressed }) => [
+                                    styles.sideBtn,
+                                    styles.sideBtnUnclaimed,
+                                    claimStatus === "unclaimed" && styles.sideBtnUnclaimedOn,
+                                    claimStatus === "claimed" && styles.sideBtnMuted,
+                                    pressed && styles.pressed,
+                                ]}
+                            >
+                                <Text style={[styles.sideBtnText, claimStatus === "claimed" && styles.sideBtnTextMuted]}>Washed</Text>
+                            </Pressable>
+
+                            <Pressable
+                                onPress={async () => {
+                                    const isClaimed = claimStatus === "claimed" && !!holderPid;
+
+                                    if (isClaimed) {
+                                        Alert.alert("Change from claimed?", `This hole is currently claimed by ${holderName || "Player"}. Carry it over instead?`, [
+                                            { text: "Cancel", style: "cancel" },
+                                            {
+                                                text: "Carry Over",
+                                                style: "default",
+                                                onPress: async () => {
+                                                    const ok = await markCarryOver();
+                                                    if (!ok) Alert.alert("Save failed", "Could not mark carry over. Please try again.");
+                                                },
+                                            },
+                                        ]);
+                                        return;
+                                    }
+
+                                    Alert.alert("Carry over?", "This carries this hole’s value forward to the next matching format hole. You can change it anytime.", [
+                                        { text: "Cancel", style: "cancel" },
+                                        {
+                                            text: "Carry Over",
+                                            style: "default",
+                                            onPress: async () => {
+                                                const ok = await markCarryOver();
+                                                if (!ok) Alert.alert("Save failed", "Could not mark carry over. Please try again.");
+                                            },
+                                        },
+                                    ]);
+                                }}
+                                style={({ pressed }) => [
+                                    styles.sideBtn,
+                                    styles.sideBtnCarry,
+                                    claimStatus === "carry_over" && styles.sideBtnCarryOn,
+                                    claimStatus === "claimed" && styles.sideBtnMuted,
+                                    pressed && styles.pressed,
+                                ]}
+                            >
+                                <Text style={[styles.sideBtnText, claimStatus === "claimed" && styles.sideBtnTextMuted]}>Carry Over</Text>
+                            </Pressable>
+                        </View>
+                    </View>
+                ) : null}
+
                 <FlatList
                     data={playerRows}
                     keyExtractor={(item) => String(item._pid)}
@@ -742,49 +898,41 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                                                 <Pressable
                                                     disabled={toInt(val.strokes) <= 0}
                                                     onPress={async () => {
+                                                        const isClaimed = claimStatus === "claimed" && !!holderPid;
+                                                        const isOtherHolder = isClaimed && holderPid !== pid;
+
+                                                        if (isOtherHolder) {
+                                                            Alert.alert("Overwrite claim?", `Current holder is ${holderName || "Player"}. Claim for ${item._name}?`, [
+                                                                { text: "Cancel", style: "cancel" },
+                                                                {
+                                                                    text: "Claim",
+                                                                    style: "default",
+                                                                    onPress: async () => {
+                                                                        const ok = await saveClaim(pid, item._name);
+                                                                        if (!ok) Alert.alert("Claim failed", "Could not save the claim. Please try again.");
+                                                                    },
+                                                                },
+                                                            ]);
+                                                            return;
+                                                        }
+
                                                         const ok = await saveClaim(pid, item._name);
                                                         if (!ok) {
                                                             Alert.alert("Claim failed", "Could not save the claim. Please try again.");
                                                             return;
                                                         }
-                                                        Alert.alert("Claim saved", `Format claimed for ${item._name}.`);
                                                     }}
-                                                    style={({ pressed }) => [styles.claimBtn, toInt(val.strokes) <= 0 && styles.claimBtnDisabled, pressed && styles.pressed]}
+                                                    style={({ pressed }) => [
+                                                        styles.claimBtn,
+                                                        claimStatus === "claimed" && holderPid === pid && styles.claimBtnClaimed,
+                                                        toInt(val.strokes) <= 0 && styles.claimBtnDisabled,
+                                                        pressed && styles.pressed,
+                                                    ]}
                                                 >
-                                                    <Text style={styles.claimBtnText}>{toInt(val.strokes) <= 0 ? "Claim (enter strokes first)" : "Claim"}</Text>
+                                                    <Text style={[styles.claimBtnText, claimStatus === "claimed" && holderPid === pid && styles.claimBtnTextClaimed]}>
+                                                        {claimStatus === "claimed" && holderPid === pid ? "Claimed" : toInt(val.strokes) <= 0 ? "Claim (enter strokes first)" : "Claim"}
+                                                    </Text>
                                                 </Pressable>
-
-                                                <Pressable
-                                                    disabled={toInt(val.strokes) <= 0}
-                                                    onPress={async () => {
-                                                        const ok = await saveCarryover(pid, item._name);
-                                                        if (!ok) {
-                                                            Alert.alert("Carryover failed", "Could not save the carryover. Please try again.");
-                                                            return;
-                                                        }
-                                                        Alert.alert("Carryover saved", `Format carryover for ${item._name}.`);
-                                                    }}
-                                                    style={({ pressed }) => [styles.carryoverBtn, toInt(val.strokes) <= 0 && styles.carryoverBtnDisabled, pressed && styles.pressed]}
-                                                >
-                                                    <Text style={styles.claimBtnText}>Carryover</Text>
-                                                </Pressable>
-
-                                                <Pressable
-                                                    disabled={toInt(val.strokes) <= 0}
-                                                    onPress={async () => {
-                                                        const ok = await saveUnclaimed(pid, item._name);
-                                                        if (!ok) {
-                                                            Alert.alert("Unclaimed failed", "Could not mark as unclaimed. Please try again.");
-                                                            return;
-                                                        }
-                                                        Alert.alert("Unclaimed saved", `Format marked as unclaimed for ${item._name}.`);
-                                                    }}
-                                                    style={({ pressed }) => [styles.unclaimedBtn, toInt(val.strokes) <= 0 && styles.unclaimedBtnDisabled, pressed && styles.pressed]}
-                                                >
-                                                    <Text style={styles.claimBtnText}>Unclaimed</Text>
-                                                </Pressable>
-
-                                                <Text style={styles.claimMetaText}>{holderName ? `Current holder: ${holderName}` : "Currently unclaimed"}</Text>
                                             </View>
                                         ) : null}
                                     </View>
@@ -865,8 +1013,11 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             </View>
 
             <View style={[styles.footer, { paddingBottom: Math.max(10, (insets?.bottom || 0) + 8) }]}>
-                <Pressable onPress={isFixMode ? doneFixMode : onNextHole} style={({ pressed }) => [styles.primaryBtnFull, pressed && styles.pressed]}>
-                    <Text style={styles.primaryText}>{isFixMode ? "Done" : "Save • Next Hole"}</Text>
+                <Pressable
+                    onPress={isFixMode ? doneFixMode : Number(holeNumber) >= 18 ? onFinishRoundFromScoreEntry : onNextHole}
+                    style={({ pressed }) => [styles.primaryBtnFull, !isFixMode && Number(holeNumber) >= 18 && styles.primaryBtnFullFinish, pressed && styles.pressed]}
+                >
+                    <Text style={styles.primaryText}>{isFixMode ? "Done" : Number(holeNumber) >= 18 ? "Save • Finish Round" : "Save • Next Hole"}</Text>
                 </Pressable>
             </View>
 
@@ -906,19 +1057,19 @@ const styles = StyleSheet.create({
 
     playerCard: {
         backgroundColor: CARD,
-        borderRadius: 22,
-        padding: 12,
-        marginBottom: 10,
+        borderRadius: 20,
+        padding: 10,
+        marginBottom: 8,
         borderWidth: 1,
         borderColor: "rgba(242,201,76,0.35)",
     },
 
-    playerTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
-    playerName: { flex: 1, color: WHITE, fontWeight: "900", fontSize: 16, letterSpacing: 0.2 },
+    playerTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+    playerName: { flex: 1, color: WHITE, fontWeight: "900", fontSize: 15, letterSpacing: 0.2 },
 
     statsPill: {
-        height: 34,
-        paddingHorizontal: 12,
+        height: 30,
+        paddingHorizontal: 10,
         borderRadius: 999,
         borderWidth: 1,
         alignItems: "center",
@@ -926,10 +1077,10 @@ const styles = StyleSheet.create({
     },
     statsPillOn: { backgroundColor: "rgba(46,204,113,0.16)", borderColor: "rgba(46,204,113,0.30)" },
     statsPillOff: { backgroundColor: "rgba(255,255,255,0.06)", borderColor: "rgba(255,255,255,0.14)" },
-    statsPillText: { color: WHITE, fontWeight: "900", fontSize: 12, letterSpacing: 0.2 },
+    statsPillText: { color: WHITE, fontWeight: "900", fontSize: 11, letterSpacing: 0.2 },
 
     claimBtn: {
-        height: 36,
+        height: 32,
         borderRadius: 14,
         paddingHorizontal: 12,
         alignItems: "center",
@@ -937,60 +1088,75 @@ const styles = StyleSheet.create({
         backgroundColor: "rgba(242,201,76,0.18)",
         borderWidth: 1,
         borderColor: "rgba(242,201,76,0.42)",
-        marginBottom: 8,
     },
     claimBtnDisabled: { opacity: 0.45 },
+    claimBtnClaimed: { backgroundColor: "rgba(242,201,76,0.75)", borderColor: "rgba(242,201,76,0.95)" },
+    claimBtnTextClaimed: { color: "#0B1220" },
     claimBtnText: { color: WHITE, fontWeight: "900", fontSize: 12, letterSpacing: 0.4 },
-    claimMetaText: { marginTop: 6, color: "rgba(255,255,255,0.72)", fontWeight: "800", fontSize: 12 },
 
-    carryoverBtn: {
-        height: 36,
-        borderRadius: 14,
-        paddingHorizontal: 12,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: "rgba(46,125,255,0.16)",
-        borderWidth: 1,
-        borderColor: "rgba(46,125,255,0.42)",
+    sideGameBanner: {
+        marginTop: 10,
         marginBottom: 8,
+        borderRadius: 22,
+        padding: 12,
+        borderWidth: 1,
+        borderColor: "rgba(242,201,76,0.28)",
+        backgroundColor: "rgba(255,255,255,0.06)",
+        alignItems: "center",
     },
-    carryoverBtnDisabled: { opacity: 0.45 },
+    sideGameTitle: { color: WHITE, fontWeight: "900", fontSize: 13, letterSpacing: 0.6, textAlign: "center" },
+    sideGameSub: { marginTop: 8, color: "rgba(255,255,255,0.72)", fontWeight: "800", fontSize: 12, textAlign: "center" },
 
-    unclaimedBtn: {
-        height: 36,
-        borderRadius: 14,
+    sideGameBtnsRow: {
+        marginTop: 10,
+        width: "100%",
+        flexDirection: "row",
+        gap: 10,
+        alignItems: "stretch",
+        justifyContent: "space-between",
+    },
+    sideBtn: {
+        flex: 1,
+        height: 44,
         paddingHorizontal: 12,
+        borderRadius: 14,
         alignItems: "center",
         justifyContent: "center",
-        backgroundColor: "rgba(255,80,80,0.12)",
         borderWidth: 1,
-        borderColor: "rgba(255,80,80,0.35)",
-        marginBottom: 2,
     },
-    unclaimedBtnDisabled: { opacity: 0.45 },
+    sideBtnMuted: { backgroundColor: "rgba(255,255,255,0.04)", borderColor: "rgba(255,255,255,0.10)", opacity: 0.6 },
+    sideBtnTextMuted: { opacity: 0.7 },
 
-    inputRow: { flexDirection: "row", gap: 12, marginTop: 10 },
+    sideBtnUnclaimed: { backgroundColor: "rgba(255,80,80,0.10)", borderColor: "rgba(255,80,80,0.22)" },
+    sideBtnUnclaimedOn: { backgroundColor: "rgba(255,80,80,0.18)", borderColor: "rgba(255,80,80,0.45)" },
+
+    sideBtnCarry: { backgroundColor: "rgba(46,125,255,0.14)", borderColor: "rgba(46,125,255,0.28)" },
+    sideBtnCarryOn: { backgroundColor: "rgba(46,125,255,0.26)", borderColor: "rgba(46,125,255,0.60)" },
+
+    sideBtnText: { color: WHITE, fontWeight: "900", fontSize: 13, letterSpacing: 0.2 },
+
+    inputRow: { flexDirection: "row", gap: 10, marginTop: 8 },
     fieldWrap: {
         flex: 1,
         backgroundColor: INNER,
-        borderRadius: 18,
-        padding: 12,
+        borderRadius: 16,
+        padding: 10,
         borderWidth: 1,
         borderColor: "rgba(46,204,113,0.35)",
     },
-    fieldLabel: { color: MUTED, fontWeight: "900", fontSize: 11, letterSpacing: 0.6 },
+    fieldLabel: { color: MUTED, fontWeight: "900", fontSize: 10, letterSpacing: 0.6 },
     valueBox: {
-        marginTop: 10,
-        height: 52,
-        borderRadius: 16,
+        marginTop: 8,
+        height: 44,
+        borderRadius: 14,
         backgroundColor: "rgba(0,0,0,0.22)",
         borderWidth: 1,
         borderColor: "rgba(255,255,255,0.14)",
         alignItems: "center",
         justifyContent: "center",
     },
-    valueText: { color: WHITE, fontSize: 22, fontWeight: "900", letterSpacing: 0.2 },
-    fieldHint: { marginTop: 8, color: "rgba(255,255,255,0.60)", fontWeight: "800", fontSize: 10, letterSpacing: 0.2 },
+    valueText: { color: WHITE, fontSize: 19, fontWeight: "900", letterSpacing: 0.2 },
+    fieldHint: { marginTop: 6, color: "rgba(255,255,255,0.60)", fontWeight: "800", fontSize: 9, letterSpacing: 0.2 },
 
     divider: { marginTop: 14, height: 1, backgroundColor: "rgba(255,255,255,0.10)" },
 
@@ -1040,7 +1206,6 @@ const styles = StyleSheet.create({
         borderTopWidth: 1,
         borderTopColor: "rgba(255,255,255,0.08)",
     },
-
     primaryBtnFull: {
         height: 56,
         borderRadius: 18,
@@ -1049,6 +1214,11 @@ const styles = StyleSheet.create({
         justifyContent: "center",
         borderWidth: 1,
         borderColor: "rgba(255,255,255,0.14)",
+    },
+    primaryBtnFullFinish: {
+        backgroundColor: "rgba(46,125,255,0.22)",
+        borderWidth: 3,
+        borderColor: YELLOW,
     },
     primaryText: { color: WHITE, fontWeight: "900" },
 
