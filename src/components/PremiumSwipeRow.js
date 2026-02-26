@@ -45,6 +45,8 @@ export default function PremiumSwipeRow({
   const swipeRef = useRef(null);
   const [openSide, setOpenSide] = useState(null); // "left" | "right" | null
 
+  const isEnabled = enabled === true;
+
   function onWillOpen(direction) {
     if (!openSwipeRef) return;
     if (openSwipeRef.current && openSwipeRef.current !== swipeRef.current) {
@@ -199,7 +201,7 @@ export default function PremiumSwipeRow({
     );
   }
 
-  if (!enabled) {
+  if (!isEnabled) {
     return (
       <View style={[styles.swipeShell, shellStyle]}>
         <View style={styles.contentShell}>{children}</View>
