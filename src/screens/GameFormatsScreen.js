@@ -142,7 +142,10 @@ export default function GameFormatsScreen({ navigation, route }) {
         const uid = auth?.currentUser?.uid || null;
         if (!uid) return;
 
-        const ref = doc(db, "users", uid, "rounds", String(roundId));
+        const isShared = String(roundId).startsWith("sr_");
+        const ref = isShared
+            ? doc(db, "sharedRounds", String(roundId))
+            : doc(db, "users", uid, "rounds", String(roundId));
 
         const unsub = onSnapshot(
             ref,
@@ -341,7 +344,11 @@ export default function GameFormatsScreen({ navigation, route }) {
             const uid = auth?.currentUser?.uid || null;
             if (!uid) throw new Error("Missing user");
 
-            const ref = doc(db, "users", uid, "rounds", String(roundId));
+            const isShared = String(roundId).startsWith("sr_");
+            const ref = isShared
+                ? doc(db, "sharedRounds", String(roundId))
+                : doc(db, "users", uid, "rounds", String(roundId));
+
             await updateDoc(ref, {
                 formatsSelected: arr,
                 formatsSelectedCount: arr.length,
