@@ -158,7 +158,10 @@ export default function GamesScreen({ navigation, route }) {
 
         Alert.alert("Joined", "You joined the round.");
         navigation.setParams({ mode: null, joinCode: null });
-        navigation.goBack();
+
+        navigation.replace(ROUTES.GAME_SETUP, {
+          roundId: joined.roundId,
+        });
       } catch (e) {
         Alert.alert("Join failed", e?.message || "Could not join that round.");
       } finally {
@@ -232,7 +235,20 @@ export default function GamesScreen({ navigation, route }) {
 
     Alert.alert(
       "Shared round created",
-      `Invite Code: ${created.joinCode}\n\nShare this code. Another user can join from Home → Start Round → Join a round.`
+      `Invite Code: ${created.joinCode}\n\nShare this code. Another user can join from Home → Start Round → Join a round.`,
+      [
+        {
+          text: "Continue setup",
+          onPress: () => {
+            navigation.navigate(ROUTES.GAME_SETUP, {
+              roundId: created.roundId,
+              gameId: selected.id,
+              gameTitle: selected.title,
+            });
+          },
+        },
+        { text: "Stay", style: "cancel" },
+      ]
     );
   }
 
