@@ -6,6 +6,12 @@ import {
   setDoc,
   updateDoc,
   serverTimestamp,
+  collection,
+  getDocs,
+  query,
+  where,
+  limit,
+  arrayUnion,
 } from "firebase/firestore";
 
 import { auth, db } from "../firebase/firebase";
@@ -25,6 +31,9 @@ function activeMetaRef(uid) {
 function roundRef(uid, roundId) {
   return doc(db, "users", uid, "rounds", String(roundId));
 }
+function sharedRoundRef(roundId) {
+  return doc(db, "sharedRounds", String(roundId));
+}
 
 function uidOrNull() {
   return auth?.currentUser?.uid || null;
@@ -35,8 +44,29 @@ function nowMs() {
 }
 
 function makeRoundId() {
-  // simple, readable, unique enough for now (can switch to nanoid later)
+  // existing solo rounds (under users/{uid}/rounds/{roundId})
   return `r_${nowMs()}_${Math.floor(Math.random() * 1e6)}`;
+}
+
+function makeSharedRoundId() {
+  // shared multiplayer rounds (under sharedRounds/{roundId})
+  return `sr_${nowMs()}_${Math.floor(Math.random() * 1e6)}`;
+}
+
+function makeJoinCode() {
+  // 6-char code, avoids confusing chars (I/O/1/0)
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let out = "";
+  for (let i = 0; i < 6; i++) out += chars[Math.floor(Math.random() * chars.length)];
+  return out;
+}
+
+function normalizeJoinCode(v) {
+  return String(v || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .trim()
+    .slice(0, 8);
 }
 
 async function cacheRoundId(roundId) {
@@ -54,7 +84,7 @@ async function loadCachedRoundId() {
   }
 }
 
-// Create (or ensure) the setup round doc + set active pointer
+// Create (or ensure) the setup round doc + set active pointer (SOLO)
 export async function createSetupRound(initial = {}) {
   const uid = uidOrNull();
   if (!uid) return null;
@@ -85,7 +115,7 @@ export async function createSetupRound(initial = {}) {
     // formats
     formatsSelected: Array.isArray(initial?.formatsSelected) ? initial.formatsSelected : [],
 
-    // lobby
+    // lobby (legacy / optional)
     joinCode: initial?.joinCode || null,
 
     // misc
@@ -99,9 +129,115 @@ export async function createSetupRound(initial = {}) {
 
     await cacheRoundId(roundId);
 
-    // return hydrated snapshot
     const snap = await getDoc(roundRef(uid, roundId));
     return snap.exists() ? { ...(snap.data() || {}), roundId } : { ...base, roundId };
+  } catch {
+    return null;
+  }
+}
+
+// Create shared multiplayer setup round (SHARED)
+export async function createSharedSetupRound(initial = {}) {
+  const uid = uidOrNull();
+  if (!uid) return null;
+
+  const roundId = makeSharedRoundId();
+  const joinCode = normalizeJoinCode(initial?.joinCode || makeJoinCode());
+
+  const participantUidsRaw = Array.isArray(initial?.participantUids) ? initial.participantUids : [];
+  const participantUids = Array.from(new Set([uid, ...participantUidsRaw.map((x) => String(x || "").trim()).filter(Boolean)]));
+
+  const base = {
+    version: 1,
+
+    roundId,
+    isShared: true,
+
+    joinCode,
+    hostUid: uid,
+    participantUids,
+
+    status: "setup",
+
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+
+    // core
+    gameId: initial?.gameId || null,
+    gameTitle: initial?.gameTitle || null,
+    scoring: initial?.scoring || initial?.scoringMode || "net",
+
+    course: initial?.course || null,
+    tee: initial?.tee || null,
+    holeMeta: initial?.holeMeta || null,
+
+    // 9/18
+    holesCount: initial?.holesCount || null,
+    holesSide: initial?.holesSide || null,
+
+    playerCount: initial?.playerCount || null,
+    players: Array.isArray(initial?.players) ? initial.players : null,
+
+    formatsSelected: Array.isArray(initial?.formatsSelected) ? initial.formatsSelected : [],
+
+    startHole: 1,
+    currentHole: 1,
+  };
+
+  try {
+    await setDoc(sharedRoundRef(roundId), base, { merge: true });
+    await setDoc(activeMetaRef(uid), { activeRoundId: roundId, updatedAt: serverTimestamp() }, { merge: true });
+    await cacheRoundId(roundId);
+
+    const snap = await getDoc(sharedRoundRef(roundId));
+    return snap.exists() ? { ...(snap.data() || {}), roundId } : { ...base, roundId };
+  } catch {
+    return null;
+  }
+}
+
+// Find a shared round by join code
+export async function findSharedRoundByJoinCode(codeRaw) {
+  const uid = uidOrNull();
+  if (!uid) return null;
+
+  const code = normalizeJoinCode(codeRaw);
+  if (!code) return null;
+
+  try {
+    const q = query(collection(db, "sharedRounds"), where("joinCode", "==", code), limit(1));
+    const snap = await getDocs(q);
+    if (snap.empty) return null;
+
+    const docSnap = snap.docs[0];
+    const data = docSnap.data() || {};
+    const roundId = String(docSnap.id);
+
+    return { ...data, roundId };
+  } catch {
+    return null;
+  }
+}
+
+// Join a shared round by code (adds current user to participantUids)
+export async function joinSharedRoundByCode(codeRaw) {
+  const uid = uidOrNull();
+  if (!uid) return null;
+
+  const found = await findSharedRoundByJoinCode(codeRaw);
+  if (!found?.roundId) return null;
+
+  try {
+    await updateDoc(sharedRoundRef(found.roundId), {
+      participantUids: arrayUnion(uid),
+      updatedAt: serverTimestamp(),
+    });
+
+    await setDoc(activeMetaRef(uid), { activeRoundId: found.roundId, updatedAt: serverTimestamp() }, { merge: true });
+    await cacheRoundId(found.roundId);
+
+    const snap = await getDoc(sharedRoundRef(found.roundId));
+    return snap.exists() ? { ...(snap.data() || {}), roundId: found.roundId } : { ...found, roundId: found.roundId };
   } catch {
     return null;
   }
@@ -128,7 +264,7 @@ export async function getActiveRoundId() {
   return cached || null;
 }
 
-// Load active round (Firestore)
+// Load active round (Firestore) - SOLO only (existing behavior)
 export async function loadActiveRound(roundIdArg) {
   const uid = uidOrNull();
   if (!uid) return null;
@@ -146,7 +282,7 @@ export async function loadActiveRound(roundIdArg) {
   }
 }
 
-// Merge update active round (Firestore)
+// Merge update active round (Firestore) - SOLO only (existing behavior)
 export async function updateActiveRound(patch, roundIdArg) {
   const uid = uidOrNull();
   if (!uid) return null;
@@ -157,7 +293,6 @@ export async function updateActiveRound(patch, roundIdArg) {
   try {
     const ref = roundRef(uid, roundId);
 
-    // use updateDoc when possible; if doc missing, setDoc merge
     try {
       await updateDoc(ref, { ...(patch || {}), updatedAt: serverTimestamp() });
     } catch {
@@ -175,7 +310,7 @@ export async function updateActiveRound(patch, roundIdArg) {
   }
 }
 
-// Full replace (kept for compatibility)
+// Full replace (kept for compatibility) - SOLO only (existing behavior)
 export async function saveActiveRound(state, roundIdArg) {
   const uid = uidOrNull();
   if (!uid) return false;
