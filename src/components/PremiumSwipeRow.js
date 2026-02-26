@@ -22,6 +22,8 @@ export default function PremiumSwipeRow({
   onEdit,
   onDelete,
 
+  enabled = true,
+
   actionWidth = 120,
   friction = 2,
   threshold = 40,
@@ -193,6 +195,14 @@ export default function PremiumSwipeRow({
             <Text style={styles.actionText}>{deleteLabel}</Text>
           </Pressable>
         </Animated.View>
+      </View>
+    );
+  }
+
+  if (!enabled) {
+    return (
+      <View style={[styles.swipeShell, shellStyle]}>
+        <View style={styles.contentShell}>{children}</View>
       </View>
     );
   }
