@@ -162,6 +162,9 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
     const currentUid = String(auth?.currentUser?.uid || "").trim();
     const isJoinerInShared = isSharedRound && !!hostUid && hostUid !== currentUid;
 
+    const isMatchPlay = String(roundDoc?.gameId || "").trim() === "match_play";
+    const hasMatchSetup = !!(roundDoc?.matchPlay && typeof roundDoc.matchPlay === "object" && Array.isArray(roundDoc.matchPlay.matches) && roundDoc.matchPlay.matches.length);
+
     function includedCountForKey(fk) {
         const ids = players.map((p, idx) => playerId(p, idx)).filter(Boolean);
         const excluded = new Set(safeArr(formatPools?.[fk]?.excludedIds).map((x) => String(x)));
@@ -471,6 +474,10 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
                 <Pressable
                     disabled={isJoinerInShared}
                     onPress={async () => {
+                        if (isMatchPlay && !hasMatchSetup) {
+                            navigation.navigate(ROUTES.MATCH_SETUP, { roundId });
+                            return;
+                        }
                         try {
                             const uid = auth?.currentUser?.uid || null;
                             if (!uid) {

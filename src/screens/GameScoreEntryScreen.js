@@ -627,16 +627,111 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         Keyboard.dismiss();
         if (!validateStrokesForThisHole()) return;
 
-        const nextHole = holeNumber >= 18 ? 18 : holeNumber + 1;
+        const resolveHoleCap = (r) => {
+            const n1 =
+                Number(r?.totalHoles) ||
+                Number(r?.holesToPlay) ||
+                Number(r?.holesCount) ||
+                Number(r?.holeCount) ||
+                Number(r?.numHoles);
+
+            if (Number.isFinite(n1) && n1 >= 1 && n1 <= 18) return Math.round(n1);
+
+            const mode = String(r?.holesMode || r?.holesSelection || r?.holes || "").toLowerCase();
+            if (mode.includes("front") || mode.includes("back")) return 9;
+            if (mode.includes("9")) return 9;
+
+            return 18;
+        };
+
+        // Load round truth so 9-hole rounds don't incorrectly route to hole 10.
+        const rid0 = roundIdParam || null;
+        const ref0 = rid0 ? roundDocRef(rid0) : null;
+
+        let roundState0 = null;
+        try {
+            const snap0 = ref0 ? await getDoc(ref0) : null;
+            roundState0 = snap0 && snap0.exists() ? (snap0.data() || null) : null;
+        } catch {
+            roundState0 = null;
+        }
+
+        const holeCap = resolveHoleCap(roundState0 || {});
+
+        // If we’re at the end of the round (ex: hole 9 of Front 9), finish instead of going to hole 10.
+        if (Number(holeNumber) >= holeCap) {
+            await onFinishRoundFromScoreEntry();
+            return;
+        }
+
+        const nextHole = holeNumber >= holeCap ? holeCap : holeNumber + 1;
         const res = await persistHole({ resumeHole: nextHole });
-        goToHoleHub(nextHole, { roundId: res?.roundId || roundIdParam || null });
+
+        const rid = res?.roundId || roundIdParam || null;
+
+        const ref = rid ? roundDocRef(rid) : null;
+        let roundState = null;
+
+        try {
+            const snap = ref ? await getDoc(ref) : null;
+            roundState = snap && snap.exists() ? (snap.data() || null) : null;
+        } catch {
+            roundState = null;
+        }
+
+        const isMatchPlay = String(roundState?.gameId || "").trim() === "match_play";
+        const hasMatchSetup =
+            !!(roundState?.matchPlay &&
+                typeof roundState.matchPlay === "object" &&
+                Array.isArray(roundState.matchPlay.matches) &&
+                roundState.matchPlay.matches.length);
+
+        if (isMatchPlay && hasMatchSetup) {
+            navigation.replace(ROUTES.MATCH_STATUS_SPLASH, {
+                roundId: rid,
+                holeCompleted: Number(holeNumber) || 1,
+                nextHole: Number(nextHole) || nextHole,
+            });
+            return;
+        }
+
+        goToHoleHub(nextHole, { roundId: rid });
     }
 
     async function onFinishRoundFromScoreEntry() {
         Keyboard.dismiss();
         if (!validateStrokesForThisHole()) return;
 
-        const res = await persistHole({ resumeHole: 18 });
+        const resolveHoleCap = (r) => {
+            const n1 =
+                Number(r?.totalHoles) ||
+                Number(r?.holesToPlay) ||
+                Number(r?.holesCount) ||
+                Number(r?.holeCount) ||
+                Number(r?.numHoles);
+
+            if (Number.isFinite(n1) && n1 >= 1 && n1 <= 18) return Math.round(n1);
+
+            const mode = String(r?.holesMode || r?.holesSelection || r?.holes || "").toLowerCase();
+            if (mode.includes("front") || mode.includes("back")) return 9;
+            if (mode.includes("9")) return 9;
+
+            return 18;
+        };
+
+        const rid0 = roundIdParam || null;
+        const ref0 = rid0 ? roundDocRef(rid0) : null;
+
+        let roundState0 = null;
+        try {
+            const snap0 = ref0 ? await getDoc(ref0) : null;
+            roundState0 = snap0 && snap0.exists() ? (snap0.data() || null) : null;
+        } catch {
+            roundState0 = null;
+        }
+
+        const holeCap = resolveHoleCap(roundState0 || {});
+        const res = await persistHole({ resumeHole: holeCap });
 
         navigation.dispatch(
             CommonActions.navigate({

@@ -61,6 +61,12 @@ const ROUTES = {
   // NEW: joiner waiting room for shared rounds
   SHARED_WAITING: "SharedWaiting",
 
+  // NEW: match play setup (regular games)
+  MATCH_SETUP: "MatchSetup",
+
+  // NEW: match play status splash (regular games)
+  MATCH_STATUS_SPLASH: "MatchStatusSplash",
+
   /* ---------------- Tournaments ---------------- */
 
   TOURNAMENTS: "Tournaments",
