@@ -47,6 +47,7 @@ function detectFormatType(f) {
     if (s.includes("deucepot") || (s.includes("deuce") && s.includes("pot"))) return "deuce_pot";
     if (s.includes("puttingcontest") || (s.includes("putting") && s.includes("contest"))) return "putting_contest";
     if (s.includes("skins")) return "skins";
+    if (s.includes("nassau")) return "nassau";
     if (s.includes("kp")) return "kp";
     return "unknown";
 }
@@ -80,6 +81,7 @@ const TITLE_BY_TYPE = {
     longdrive: "Long Drive",
     secondshotkp: "Second Shot KP",
     skins: "Skins",
+    nassau: "Nassau",
     deuce_pot: "Deuce Pot",
     putting_contest: "Putting Contest",
 };
@@ -201,6 +203,18 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
                     if (Number.isFinite(fee) && fee > 0) owes[pid] += fee;
                 } else if (type === "skins") {
                     // skins is value per skin, not a buy-in; do not add to owed
+                } else if (type === "nassau") {
+                    const nas = safeObj(roundDoc?.wagers?.nassau);
+                    if (nas?.enabled) {
+                        const f = Number(nas?.front || 0);
+                        const b = Number(nas?.back || 0);
+                        const t = Number(nas?.total || 0);
+                        const sum =
+                            (Number.isFinite(f) ? f : 0) +
+                            (Number.isFinite(b) ? b : 0) +
+                            (Number.isFinite(t) ? t : 0);
+                        if (sum > 0) owes[pid] += sum;
+                    }
                 } else if (type === "kp" || type === "longdrive" || type === "secondshotkp") {
                     const perHole = Number(pool?.amountPerHole);
                     const holes = selectedHoleCountForKey(fk);
@@ -210,7 +224,7 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
         });
 
         return owes;
-    }, [players, formats, formatPools, formatConfig]);
+    }, [players, formats, formatPools, formatConfig, roundDoc]);
 
     const currentUserName = useMemo(() => {
         const nm = String(auth?.currentUser?.displayName || "").trim();
