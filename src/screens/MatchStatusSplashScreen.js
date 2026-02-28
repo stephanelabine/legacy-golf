@@ -93,24 +93,32 @@ function computeMatchState(roundDoc, matchPlay, playersList, holeMax) {
     }
 
     // Holes in play (supports 9-hole back nine)
-    const startHole = Number(roundRoot?.startHole) || 1;
     const holesCountRaw =
         Number(roundRoot?.holesCount) ||
         Number(roundRoot?.totalHoles) ||
         Number(roundRoot?.holesToPlay) ||
-        Number(roundRoot?.holesCount) ||
         Number(roundRoot?.holeCount) ||
         Number(roundRoot?.numHoles) ||
         18;
 
     const capCount = holesCountRaw === 9 ? 9 : 18;
-    const holeCap = startHole + capCount - 1;
+
+    const modeRaw = String(roundRoot?.holesMode || roundRoot?.holesSelection || roundRoot?.holes || "").toLowerCase();
+    const holesSide = String(roundRoot?.holesSide || "").toLowerCase();
+    const isBack = holesSide === "back" || modeRaw.includes("back");
+
+    // Prefer explicit startHole if present; otherwise infer for 9-hole back nine.
+    let startHole = Number(roundRoot?.startHole);
+    if (!Number.isFinite(startHole) || startHole < 1 || startHole > 18) startHole = 1;
+
+    if (capCount === 9 && isBack) startHole = 10;
+
+    const holeCap = Math.min(18, startHole + capCount - 1);
 
     const effectiveMax = Math.max(startHole, Math.min(Number(holeMax) || startHole, holeCap));
 
     const holesInPlay = [];
     for (let h = startHole; h <= holeCap; h++) holesInPlay.push(h);
-
     // Build display names:
     // - Prefer first name only
     // - If duplicate first names exist, use "First L."
