@@ -81,6 +81,9 @@ function detectFormatType(f) {
 
     if (s.includes("skins")) return "skins";
 
+    // Nassau (Front / Back / Total)
+    if (s.includes("nassau")) return "nassau";
+
     // KP (last)
     if (s.includes("kp")) return "kp";
 
@@ -140,6 +143,11 @@ const FORMAT_META = {
         blurb: "Enter the value per skin. The total depends on results and is calculated later.",
         hint: "per skin",
     },
+    nassau: {
+        title: "Nassau",
+        blurb: "Set Front 9, Back 9, and Total amounts. Nassau is tracked head-to-head per segment.",
+        hint: "front/back/total",
+    },
     deuce_pot: {
         title: "Deuce Pot",
         blurb: "Enter the fee per player to join the Deuce Pot. Pool estimate uses fee x included players.",
@@ -174,6 +182,12 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
 
     // fee strings keyed by formatKey (as stored in formatsSelected)
     const [feeByKey, setFeeByKey] = useState({});
+
+    // Nassau amounts (stored in roundDoc.wagers.nassau)
+    const [nassauFront, setNassauFront] = useState("");
+    const [nassauBack, setNassauBack] = useState("");
+    const [nassauTotal, setNassauTotal] = useState("");
+    const [nassauEnabled, setNassauEnabled] = useState(false);
 
     // putting contest payout places keyed by formatKey (1 | 2 | 3)
     const [payoutPlacesByKey, setPayoutPlacesByKey] = useState({});
@@ -479,6 +493,12 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
                 if (!dirtyRef.current) {
                     setFeeByKey(nextFeeByKey);
                     setPayoutPlacesByKey(nextPayoutPlacesByKey);
+
+                    const nas = safeObj(data?.wagers?.nassau);
+                    setNassauEnabled(!!nas?.enabled);
+                    setNassauFront(nas?.front ? String(nas.front) : "");
+                    setNassauBack(nas?.back ? String(nas.back) : "");
+                    setNassauTotal(nas?.total ? String(nas.total) : "");
                 }
                 setExcludedByKey(nextExcludedByKey);
 
@@ -566,6 +586,19 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
             if (type === "deuce_pot" || type === "putting_contest") {
                 if (parsed === null || parsed <= 0) return { ok: false, reason: `need:${fk}` };
             }
+
+            if (type === "nassau") {
+                if (!nassauEnabled) return { ok: false, reason: `need:${fk}` };
+
+                const f = parseFeeString(nassauFront);
+                const b = parseFeeString(nassauBack);
+                const t = parseFeeString(nassauTotal);
+
+                if (Number.isNaN(f) || Number.isNaN(b) || Number.isNaN(t)) return { ok: false, reason: `nan:${fk}` };
+                if (f === null || f <= 0) return { ok: false, reason: `need:${fk}` };
+                if (b === null || b <= 0) return { ok: false, reason: `need:${fk}` };
+                if (t === null || t <= 0) return { ok: false, reason: `need:${fk}` };
+            }
         }
 
         return { ok: true, reason: "ok" };
@@ -638,14 +671,36 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
                     return;
                 }
 
+                if (type === "nassau") {
+                    // Nassau amounts are stored under roundDoc.wagers.nassau (used by payouts)
+                    nextPools[fk] = { excludedIds };
+                    return;
+                }
+
                 nextPools[fk] = { excludedIds };
             });
+
+            const shouldWriteNassau = (formats || []).some((f) => detectFormatType(f) === "nassau");
+
+            const nasPayload = shouldWriteNassau
+                ? {
+                    wagers: {
+                        nassau: {
+                            enabled: !!nassauEnabled,
+                            front: parseFeeString(nassauFront) || 0,
+                            back: parseFeeString(nassauBack) || 0,
+                            total: parseFeeString(nassauTotal) || 0,
+                        },
+                    },
+                }
+                : {};
 
             await setDoc(
                 roundRef(uid, roundId),
                 {
                     formatPools: nextPools,
                     poolsReady: true,
+                    ...nasPayload,
                     updatedAt: serverTimestamp(),
                 },
                 { merge: true }
@@ -681,13 +736,15 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
 
         const feeStr = String(feeByKey?.[fk] ?? "");
 
+        const isNassau = type === "nassau";
+
         const holesSelected =
             type === "kp" || type === "longdrive" || type === "secondshotkp" ? selectedHoleCountForFormat(f) : null;
 
         const included = includedCountForKey(fk);
         const roster = players.length;
 
-        const feeNum = Number(feeStr);
+        const feeNum = isNassau ? 0 : Number(feeStr);
         let previewRight = "Calculated later";
 
         if ((type === "kp" || type === "longdrive" || type === "secondshotkp") && holesSelected !== null) {
@@ -746,21 +803,92 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
 
                 <View style={styles.innerSection}>
                     <View style={styles.feeRow}>
-                        <TextInput
-                            value={feeStr}
-                            onChangeText={(s) => {
-                                const cleaned = String(s || "").replace(/[^0-9.]/g, "");
-                                dirtyRef.current = true;
-                                setFeeByKey((prev) => ({ ...(prev || {}), [fk]: cleaned }));
-                            }}
-                            editable={!saving && type !== "unknown"}
-                            placeholder="0"
-                            placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
-                            style={[styles.feeInput, (saving || type === "unknown") && { opacity: 0.7 }]}
-                            keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
-                            returnKeyType="done"
-                            onSubmitEditing={() => Keyboard.dismiss()}
-                        />
+                        {isNassau ? (
+                            <View style={{ gap: 10 }}>
+                                <Pressable
+                                    onPress={() => {
+                                        dirtyRef.current = true;
+                                        setNassauEnabled((v) => !v);
+                                    }}
+                                    disabled={saving}
+                                    style={({ pressed }) => [
+                                        styles.applyBtn,
+                                        !nassauEnabled && { opacity: 0.7 },
+                                        pressed && !saving && styles.pressed,
+                                    ]}
+                                >
+                                    <Text style={styles.applyBtnText}>{nassauEnabled ? "Nassau Enabled" : "Enable Nassau"}</Text>
+                                </Pressable>
+
+                                <View style={[styles.feeRow, { gap: 10 }]}>
+                                    <TextInput
+                                        value={nassauFront}
+                                        onChangeText={(s) => {
+                                            const cleaned = String(s || "").replace(/[^0-9.]/g, "");
+                                            dirtyRef.current = true;
+                                            setNassauFront(cleaned);
+                                        }}
+                                        editable={!saving && nassauEnabled}
+                                        placeholder="Front 9"
+                                        placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+                                        style={[styles.feeInput, (saving || !nassauEnabled) && { opacity: 0.7 }]}
+                                        keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
+                                        returnKeyType="done"
+                                        onSubmitEditing={() => Keyboard.dismiss()}
+                                    />
+
+                                    <TextInput
+                                        value={nassauBack}
+                                        onChangeText={(s) => {
+                                            const cleaned = String(s || "").replace(/[^0-9.]/g, "");
+                                            dirtyRef.current = true;
+                                            setNassauBack(cleaned);
+                                        }}
+                                        editable={!saving && nassauEnabled}
+                                        placeholder="Back 9"
+                                        placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+                                        style={[styles.feeInput, (saving || !nassauEnabled) && { opacity: 0.7 }]}
+                                        keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
+                                        returnKeyType="done"
+                                        onSubmitEditing={() => Keyboard.dismiss()}
+                                    />
+                                </View>
+
+                                <View style={styles.feeRow}>
+                                    <TextInput
+                                        value={nassauTotal}
+                                        onChangeText={(s) => {
+                                            const cleaned = String(s || "").replace(/[^0-9.]/g, "");
+                                            dirtyRef.current = true;
+                                            setNassauTotal(cleaned);
+                                        }}
+                                        editable={!saving && nassauEnabled}
+                                        placeholder="Total (18)"
+                                        placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+                                        style={[styles.feeInput, (saving || !nassauEnabled) && { opacity: 0.7 }]}
+                                        keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
+                                        returnKeyType="done"
+                                        onSubmitEditing={() => Keyboard.dismiss()}
+                                    />
+                                </View>
+                            </View>
+                        ) : (
+                            <TextInput
+                                value={feeStr}
+                                onChangeText={(s) => {
+                                    const cleaned = String(s || "").replace(/[^0-9.]/g, "");
+                                    dirtyRef.current = true;
+                                    setFeeByKey((prev) => ({ ...(prev || {}), [fk]: cleaned }));
+                                }}
+                                editable={!saving && type !== "unknown"}
+                                placeholder="0"
+                                placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+                                style={[styles.feeInput, (saving || type === "unknown") && { opacity: 0.7 }]}
+                                keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
+                                returnKeyType="done"
+                                onSubmitEditing={() => Keyboard.dismiss()}
+                            />
+                        )}
                     </View>
 
                     <View style={styles.previewRow}>
