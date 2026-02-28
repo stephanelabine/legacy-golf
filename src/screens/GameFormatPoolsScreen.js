@@ -609,7 +609,19 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
         const v = validateRequired();
         return v.ok;
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [saving, loading, roundId, formats?.length, feeByKey, excludedByKey]);
+    }, [
+        saving,
+        loading,
+        roundId,
+        formats?.length,
+        feeByKey,
+        excludedByKey,
+        payoutPlacesByKey,
+        nassauEnabled,
+        nassauFront,
+        nassauBack,
+        nassauTotal,
+    ]);
 
     async function savePools() {
         if (!roundId) return;
@@ -804,23 +816,44 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
                 <View style={styles.innerSection}>
                     <View style={styles.feeRow}>
                         {isNassau ? (
-                            <View style={{ gap: 10 }}>
-                                <Pressable
-                                    onPress={() => {
-                                        dirtyRef.current = true;
-                                        setNassauEnabled((v) => !v);
-                                    }}
-                                    disabled={saving}
-                                    style={({ pressed }) => [
-                                        styles.applyBtn,
-                                        !nassauEnabled && { opacity: 0.7 },
-                                        pressed && !saving && styles.pressed,
-                                    ]}
-                                >
-                                    <Text style={styles.applyBtnText}>{nassauEnabled ? "Nassau Enabled" : "Enable Nassau"}</Text>
-                                </Pressable>
+                            <View style={{ gap: 12, width: "100%" }}>
+                                <View style={[styles.previewRow, { marginTop: 0 }]}>
+                                    <Text style={styles.previewText}>Enabled</Text>
 
-                                <View style={[styles.feeRow, { gap: 10 }]}>
+                                    <View style={{ flexDirection: "row", gap: 8 }}>
+                                        <Pressable
+                                            onPress={() => {
+                                                dirtyRef.current = true;
+                                                setNassauEnabled(true);
+                                            }}
+                                            disabled={saving}
+                                            style={({ pressed }) => [
+                                                styles.payoutPill,
+                                                nassauEnabled ? styles.payoutPillActive : styles.payoutPillIdle,
+                                                pressed && !saving && styles.pressed,
+                                            ]}
+                                        >
+                                            <Text style={nassauEnabled ? styles.payoutPillTextActive : styles.payoutPillTextIdle}>ON</Text>
+                                        </Pressable>
+
+                                        <Pressable
+                                            onPress={() => {
+                                                dirtyRef.current = true;
+                                                setNassauEnabled(false);
+                                            }}
+                                            disabled={saving}
+                                            style={({ pressed }) => [
+                                                styles.payoutPill,
+                                                !nassauEnabled ? styles.payoutPillActive : styles.payoutPillIdle,
+                                                pressed && !saving && styles.pressed,
+                                            ]}
+                                        >
+                                            <Text style={!nassauEnabled ? styles.payoutPillTextActive : styles.payoutPillTextIdle}>OFF</Text>
+                                        </Pressable>
+                                    </View>
+                                </View>
+
+                                <View style={{ flexDirection: "row", gap: 10, width: "100%", alignSelf: "stretch" }}>
                                     <TextInput
                                         value={nassauFront}
                                         onChangeText={(s) => {
@@ -829,9 +862,13 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
                                             setNassauFront(cleaned);
                                         }}
                                         editable={!saving && nassauEnabled}
-                                        placeholder="Front 9"
+                                        placeholder="Front"
                                         placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
-                                        style={[styles.feeInput, (saving || !nassauEnabled) && { opacity: 0.7 }]}
+                                        style={[
+                                            styles.feeInput,
+                                            { flex: 1, textAlign: "center" },
+                                            (saving || !nassauEnabled) && { opacity: 0.7 },
+                                        ]}
                                         keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
                                         returnKeyType="done"
                                         onSubmitEditing={() => Keyboard.dismiss()}
@@ -845,16 +882,18 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
                                             setNassauBack(cleaned);
                                         }}
                                         editable={!saving && nassauEnabled}
-                                        placeholder="Back 9"
+                                        placeholder="Back"
                                         placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
-                                        style={[styles.feeInput, (saving || !nassauEnabled) && { opacity: 0.7 }]}
+                                        style={[
+                                            styles.feeInput,
+                                            { flex: 1, textAlign: "center" },
+                                            (saving || !nassauEnabled) && { opacity: 0.7 },
+                                        ]}
                                         keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
                                         returnKeyType="done"
                                         onSubmitEditing={() => Keyboard.dismiss()}
                                     />
-                                </View>
 
-                                <View style={styles.feeRow}>
                                     <TextInput
                                         value={nassauTotal}
                                         onChangeText={(s) => {
@@ -863,9 +902,13 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
                                             setNassauTotal(cleaned);
                                         }}
                                         editable={!saving && nassauEnabled}
-                                        placeholder="Total (18)"
+                                        placeholder="Overall"
                                         placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
-                                        style={[styles.feeInput, (saving || !nassauEnabled) && { opacity: 0.7 }]}
+                                        style={[
+                                            styles.feeInput,
+                                            { flex: 1, textAlign: "center" },
+                                            (saving || !nassauEnabled) && { opacity: 0.7 },
+                                        ]}
                                         keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
                                         returnKeyType="done"
                                         onSubmitEditing={() => Keyboard.dismiss()}
