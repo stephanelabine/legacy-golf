@@ -319,8 +319,10 @@ export default function GameFormatDetailsScreen({ navigation, route }) {
         if (cap !== 9 && cap !== 18) cap = 18;
 
         const modeRaw = String(roundDoc?.holesMode || roundDoc?.holesSelection || roundDoc?.holes || "").toLowerCase();
-        const isBack = modeRaw.includes("back");
-        const isFront = modeRaw.includes("front");
+        const sideRaw = String(roundDoc?.holesSide || "").toLowerCase();
+
+        const isBack = sideRaw === "back" || modeRaw.includes("back");
+        const isFront = sideRaw === "front" || modeRaw.includes("front");
 
         // Default: front 9 when 9-hole and unspecified
         if (cap === 9) {
