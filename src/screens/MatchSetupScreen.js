@@ -56,6 +56,11 @@ export default function MatchSetupScreen({ navigation, route }) {
     // - "net" compares net strokes using player handicaps + hole stroke index (si)
     const [matchScoring, setMatchScoring] = useState("gross"); // "gross" | "net"
 
+    // Handicap method (only applies when matchScoring === "net")
+    // - "difference": low-handicap side is baseline; higher side gets the difference on hardest holes (most common match play)
+    // - "full": both sides get their own strokes on hardest holes (legacy friendly style some groups use)
+    const [handicapMethod, setHandicapMethod] = useState("difference"); // "difference" | "full"
+
     const [pickA, setPickA] = useState(null); // for 1v1: player A; for one_vs_field: captain
     const [pickB, setPickB] = useState(null); // for 1v1: player B
 
@@ -110,6 +115,9 @@ export default function MatchSetupScreen({ navigation, route }) {
         const basis = String(roundDoc?.scoringMode || roundDoc?.scoring || "gross").toLowerCase();
         const next = basis === "net" ? "net" : "gross";
         setMatchScoring(next);
+
+        // Default handicap method (most common for match play)
+        setHandicapMethod("difference");
     }, [isMatchPlay, playerRows, roundDoc]);
 
     const toggleTeamA = useCallback(
@@ -173,11 +181,12 @@ export default function MatchSetupScreen({ navigation, route }) {
 
         const roundBasis = String(roundDoc?.scoringMode || roundDoc?.scoring || "gross").toLowerCase();
         const matchScoringBasis = matchScoring === "net" ? "net" : "gross";
+        const handicapMethodBasis = handicapMethod === "full" ? "full" : "difference";
 
         if (matchType === "1v1") {
             payload = {
                 type: "1v1",
-                scoring: { basis: roundBasis, matchScoring: matchScoringBasis, teamMode: null },
+                scoring: { basis: roundBasis, matchScoring: matchScoringBasis, handicapMethod: handicapMethodBasis, teamMode: null },
                 matches: [
                     {
                         id: `m_${String(pickA)}_vs_${String(pickB)}`,
@@ -376,6 +385,28 @@ export default function MatchSetupScreen({ navigation, route }) {
                     <Text style={styles.title}>Net</Text>
                     <Text style={styles.sub}>Compare net strokes using handicaps + stroke index (si).</Text>
                 </Pressable>
+
+                {matchScoring === "net" ? (
+                    <>
+                        <Text style={[styles.sectionTitle, { marginTop: 18 }]}>Handicap method</Text>
+
+                        <Pressable
+                            onPress={() => setHandicapMethod("difference")}
+                            style={({ pressed }) => [styles.card, handicapMethod === "difference" && styles.cardOn, pressed && styles.pressed]}
+                        >
+                            <Text style={styles.title}>Difference (recommended)</Text>
+                            <Text style={styles.sub}>Low handicap is baseline. Higher side gets the difference on the hardest holes.</Text>
+                        </Pressable>
+
+                        <Pressable
+                            onPress={() => setHandicapMethod("full")}
+                            style={({ pressed }) => [styles.card, handicapMethod === "full" && styles.cardOn, pressed && styles.pressed]}
+                        >
+                            <Text style={styles.title}>Full allowance</Text>
+                            <Text style={styles.sub}>Both sides get their own strokes on the hardest holes (group-style play).</Text>
+                        </Pressable>
+                    </>
+                ) : null}
 
                 <Text style={[styles.sectionTitle, { marginTop: 18 }]}>Match type</Text>
 

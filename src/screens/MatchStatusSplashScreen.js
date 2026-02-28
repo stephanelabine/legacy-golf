@@ -69,6 +69,7 @@ function computeMatchState(roundDoc, matchPlay, playersList, holeMax) {
     const teamMode = String(scoring?.teamMode || "");
 
     const matchScoring = String(scoring?.matchScoring || "").toLowerCase() === "net" ? "net" : "gross";
+    const handicapMethod = String(scoring?.handicapMethod || "").toLowerCase() === "full" ? "full" : "difference";
 
     const players = safeArr(playersList);
 
@@ -154,7 +155,8 @@ function computeMatchState(roundDoc, matchPlay, playersList, holeMax) {
     const sideHcp = (ids) => {
         const list = safeArr(ids).map(String).filter(Boolean);
         if (!list.length) return 0;
-        // Use the lowest handicap on the side (stable for teams + singles)
+
+        // For team sides, use the lowest handicap on the side (stable + common)
         const vals = list.map((id) => Number(hcpById[id] || 0)).filter((n) => Number.isFinite(n));
         if (!vals.length) return 0;
         return Math.min(...vals);
@@ -205,15 +207,31 @@ function computeMatchState(roundDoc, matchPlay, playersList, holeMax) {
         let rightWins = 0;
         let thru = 0;
 
-        // Net: determine which side receives strokes and allocate by SI across holes in play
+        // Net: handicap strokes allocation by SI across holes in play
         const leftH = sideHcp(leftIds);
         const rightH = sideHcp(rightIds);
-        const diff = Math.round(Math.abs(leftH - rightH));
-        const leftGets = matchScoring === "net" ? leftH > rightH : false;
-        const rightGets = matchScoring === "net" ? rightH > leftH : false;
 
-        const leftStrokesByHole = buildSideStrokesByHole(leftGets, diff);
-        const rightStrokesByHole = buildSideStrokesByHole(rightGets, diff);
+        let leftStrokesByHole = {};
+        let rightStrokesByHole = {};
+
+        if (matchScoring === "net") {
+            if (handicapMethod === "full") {
+                // Both sides receive their own strokes on the hardest holes
+                leftStrokesByHole = buildSideStrokesByHole(true, Math.max(0, Math.round(leftH)));
+                rightStrokesByHole = buildSideStrokesByHole(true, Math.max(0, Math.round(rightH)));
+            } else {
+                // Difference method (recommended): only higher handicap side receives the difference
+                const diff = Math.max(0, Math.round(Math.abs(leftH - rightH)));
+                const leftGets = leftH > rightH;
+                const rightGets = rightH > leftH;
+
+                leftStrokesByHole = buildSideStrokesByHole(leftGets, diff);
+                rightStrokesByHole = buildSideStrokesByHole(rightGets, diff);
+            }
+        } else {
+            leftStrokesByHole = buildSideStrokesByHole(false, 0);
+            rightStrokesByHole = buildSideStrokesByHole(false, 0);
+        }
 
         for (let h = startHole; h <= effectiveMax; h++) {
             let l = null;
