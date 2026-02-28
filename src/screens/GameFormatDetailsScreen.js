@@ -304,14 +304,35 @@ export default function GameFormatDetailsScreen({ navigation, route }) {
         });
     }, [theme, isDark, footerPad]);
 
-    const holeCount = useMemo(() => {
-        const n =
+    const holeRange = useMemo(() => {
+        const n1 =
+            Number(roundDoc?.totalHoles) ||
+            Number(roundDoc?.holesToPlay) ||
+            Number(roundDoc?.holesCount) ||
             Number(roundDoc?.holeCount) ||
+            Number(roundDoc?.numHoles) ||
             Number(roundDoc?.course?.holeCount) ||
             Number(roundDoc?.courseMeta?.holeCount) ||
             18;
-        return Number.isFinite(n) && n >= 9 && n <= 36 ? Math.round(n) : 18;
+
+        let cap = Number.isFinite(n1) ? Math.round(n1) : 18;
+        if (cap !== 9 && cap !== 18) cap = 18;
+
+        const modeRaw = String(roundDoc?.holesMode || roundDoc?.holesSelection || roundDoc?.holes || "").toLowerCase();
+        const isBack = modeRaw.includes("back");
+        const isFront = modeRaw.includes("front");
+
+        // Default: front 9 when 9-hole and unspecified
+        if (cap === 9) {
+            const start = isBack ? 10 : 1;
+            return { start, end: start + 8, count: 9 };
+        }
+
+        // 18 holes
+        return { start: 1, end: 18, count: 18 };
     }, [roundDoc]);
+
+    const holeCount = holeRange.count;
 
     const holeBased = useMemo(() => (formats || []).filter((f) => isHoleBasedKey(getKey(f))), [formats]);
     const teamFormats = useMemo(() => (formats || []).filter((f) => isTeamVsTeamKey(getKey(f))), [formats]);
@@ -418,7 +439,7 @@ export default function GameFormatDetailsScreen({ navigation, route }) {
 
         const selected = getHoles(key);
 
-        const holes = Array.from({ length: holeCount }, (_, i) => i + 1);
+        const holes = Array.from({ length: holeCount }, (_, i) => holeRange.start + i);
         const rows = chunk(holes, HOLE_COLS);
 
         return (
@@ -615,7 +636,7 @@ export default function GameFormatDetailsScreen({ navigation, route }) {
             for (const f of holeBased) {
                 const k = getKey(f);
                 const existing = safeObj(nextConfig?.[k]);
-                const list = uniqInts(existing?.holes || []).filter((n) => n >= 1 && n <= holeCount);
+                const list = uniqInts(existing?.holes || []).filter((n) => n >= holeRange.start && n <= holeRange.end);
                 nextConfig[k] = { ...existing, holes: list };
             }
 

@@ -68,7 +68,47 @@ function computeMatchState(roundDoc, matchPlay, playersList, holeMax) {
     const type = String(matchPlay?.type || "");
     const teamMode = String(scoring?.teamMode || "");
 
+    const matchScoring = String(scoring?.matchScoring || "").toLowerCase() === "net" ? "net" : "gross";
+
     const players = safeArr(playersList);
+
+    // Handicap map (by round player id)
+    const hcpById = {};
+    players.forEach((p, idx) => {
+        const id = String(playerId(p, idx));
+        const n = Number((p && typeof p === "object" ? p.handicap : null));
+        hcpById[id] = Number.isFinite(n) ? n : 0;
+    });
+
+    // SI lookup from round doc (single source of truth)
+    const siByHole = {};
+    const metaHole = safeObj(roundRoot?.meta?.holeMeta);
+    const holeMeta = safeObj(roundRoot?.holeMeta);
+    for (let h = 1; h <= 18; h++) {
+        const row = safeObj(metaHole?.[String(h)] || holeMeta?.[String(h)]);
+        const siRaw = row?.si;
+        const siNum = Number(siRaw);
+        siByHole[h] = Number.isFinite(siNum) && siNum > 0 ? siNum : 99;
+    }
+
+    // Holes in play (supports 9-hole back nine)
+    const startHole = Number(roundRoot?.startHole) || 1;
+    const holesCountRaw =
+        Number(roundRoot?.holesCount) ||
+        Number(roundRoot?.totalHoles) ||
+        Number(roundRoot?.holesToPlay) ||
+        Number(roundRoot?.holesCount) ||
+        Number(roundRoot?.holeCount) ||
+        Number(roundRoot?.numHoles) ||
+        18;
+
+    const capCount = holesCountRaw === 9 ? 9 : 18;
+    const holeCap = startHole + capCount - 1;
+
+    const effectiveMax = Math.max(startHole, Math.min(Number(holeMax) || startHole, holeCap));
+
+    const holesInPlay = [];
+    for (let h = startHole; h <= holeCap; h++) holesInPlay.push(h);
 
     // Build display names:
     // - Prefer first name only
@@ -95,6 +135,66 @@ function computeMatchState(roundDoc, matchPlay, playersList, holeMax) {
         nameById[String(x.id)] = dup && x.lastInitial ? `${x.first} ${x.lastInitial}.` : x.first;
     });
 
+    const shortFirst = (s) => {
+        const t = String(s || "").trim();
+        if (!t) return "";
+        const parts = t.split(/\s+/).filter(Boolean);
+        return parts[0] || t;
+    };
+
+    const authFirst = shortFirst(auth?.currentUser?.displayName || "");
+
+    const resolveSingle = (pid, fallbackWord) => {
+        const key = String(pid || "").trim();
+        if (key && nameById[key]) return String(nameById[key]);
+        if (authFirst) return authFirst;
+        return fallbackWord;
+    };
+
+    const sideHcp = (ids) => {
+        const list = safeArr(ids).map(String).filter(Boolean);
+        if (!list.length) return 0;
+        // Use the lowest handicap on the side (stable for teams + singles)
+        const vals = list.map((id) => Number(hcpById[id] || 0)).filter((n) => Number.isFinite(n));
+        if (!vals.length) return 0;
+        return Math.min(...vals);
+    };
+
+    const buildSideStrokesByHole = (higherSideGets, diff) => {
+        const strokes = {};
+        holesInPlay.forEach((h) => (strokes[h] = 0));
+        if (!higherSideGets || !Number.isFinite(diff) || diff <= 0) return strokes;
+
+        // Rank holes by difficulty (lowest SI = hardest)
+        const ranked = holesInPlay
+            .slice()
+            .sort((a, b) => (siByHole[a] || 99) - (siByHole[b] || 99));
+
+        // Allocate 1 stroke to each ranked hole, looping if diff > holes count
+        for (let k = 1; k <= diff; k++) {
+            const idx = (k - 1) % ranked.length;
+            const h = ranked[idx];
+            strokes[h] = (strokes[h] || 0) + 1;
+        }
+
+        return strokes;
+    };
+
+    const bestBallSideScore = (roundRoot2, holeNumber, ids, sideStrokeCount) => {
+        const list = safeArr(ids).map(String).filter(Boolean);
+        const scores = list
+            .map((pid) => {
+                const g = readStroke(roundRoot2, holeNumber, pid);
+                if (!Number.isFinite(g)) return null;
+                const net = Number(g) - Number(sideStrokeCount || 0);
+                return Number.isFinite(net) ? net : null;
+            })
+            .filter((x) => Number.isFinite(x));
+
+        if (!scores.length) return null;
+        return Math.min(...scores);
+    };
+
     const matches = safeArr(matchPlay?.matches);
 
     const results = matches.map((m) => {
@@ -105,17 +205,30 @@ function computeMatchState(roundDoc, matchPlay, playersList, holeMax) {
         let rightWins = 0;
         let thru = 0;
 
-        for (let h = 1; h <= holeMax; h++) {
+        // Net: determine which side receives strokes and allocate by SI across holes in play
+        const leftH = sideHcp(leftIds);
+        const rightH = sideHcp(rightIds);
+        const diff = Math.round(Math.abs(leftH - rightH));
+        const leftGets = matchScoring === "net" ? leftH > rightH : false;
+        const rightGets = matchScoring === "net" ? rightH > leftH : false;
+
+        const leftStrokesByHole = buildSideStrokesByHole(leftGets, diff);
+        const rightStrokesByHole = buildSideStrokesByHole(rightGets, diff);
+
+        for (let h = startHole; h <= effectiveMax; h++) {
             let l = null;
             let r = null;
 
+            const lStrokeAdj = matchScoring === "net" ? (leftStrokesByHole[h] || 0) : 0;
+            const rStrokeAdj = matchScoring === "net" ? (rightStrokesByHole[h] || 0) : 0;
+
             if (type === "two_v_two" && teamMode === "best_ball") {
-                l = bestBallStroke(roundRoot, h, leftIds);
-                r = bestBallStroke(roundRoot, h, rightIds);
+                l = matchScoring === "net" ? bestBallSideScore(roundRoot, h, leftIds, lStrokeAdj) : bestBallStroke(roundRoot, h, leftIds);
+                r = matchScoring === "net" ? bestBallSideScore(roundRoot, h, rightIds, rStrokeAdj) : bestBallStroke(roundRoot, h, rightIds);
             } else {
                 // default: single player side; if multiple ids, use best score (safe fallback)
-                l = bestBallStroke(roundRoot, h, leftIds);
-                r = bestBallStroke(roundRoot, h, rightIds);
+                l = matchScoring === "net" ? bestBallSideScore(roundRoot, h, leftIds, lStrokeAdj) : bestBallStroke(roundRoot, h, leftIds);
+                r = matchScoring === "net" ? bestBallSideScore(roundRoot, h, rightIds, rStrokeAdj) : bestBallStroke(roundRoot, h, rightIds);
             }
 
             if (!Number.isFinite(l) || !Number.isFinite(r)) continue;
@@ -123,31 +236,12 @@ function computeMatchState(roundDoc, matchPlay, playersList, holeMax) {
             thru += 1;
             if (l < r) leftWins += 1;
             else if (r < l) rightWins += 1;
-            // tie = halved
         }
 
         const lead = leftWins - rightWins; // + = left up, - = right up
-        const shortFirst = (s) => {
-            const t = String(s || "").trim();
-            if (!t) return "";
-            const parts = t.split(/\s+/).filter(Boolean);
-            return parts[0] || t;
-        };
 
-        const authFirst = shortFirst(auth?.currentUser?.displayName || "");
-
-        const resolveSingle = (pid, fallbackWord) => {
-            const key = String(pid || "").trim();
-            if (key && nameById[key]) return String(nameById[key]);
-            // If we can’t resolve (common when captain id is "me"), prefer auth user name
-            if (authFirst) return authFirst;
-            return fallbackWord;
-        };
-
-        const leftLabel =
-            leftIds.length === 1 ? resolveSingle(leftIds[0], "Left") : "Team A";
-        const rightLabel =
-            rightIds.length === 1 ? resolveSingle(rightIds[0], "Right") : "Team B";
+        const leftLabel = leftIds.length === 1 ? resolveSingle(leftIds[0], "Left") : "Team A";
+        const rightLabel = rightIds.length === 1 ? resolveSingle(rightIds[0], "Right") : "Team B";
 
         let line = "AS";
         if (lead > 0) line = `${leftLabel} ${Math.abs(lead)} up`;

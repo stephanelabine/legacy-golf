@@ -51,6 +51,11 @@ export default function MatchSetupScreen({ navigation, route }) {
 
     const [matchType, setMatchType] = useState(null); // "1v1" | "one_vs_field" | "two_v_two" | "round_robin"
 
+    // Match scoring for Match Play:
+    // - "gross" compares raw strokes
+    // - "net" compares net strokes using player handicaps + hole stroke index (si)
+    const [matchScoring, setMatchScoring] = useState("gross"); // "gross" | "net"
+
     const [pickA, setPickA] = useState(null); // for 1v1: player A; for one_vs_field: captain
     const [pickB, setPickB] = useState(null); // for 1v1: player B
 
@@ -99,7 +104,13 @@ export default function MatchSetupScreen({ navigation, route }) {
             setPickA(playerRows[0].id);
             setPickB(playerRows[1].id);
         }
-    }, [isMatchPlay, playerRows]);
+
+        // Default match scoring based on round scoring fields (single source of truth)
+        // If the round is net, default match scoring to net; otherwise gross.
+        const basis = String(roundDoc?.scoringMode || roundDoc?.scoring || "gross").toLowerCase();
+        const next = basis === "net" ? "net" : "gross";
+        setMatchScoring(next);
+    }, [isMatchPlay, playerRows, roundDoc]);
 
     const toggleTeamA = useCallback(
         (pid) => {
@@ -160,10 +171,13 @@ export default function MatchSetupScreen({ navigation, route }) {
 
         let payload = null;
 
+        const roundBasis = String(roundDoc?.scoringMode || roundDoc?.scoring || "gross").toLowerCase();
+        const matchScoringBasis = matchScoring === "net" ? "net" : "gross";
+
         if (matchType === "1v1") {
             payload = {
                 type: "1v1",
-                scoring: { basis: String(roundDoc?.scoring || "gross"), teamMode: null },
+                scoring: { basis: roundBasis, matchScoring: matchScoringBasis, teamMode: null },
                 matches: [
                     {
                         id: `m_${String(pickA)}_vs_${String(pickB)}`,
@@ -179,7 +193,7 @@ export default function MatchSetupScreen({ navigation, route }) {
             const others = ids.filter((x) => x !== captain);
             payload = {
                 type: "one_vs_field",
-                scoring: { basis: String(roundDoc?.scoring || "gross"), teamMode: null },
+                scoring: { basis: roundBasis, matchScoring: matchScoringBasis, teamMode: null },
                 captainId: captain,
                 matches: others.map((opp) => ({
                     id: `m_${captain}_vs_${opp}`,
@@ -195,7 +209,7 @@ export default function MatchSetupScreen({ navigation, route }) {
 
             payload = {
                 type: "two_v_two",
-                scoring: { basis: String(roundDoc?.scoring || "gross"), teamMode: "best_ball" },
+                scoring: { basis: roundBasis, matchScoring: matchScoringBasis, teamMode: "best_ball" },
                 teamAIds: aIds,
                 teamBIds: bIds,
                 matches: [
@@ -211,7 +225,7 @@ export default function MatchSetupScreen({ navigation, route }) {
         if (matchType === "round_robin") {
             payload = {
                 type: "round_robin",
-                scoring: { basis: String(roundDoc?.scoring || "gross"), teamMode: null },
+                scoring: { basis: roundBasis, matchScoring: matchScoringBasis, teamMode: null },
                 matches: buildRoundRobinMatches(ids),
             };
         }
@@ -345,7 +359,25 @@ export default function MatchSetupScreen({ navigation, route }) {
             <ScreenHeader navigation={navigation} title="Match Setup" subtitle={`Set the Match Play structure for ${gameTitle}.`} />
 
             <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-                <Text style={styles.sectionTitle}>Match type</Text>
+                <Text style={styles.sectionTitle}>Match scoring</Text>
+
+                <Pressable
+                    onPress={() => setMatchScoring("gross")}
+                    style={({ pressed }) => [styles.card, matchScoring === "gross" && styles.cardOn, pressed && styles.pressed]}
+                >
+                    <Text style={styles.title}>Gross</Text>
+                    <Text style={styles.sub}>Compare raw strokes on each hole.</Text>
+                </Pressable>
+
+                <Pressable
+                    onPress={() => setMatchScoring("net")}
+                    style={({ pressed }) => [styles.card, matchScoring === "net" && styles.cardOn, pressed && styles.pressed]}
+                >
+                    <Text style={styles.title}>Net</Text>
+                    <Text style={styles.sub}>Compare net strokes using handicaps + stroke index (si).</Text>
+                </Pressable>
+
+                <Text style={[styles.sectionTitle, { marginTop: 18 }]}>Match type</Text>
 
                 <Pressable
                     onPress={() => setMatchType("1v1")}
