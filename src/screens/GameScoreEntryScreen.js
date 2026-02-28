@@ -627,7 +627,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         Keyboard.dismiss();
         if (!validateStrokesForThisHole()) return;
 
-        const resolveHoleCap = (r) => {
+        const resolveHoleWindow = (r) => {
             const n1 =
                 Number(r?.totalHoles) ||
                 Number(r?.holesToPlay) ||
@@ -635,16 +635,23 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                 Number(r?.holeCount) ||
                 Number(r?.numHoles);
 
-            if (Number.isFinite(n1) && n1 >= 1 && n1 <= 18) return Math.round(n1);
+            let count = Number.isFinite(n1) && n1 >= 1 && n1 <= 18 ? Math.round(n1) : 18;
 
             const mode = String(r?.holesMode || r?.holesSelection || r?.holes || "").toLowerCase();
-            if (mode.includes("front") || mode.includes("back")) return 9;
-            if (mode.includes("9")) return 9;
+            if (mode.includes("front") || mode.includes("back") || mode.includes("9")) count = 9;
 
-            return 18;
+            let start = Number(r?.startHole) || 1;
+
+            // If 9-hole and the round indicates back nine, start at 10
+            const holesSide = String(r?.holesSide || "").toLowerCase();
+            const isBack = holesSide === "back" || mode.includes("back");
+            if (count === 9 && isBack) start = 10;
+
+            const end = Math.min(18, start + count - 1);
+            return { start, end, count };
         };
 
-        // Load round truth so 9-hole rounds don't incorrectly route to hole 10.
+        // Load round truth so 9-hole BACK rounds don't incorrectly finish after hole 10.
         const rid0 = roundIdParam || null;
         const ref0 = rid0 ? roundDocRef(rid0) : null;
 
@@ -656,17 +663,17 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             roundState0 = null;
         }
 
-        const holeCap = resolveHoleCap(roundState0 || {});
+        const win = resolveHoleWindow(roundState0 || {});
+        const holeEnd = Number(win?.end) || 18;
 
-        // If we’re at the end of the round (ex: hole 9 of Front 9), finish instead of going to hole 10.
-        if (Number(holeNumber) >= holeCap) {
+        // If we’re at the end of the round (ex: hole 18 of Back 9), finish instead of going past.
+        if (Number(holeNumber) >= holeEnd) {
             await onFinishRoundFromScoreEntry();
             return;
         }
 
-        const nextHole = holeNumber >= holeCap ? holeCap : holeNumber + 1;
+        const nextHole = Math.min(holeEnd, Number(holeNumber) + 1);
         const res = await persistHole({ resumeHole: nextHole });
-
         const rid = res?.roundId || roundIdParam || null;
 
         const ref = rid ? roundDocRef(rid) : null;
@@ -702,7 +709,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         Keyboard.dismiss();
         if (!validateStrokesForThisHole()) return;
 
-        const resolveHoleCap = (r) => {
+        const resolveHoleWindow = (r) => {
             const n1 =
                 Number(r?.totalHoles) ||
                 Number(r?.holesToPlay) ||
@@ -710,13 +717,20 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                 Number(r?.holeCount) ||
                 Number(r?.numHoles);
 
-            if (Number.isFinite(n1) && n1 >= 1 && n1 <= 18) return Math.round(n1);
+            let count = Number.isFinite(n1) && n1 >= 1 && n1 <= 18 ? Math.round(n1) : 18;
 
             const mode = String(r?.holesMode || r?.holesSelection || r?.holes || "").toLowerCase();
-            if (mode.includes("front") || mode.includes("back")) return 9;
-            if (mode.includes("9")) return 9;
+            if (mode.includes("front") || mode.includes("back") || mode.includes("9")) count = 9;
 
-            return 18;
+            let start = Number(r?.startHole) || 1;
+
+            // If 9-hole and the round indicates back nine, start at 10
+            const holesSide = String(r?.holesSide || "").toLowerCase();
+            const isBack = holesSide === "back" || mode.includes("back");
+            if (count === 9 && isBack) start = 10;
+
+            const end = Math.min(18, start + count - 1);
+            return { start, end, count };
         };
 
         const rid0 = roundIdParam || null;
@@ -730,8 +744,10 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             roundState0 = null;
         }
 
-        const holeCap = resolveHoleCap(roundState0 || {});
-        const res = await persistHole({ resumeHole: holeCap });
+        const win = resolveHoleWindow(roundState0 || {});
+        const holeEnd = Number(win?.end) || 18;
+
+        const res = await persistHole({ resumeHole: holeEnd });
 
         navigation.dispatch(
             CommonActions.navigate({
