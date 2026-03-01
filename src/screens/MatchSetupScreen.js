@@ -72,7 +72,11 @@ export default function MatchSetupScreen({ navigation, route }) {
         const uid = auth?.currentUser?.uid || null;
         if (!uid) return;
 
-        const ref = doc(db, "users", uid, "rounds", String(roundId));
+        const isShared = String(roundId || "").startsWith("sr_");
+        const ref = isShared
+            ? doc(db, "sharedRounds", String(roundId))
+            : doc(db, "users", uid, "rounds", String(roundId));
+
         const unsub = onSnapshot(
             ref,
             (snap) => {
@@ -247,7 +251,11 @@ export default function MatchSetupScreen({ navigation, route }) {
         try {
             setSaving(true);
 
-            const ref = doc(db, "users", uid, "rounds", String(roundId));
+            const isShared = String(roundId || "").startsWith("sr_");
+            const ref = isShared
+                ? doc(db, "sharedRounds", String(roundId))
+                : doc(db, "users", uid, "rounds", String(roundId));
+
             await setDoc(
                 ref,
                 {
