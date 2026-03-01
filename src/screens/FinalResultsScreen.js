@@ -238,6 +238,7 @@ function detectFormatType(key, name) {
     s.includes("2ndshotkp") ||
     (s.includes("2nd") && s.includes("shot") && s.includes("kp"));
 
+  if (s.includes("nassau")) return "nassau";
   if (isSecondShot) return "secondshotkp";
   if (s.includes("longdrive") || (s.includes("long") && s.includes("drive"))) return "longdrive";
   if (s.includes("deucepot") || (s.includes("deuce") && s.includes("pot"))) return "deucepot";
@@ -264,6 +265,7 @@ function formatDisplayTitle(type, rawName) {
   if (type === "deucepot") return "DEUCE POT";
   if (type === "puttingcontest") return "PUTTING CONTEST";
   if (type === "teamvsteam") return "TEAM VS TEAM";
+  if (type === "nassau") return "NASSAU";
   return String(rawName || "FORMAT").toUpperCase();
 }
 
@@ -873,12 +875,42 @@ export default function FinalResultsScreen({ navigation, route }) {
   );
 
   function renderFormatPayout(formatKey, type, officialHoles) {
+    const includedIds = getIncludedPlayerIds(round || {}, formatKey, players);
+    const playersCount = Math.max(0, includedIds.length);
+
+    // Nassau buy-ins are stored in wagers.nassau (not formatPools)
+    if (type === "nassau") {
+      const w = round?.wagers?.nassau || {};
+      const enabled = !!w?.enabled;
+      const frontBuyIn = Number(w?.front || 0);
+      const backBuyIn = Number(w?.back || 0);
+      const totalBuyIn = Number(w?.total || 0);
+
+      const anyBuyIn = (frontBuyIn > 0) || (backBuyIn > 0) || (totalBuyIn > 0);
+
+      if (!enabled || !anyBuyIn) {
+        return { headline: "No buy-in", lines: ["Set Nassau buy-ins in Money Pools to compute payouts."] };
+      }
+
+      const frontPool = frontBuyIn > 0 ? frontBuyIn * playersCount : 0;
+      const backPool = backBuyIn > 0 ? backBuyIn * playersCount : 0;
+      const totalPool = totalBuyIn > 0 ? totalBuyIn * playersCount : 0;
+
+      return {
+        headline: `${money(frontPool)} / ${money(backPool)} / ${money(totalPool)}`,
+        lines: [
+          `Front buy-in (per player): ${frontBuyIn > 0 ? money(frontBuyIn) : "—"}`,
+          `Back buy-in (per player): ${backBuyIn > 0 ? money(backBuyIn) : "—"}`,
+          `Overall buy-in (per player): ${totalBuyIn > 0 ? money(totalBuyIn) : "—"}`,
+          `Players: ${String(playersCount)}`,
+          `Pools (Front / Back / Overall): ${money(frontPool)} / ${money(backPool)} / ${money(totalPool)}`,
+        ],
+      };
+    }
+
     // For hole-based formats, this value means "$ per hole (per event) per player"
     // For round-total formats, it means "$ buy-in per player"
     const baseAmount = getEntryFee(round || {}, formatKey);
-
-    const includedIds = getIncludedPlayerIds(round || {}, formatKey, players);
-    const playersCount = Math.max(0, includedIds.length);
 
     if (baseAmount <= 0) {
       return { headline: "No buy-in", lines: ["Set a buy-in in Formats / Money Pools to compute payouts."] };
@@ -1124,7 +1156,116 @@ export default function FinalResultsScreen({ navigation, route }) {
               </View>
 
               <View style={styles.winnerBox}>
-                {isAuto ? (
+                {type === "nassau" ? (
+                  <View style={{ width: "100%", gap: 10 }}>
+                    {(() => {
+                      const r = round || {};
+                      const w = r?.wagers?.nassau || {};
+                      const frontBuyIn = Number(w?.front || 0);
+                      const backBuyIn = Number(w?.back || 0);
+                      const totalBuyIn = Number(w?.total || 0);
+
+                      const hcRaw = Number(r?.holesCount ?? r?.meta?.holesCount);
+                      const holesCount = hcRaw === 9 || hcRaw === 18 ? hcRaw : 18;
+
+                      const sideRaw = String(r?.holesSide ?? r?.meta?.holesSide ?? "").toLowerCase().trim();
+                      const holesSide = sideRaw === "back" ? "back" : "front";
+
+                      const playedHoles =
+                        holesCount === 9
+                          ? (holesSide === "back"
+                            ? Array.from({ length: 9 }).map((_, i) => 10 + i)
+                            : Array.from({ length: 9 }).map((_, i) => 1 + i))
+                          : Array.from({ length: 18 }).map((_, i) => 1 + i);
+
+                      const frontHoles = playedHoles.filter((h) => h >= 1 && h <= 9);
+                      const backHoles = playedHoles.filter((h) => h >= 10 && h <= 18);
+                      const overallHoles = playedHoles;
+
+                      const basis = String(r?.matchPlay?.scoring?.basis || r?.scoringMode || r?.scoring || "gross").toLowerCase();
+                      const useNet = basis.includes("net");
+
+                      const netStrokeForHole = (playerId, playerHcp, holeNumber) => {
+                        const strokes = readStroke(r, holeNumber, playerId);
+                        if (!Number.isFinite(strokes) || strokes <= 0) return 0;
+
+                        if (!useNet) return strokes;
+
+                        const hcp = parseHcp(playerHcp);
+                        if (!Number.isFinite(hcp) || hcp <= 0) return strokes;
+
+                        let anySI = false;
+                        for (let h = 1; h <= 18; h++) {
+                          const si = getStrokeIndex(r, h);
+                          if (Number.isFinite(si)) { anySI = true; break; }
+                        }
+
+                        if (!anySI) return Math.max(0, strokes - hcp);
+
+                        const base = Math.floor(hcp / 18);
+                        const extra = hcp % 18;
+
+                        const si = getStrokeIndex(r, holeNumber);
+                        const getsExtra = Number.isFinite(si) && si <= extra ? 1 : 0;
+                        const received = base + getsExtra;
+
+                        return strokes - received;
+                      };
+
+                      const totalForHoles = (player, holes) => {
+                        let t = 0;
+                        for (let i = 0; i < holes.length; i++) {
+                          t += netStrokeForHole(player.id, player.handicap, holes[i]);
+                        }
+                        return t;
+                      };
+
+                      const winnersFor = (holes) => {
+                        if (!holes.length) return { status: "NOT_PLAYED", winners: [] };
+
+                        const rows = players.map((p) => ({
+                          id: p.id,
+                          name: p.name,
+                          total: totalForHoles(p, holes),
+                        }));
+
+                        rows.sort((a, b) => a.total - b.total || a.name.localeCompare(b.name));
+                        const best = rows[0]?.total;
+                        const winners = rows.filter((x) => x.total === best);
+
+                        return { status: winners.length > 1 ? "TIE" : "WIN", winners };
+                      };
+
+                      const frontR = winnersFor(frontHoles);
+                      const backR = winnersFor(backHoles);
+                      const overallR = winnersFor(overallHoles);
+
+                      const line = (label, res, buyIn) => {
+                        if (!buyIn || buyIn <= 0) return `${label}: No buy-in`;
+
+                        if (res?.status === "NOT_PLAYED") return `${label}: Not played`;
+
+                        const winners = res?.winners || [];
+                        if (!winners.length) return `${label}: —`;
+
+                        const names = winners.map((x) => x.name).join(", ");
+                        if (!names) return `${label}: —`;
+
+                        if (res?.status === "TIE") return `${label}: TIE (${useNet ? "net" : "gross"})`;
+
+                        return `${label}: ${names} (${useNet ? "net" : "gross"})`;
+                      };
+
+                      return (
+                        <>
+                          <Text style={styles.modalLine}>{line("Front", frontR, frontBuyIn)}</Text>
+                          <Text style={styles.modalLine}>{line("Back", backR, backBuyIn)}</Text>
+                          <Text style={styles.modalLine}>{line("Overall", overallR, totalBuyIn)}</Text>
+                        </>
+                      );
+                    })()}
+                  </View>
+                ) : isAuto ? (
                   <View style={{ width: "100%", gap: 8 }}>
                     {type === "puttingcontest" ? (
                       <>

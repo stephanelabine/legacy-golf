@@ -2,12 +2,11 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { SafeAreaView, View, Text, StyleSheet, ScrollView, Pressable, Alert, ActivityIndicator } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
-import { collection, onSnapshot } from "firebase/firestore";
+import { collection, doc, onSnapshot } from "firebase/firestore";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 import ScreenHeader from "../components/ScreenHeader";
 import ROUTES from "../navigation/routes";
-import { getRoundById } from "../storage/rounds";
 import { auth, db } from "../firebase/firebase";
 
 const BG = "#06150F";
@@ -236,25 +235,45 @@ export default function RegularSettleUpScreen({ navigation, route }) {
 
     useFocusEffect(
         useCallback(() => {
-            let live = true;
+            const uid = auth?.currentUser?.uid;
+            if (!uid || !roundId) {
+                setRound(null);
+                setLoading(false);
+                return undefined;
+            }
+
+            const isShared = String(roundId).startsWith("sr_");
+            const ref = isShared
+                ? doc(db, "sharedRounds", String(roundId))
+                : doc(db, "users", String(uid), "rounds", String(roundId));
+
             setLoading(true);
 
-            (async () => {
-                try {
-                    const r = roundId ? await getRoundById(roundId) : null;
-                    if (!live) return;
-                    setRound(r || null);
-                } catch {
-                    if (!live) return;
-                    setRound(null);
-                } finally {
-                    if (live) setLoading(false);
-                }
-            })();
+            const unsub = onSnapshot(
+                ref,
+                (snap) => {
+                    if (!snap.exists()) {
+                        setRound(null);
+                        setLoading(false);
+                        return;
+                    }
 
-            return () => {
-                live = false;
-            };
+                    const data = snap.data() || {};
+                    setRound({
+                        id: String(snap.id),
+                        roundId: data?.roundId ? String(data.roundId) : String(snap.id),
+                        ...data,
+                    });
+
+                    setLoading(false);
+                },
+                () => {
+                    setRound(null);
+                    setLoading(false);
+                }
+            );
+
+            return () => unsub();
         }, [roundId])
     );
 
@@ -264,7 +283,10 @@ export default function RegularSettleUpScreen({ navigation, route }) {
             const uid = auth?.currentUser?.uid;
             if (!uid || !roundId) return undefined;
 
-            const ref = collection(db, "users", String(uid), "rounds", String(roundId), "formatClaims");
+            const isShared = String(roundId).startsWith("sr_");
+            const ref = isShared
+                ? collection(db, "sharedRounds", String(roundId), "formatClaims")
+                : collection(db, "users", String(uid), "rounds", String(roundId), "formatClaims");
 
             const unsub = onSnapshot(
                 ref,
