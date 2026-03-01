@@ -1,14 +1,6 @@
 // src/screens/TournamentGreenViewScreen.js
 import React, { useCallback, useMemo, useRef, useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  Pressable,
-  ScrollView,
-  Alert,
-  Image,
-} from "react-native";
+import { View, Text, StyleSheet, Pressable, ScrollView, Alert, Image } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import * as Location from "expo-location";
@@ -109,12 +101,12 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
   const greenRef = useRef(null);
 
   const draggingRef = useRef(false);
+  const [scrollLocked, setScrollLocked] = useState(false);
 
   // absolute rect of greenBox (window coordinates)
   const greenRectRef = useRef({ x: 0, y: 0, w: 0, h: 0 });
   const hasRectRef = useRef(false);
 
-  // Use this asset: /assets/GreenShape3.png
   const GreenShape = useMemo(() => require("../../assets/GreenShape3.png"), []);
 
   const greenInfo = useMemo(() => {
@@ -188,8 +180,7 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
 
   const hasGreenPoints = !!(gFront || gMiddle || gBack);
 
-  const passedYardages =
-    params?.yardages && typeof params.yardages === "object" ? params.yardages : null;
+  const passedYardages = params?.yardages && typeof params.yardages === "object" ? params.yardages : null;
 
   const computedEdgeYardages = useMemo(() => {
     if (!userPt) return { front: "—", back: "—" };
@@ -286,9 +277,7 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
       if (!greenRef.current || !greenRef.current.measureInWindow) return;
 
       greenRef.current.measureInWindow((x, y, w, h) => {
-        if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h))
-          return;
-
+        if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h)) return;
         greenRectRef.current = { x, y, w, h };
         hasRectRef.current = !!(w && h);
       });
@@ -299,6 +288,7 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
 
   const lockScroll = useCallback(() => {
     draggingRef.current = true;
+    setScrollLocked(true);
     if (scrollRef.current && scrollRef.current.setNativeProps) {
       scrollRef.current.setNativeProps({ scrollEnabled: false });
     }
@@ -306,6 +296,7 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
 
   const unlockScroll = useCallback(() => {
     draggingRef.current = false;
+    setScrollLocked(false);
     if (scrollRef.current && scrollRef.current.setNativeProps) {
       scrollRef.current.setNativeProps({ scrollEnabled: true });
     }
@@ -339,7 +330,7 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
       const px = e?.nativeEvent?.pageX;
       const py = e?.nativeEvent?.pageY;
       if (Number.isFinite(px) && Number.isFinite(py)) {
-        updatePinFromPageXY(px, py); // tap places immediately
+        updatePinFromPageXY(px, py);
       }
     },
     [hasGreenPoints, refreshGreenRect, lockScroll, updatePinFromPageXY]
@@ -357,7 +348,7 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
       const px = e?.nativeEvent?.pageX;
       const py = e?.nativeEvent?.pageY;
       if (Number.isFinite(px) && Number.isFinite(py)) {
-        updatePinFromPageXY(px, py); // drag follows thumb
+        updatePinFromPageXY(px, py);
       }
     },
     [hasGreenPoints, refreshGreenRect, lockScroll, updatePinFromPageXY]
@@ -415,7 +406,9 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
       <ScrollView
         ref={scrollRef}
         style={styles.scroll}
-        scrollEnabled={!draggingRef.current}
+        scrollEnabled={!scrollLocked}
+        bounces={false}
+        alwaysBounceVertical={false}
         contentContainerStyle={[styles.wrap, { paddingBottom: 18 + insets.bottom }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -470,10 +463,7 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
               </Text>
             </View>
 
-            <Pressable
-              onPress={setGreenPoints}
-              style={({ pressed }) => [styles.hintBtn, pressed && styles.pressed]}
-            >
+            <Pressable onPress={setGreenPoints} style={({ pressed }) => [styles.hintBtn, pressed && styles.pressed]}>
               <Text style={styles.hintBtnT}>Set points</Text>
               <Text style={styles.hintBtnS}>→</Text>
             </Pressable>
@@ -486,10 +476,7 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
                 <Text style={styles.infoSub}>Tap or drag inside the green. Page won’t scroll while your finger is down.</Text>
               </View>
 
-              <Pressable
-                onPress={setGreenPoints}
-                style={({ pressed }) => [styles.smallBtn, pressed && styles.pressed]}
-              >
+              <Pressable onPress={setGreenPoints} style={({ pressed }) => [styles.smallBtn, pressed && styles.pressed]}>
                 <Text style={styles.smallBtnT}>Edit points</Text>
                 <Text style={styles.smallBtnS}>→</Text>
               </Pressable>
@@ -500,10 +487,7 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
         <View style={[styles.card, styles.goldBorderBig]}>
           <View style={styles.cardHeaderRow}>
             <Text style={styles.cardTitle}>Putting Surface</Text>
-            <Pressable
-              onPress={showGreenHelp}
-              style={({ pressed }) => [styles.infoIconBtn, pressed && styles.pressed]}
-            >
+            <Pressable onPress={showGreenHelp} style={({ pressed }) => [styles.infoIconBtn, pressed && styles.pressed]}>
               <Text style={styles.infoIcon}>ⓘ</Text>
             </Pressable>
           </View>
@@ -522,16 +506,17 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
 
                 requestAnimationFrame(() => refreshGreenRect());
               }}
-              // HARD CAPTURE touches so ScrollView can't steal them
               onStartShouldSetResponderCapture={() => hasGreenPoints}
               onMoveShouldSetResponderCapture={() => hasGreenPoints}
               onResponderGrant={handleGrant}
               onResponderMove={handleMove}
               onResponderRelease={unlockScroll}
               onResponderTerminate={unlockScroll}
+              onResponderTerminationRequest={() => false}
               onTouchEnd={unlockScroll}
               onTouchCancel={unlockScroll}
             >
+              {/* MATCH the “bar” color to the greenBox background so it looks intentional */}
               <Image source={GreenShape} style={styles.greenImage} resizeMode="cover" pointerEvents="none" />
 
               <View
@@ -558,10 +543,7 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
           <Text style={styles.cardBody}>{greenInfo}</Text>
         </View>
 
-        <Pressable
-          onPress={goBackToScoreEntry}
-          style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}
-        >
+        <Pressable onPress={goBackToScoreEntry} style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}>
           <Text style={styles.primaryBtnText}>Back to Score Entry</Text>
         </Pressable>
 
@@ -575,6 +557,9 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
 
 const GOLD = "rgba(242,201,76,0.85)";
 const GOLD_SOFT = "rgba(242,201,76,0.60)";
+
+// Use SAME dark as greenBox for any “letterbox” area
+const GREEN_BOX_BG = "#0E1A14";
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: theme?.colors?.bg || "#0B1220" },
@@ -590,10 +575,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  goldBorderCard: {
-    borderWidth: 2,
-    borderColor: GOLD_SOFT,
-  },
+  goldBorderCard: { borderWidth: 2, borderColor: GOLD_SOFT },
   topCardActive: {
     borderColor: GOLD,
     borderWidth: 2.5,
@@ -607,14 +589,8 @@ const styles = StyleSheet.create({
   topLabel: { color: "rgba(255,255,255,0.70)", fontSize: 12, fontWeight: "900" },
   topValue: { marginTop: 8, color: "#fff", fontSize: 18, fontWeight: "900" },
 
-  goldBorder: {
-    borderWidth: 2,
-    borderColor: GOLD_SOFT,
-  },
-  goldBorderBig: {
-    borderWidth: 3,
-    borderColor: GOLD,
-  },
+  goldBorder: { borderWidth: 2, borderColor: GOLD_SOFT },
+  goldBorderBig: { borderWidth: 3, borderColor: GOLD },
 
   hintCard: {
     borderRadius: 22,
@@ -625,13 +601,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   hintTitle: { color: "#fff", fontWeight: "900", fontSize: 13 },
-  hintSub: {
-    marginTop: 6,
-    color: "rgba(255,255,255,0.70)",
-    fontWeight: "800",
-    fontSize: 12,
-    lineHeight: 16,
-  },
+  hintSub: { marginTop: 6, color: "rgba(255,255,255,0.70)", fontWeight: "800", fontSize: 12, lineHeight: 16 },
   hintBtn: {
     height: 44,
     paddingHorizontal: 12,
@@ -647,17 +617,8 @@ const styles = StyleSheet.create({
   hintBtnT: { color: "#fff", fontWeight: "900", fontSize: 12, letterSpacing: 0.3 },
   hintBtnS: { color: "rgba(255,255,255,0.82)", fontWeight: "900", fontSize: 14 },
 
-  infoCard: {
-    borderRadius: 22,
-    padding: 12,
-    backgroundColor: "rgba(255,255,255,0.04)",
-  },
-  infoRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
+  infoCard: { borderRadius: 22, padding: 12, backgroundColor: "rgba(255,255,255,0.04)" },
+  infoRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   infoTitle: { color: "rgba(255,255,255,0.90)", fontSize: 13, fontWeight: "900" },
   infoSub: { marginTop: 4, color: "rgba(255,255,255,0.68)", fontWeight: "800", fontSize: 12 },
 
@@ -676,25 +637,10 @@ const styles = StyleSheet.create({
   smallBtnT: { color: "#fff", fontWeight: "900", fontSize: 12, letterSpacing: 0.2 },
   smallBtnS: { color: "rgba(255,255,255,0.82)", fontWeight: "900", fontSize: 14 },
 
-  card: {
-    borderRadius: 22,
-    padding: 16,
-    backgroundColor: "rgba(255,255,255,0.04)",
-  },
-  cardHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-  },
+  card: { borderRadius: 22, padding: 16, backgroundColor: "rgba(255,255,255,0.04)" },
+  cardHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
   cardTitle: { color: "#fff", fontSize: 14, fontWeight: "900" },
-  cardBody: {
-    marginTop: 8,
-    color: "rgba(255,255,255,0.72)",
-    fontSize: 13,
-    fontWeight: "800",
-    lineHeight: 18,
-  },
+  cardBody: { marginTop: 8, color: "rgba(255,255,255,0.72)", fontSize: 13, fontWeight: "800", lineHeight: 18 },
 
   infoIconBtn: {
     width: 34,
@@ -722,7 +668,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.10)",
-    backgroundColor: "#0E1A14",
+    backgroundColor: GREEN_BOX_BG,
     position: "relative",
   },
   greenImage: {
@@ -734,21 +680,11 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
     opacity: 0.98,
+    backgroundColor: GREEN_BOX_BG, // fills letterbox area same as box
   },
 
-  flagWrap: {
-    position: "absolute",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  flagShadow: {
-    position: "absolute",
-    bottom: 6,
-    width: 16,
-    height: 7,
-    borderRadius: 999,
-    backgroundColor: "rgba(0,0,0,0.32)",
-  },
+  flagWrap: { position: "absolute", alignItems: "center", justifyContent: "center" },
+  flagShadow: { position: "absolute", bottom: 6, width: 16, height: 7, borderRadius: 999, backgroundColor: "rgba(0,0,0,0.32)" },
   flagIcon: { fontSize: 26, lineHeight: 28 },
 
   primaryBtn: {
@@ -763,13 +699,7 @@ const styles = StyleSheet.create({
   },
   primaryBtnText: { color: "#fff", fontSize: 16, fontWeight: "900" },
 
-  footerMeta: {
-    textAlign: "center",
-    color: "rgba(255,255,255,0.45)",
-    fontSize: 12,
-    fontWeight: "800",
-    marginTop: 2,
-  },
+  footerMeta: { textAlign: "center", color: "rgba(255,255,255,0.45)", fontSize: 12, fontWeight: "800", marginTop: 2 },
 
   pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
 });

@@ -370,7 +370,12 @@ export default function FinalResultsScreen({ navigation, route }) {
             const uid = auth?.currentUser?.uid;
             const rid = String(roundId || "");
             if (uid && rid) {
-              await updateDoc(doc(db, "users", String(uid), "rounds", rid), {
+              const isShared = String(rid || "").startsWith("sr_");
+              const ref = isShared
+                ? doc(db, "sharedRounds", String(rid))
+                : doc(db, "users", String(uid), "rounds", String(rid));
+
+              await updateDoc(ref, {
                 status: "completed",
                 inProgress: false,
                 isActive: false,
@@ -429,36 +434,60 @@ export default function FinalResultsScreen({ navigation, route }) {
 
   useFocusEffect(
     useCallback(() => {
-      let live = true;
+      if (!roundId) {
+        setRound(null);
+        setLoading(false);
+        return () => { };
+      }
+
       setLoading(true);
 
-      (async () => {
-        try {
-          const r = roundId ? await getRoundById(roundId) : null;
-          if (!live) return;
-          setRound(r || null);
-        } catch {
-          if (!live) return;
+      const isShared = String(roundId).startsWith("sr_");
+      const uid = auth?.currentUser?.uid;
+
+      const ref = isShared
+        ? doc(db, "sharedRounds", String(roundId))
+        : (uid ? doc(db, "users", String(uid), "rounds", String(roundId)) : null);
+
+      if (!ref) {
+        setRound(null);
+        setLoading(false);
+        return () => { };
+      }
+
+      const unsub = onSnapshot(
+        ref,
+        (snap) => {
+          setRound(snap.exists() ? (snap.data() || null) : null);
+          setLoading(false);
+        },
+        () => {
           setRound(null);
-        } finally {
-          if (live) setLoading(false);
+          setLoading(false);
         }
-      })();
+      );
 
       return () => {
-        live = false;
+        try { unsub && unsub(); } catch { }
       };
     }, [roundId])
   );
 
   // Live claims snapshot (single source of truth):
-  // users/{uid}/rounds/{roundId}/formatClaims/{formatKey}_h{hole}
+  // shared: sharedRounds/{roundId}/formatClaims/{formatKey}_h{hole}
+  // local : users/{uid}/rounds/{roundId}/formatClaims/{formatKey}_h{hole}
   useFocusEffect(
     useCallback(() => {
       const uid = auth?.currentUser?.uid;
-      if (!uid || !roundId) return undefined;
+      if (!roundId) return undefined;
 
-      const ref = collection(db, "users", String(uid), "rounds", String(roundId), "formatClaims");
+      const isShared = String(roundId).startsWith("sr_");
+
+      const ref = isShared
+        ? collection(db, "sharedRounds", String(roundId), "formatClaims")
+        : (uid ? collection(db, "users", String(uid), "rounds", String(roundId), "formatClaims") : null);
+
+      if (!ref) return undefined;
 
       const unsub = onSnapshot(
         ref,
