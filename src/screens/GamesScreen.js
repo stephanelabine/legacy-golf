@@ -192,22 +192,51 @@ export default function GamesScreen({ navigation, route }) {
       return;
     }
 
-    const created = await createSetupRound({
-      gameId: selected.id,
-      gameTitle: selected.title,
-      status: "setup",
-    });
+    const start = async (mode) => {
+      const isShared = mode === "shared";
 
-    if (!created?.roundId) {
-      Alert.alert("Sign in required", "Please sign in to start a round.");
-      return;
-    }
+      const created = isShared
+        ? await createSharedSetupRound({
+          gameId: selected.id,
+          gameTitle: selected.title,
+          status: "setup",
+        })
+        : await createSetupRound({
+          gameId: selected.id,
+          gameTitle: selected.title,
+          status: "setup",
+        });
 
-    navigation.navigate(ROUTES.GAME_SETUP, {
-      roundId: created.roundId,
-      gameId: selected.id,
-      gameTitle: selected.title,
-    });
+      if (!created?.roundId) {
+        Alert.alert("Sign in required", "Please sign in to start a round.");
+        return;
+      }
+
+      if (isShared) {
+        Alert.alert(
+          "Shared round created",
+          `Invite Code: ${created.joinCode}\n\nPlayers join from Home → Start Round → Join a round.`,
+          [{ text: "Continue setup", onPress: () => navigation.navigate(ROUTES.GAME_SETUP, { roundId: created.roundId, gameId: selected.id, gameTitle: selected.title }) }]
+        );
+        return;
+      }
+
+      navigation.navigate(ROUTES.GAME_SETUP, {
+        roundId: created.roundId,
+        gameId: selected.id,
+        gameTitle: selected.title,
+      });
+    };
+
+    Alert.alert(
+      "Start round",
+      "Do you want friends to join from their phones?",
+      [
+        { text: "Local (this device)", onPress: () => start("local") },
+        { text: "Shared (join by code)", onPress: () => start("shared") },
+        { text: "Cancel", style: "cancel" },
+      ]
+    );
   }
 
   async function onContinueLongPress() {
