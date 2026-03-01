@@ -252,7 +252,100 @@ export async function joinSharedRoundByCode(codeRaw) {
 
     // now that we are a participant, we can read the round doc
     const snap = await getDoc(sharedRoundRef(found.roundId));
-    return snap.exists() ? { ...(snap.data() || {}), roundId: found.roundId } : { ...found, roundId: found.roundId };
+
+    if (snap.exists()) {
+      const data = snap.data() || {};
+
+      // Ensure this joiner is represented in players[] with uid so briefing/buy-ins can map correctly.
+      const meUid = uid;
+      const meName =
+        String(auth?.currentUser?.displayName || "").trim() ||
+        String((auth?.currentUser?.email || "").split("@")[0] || "").trim() ||
+        "Player";
+
+      const players = Array.isArray(data?.players) ? data.players.slice() : [];
+      const playerCountRaw = Number(data?.playerCount);
+      const playerCount =
+        Number.isFinite(playerCountRaw) && playerCountRaw >= 1 && playerCountRaw <= 16
+          ? playerCountRaw
+          : null;
+
+      const already = players.some((p) => String(p?.uid || "").trim() === String(meUid));
+      if (!already) {
+        const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+        const meKey = norm(meName);
+
+        // Try to attach uid to an existing slot that matches name and has no uid yet
+        let attached = false;
+        for (let i = 0; i < players.length; i++) {
+          const p = players[i] || {};
+          const puid = String(p?.uid || "").trim();
+          const pname = String(p?.name || p?.displayName || p?.fullName || "").trim();
+
+          if (!puid && pname && meKey && norm(pname) === meKey) {
+            players[i] = { ...p, uid: meUid, source: p?.source || "remote" };
+            attached = true;
+            break;
+          }
+        }
+
+        // If no name match and the roster is already "full", claim the first open slot (no uid)
+        if (!attached) {
+          const isFull = playerCount ? players.length >= playerCount : false;
+
+          if (isFull) {
+            for (let i = 0; i < players.length; i++) {
+              const p = players[i] || {};
+              const puid = String(p?.uid || "").trim();
+              const pid = String(p?.id || "").trim();
+
+              // don't hijack host "me" slot
+              if (!puid && pid !== "me") {
+                players[i] = { ...p, uid: meUid, source: p?.source || "remote" };
+                attached = true;
+                break;
+              }
+            }
+          }
+        }
+
+        // Only append if there is room (or no playerCount is set yet)
+        if (!attached) {
+          const hasRoom = playerCount ? players.length < playerCount : true;
+
+          if (hasRoom) {
+            players.push({
+              id: String(meUid),
+              uid: meUid,
+              name: meName,
+              handicap: 0,
+              source: "remote",
+              trackStats: true,
+            });
+            attached = true;
+          }
+        }
+
+        if (attached) {
+          try {
+            await updateDoc(sharedRoundRef(found.roundId), {
+              players,
+              updatedAt: serverTimestamp(),
+            });
+          } catch {
+            // non-blocking
+          }
+        }
+      }
+
+      // Re-read once after patch attempt (so caller gets updated players)
+      const snap2 = await getDoc(sharedRoundRef(found.roundId));
+      const data2 = snap2.exists() ? (snap2.data() || {}) : data;
+
+      return { ...data2, roundId: found.roundId };
+    }
+
+    return { ...found, roundId: found.roundId };
   } catch {
     return null;
   }

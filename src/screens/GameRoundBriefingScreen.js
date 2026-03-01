@@ -258,6 +258,8 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
 
     const yourEstimatedBuyIn = useMemo(() => {
         const uid = String(auth?.currentUser?.uid || "").trim();
+        const isShared = String(roundId || "").startsWith("sr_");
+
         if (uid) {
             const direct = Number(perPlayerOwes?.[uid] || 0);
             if (Number.isFinite(direct) && direct >= 0) return direct;
@@ -270,6 +272,18 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
                     return Number.isFinite(v) ? v : 0;
                 }
             }
+
+            // shared rounds: match by player.uid, then use that player's computed pid
+            if (isShared) {
+                for (let i = 0; i < players.length; i++) {
+                    const puid = String(players[i]?.uid || "").trim();
+                    if (puid && puid === uid) {
+                        const pid = playerId(players[i], i);
+                        const v = Number(perPlayerOwes?.[pid] || 0);
+                        return Number.isFinite(v) ? v : 0;
+                    }
+                }
+            }
         }
 
         // fallback: if only one player, show their estimate
@@ -280,7 +294,7 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
         }
 
         return null;
-    }, [players, perPlayerOwes]);
+    }, [players, perPlayerOwes, roundId]);
 
     const styles = useMemo(() => {
         const softBorder = isDark ? "rgba(255,255,255,0.14)" : "rgba(10,15,26,0.12)";
