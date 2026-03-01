@@ -419,7 +419,11 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
     }, [theme, isDark, footerPad]);
 
     function roundRef(uid, rid) {
-        return doc(db, "users", uid, "rounds", String(rid));
+        const r = String(rid || "");
+        if (r.startsWith("sr_")) {
+            return doc(db, "sharedRounds", r);
+        }
+        return doc(db, "users", uid, "rounds", r);
     }
 
     useEffect(() => {

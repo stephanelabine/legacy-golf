@@ -347,8 +347,10 @@ export default function GameFormatDetailsScreen({ navigation, route }) {
         [formats]
     );
 
-    function roundRef(uid, rid) {
-        return doc(db, "users", uid, "rounds", String(rid));
+    function roundRef(uid, rid, isShared) {
+        return isShared
+            ? doc(db, "sharedRounds", String(rid))
+            : doc(db, "users", uid, "rounds", String(rid));
     }
 
     useEffect(() => {
@@ -365,7 +367,8 @@ export default function GameFormatDetailsScreen({ navigation, route }) {
             return;
         }
 
-        const ref = roundRef(uid, roundId);
+        const isShared = String(roundId).startsWith("sr_");
+        const ref = roundRef(uid, roundId, isShared);
 
         if (unsubRef.current) {
             try {
@@ -643,11 +646,14 @@ export default function GameFormatDetailsScreen({ navigation, route }) {
             }
 
             // persist back onto the same round doc (single source of truth)
+            const isShared = String(roundId).startsWith("sr_");
+
             await setDoc(
-                roundRef(uid, roundId),
+                roundRef(uid, roundId, isShared),
                 {
                     formatsSelected: formats.map((f) => ({ key: getKey(f), name: prettyFormatName(String(f?.name || getKey(f))) })),
-                    formatConfig: nextConfig, formatDetailsReady: true,
+                    formatConfig: nextConfig,
+                    formatDetailsReady: true,
                     updatedAt: serverTimestamp(),
                 },
                 { merge: true }
