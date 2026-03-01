@@ -228,15 +228,8 @@ export default function GamesScreen({ navigation, route }) {
       });
     };
 
-    Alert.alert(
-      "Start round",
-      "Do you want friends to join from their phones?",
-      [
-        { text: "Local (this device)", onPress: () => start("local") },
-        { text: "Shared (join by code)", onPress: () => start("shared") },
-        { text: "Cancel", style: "cancel" },
-      ]
-    );
+    // Default: start a LOCAL round (no popup). Sharing will be initiated from the Players screen via Invite.
+    await start("local");
   }
 
   async function onContinueLongPress() {

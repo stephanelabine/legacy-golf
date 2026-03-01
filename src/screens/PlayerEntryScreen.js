@@ -30,7 +30,7 @@ import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import PremiumSwipeRow from "../components/PremiumSwipeRow";
 import { subscribeBuddies } from "../storage/buddies";
-import { getActiveRoundId, loadActiveRound, saveActiveRound, updateActiveRound } from "../storage/roundState";
+import { createSharedSetupRound, getActiveRoundId, loadActiveRound, saveActiveRound, updateActiveRound } from "../storage/roundState";
 import { auth, db } from "../firebase/firebase";
 
 const PROFILE_KEY = "LEGACY_GOLF_PROFILE_V1";
@@ -224,6 +224,14 @@ export default function PlayerEntryScreen({ navigation, route }) {
   const [guestHcp, setGuestHcp] = useState("");
 
   const [inviteModal, setInviteModal] = useState(false);
+  const [convertingToShared, setConvertingToShared] = useState(false);
+  const openInviteOnLoad = route?.params?.openInvite === true;
+
+  useEffect(() => {
+    if (openInviteOnLoad && isShared) {
+      setInviteModal(true);
+    }
+  }, [openInviteOnLoad, isShared]);
 
   // Host code (generated once) - SOLO only
   const hostJoinCode = useMemo(() => makeJoinCode(), []);
@@ -415,7 +423,75 @@ export default function PlayerEntryScreen({ navigation, route }) {
     Keyboard.dismiss();
   }
 
+  function onPressInvite() {
+    if (isShared) {
+      setInviteModal(true);
+      return;
+    }
+
+    Alert.alert(
+      "Make Shared Round?",
+      "To let others join from their phone, this round must be shared. Make it shared now?",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Make Shared", onPress: () => convertToSharedRound() },
+      ]
+    );
+  }
+
+  async function convertToSharedRound() {
+    if (convertingToShared) return;
+
+    setConvertingToShared(true);
+    try {
+      const rid = await resolveRoundId();
+      if (!rid) {
+        Alert.alert("Round not initialized", "Please start the round again.");
+        return;
+      }
+
+      const existing = await loadActiveRound(rid);
+
+      const created = await createSharedSetupRound({
+        gameId: existing?.gameId || params?.gameId || params?.gameFormat || params?.format || null,
+        gameTitle: existing?.gameTitle || params?.gameTitle || params?.title || null,
+        scoring: existing?.scoring || scoring || "net",
+        course: existing?.course || course || null,
+        tee: existing?.tee || tee || null,
+        holeMeta: existing?.holeMeta || holeMeta || null,
+        holesCount: existing?.holesCount || null,
+        holesSide: existing?.holesSide || null,
+        playerCount: Number(existing?.playerCount) || playerCount || null,
+        players: normalizePlayersForRound(players),
+        formatsSelected: Array.isArray(existing?.formatsSelected) ? existing.formatsSelected : [],
+      });
+
+      if (!created?.roundId) {
+        Alert.alert("Shared round failed", "Could not create a shared round.");
+        return;
+      }
+
+      // Re-open PlayerEntryScreen using the new shared round id, then auto-open Invite.
+      navigation.replace(route.name, {
+        ...params,
+        roundId: created.roundId,
+        course: created?.course || course || null,
+        tee: created?.tee || tee || null,
+        holeMeta: created?.holeMeta || holeMeta || null,
+        scoring: created?.scoring || scoring || "net",
+        playerCount: created?.playerCount || playerCount || null,
+        openInvite: true,
+      });
+    } catch (e) {
+      Alert.alert("Shared round failed", e?.message || "Could not create a shared round.");
+    } finally {
+      setConvertingToShared(false);
+    }
+  }
+
   async function onShareInvite() {
+    if (!isShared) return;
+
     try {
       await Share.share({
         message: `Legacy Golf — Join my round\nJoin Code: ${lobbyCode}\nHome → Start Round → Join a round`,
@@ -625,7 +701,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
 
   const rightInvite = (
     <Pressable
-      onPress={() => setInviteModal(true)}
+      onPress={onPressInvite}
       style={({ pressed }) => [styles.headerRight, pressed && styles.pressed]}
     >
       <Text style={styles.headerRightText}>Invite</Text>
@@ -969,7 +1045,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
             </Pressable>
 
             <Pressable
-              onPress={() => setInviteModal(true)}
+              onPress={onPressInvite}
               style={({ pressed }) => [styles.actionPillGhost, pressed && styles.pressed]}
             >
               <Text style={styles.actionPillText}>Invite</Text>

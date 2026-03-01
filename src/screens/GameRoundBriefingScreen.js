@@ -95,6 +95,7 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
 
     const [roundDoc, setRoundDoc] = useState(null);
     const routedRef = useRef(false);
+    const setupReadyPushedRef = useRef(false);
 
     const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
@@ -124,6 +125,18 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
                 setRoundDoc(roundData);
 
                 if (!isShared) return;
+
+                // Host: as soon as host reaches Briefing, mark setupReady so joiners can leave Waiting Room and view Briefing.
+                try {
+                    const hostUidLive = String(roundData?.hostUid || "").trim();
+                    const meUidLive = String(auth?.currentUser?.uid || "").trim();
+                    const isHostLive = !!hostUidLive && !!meUidLive && hostUidLive === meUidLive;
+
+                    if (isHostLive && !roundData?.setupReady && !setupReadyPushedRef.current) {
+                        setupReadyPushedRef.current = true;
+                        updateDoc(ref, { setupReady: true, updatedAt: serverTimestamp() }).catch(() => { });
+                    }
+                } catch { }
 
                 const status = String(roundData?.status || "").trim();
 
