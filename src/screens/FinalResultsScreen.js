@@ -1108,11 +1108,14 @@ export default function FinalResultsScreen({ navigation, route }) {
       ? officialHoles.reduce((acc, h) => acc + (resolvedByHole?.[String(h)]?.winnerName ? 1 : 0), 0)
       : 0;
 
-    const statusPill = isAuto
-      ? "AUTO"
-      : events === 0
-        ? "NO HOLES SET"
-        : `${resolvedCount}/${events} RESOLVED`;
+    const statusPill =
+      type === "nassau"
+        ? "AUTO"
+        : isAuto
+          ? "AUTO"
+          : events === 0
+            ? "NO HOLES SET"
+            : `${resolvedCount}/${events} RESOLVED`;
 
     const payout = renderFormatPayout(formatKey, type, officialHoles);
 
