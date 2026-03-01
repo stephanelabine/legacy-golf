@@ -1202,12 +1202,18 @@ export default function PlayerEntryScreen({ navigation, route }) {
             <Text style={styles.modalTitle}>Invite Players</Text>
 
             <View style={styles.codeCard}>
-              <Text style={styles.codeLabel}>JOIN CODE</Text>
-              <Text style={styles.codeValue}>{lobbyCode || "—"}</Text>
+              <Text style={styles.codeLabel}>{isShared ? "JOIN CODE" : "LOCAL ROUND"}</Text>
+
+              {isShared ? (
+                <Text style={styles.codeValue}>{lobbyCode || "—"}</Text>
+              ) : (
+                <Text style={styles.codeValue}>NOT SHARED</Text>
+              )}
+
               <Text style={styles.codeNote}>
                 {isShared
                   ? "Share now. Players join from Home → Start Round → Join a round."
-                  : "Share now. Players can join by entering this code."}
+                  : "This round is local-only. To let others join from their phone, start a Shared Round (sr_...) so a real join code is created."}
               </Text>
             </View>
 
@@ -1219,8 +1225,16 @@ export default function PlayerEntryScreen({ navigation, route }) {
                 <Text style={styles.modalGhostText}>Close</Text>
               </Pressable>
 
-              <Pressable onPress={onShareInvite} style={({ pressed }) => [styles.modalPrimaryBtn, pressed && styles.pressed]}>
-                <Text style={styles.modalPrimaryText}>Share</Text>
+              <Pressable
+                onPress={onShareInvite}
+                disabled={!isShared}
+                style={({ pressed }) => [
+                  styles.modalPrimaryBtn,
+                  !isShared && { opacity: 0.45 },
+                  pressed && isShared && styles.pressed,
+                ]}
+              >
+                <Text style={styles.modalPrimaryText}>{isShared ? "Share" : "Share (Shared only)"}</Text>
               </Pressable>
             </View>
 
