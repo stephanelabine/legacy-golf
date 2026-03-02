@@ -668,10 +668,164 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
         // If we’re at the end of the selected window (ex: hole 9 of Front 9 / hole 18 of 18),
         // DO NOT finish from Score Entry. Save, then return to HoleHub so the user explicitly presses Finish there.
+        // BUT: still show the post-hole Skins splash for the last hole.
         if (Number(holeNumber) >= holeEnd) {
             const res = await persistHole({ resumeHole: holeEnd });
             const rid = res?.roundId || roundIdParam || null;
-            goToHoleHub(holeEnd, { roundId: rid, showFinishPrompt: true });
+
+            // Build a post-hole Skins splash (with running totals) for THIS hole before Finish prompt.
+            let postHoleSplash = null;
+            try {
+                const roundBasis = String(roundState0?.scoringMode || roundState0?.scoring || "net").toLowerCase();
+                const useNet = roundBasis === "net";
+
+                const formatsSelected = Array.isArray(roundState0?.formatsSelected) ? roundState0.formatsSelected : [];
+                const hasSkins = formatsSelected.some((x) => {
+                    const k = typeof x === "string" ? x : x?.key || x?.id || "";
+                    return String(k || "").trim() === "skins";
+                });
+
+                if (hasSkins) {
+                    const pools = (roundState0 && typeof roundState0 === "object" ? roundState0.formatPools : null) || {};
+                    const skinsPool = (pools && typeof pools === "object" ? pools.skins : null) || {};
+                    const perSkin = Number(skinsPool?.amountPerSkin);
+
+                    if (Number.isFinite(perSkin) && perSkin > 0) {
+                        const excludedIds = Array.isArray(skinsPool?.excludedIds) ? skinsPool.excludedIds.map(String) : [];
+                        const excludedSet = new Set(excludedIds);
+
+                        const included = (normalizedPlayers || [])
+                            .map((p, idx) => ({
+                                pid: String(p?.id || ""),
+                                name: String(p?.name || `Player ${idx + 1}`).trim() || `Player ${idx + 1}`,
+                                handicap: Number(p?.handicap ?? 0),
+                            }))
+                            .filter((x) => x.pid && !excludedSet.has(String(x.pid)));
+
+                        const holeNum = Number(holeNumber) || 1;
+
+                        // Build a merged hole map: Firestore holes + this-hole inputs (we just entered).
+                        const holes = (roundState0?.holes && typeof roundState0.holes === "object") ? roundState0.holes : {};
+                        const mergedHoles = { ...holes };
+                        mergedHoles[String(holeNum)] = mergedHoles[String(holeNum)] || { players: {} };
+                        mergedHoles[String(holeNum)].players = mergedHoles[String(holeNum)].players || {};
+                        included.forEach((p) => {
+                            const grossNow = toInt(inputs?.[p.pid]?.strokes);
+                            if (grossNow > 0) {
+                                mergedHoles[String(holeNum)].players[String(p.pid)] = {
+                                    ...(mergedHoles[String(holeNum)].players[String(p.pid)] || {}),
+                                    strokes: String(grossNow),
+                                };
+                            }
+                        });
+
+                        // Hole window (front/back 9 correctness)
+                        const holesCount = Number(roundState0?.holesCount);
+                        const holesSide = String(roundState0?.holesSide || "").toLowerCase();
+                        const startH = holesCount === 9 && holesSide === "back" ? 10 : 1;
+                        const endH = holesCount === 9 ? (startH === 10 ? 18 : 9) : 18;
+
+                        function holeStrokeIndex(h) {
+                            const hm = holeMeta && typeof holeMeta === "object" ? (holeMeta[String(h)] || holeMeta[h] || {}) : {};
+                            const siRaw = hm?.si ?? hm?.strokeIndex ?? hm?.SI ?? hm?.handicap ?? null;
+                            const si = Number(siRaw);
+                            return Number.isFinite(si) ? si : null;
+                        }
+
+                        function strokesReceived(hcp, strokeIndex) {
+                            const h = Math.max(0, Math.floor(Number(hcp) || 0));
+                            if (!Number.isFinite(strokeIndex) || strokeIndex < 1 || strokeIndex > 18) return 0;
+                            const base = Math.floor(h / 18);
+                            const extra = h % 18;
+                            return base + (strokeIndex <= extra ? 1 : 0);
+                        }
+
+                        // Compute running skins (with carryovers)
+                        const skinsByPid = {};
+                        included.forEach((p) => (skinsByPid[p.pid] = 0));
+
+                        let carry = 0;
+
+                        for (let h = startH; h <= endH; h++) {
+                            // only evaluate up to the current hole
+                            if (h > holeNum) break;
+
+                            const si = holeStrokeIndex(h);
+
+                            const contenders = included
+                                .map((p) => {
+                                    const gross = toInt(mergedHoles?.[String(h)]?.players?.[String(p.pid)]?.strokes);
+                                    if (gross <= 0) return null;
+                                    const net = useNet ? (gross - strokesReceived(p.handicap, si)) : gross;
+                                    return { ...p, gross, score: net };
+                                })
+                                .filter(Boolean);
+
+                            if (contenders.length < 2) continue;
+
+                            const min = Math.min(...contenders.map((x) => x.score));
+                            const winners = contenders.filter((x) => x.score === min);
+
+                            if (winners.length === 1) {
+                                const winPid = winners[0].pid;
+                                const winSkins = 1 + carry;
+                                skinsByPid[winPid] = (skinsByPid[winPid] || 0) + winSkins;
+                                carry = 0;
+                            } else {
+                                carry += 1;
+                            }
+                        }
+
+                        // Decide this hole’s message (using same logic)
+                        const siNow = holeStrokeIndex(holeNum);
+                        const nowContenders = included
+                            .map((p) => {
+                                const gross = toInt(mergedHoles?.[String(holeNum)]?.players?.[String(p.pid)]?.strokes);
+                                if (gross <= 0) return null;
+                                const net = useNet ? (gross - strokesReceived(p.handicap, siNow)) : gross;
+                                return { ...p, gross, score: net };
+                            })
+                            .filter(Boolean);
+
+                        if (nowContenders.length >= 2) {
+                            const minNow = Math.min(...nowContenders.map((x) => x.score));
+                            const nowWinners = nowContenders.filter((x) => x.score === minNow);
+
+                            let headline = "";
+                            if (nowWinners.length === 1) {
+                                headline = `Skin won by ${nowWinners[0].name} • Hole ${holeNum}`;
+                            } else {
+                                headline = `Carryover (tie) • Hole ${holeNum}`;
+                            }
+
+                            // Build leaderboard lines (sorted)
+                            const list = included
+                                .map((p) => ({
+                                    name: p.name,
+                                    skins: Number(skinsByPid[p.pid] || 0),
+                                    est: Number(skinsByPid[p.pid] || 0) * perSkin * Math.max(0, included.length - 1),
+                                }))
+                                .sort((a, b) => (b.skins - a.skins) || (a.name.localeCompare(b.name)));
+
+                            const topLines = list.map((x) => `${x.name}: ${x.skins} (${x.est > 0 ? `$${x.est}` : "$0"})`);
+
+                            postHoleSplash = {
+                                title: "Skins",
+                                lines: [
+                                    headline,
+                                    `Value per skin: $${String(perSkin)}`,
+                                    `Estimated totals so far:`,
+                                    ...topLines,
+                                ],
+                            };
+                        }
+                    }
+                }
+            } catch {
+                postHoleSplash = null;
+            }
+
+            goToHoleHub(holeEnd, { roundId: rid, showFinishPrompt: true, postHoleSplash });
             return;
         }
 
@@ -705,7 +859,153 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             return;
         }
 
-        goToHoleHub(nextHole, { roundId: rid });
+        // Post-hole Skins splash (single, premium) + running totals (skins count + estimated $).
+        let postHoleSplash = null;
+        try {
+            const roundBasis = String(roundState?.scoringMode || roundState?.scoring || "net").toLowerCase();
+            const useNet = roundBasis === "net";
+
+            const formatsSelected = Array.isArray(roundState?.formatsSelected) ? roundState.formatsSelected : [];
+            const hasSkins = formatsSelected.some((x) => {
+                const k = typeof x === "string" ? x : x?.key || x?.id || "";
+                return String(k || "").trim() === "skins";
+            });
+
+            if (hasSkins) {
+                const pools = (roundState && typeof roundState === "object" ? roundState.formatPools : null) || {};
+                const skinsPool = (pools && typeof pools === "object" ? pools.skins : null) || {};
+                const perSkin = Number(skinsPool?.amountPerSkin);
+
+                if (Number.isFinite(perSkin) && perSkin > 0) {
+                    const excludedIds = Array.isArray(skinsPool?.excludedIds) ? skinsPool.excludedIds.map(String) : [];
+                    const excludedSet = new Set(excludedIds);
+
+                    const included = (normalizedPlayers || [])
+                        .map((p, idx) => ({
+                            pid: String(p?.id || ""),
+                            name: String(p?.name || `Player ${idx + 1}`).trim() || `Player ${idx + 1}`,
+                            handicap: Number(p?.handicap ?? 0),
+                        }))
+                        .filter((x) => x.pid && !excludedSet.has(String(x.pid)));
+
+                    const holeNum = Number(holeNumber) || 1;
+
+                    const holes = (roundState?.holes && typeof roundState.holes === "object") ? roundState.holes : {};
+                    const mergedHoles = { ...holes };
+                    mergedHoles[String(holeNum)] = mergedHoles[String(holeNum)] || { players: {} };
+                    mergedHoles[String(holeNum)].players = mergedHoles[String(holeNum)].players || {};
+                    included.forEach((p) => {
+                        const grossNow = toInt(inputs?.[p.pid]?.strokes);
+                        if (grossNow > 0) {
+                            mergedHoles[String(holeNum)].players[String(p.pid)] = {
+                                ...(mergedHoles[String(holeNum)].players[String(p.pid)] || {}),
+                                strokes: String(grossNow),
+                            };
+                        }
+                    });
+
+                    const holesCount = Number(roundState?.holesCount);
+                    const holesSide = String(roundState?.holesSide || "").toLowerCase();
+                    const startH = holesCount === 9 && holesSide === "back" ? 10 : 1;
+                    const endH = holesCount === 9 ? (startH === 10 ? 18 : 9) : 18;
+
+                    function holeStrokeIndex(h) {
+                        const hm = holeMeta && typeof holeMeta === "object" ? (holeMeta[String(h)] || holeMeta[h] || {}) : {};
+                        const siRaw = hm?.si ?? hm?.strokeIndex ?? hm?.SI ?? hm?.handicap ?? null;
+                        const si = Number(siRaw);
+                        return Number.isFinite(si) ? si : null;
+                    }
+
+                    function strokesReceived(hcp, strokeIndex) {
+                        const h = Math.max(0, Math.floor(Number(hcp) || 0));
+                        if (!Number.isFinite(strokeIndex) || strokeIndex < 1 || strokeIndex > 18) return 0;
+                        const base = Math.floor(h / 18);
+                        const extra = h % 18;
+                        return base + (strokeIndex <= extra ? 1 : 0);
+                    }
+
+                    const skinsByPid = {};
+                    included.forEach((p) => (skinsByPid[p.pid] = 0));
+
+                    let carry = 0;
+
+                    for (let h = startH; h <= endH; h++) {
+                        if (h > holeNum) break;
+
+                        const si = holeStrokeIndex(h);
+
+                        const contenders = included
+                            .map((p) => {
+                                const gross = toInt(mergedHoles?.[String(h)]?.players?.[String(p.pid)]?.strokes);
+                                if (gross <= 0) return null;
+                                const net = useNet ? (gross - strokesReceived(p.handicap, si)) : gross;
+                                return { ...p, gross, score: net };
+                            })
+                            .filter(Boolean);
+
+                        if (contenders.length < 2) continue;
+
+                        const min = Math.min(...contenders.map((x) => x.score));
+                        const winners = contenders.filter((x) => x.score === min);
+
+                        if (winners.length === 1) {
+                            const winPid = winners[0].pid;
+                            const winSkins = 1 + carry;
+                            skinsByPid[winPid] = (skinsByPid[winPid] || 0) + winSkins;
+                            carry = 0;
+                        } else {
+                            carry += 1;
+                        }
+                    }
+
+                    const siNow = holeStrokeIndex(holeNum);
+                    const nowContenders = included
+                        .map((p) => {
+                            const gross = toInt(mergedHoles?.[String(holeNum)]?.players?.[String(p.pid)]?.strokes);
+                            if (gross <= 0) return null;
+                            const net = useNet ? (gross - strokesReceived(p.handicap, siNow)) : gross;
+                            return { ...p, gross, score: net };
+                        })
+                        .filter(Boolean);
+
+                    if (nowContenders.length >= 2) {
+                        const minNow = Math.min(...nowContenders.map((x) => x.score));
+                        const nowWinners = nowContenders.filter((x) => x.score === minNow);
+
+                        let headline = "";
+                        if (nowWinners.length === 1) {
+                            headline = `Skin won by ${nowWinners[0].name} • Hole ${holeNum}`;
+                        } else {
+                            headline = `Carryover (tie) • Hole ${holeNum}`;
+                        }
+
+                        const list = included
+                            .map((p) => ({
+                                name: p.name,
+                                skins: Number(skinsByPid[p.pid] || 0),
+                                est: Number(skinsByPid[p.pid] || 0) * perSkin * Math.max(0, included.length - 1),
+                            }))
+                            .sort((a, b) => (b.skins - a.skins) || (a.name.localeCompare(b.name)));
+
+                        const topLines = list.map((x) => `${x.name}: ${x.skins} (${x.est > 0 ? `$${x.est}` : "$0"})`);
+
+                        postHoleSplash = {
+                            title: "Skins",
+                            lines: [
+                                headline,
+                                `Value per skin: $${String(perSkin)}`,
+                                `Estimated totals so far:`,
+                                ...topLines,
+                            ],
+                        };
+                    }
+                }
+            }
+        } catch {
+            postHoleSplash = null;
+        }
+
+        goToHoleHub(nextHole, { roundId: rid, postHoleSplash });
     }
 
     async function doneFixMode() {

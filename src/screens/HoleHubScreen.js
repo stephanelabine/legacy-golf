@@ -300,6 +300,38 @@ function sideGameKeyForHole(roundDoc, holeNum) {
 
   return null;
 }
+function PostHoleSplashModal({ visible, data, onDismiss }) {
+  const title = String(data?.title || "Update");
+  const lines = Array.isArray(data?.lines) ? data.lines : [];
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onDismiss} statusBarTranslucent>
+      <Pressable style={styles.modalBg} onPress={onDismiss}>
+        <View style={[styles.modalWrap, { justifyContent: "center" }]}>
+          <Pressable style={[styles.modalCard, { borderColor: "rgba(214, 171, 84, 0.38)" }]} onPress={() => { }}>
+            <View style={styles.modalTop}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle}>{title}</Text>
+                {lines.length ? (
+                  <Text style={styles.modalSub}>
+                    {lines.filter(Boolean).join("\n")}
+                  </Text>
+                ) : null}
+              </View>
+              <Pressable onPress={onDismiss} style={({ pressed }) => [styles.modalX, pressed && styles.pressed]}>
+                <Text style={styles.modalXText}>✕</Text>
+              </Pressable>
+            </View>
+
+            <Pressable onPress={onDismiss} style={({ pressed }) => [styles.modalDone, pressed && styles.pressed]}>
+              <Text style={styles.modalDoneText}>Continue</Text>
+            </Pressable>
+          </Pressable>
+        </View>
+      </Pressable>
+    </Modal>
+  );
+}
 
 function SideGameOverlayModal({ visible, meta, currentHole, roundNumber, holderName, carryIn, carryFromHole, onDismiss }) {
   const holderLine = holderName ? `Current holder: ${String(holderName)}` : "Currently unclaimed";
@@ -463,6 +495,8 @@ export default function HoleHubScreen({ navigation, route }) {
 
   const par = holeMeta?.[String(currentHole)]?.par ?? 4;
 
+  const headerTitle = useMemo(() => shortCourseTitle(courseName), [courseName]);
+
   /* -------------------------- */
   /* side game overlay behavior */
   /* -------------------------- */
@@ -479,6 +513,29 @@ export default function HoleHubScreen({ navigation, route }) {
   const sideMeta = useMemo(() => getSideGameMeta(computedSideGameKey), [computedSideGameKey]);
 
   const [sgVisible, setSgVisible] = useState(false);
+
+  const [postSplashVisible, setPostSplashVisible] = useState(false);
+  const [postSplash, setPostSplash] = useState(null);
+
+  // Post-hole splash (e.g., Skins result) — shown once, then cleared from params.
+  useEffect(() => {
+    const s = params?.postHoleSplash || null;
+    if (!s) return;
+
+    setPostSplash(s);
+    setPostSplashVisible(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params?.postHoleSplash]);
+
+  function dismissPostHoleSplash() {
+    setPostSplashVisible(false);
+    setPostSplash(null);
+
+    try {
+      navigation.setParams({ postHoleSplash: null });
+    } catch { }
+  }
+
   const sgTimerRef = useRef(null);
   const sgShownKeyRef = useRef(null);
 
@@ -593,8 +650,10 @@ export default function HoleHubScreen({ navigation, route }) {
   }, []);
 
   // Auto-splash whenever the CURRENT hole is a format hole (once per hole+format)
+  // If a post-hole splash is pending, do NOT show the generic side-game overlay (avoid stacking).
   useFocusEffect(
     useCallback(() => {
+      if (params?.postHoleSplash || postSplashVisible) return undefined;
       if (!computedSideGameKey) return undefined;
 
       const onceKey = `${String(roundId || "r")}__${String(currentHole || "h")}__${String(computedSideGameKey)}`;
@@ -603,7 +662,7 @@ export default function HoleHubScreen({ navigation, route }) {
 
       setSgVisible(true);
       return () => { };
-    }, [computedSideGameKey, roundId, currentHole])
+    }, [computedSideGameKey, roundId, currentHole, params?.postHoleSplash, postSplashVisible])
   );
 
   useEffect(() => {
@@ -1070,7 +1129,7 @@ export default function HoleHubScreen({ navigation, route }) {
     <SafeAreaView style={styles.safe}>
       <ScreenHeader
         navigation={navigation}
-        title={useMemo(() => shortCourseTitle(courseName), [courseName])}
+        title={headerTitle}
         subtitle={`${teeName} • Hole ${currentHole} • Par ${par}`}
         safeTop={false}
         leftLabel={currentHole <= startHole ? "Exit" : "Back"}
@@ -1083,6 +1142,12 @@ export default function HoleHubScreen({ navigation, route }) {
         }}
         rightLabel="Home"
         onRightPress={onPressHome}
+      />
+
+      <PostHoleSplashModal
+        visible={postSplashVisible}
+        data={postSplash}
+        onDismiss={dismissPostHoleSplash}
       />
 
       <SideGameOverlayModal
