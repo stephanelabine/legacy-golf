@@ -417,6 +417,31 @@ export default function GameFormatsScreen({ navigation, route }) {
         const key = String(item.key);
         const next = new Set(selectedKeys);
 
+        const primaryKeys = new Set(["skins", "stableford", "birdie_buckets", "nassau"]);
+        const isPrimary = primaryKeys.has(startGameId) && key === startGameId;
+
+        // Premium guard: if user started from a primary game card and tries to turn OFF that same primary format,
+        // confirm first.
+        if (isPrimary && next.has(key)) {
+            Alert.alert(
+                `Turn off ${String(item?.name || "this format")}?`,
+                `You started this round from the ${String(item?.name || "selected")} game card. Turning it off means it will not be played for this round.`,
+                [
+                    { text: "Keep ON", style: "cancel" },
+                    {
+                        text: "Turn OFF",
+                        style: "destructive",
+                        onPress: async () => {
+                            const after = new Set(selectedKeys);
+                            after.delete(key);
+                            await setSelectedKeys(after);
+                        },
+                    },
+                ]
+            );
+            return;
+        }
+
         if (next.has(key)) next.delete(key);
         else next.add(key);
 
