@@ -173,6 +173,10 @@ function detectFormatType(key, name) {
         (s.includes("2nd") && s.includes("shot") && s.includes("kp"));
 
     if (s.includes("nassau")) return "nassau";
+    if (s.includes("skins")) return "skins";
+    if (s.includes("stableford")) return "stableford";
+    if (s.includes("birdiebuckets") || (s.includes("birdie") && s.includes("bucket"))) return "birdiebuckets";
+    if (s.includes("wolf")) return "wolf";
     if (isSecondShot) return "secondshotkp";
     if (s.includes("longdrive") || (s.includes("long") && s.includes("drive"))) return "longdrive";
     if (s.includes("deucepot") || (s.includes("deuce") && s.includes("pot"))) return "deucepot";
@@ -709,6 +713,62 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                     const each = payoutForPlace / g.rows.length;
 
                     g.rows.forEach((x) => addWon(x.id, each));
+                }
+
+                return;
+            }
+
+            // Skins: POOL PAYOUTS (carry on ties). Per-skin value is fee, funded per skin unit.
+            if (type === "skins") {
+                const perSkin = fee > 0 ? fee : 0;
+                if (!perSkin) return;
+
+                const { playedHoles } = getPlayedHoles(r);
+                const holes = playedHoles || [];
+
+                // Determine net/gross basis once (same approach as Nassau)
+                const basis = String(r?.matchPlay?.scoring?.basis || r?.scoringMode || r?.scoring || "gross").toLowerCase();
+                const useNet = basis.includes("net");
+
+                let carryUnits = 0;
+
+                for (let i = 0; i < holes.length; i++) {
+                    const h = holes[i];
+
+                    // Build scores based on chosen basis and require all included players to have strokes.
+                    const scored = includedIds.map((pid) => {
+                        const id = String(pid);
+                        const v = useNet
+                            ? netStrokesForHole(r, id, h, true, playersById)
+                            : netStrokesForHole(r, id, h, false, playersById);
+                        return { id, v };
+                    });
+
+                    if (scored.some((x) => !Number.isFinite(x.v) || x.v <= 0)) {
+                        continue;
+                    }
+
+                    scored.sort((a, b) => a.v - b.v);
+                    const best = scored[0]?.v;
+                    if (best == null) continue;
+
+                    const tied = scored.filter((x) => x.v === best);
+                    if (tied.length === 1) {
+                        const winId = String(tied[0].id || "");
+                        const units = 1 + carryUnits;
+                        carryUnits = 0;
+
+                        // Transfers-style math (guarantees "Who Pays Who"):
+                        // Each non-winner pays winner: perSkin * units
+                        includedIds.forEach((pid) => {
+                            const p = String(pid);
+                            if (!p || p === winId) return;
+                            addPaid(p, units * perSkin);
+                            addWon(winId, units * perSkin);
+                        });
+                    } else {
+                        carryUnits += 1;
+                    }
                 }
 
                 return;

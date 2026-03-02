@@ -239,6 +239,11 @@ function detectFormatType(key, name) {
     (s.includes("2nd") && s.includes("shot") && s.includes("kp"));
 
   if (s.includes("nassau")) return "nassau";
+  if (s.includes("skins")) return "skins";
+  if (s.includes("stableford")) return "stableford";
+  if (s.includes("birdiebuckets") || (s.includes("birdie") && s.includes("bucket"))) return "birdiebuckets";
+  if (s.includes("wolf")) return "wolf";
+
   if (isSecondShot) return "secondshotkp";
   if (s.includes("longdrive") || (s.includes("long") && s.includes("drive"))) return "longdrive";
   if (s.includes("deucepot") || (s.includes("deuce") && s.includes("pot"))) return "deucepot";
@@ -255,6 +260,11 @@ function formatIconName(type) {
   if (type === "puttingcontest") return "golf";
   if (type === "deucepot") return "cash";
   if (type === "teamvsteam") return "account-group";
+  if (type === "nassau") return "trophy";
+  if (type === "skins") return "star-four-points";
+  if (type === "stableford") return "chart-line";
+  if (type === "birdiebuckets") return "bucket";
+  if (type === "wolf") return "paw";
   return "star-four-points";
 }
 
@@ -266,6 +276,10 @@ function formatDisplayTitle(type, rawName) {
   if (type === "puttingcontest") return "PUTTING CONTEST";
   if (type === "teamvsteam") return "TEAM VS TEAM";
   if (type === "nassau") return "NASSAU";
+  if (type === "skins") return "SKINS";
+  if (type === "stableford") return "STABLEFORD";
+  if (type === "birdiebuckets") return "BIRDIE BUCKETS";
+  if (type === "wolf") return "WOLF";
   return String(rawName || "FORMAT").toUpperCase();
 }
 
@@ -276,6 +290,13 @@ function formatTheme(type) {
   if (type === "deucepot") return { accent: "#FFCF5A", bg: "rgba(255,207,90,0.10)", border: "rgba(255,207,90,0.30)" };
   if (type === "puttingcontest") return { accent: "#FF7AC8", bg: "rgba(255,122,200,0.10)", border: "rgba(255,122,200,0.28)" };
   if (type === "teamvsteam") return { accent: "#69E6B4", bg: "rgba(105,230,180,0.10)", border: "rgba(105,230,180,0.28)" };
+
+  if (type === "nassau") return { accent: "#FFCF5A", bg: "rgba(255,207,90,0.10)", border: "rgba(255,207,90,0.30)" };
+  if (type === "skins") return { accent: "#FFCF5A", bg: "rgba(255,207,90,0.10)", border: "rgba(255,207,90,0.30)" };
+  if (type === "stableford") return { accent: "#5AD7FF", bg: "rgba(90,215,255,0.10)", border: "rgba(90,215,255,0.28)" };
+  if (type === "birdiebuckets") return { accent: "#69E6B4", bg: "rgba(105,230,180,0.10)", border: "rgba(105,230,180,0.28)" };
+  if (type === "wolf") return { accent: "#9D7BFF", bg: "rgba(157,123,255,0.10)", border: "rgba(157,123,255,0.28)" };
+
   return { accent: YELLOW, bg: "rgba(242,201,76,0.08)", border: "rgba(242,201,76,0.22)" };
 }
 
@@ -1045,7 +1066,7 @@ export default function FinalResultsScreen({ navigation, route }) {
     // payout per win = per-hole amount * (players - 1)
     const perWin = perHoleAmount > 0 ? perHoleAmount * Math.max(0, includedCount - 1) : 0;
 
-    const isAuto = type === "deucepot" || type === "puttingcontest";
+    const isAuto = type === "deucepot" || type === "puttingcontest" || type === "nassau" || type === "skins";
 
     const isCarryDoc = (c) => {
       const s = String(c?.status || "").toLowerCase();
@@ -1109,13 +1130,11 @@ export default function FinalResultsScreen({ navigation, route }) {
       : 0;
 
     const statusPill =
-      type === "nassau"
+      isAuto
         ? "AUTO"
-        : isAuto
-          ? "AUTO"
-          : events === 0
-            ? "NO HOLES SET"
-            : `${resolvedCount}/${events} RESOLVED`;
+        : events === 0
+          ? "NO HOLES SET"
+          : `${resolvedCount}/${events} RESOLVED`;
 
     const payout = renderFormatPayout(formatKey, type, officialHoles);
 
@@ -1270,7 +1289,129 @@ export default function FinalResultsScreen({ navigation, route }) {
                   </View>
                 ) : isAuto ? (
                   <View style={{ width: "100%", gap: 8 }}>
-                    {type === "puttingcontest" ? (
+                    {type === "skins" ? (
+                      <>
+                        {(() => {
+                          const r = round || {};
+                          const perSkin = getEntryFee(r, formatKey);
+                          const included = includedIds || [];
+
+                          if (!perSkin || perSkin <= 0) {
+                            return <Text style={styles.modalLine}>No skins amount set.</Text>;
+                          }
+
+                          // Determine net/gross basis
+                          const basis = String(r?.matchPlay?.scoring?.basis || r?.scoringMode || r?.scoring || "gross").toLowerCase();
+                          const useNet = basis.includes("net");
+
+                          // Determine played holes (9/18 front/back)
+                          const hcRaw = Number(r?.holesCount ?? r?.meta?.holesCount);
+                          const holesCount = hcRaw === 9 || hcRaw === 18 ? hcRaw : 18;
+
+                          const sideRaw = String(r?.holesSide ?? r?.meta?.holesSide ?? "").toLowerCase().trim();
+                          const holesSide = sideRaw === "back" ? "back" : sideRaw === "front" ? "front" : null;
+
+                          const playedHoles =
+                            holesCount === 9
+                              ? (holesSide === "back"
+                                ? Array.from({ length: 9 }).map((_, i) => 10 + i)
+                                : Array.from({ length: 9 }).map((_, i) => 1 + i))
+                              : Array.from({ length: 18 }).map((_, i) => 1 + i);
+
+                          const netStrokeForHole = (playerId, playerHcp, holeNumber) => {
+                            const strokes = readStroke(r, holeNumber, playerId);
+                            if (!Number.isFinite(strokes) || strokes <= 0) return 0;
+                            if (!useNet) return strokes;
+
+                            const hcp = parseHcp(playerHcp);
+                            if (!Number.isFinite(hcp) || hcp <= 0) return strokes;
+
+                            let anySI = false;
+                            for (let h = 1; h <= 18; h++) {
+                              const si = getStrokeIndex(r, h);
+                              if (Number.isFinite(si)) { anySI = true; break; }
+                            }
+                            if (!anySI) return Math.max(0, strokes - hcp);
+
+                            const base = Math.floor(hcp / 18);
+                            const extra = hcp % 18;
+
+                            const si = getStrokeIndex(r, holeNumber);
+                            const getsExtra = Number.isFinite(si) && si <= extra ? 1 : 0;
+                            const received = base + getsExtra;
+
+                            return strokes - received;
+                          };
+
+                          // Build player lookup
+                          const pById = {};
+                          players.forEach((p) => { pById[String(p.id)] = p; });
+
+                          // Count skins & dollars per player using carry logic (ignore holes with missing strokes)
+                          const skinsCountById = {};
+                          const wonById = {};
+                          included.forEach((pid) => {
+                            skinsCountById[String(pid)] = 0;
+                            wonById[String(pid)] = 0;
+                          });
+
+                          let carryUnits = 0;
+
+                          for (let i = 0; i < playedHoles.length; i++) {
+                            const h = playedHoles[i];
+
+                            const scored = included.map((pid) => {
+                              const id = String(pid);
+                              const p = pById[id] || {};
+                              const v = netStrokeForHole(id, p.handicap, h);
+                              return { id, v };
+                            });
+
+                            if (scored.some((x) => !Number.isFinite(x.v) || x.v <= 0)) continue;
+
+                            scored.sort((a, b) => a.v - b.v);
+                            const best = scored[0]?.v;
+                            if (best == null) continue;
+
+                            const tied = scored.filter((x) => x.v === best);
+                            if (tied.length === 1) {
+                              const winId = String(tied[0].id);
+                              const units = 1 + carryUnits;
+                              carryUnits = 0;
+
+                              skinsCountById[winId] = (skinsCountById[winId] || 0) + units;
+                              wonById[winId] = (wonById[winId] || 0) + units * perSkin * Math.max(0, included.length - 1);
+                            } else {
+                              carryUnits += 1;
+                            }
+                          }
+
+                          const rows = included
+                            .map((pid) => {
+                              const id = String(pid);
+                              const nm = pById?.[id]?.name || "Player";
+                              return {
+                                id,
+                                name: nm,
+                                skins: Number(skinsCountById[id] || 0),
+                                won: Number(wonById[id] || 0),
+                              };
+                            })
+                            .sort((a, b) => b.won - a.won || a.name.localeCompare(b.name));
+
+                          return (
+                            <>
+                              <Text style={styles.modalLine}>Skins value: {money(perSkin)} ({useNet ? "net" : "gross"})</Text>
+                              {rows.length ? rows.map((x) => (
+                                <Text key={`skins-${x.id}`} style={styles.modalLine}>
+                                  {x.name}: {x.skins} skin{x.skins === 1 ? "" : "s"} — {money(x.won)}
+                                </Text>
+                              )) : <Text style={styles.modalLine}>No skins calculated.</Text>}
+                            </>
+                          );
+                        })()}
+                      </>
+                    ) : type === "puttingcontest" ? (
                       <>
                         {!puttingLeaders || (!puttingLeaders.first.length && !puttingLeaders.second.length) ? (
                           <Text style={styles.modalLine}>No putts recorded yet.</Text>
