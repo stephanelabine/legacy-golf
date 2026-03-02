@@ -215,17 +215,38 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
                     const fee = Number(pool?.entryFee);
                     if (Number.isFinite(fee) && fee > 0) owes[pid] += fee;
                 } else if (type === "skins") {
-                    // skins is value per skin, not a buy-in; do not add to owed
+                    // Skins: estimate max exposure (value-per-skin * holes played) for this player if included.
+                    const perSkin = Number(pool?.amountPerSkin);
+                    if (Number.isFinite(perSkin) && perSkin > 0) {
+                        const holesCount = Number(roundDoc?.holesCount);
+                        const playedHoles = holesCount === 9 ? 9 : holesCount === 18 ? 18 : 0;
+
+                        // If 9-hole round, we still estimate 9 skins max exposure.
+                        if (playedHoles > 0) owes[pid] += perSkin * playedHoles;
+                    }
                 } else if (type === "nassau") {
                     const nas = safeObj(roundDoc?.wagers?.nassau);
                     if (nas?.enabled) {
+                        const holesCount = Number(roundDoc?.holesCount);
+                        const holesSide = String(roundDoc?.holesSide || "").toLowerCase();
+
                         const f = Number(nas?.front || 0);
                         const b = Number(nas?.back || 0);
                         const t = Number(nas?.total || 0);
-                        const sum =
-                            (Number.isFinite(f) ? f : 0) +
-                            (Number.isFinite(b) ? b : 0) +
-                            (Number.isFinite(t) ? t : 0);
+
+                        let sum = 0;
+
+                        if (holesCount === 18) {
+                            sum =
+                                (Number.isFinite(f) ? f : 0) +
+                                (Number.isFinite(b) ? b : 0) +
+                                (Number.isFinite(t) ? t : 0);
+                        } else if (holesCount === 9) {
+                            // For 9-hole rounds, include only the segment being played.
+                            if (holesSide === "back") sum = (Number.isFinite(b) ? b : 0);
+                            else sum = (Number.isFinite(f) ? f : 0); // default front
+                        }
+
                         if (sum > 0) owes[pid] += sum;
                     }
                 } else if (type === "kp" || type === "longdrive" || type === "secondshotkp") {
@@ -454,7 +475,7 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
                         {yourEstimatedBuyIn === null ? "—" : yourEstimatedBuyIn > 0 ? money(yourEstimatedBuyIn) : "$0"}
                     </Text>
                     <Text style={styles.highlightSub}>
-                        This is based on selected holes, per-player fees, and exclusions. Skins is a value-per-skin (not a buy-in), so it is not included here.
+                        This is based on selected holes, per-player fees, exclusions, and an estimated maximum skins exposure (value-per-skin × holes played).
                     </Text>
                 </View>
 
