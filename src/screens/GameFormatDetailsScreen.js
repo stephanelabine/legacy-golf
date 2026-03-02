@@ -145,6 +145,21 @@ export default function GameFormatDetailsScreen({ navigation, route }) {
 
     const unsubRef = useRef(null);
 
+    // Guard against snapshot re-hydration clobbering in-progress edits (ex: joiner joins mid-selection)
+    const hydratedRef = useRef(false);
+    const dirtyRef = useRef(false);
+    const [isDirty, setIsDirty] = useState(false);
+
+    useEffect(() => {
+        dirtyRef.current = !!isDirty;
+    }, [isDirty]);
+
+    function markDirty() {
+        if (dirtyRef.current) return;
+        dirtyRef.current = true;
+        setIsDirty(true);
+    }
+
     const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
     const styles = useMemo(() => {
@@ -389,14 +404,30 @@ export default function GameFormatDetailsScreen({ navigation, route }) {
                 setFormats(merged);
 
                 const fsCfg = safeObj(data?.formatConfig);
-                setConfigByKey(fsCfg);
 
-                // hydrate team names if present
-                const tcfg = safeObj(fsCfg?.[TEAM_KEY]);
-                const teamA = String(tcfg?.teams?.teamA?.name || "").trim();
-                const teamB = String(tcfg?.teams?.teamB?.name || "").trim();
-                setTeamAName(teamA || "Hackers");
-                setTeamBName(teamB || "Slackers");
+                // Only hydrate from Firestore if we are not mid-edit.
+                // This prevents joiner-driven snapshot updates from wiping in-progress hole selections.
+                if (!dirtyRef.current) {
+                    setConfigByKey(fsCfg);
+
+                    // hydrate team names if present
+                    const tcfg = safeObj(fsCfg?.[TEAM_KEY]);
+                    const teamA = String(tcfg?.teams?.teamA?.name || "").trim();
+                    const teamB = String(tcfg?.teams?.teamB?.name || "").trim();
+                    setTeamAName(teamA || "Hackers");
+                    setTeamBName(teamB || "Slackers");
+                } else if (!hydratedRef.current) {
+                    // first-ever hydration should still happen even if something toggled early
+                    setConfigByKey(fsCfg);
+
+                    const tcfg = safeObj(fsCfg?.[TEAM_KEY]);
+                    const teamA = String(tcfg?.teams?.teamA?.name || "").trim();
+                    const teamB = String(tcfg?.teams?.teamB?.name || "").trim();
+                    setTeamAName(teamA || "Hackers");
+                    setTeamBName(teamB || "Slackers");
+                }
+
+                hydratedRef.current = true;
 
                 setLoading(false);
             },
@@ -424,6 +455,8 @@ export default function GameFormatDetailsScreen({ navigation, route }) {
 
     function toggleHole(formatKey, holeNum) {
         if (saving) return;
+
+        markDirty();
 
         const hn = clampInt(holeNum, 1, holeCount);
 
@@ -532,7 +565,10 @@ export default function GameFormatDetailsScreen({ navigation, route }) {
                         <View style={styles.inlineRow}>
                             <TextInput
                                 value={teamAName}
-                                onChangeText={(s) => setTeamAName(String(s || "").slice(0, 24))}
+                                onChangeText={(s) => {
+                                    markDirty();
+                                    setTeamAName(String(s || "").slice(0, 24));
+                                }}
                                 editable={!saving}
                                 placeholder="Team A"
                                 placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
@@ -541,7 +577,10 @@ export default function GameFormatDetailsScreen({ navigation, route }) {
                             />
                             <TextInput
                                 value={teamBName}
-                                onChangeText={(s) => setTeamBName(String(s || "").slice(0, 24))}
+                                onChangeText={(s) => {
+                                    markDirty();
+                                    setTeamBName(String(s || "").slice(0, 24));
+                                }}
                                 editable={!saving}
                                 placeholder="Team B"
                                 placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
@@ -658,6 +697,10 @@ export default function GameFormatDetailsScreen({ navigation, route }) {
                 },
                 { merge: true }
             );
+
+            hydratedRef.current = true;
+            dirtyRef.current = false;
+            setIsDirty(false);
 
             Alert.alert("Saved", "Format details saved.");
             navigation.navigate(ROUTES.GAME_FORMAT_POOLS, { roundId });
