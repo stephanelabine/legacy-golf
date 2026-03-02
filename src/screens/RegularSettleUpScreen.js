@@ -23,7 +23,7 @@ function toInt(v) {
 
 function money(n) {
     const v = Number(n);
-    if (!Number.isFinite(v) || v === 0) return "$0";
+    if (!Number.isFinite(v) || Math.abs(v) < 0.005) return "$0";
     const fixed = Math.round(v * 100) / 100;
     return fixed % 1 === 0 ? `$${fixed.toFixed(0)}` : `$${fixed.toFixed(2)}`;
 }
@@ -39,6 +39,17 @@ function uniqInts(arr) {
 
 function normKey(x) {
     return String(x || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function parseHcp(v) {
+    if (v == null) return 0;
+    if (typeof v === "number") return Number.isFinite(v) ? Math.round(v) : 0;
+    const s = String(v).trim();
+    if (!s) return 0;
+    const m = s.match(/-?\d+(\.\d+)?/);
+    if (!m) return 0;
+    const n = Number(m[0]);
+    return Number.isFinite(n) ? Math.round(n) : 0;
 }
 
 // Supports BOTH storage shapes:
@@ -64,6 +75,90 @@ function readStroke(roundRoot, holeNumber, playerId) {
     return 0;
 }
 
+function getPlayedHoles(r) {
+    const hcRaw = Number(r?.holesCount ?? r?.meta?.holesCount);
+    const holesCount = hcRaw === 9 || hcRaw === 18 ? hcRaw : 18;
+
+    const sideRaw = String(r?.holesSide ?? r?.meta?.holesSide ?? "").toLowerCase().trim();
+    const holesSide = sideRaw === "back" ? "back" : "front";
+
+    const playedHoles =
+        holesCount === 9
+            ? (holesSide === "back"
+                ? Array.from({ length: 9 }).map((_, i) => 10 + i)
+                : Array.from({ length: 9 }).map((_, i) => 1 + i))
+            : Array.from({ length: 18 }).map((_, i) => 1 + i);
+
+    const frontHoles = playedHoles.filter((h) => h >= 1 && h <= 9);
+    const backHoles = playedHoles.filter((h) => h >= 10 && h <= 18);
+
+    return { holesCount, holesSide, playedHoles, frontHoles, backHoles };
+}
+
+function getStrokeIndexForHole(r, holeNumber) {
+    const hm = r?.holeMeta ?? r?.meta?.holeMeta ?? null;
+    if (!hm) return null;
+
+    const pickSI = (obj) => {
+        if (!obj || typeof obj !== "object") return null;
+        const raw =
+            obj.strokeIndex ??
+            obj.stokeIndex ??
+            obj.si ??
+            obj.handicap ??
+            obj.hcp ??
+            obj.hdcp ??
+            obj.rank ??
+            null;
+
+        const n = parseInt(String(raw ?? "").replace(/[^\d]/g, ""), 10);
+        if (!Number.isFinite(n) || n < 1 || n > 18) return null;
+        return n;
+    };
+
+    if (Array.isArray(hm)) return pickSI(hm[holeNumber - 1]);
+    if (hm && typeof hm === "object") return pickSI(hm?.[String(holeNumber)] ?? hm?.[holeNumber]);
+    return null;
+}
+
+function netStrokesForHole(r, pid, holeNumber, useNet, playersById) {
+    const strokes = readStroke(r, holeNumber, pid);
+    if (!Number.isFinite(strokes) || strokes <= 0) return 0;
+    if (!useNet) return strokes;
+
+    const hcp = Number(playersById?.[pid]?.handicap || 0);
+    if (!Number.isFinite(hcp) || hcp <= 0) return strokes;
+
+    const si = getStrokeIndexForHole(r, holeNumber);
+    if (!Number.isFinite(si)) return strokes;
+
+    const base = Math.floor(Math.round(hcp) / 18);
+    const extra = Math.round(hcp) % 18;
+    const getsExtra = si <= extra ? 1 : 0;
+    const received = base + getsExtra;
+
+    return strokes - received;
+}
+
+function winnerIdsForHoles(r, holes, includedIds, useNet, playersById) {
+    if (!holes || !holes.length) return [];
+
+    const rows = (includedIds || []).map((pid) => {
+        const id = String(pid);
+        let total = 0;
+        for (let i = 0; i < holes.length; i++) {
+            total += netStrokesForHole(r, id, holes[i], useNet, playersById);
+        }
+        return { id, total };
+    });
+
+    rows.sort((a, b) => a.total - b.total);
+
+    const best = rows[0]?.total;
+    if (best == null) return [];
+    return rows.filter((x) => x.total === best).map((x) => x.id);
+}
+
 // IMPORTANT: detect “second shot kp” before “kp”
 function detectFormatType(key, name) {
     const k = normKey(key);
@@ -77,6 +172,7 @@ function detectFormatType(key, name) {
         s.includes("2ndshotkp") ||
         (s.includes("2nd") && s.includes("shot") && s.includes("kp"));
 
+    if (s.includes("nassau")) return "nassau";
     if (isSecondShot) return "secondshotkp";
     if (s.includes("longdrive") || (s.includes("long") && s.includes("drive"))) return "longdrive";
     if (s.includes("deucepot") || (s.includes("deuce") && s.includes("pot"))) return "deucepot";
@@ -145,6 +241,37 @@ function getOfficialHolesForFormat(roundDoc, formatKey) {
 }
 
 function getEntryFee(roundDoc, formatKey) {
+    // Nassau buy-ins live in wagers.nassau (not formatPools)
+    if (normKey(formatKey) === "nassau") {
+        const w = roundDoc?.wagers?.nassau || {};
+        const enabled = !!w?.enabled;
+        if (!enabled) return 0;
+
+        const front = Number(w?.front || 0);
+        const back = Number(w?.back || 0);
+        const total = Number(w?.total || 0);
+
+        // Respect 9-hole side:
+        // - 9 front: charge front + overall
+        // - 9 back : charge back + overall
+        // - 18     : charge front + back + overall
+        const hcRaw = Number(roundDoc?.holesCount ?? roundDoc?.meta?.holesCount);
+        const holesCount = hcRaw === 9 || hcRaw === 18 ? hcRaw : 18;
+
+        const sideRaw = String(roundDoc?.holesSide ?? roundDoc?.meta?.holesSide ?? "").toLowerCase().trim();
+        const holesSide = sideRaw === "back" ? "back" : "front";
+
+        const useFront = holesCount === 18 || (holesCount === 9 && holesSide === "front");
+        const useBack = holesCount === 18 || (holesCount === 9 && holesSide === "back");
+
+        const sum =
+            (useFront && front > 0 ? front : 0) +
+            (useBack && back > 0 ? back : 0) +
+            (total > 0 ? total : 0);
+
+        return Number.isFinite(sum) && sum > 0 ? sum : 0;
+    }
+
     const pools = getFormatPools(roundDoc);
     if (pools && pools?.[formatKey]) {
         const p = pools[formatKey];
@@ -322,6 +449,16 @@ export default function RegularSettleUpScreen({ navigation, route }) {
         return list.map((p, idx) => ({
             id: String(p?.id ?? String(idx)),
             name: String(p?.name || `Player ${idx + 1}`),
+            handicap: parseHcp(
+                p?.handicap ??
+                p?.hcp ??
+                p?.handicapIndex ??
+                p?.index ??
+                p?.courseHandicap ??
+                p?.handicapStrokes ??
+                p?.strokesHdcp ??
+                0
+            ),
         }));
     }, [round]);
 
@@ -350,10 +487,6 @@ export default function RegularSettleUpScreen({ navigation, route }) {
     const settleModel = useMemo(() => {
         const r = round || {};
 
-        // Net model:
-        // - pay-in (buy-ins) reduce net
-        // - payouts increase net
-        // - transfers are generated once from final net balances
         const netById = {};
         const paidById = {};
         const wonById = {};
@@ -430,10 +563,6 @@ export default function RegularSettleUpScreen({ navigation, route }) {
             const fee = getEntryFee(r, formatKey);
 
             // Hole formats: FULL POOL PAYOUTS
-            // - each FUNDED hole unit costs fee per player
-            // - each funded hole unit pays fee * includedCount to the resolved winner
-            // - carry_over stacks units onto the next resolved hole
-            // - washed/unclaimed holes remove that hole unit (no pay-in, no payout)
             if (type === "kp" || type === "longdrive" || type === "secondshotkp") {
                 const holes = getOfficialHolesForFormat(r, formatKey);
                 const perHole = fee > 0 ? fee : 0;
@@ -458,19 +587,14 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                         const units = 1 + carryUnits;
                         fundedUnits += units;
                         carryUnits = 0;
-
-                        // payout = units * (fee * includedCount)
                         addWon(winnerId, units * perHole * includedCount);
                     } else if (isCarry) {
                         carryUnits += 1;
                     } else {
-                        // washed/unclaimed: reset carry (washed means removed from pot)
                         carryUnits = 0;
                     }
                 });
 
-                // If carry never resolved, treat as washed (no pay-in)
-                // Each included player pays only funded units
                 includedIds.forEach((pid) => addPaid(pid, fundedUnits * perHole));
                 return;
             }
@@ -494,7 +618,7 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                     }
                 });
 
-                if (!totalDeuces) return; // washed
+                if (!totalDeuces) return;
 
                 includedIds.forEach((pid) => addPaid(pid, perPlayer));
 
@@ -539,7 +663,7 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                     })
                     .filter((x) => x.holesWithData > 0);
 
-                if (!rows.length) return; // washed
+                if (!rows.length) return;
 
                 includedIds.forEach((pid) => addPaid(pid, perPlayer));
 
@@ -590,7 +714,59 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                 return;
             }
 
-            // Unknown / other: treat as washed (no pay-in, no payout)
+            // Nassau (settlement = transfers, not full pool payouts)
+            if (type === "nassau") {
+                const w = r?.wagers?.nassau || {};
+                const enabled = !!w?.enabled;
+                if (!enabled) return;
+
+                const frontBuyIn = Number(w?.front || 0);
+                const backBuyIn = Number(w?.back || 0);
+                const totalBuyIn = Number(w?.total || 0);
+
+                const { holesCount, holesSide, playedHoles, frontHoles, backHoles } = getPlayedHoles(r);
+                const overallHoles = playedHoles;
+
+                const basis = String(r?.matchPlay?.scoring?.basis || r?.scoringMode || r?.scoring || "gross").toLowerCase();
+                const useNet = basis.includes("net");
+
+                const applySegment = (buyIn, holes) => {
+                    const b = Number(buyIn || 0);
+                    if (!Number.isFinite(b) || b <= 0) return;
+
+                    const winners = winnerIdsForHoles(r, holes, includedIds, useNet, playersById);
+                    if (!winners.length || winners.length !== 1) return; // tie/push
+
+                    const winId = String(winners[0]);
+
+                    includedIds.forEach((pid) => {
+                        const p = String(pid);
+                        if (!p || p === winId) return;
+                        addPaid(p, b);
+                        addWon(winId, b);
+                    });
+                };
+
+                if (holesCount === 9 && holesSide === "front") {
+                    applySegment(frontBuyIn, frontHoles);
+                    applySegment(totalBuyIn, overallHoles);
+                    return;
+                }
+
+                if (holesCount === 9 && holesSide === "back") {
+                    applySegment(backBuyIn, backHoles);
+                    applySegment(totalBuyIn, overallHoles);
+                    return;
+                }
+
+                applySegment(frontBuyIn, frontHoles);
+                applySegment(backBuyIn, backHoles);
+                applySegment(totalBuyIn, overallHoles);
+                return;
+            }
+
+            // Unknown / other: washed
+            return;
         });
 
         const transfers = greedySettlement(netById, playersById) || [];
@@ -599,7 +775,6 @@ export default function RegularSettleUpScreen({ navigation, route }) {
 
     const wonRows = useMemo(() => {
         const rows = players.map((p) => {
-            // WHO WON WHAT = full payouts (must add up to total pot minus washed)
             const won = Number(settleModel?.wonById?.[p.id] || 0);
             return { id: p.id, name: p.name, won };
         });
@@ -683,9 +858,7 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                         </View>
                     </View>
 
-                    <Text style={styles.sub}>
-                        Below are the details of who won what.
-                    </Text>
+                    <Text style={styles.sub}>Below are the details of who won what.</Text>
 
                     <View style={styles.divider} />
 
@@ -695,13 +868,13 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                         return (
                             <View key={`won-${r.id}`} style={styles.row}>
                                 <View style={{ flex: 1, minWidth: 0 }}>
-                                    <Text style={styles.rowName} numberOfLines={1}>{r.name}</Text>
+                                    <Text style={styles.rowName} numberOfLines={1}>
+                                        {r.name}
+                                    </Text>
                                 </View>
 
                                 <View style={[styles.netChip, isPos ? styles.netChipPos : styles.netChipZero]}>
-                                    <Text style={styles.netChipText}>
-                                        {money(r.won)}
-                                    </Text>
+                                    <Text style={styles.netChipText}>{money(r.won)}</Text>
                                 </View>
                             </View>
                         );
@@ -729,7 +902,6 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                             {(() => {
                                 const list = Array.isArray(players) ? players : [];
 
-                                // Display names: first name only; if duplicated first name, use "First L."
                                 const firstCounts = {};
                                 list.forEach((p) => {
                                     const full = String(p?.name || "").trim();
@@ -757,7 +929,6 @@ export default function RegularSettleUpScreen({ navigation, route }) {
 
                                 const dispName = (id, fallback) => displayNameById[String(id)] || fallback || "Player";
 
-                                // Group transfers by payer (fromId), and render only non-zero lines
                                 const byFrom = {};
                                 (settleModel?.transfers || []).forEach((t) => {
                                     const fromId = String(t?.fromId || "");
@@ -776,7 +947,6 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                                     const payerName = dispName(payerId, playersById?.[payerId]?.name || "Player");
                                     const lines = byFrom[payerId] || [];
 
-                                    // sort biggest payments first
                                     lines.sort((a, b) => b.amount - a.amount);
 
                                     return (
@@ -796,9 +966,7 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                                                             </Text>
 
                                                             <View style={styles.amountPill}>
-                                                                <Text style={styles.amountText}>
-                                                                    {money(ln.amount)}
-                                                                </Text>
+                                                                <Text style={styles.amountText}>{money(ln.amount)}</Text>
                                                             </View>
                                                         </View>
                                                     );
