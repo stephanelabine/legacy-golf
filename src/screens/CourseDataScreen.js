@@ -239,7 +239,7 @@ export default function CourseDataScreen({ navigation, route }) {
     if (!isTeesValid) {
       Alert.alert(
         "Fix tee boxes",
-        "Each tee box needs a name, a unique code, and an optional total yardage (> 0).\n\nTip: enter the tee name and yardage — code auto-fills."
+        "Each tee box needs a name, a unique code, and an optional total yardage (greater than 0).\n\nTip: enter the tee name and yardage — code auto-fills."
       );
       return;
     }
@@ -475,7 +475,7 @@ export default function CourseDataScreen({ navigation, route }) {
               {!isTeesValid ? (
                 <View style={styles.warnPill}>
                   <Text style={styles.warnText}>
-                    Tee boxes need: Name, unique code, and optional yardage (> 0).
+                    Tee boxes need: Name, unique code, and optional yardage (greater than 0).
                   </Text>
                 </View>
               ) : null}
