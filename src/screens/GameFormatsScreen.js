@@ -122,6 +122,11 @@ export default function GameFormatsScreen({ navigation, route }) {
     const params = route?.params || {};
     const roundId = params?.roundId || null;
 
+    // If user started from a specific game card, this is the "primary format".
+    // We use it ONLY to order the tiles (no auto-selection).
+    const startGameIdRaw = params?.gameId || params?.gameFormat || params?.format || params?.gameType || null;
+    const startGameId = String(startGameIdRaw || "").trim();
+
     const [saving, setSaving] = useState(false);
     const [activeRound, setActiveRound] = useState(null);
 
@@ -164,6 +169,10 @@ export default function GameFormatsScreen({ navigation, route }) {
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [roundId]);
+
+    // Auto-select the primary format ONCE when starting from a primary game card.
+    // Do not override if the round already has formats selected.
+
     const selectedKeys = useMemo(() => {
         const s = new Set();
         const list = activeRound?.formatsSelected;
@@ -188,6 +197,22 @@ export default function GameFormatsScreen({ navigation, route }) {
     }, [activeRound]);
 
     const selectedCount = selectedKeys.size;
+
+    const orderedCatalog = useMemo(() => {
+        const primaryKeys = new Set(["skins", "stableford", "birdie_buckets", "nassau"]);
+        const primary = primaryKeys.has(startGameId) ? startGameId : null;
+
+        // If no primary format, keep default order.
+        if (!primary) return FORMAT_CATALOG;
+
+        // Move the matching tile to the top, keep the rest in original order.
+        const list = Array.isArray(FORMAT_CATALOG) ? FORMAT_CATALOG.slice() : [];
+        const idx = list.findIndex((f) => String(f?.key || "") === primary);
+        if (idx <= 0) return list; // already first or not found
+
+        const [hit] = list.splice(idx, 1);
+        return [hit, ...list];
+    }, [startGameId]);
 
     const styles = useMemo(() => {
         const softBorder = isDark ? "rgba(255,255,255,0.14)" : "rgba(10,15,26,0.12)";
@@ -361,6 +386,29 @@ export default function GameFormatsScreen({ navigation, route }) {
             setSaving(false);
         }
     }
+    useEffect(() => {
+        if (!roundId) return;
+        if (!startGameId) return;
+
+        const primaryKeys = new Set(["skins", "stableford", "birdie_buckets", "nassau"]);
+        if (!primaryKeys.has(startGameId)) return;
+
+        const existing = activeRound?.formatsSelected;
+        const hasAny =
+            (Array.isArray(existing) && existing.length > 0) ||
+            (!!existing && typeof existing === "object" && Object.keys(existing).length > 0);
+
+        if (hasAny) return;
+
+        // If we already have it locally selectedKeys, don't write again.
+        if (selectedCount > 0) return;
+
+        // Add it (writes to Firestore via existing helper).
+        const next = new Set(selectedKeys);
+        next.add(startGameId);
+        setSelectedKeys(next);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [roundId, startGameId, activeRound, selectedCount]);
 
     async function toggleFormat(item) {
         if (!item?.key) return;
@@ -523,7 +571,7 @@ export default function GameFormatsScreen({ navigation, route }) {
                 </View>
 
                 <Text style={styles.sectionTitle}>Choose side games</Text>
-                {FORMAT_CATALOG.map(renderRow)}
+                {orderedCatalog.map(renderRow)}
             </ScrollView>
 
             <View style={styles.footer}>

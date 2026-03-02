@@ -559,7 +559,7 @@ export default function HistoryScreen({ navigation }) {
     }
 
     if (hasFees) {
-      routes.push({ name: ROUTES.GAME_FORMAT_POOLS, params: { roundId: rid } });
+      routes.push({ name: ROUTES.GAME_FORMAT_POOLS, params: { roundId: rid, gameId: fsRound?.gameId || localRound?.gameId || null } });
 
       if (poolsReady) {
         routes.push({ name: ROUTES.GAME_ROUND_BRIEFING, params: { roundId: rid } });

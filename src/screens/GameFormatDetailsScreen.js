@@ -128,7 +128,8 @@ export default function GameFormatDetailsScreen({ navigation, route }) {
     const { scheme, theme } = useTheme();
     const isDark = scheme === "dark";
 
-    const roundId = route?.params?.roundId || null;
+    const params = route?.params || {};
+    const roundId = params?.roundId || null;
 
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -703,7 +704,7 @@ export default function GameFormatDetailsScreen({ navigation, route }) {
             setIsDirty(false);
 
             Alert.alert("Saved", "Format details saved.");
-            navigation.navigate(ROUTES.GAME_FORMAT_POOLS, { roundId });
+            navigation.navigate(ROUTES.GAME_FORMAT_POOLS, { ...(params || {}), roundId });
 
         } catch (e) {
             Alert.alert("Save failed", e?.message || "Could not save format details.");

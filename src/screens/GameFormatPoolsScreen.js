@@ -170,7 +170,13 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
     const { scheme, theme } = useTheme();
     const isDark = scheme === "dark";
 
-    const roundId = route?.params?.roundId || null;
+    const params = route?.params || {};
+    const roundId = params?.roundId || null;
+
+    // If user started from a specific game card, this is the "primary format".
+    // We use it to add a confirmation when turning OFF that primary wager.
+    const startGameIdRaw = params?.gameId || params?.gameFormat || params?.format || params?.gameType || null;
+    const startGameId = String(startGameIdRaw || "").trim();
 
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -499,7 +505,12 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
                     setPayoutPlacesByKey(nextPayoutPlacesByKey);
 
                     const nas = safeObj(data?.wagers?.nassau);
-                    setNassauEnabled(!!nas?.enabled);
+
+                    // If Nassau is selected and no explicit enabled flag exists yet, default to ON.
+                    const hasEnabledFlag = typeof nas?.enabled === "boolean";
+                    const isNassauSelected = safeArr(data?.formatsSelected).some((f) => detectFormatType(f) === "nassau");
+
+                    setNassauEnabled(hasEnabledFlag ? !!nas.enabled : !!isNassauSelected);
                     setNassauFront(nas?.front ? String(nas.front) : "");
                     setNassauBack(nas?.back ? String(nas.back) : "");
                     setNassauTotal(nas?.total ? String(nas.total) : "");
@@ -592,7 +603,9 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
             }
 
             if (type === "nassau") {
-                if (!nassauEnabled) return { ok: false, reason: `need:${fk}` };
+                // Nassau can be selected but toggled OFF (meaning: no Nassau wager this round).
+                // If OFF, allow continue without requiring amounts.
+                if (!nassauEnabled) continue;
 
                 const f = parseFeeString(nassauFront);
                 const b = parseFeeString(nassauBack);
@@ -842,6 +855,26 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
 
                                         <Pressable
                                             onPress={() => {
+                                                // If user started from Nassau card, confirm before turning it OFF.
+                                                if (startGameId === "nassau") {
+                                                    Alert.alert(
+                                                        "Turn off Nassau?",
+                                                        "You started this round from the Nassau game card. Turning it off means Nassau will not be wagered for this round.",
+                                                        [
+                                                            { text: "Keep ON", style: "cancel" },
+                                                            {
+                                                                text: "Turn OFF",
+                                                                style: "destructive",
+                                                                onPress: () => {
+                                                                    dirtyRef.current = true;
+                                                                    setNassauEnabled(false);
+                                                                },
+                                                            },
+                                                        ]
+                                                    );
+                                                    return;
+                                                }
+
                                                 dirtyRef.current = true;
                                                 setNassauEnabled(false);
                                             }}
