@@ -666,9 +666,12 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         const win = resolveHoleWindow(roundState0 || {});
         const holeEnd = Number(win?.end) || 18;
 
-        // If we’re at the end of the round (ex: hole 18 of Back 9), finish instead of going past.
+        // If we’re at the end of the selected window (ex: hole 9 of Front 9 / hole 18 of 18),
+        // DO NOT finish from Score Entry. Save, then return to HoleHub so the user explicitly presses Finish there.
         if (Number(holeNumber) >= holeEnd) {
-            await onFinishRoundFromScoreEntry();
+            const res = await persistHole({ resumeHole: holeEnd });
+            const rid = res?.roundId || roundIdParam || null;
+            goToHoleHub(holeEnd, { roundId: rid, showFinishPrompt: true });
             return;
         }
 
@@ -703,67 +706,6 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         }
 
         goToHoleHub(nextHole, { roundId: rid });
-    }
-
-    async function onFinishRoundFromScoreEntry() {
-        Keyboard.dismiss();
-        if (!validateStrokesForThisHole()) return;
-
-        const resolveHoleWindow = (r) => {
-            const n1 =
-                Number(r?.totalHoles) ||
-                Number(r?.holesToPlay) ||
-                Number(r?.holesCount) ||
-                Number(r?.holeCount) ||
-                Number(r?.numHoles);
-
-            let count = Number.isFinite(n1) && n1 >= 1 && n1 <= 18 ? Math.round(n1) : 18;
-
-            const mode = String(r?.holesMode || r?.holesSelection || r?.holes || "").toLowerCase();
-            if (mode.includes("front") || mode.includes("back") || mode.includes("9")) count = 9;
-
-            let start = Number(r?.startHole) || 1;
-
-            // If 9-hole and the round indicates back nine, start at 10
-            const holesSide = String(r?.holesSide || "").toLowerCase();
-            const isBack = holesSide === "back" || mode.includes("back");
-            if (count === 9 && isBack) start = 10;
-
-            const end = Math.min(18, start + count - 1);
-            return { start, end, count };
-        };
-
-        const rid0 = roundIdParam || null;
-        const ref0 = rid0 ? roundDocRef(rid0) : null;
-
-        let roundState0 = null;
-        try {
-            const snap0 = ref0 ? await getDoc(ref0) : null;
-            roundState0 = snap0 && snap0.exists() ? (snap0.data() || null) : null;
-        } catch {
-            roundState0 = null;
-        }
-
-        const win = resolveHoleWindow(roundState0 || {});
-        const holeEnd = Number(win?.end) || 18;
-
-        const res = await persistHole({ resumeHole: holeEnd });
-
-        navigation.dispatch(
-            CommonActions.navigate({
-                name: ROUTES.GAME_ROUND_CALCULATING,
-                params: {
-                    roundId: res?.roundId || roundIdParam || null,
-                    course,
-                    tee,
-                    players,
-                    holeMeta,
-                    courseName: course?.name,
-                    teeName: tee?.name,
-                },
-                merge: true,
-            })
-        );
     }
 
     async function doneFixMode() {
@@ -1125,10 +1067,10 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
             <View style={[styles.footer, { paddingBottom: Math.max(10, (insets?.bottom || 0) + 8) }]}>
                 <Pressable
-                    onPress={isFixMode ? doneFixMode : Number(holeNumber) >= 18 ? onFinishRoundFromScoreEntry : onNextHole}
-                    style={({ pressed }) => [styles.primaryBtnFull, !isFixMode && Number(holeNumber) >= 18 && styles.primaryBtnFullFinish, pressed && styles.pressed]}
+                    onPress={isFixMode ? doneFixMode : onNextHole}
+                    style={({ pressed }) => [styles.primaryBtnFull, pressed && styles.pressed]}
                 >
-                    <Text style={styles.primaryText}>{isFixMode ? "Done" : Number(holeNumber) >= 18 ? "Save • Finish Round" : "Save • Next Hole"}</Text>
+                    <Text style={styles.primaryText}>{isFixMode ? "Done" : "Save • Next"}</Text>
                 </Pressable>
             </View>
 

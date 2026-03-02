@@ -1000,9 +1000,14 @@ export default function HoleHubScreen({ navigation, route }) {
     ]);
   }
 
-  const showFinish =
-    currentHole === endHole &&
-    getMissingHolesFromState((activeSnap || {}).activeRound || activeSnap || {}, players, startHole, endHole).length === 0;
+  const activeForChecks = (activeSnap || {}).activeRound || activeSnap || {};
+
+  const currentHoleHasScores =
+    getMissingHolesFromState(activeForChecks, players, currentHole, currentHole).length === 0;
+
+  // Show Finish only after scores exist for the last hole.
+  // (If earlier holes are missing, Finish still works but will trigger the "Missing scores" fix flow.)
+  const showFinish = currentHole === endHole && currentHoleHasScores;
 
   const holeListRef = useRef(null);
   const skipBeforeRemoveRef = useRef(false);
@@ -1189,20 +1194,20 @@ export default function HoleHubScreen({ navigation, route }) {
         <Pressable
           style={[
             styles.greenBtn,
-            currentHole === endHole && styles.greenBtnFinish,
-            savingRound && currentHole === endHole && { opacity: 0.7 },
+            showFinish && styles.greenBtnFinish,
+            savingRound && showFinish && { opacity: 0.7 },
           ]}
           onPress={() => {
-            if (currentHole === endHole) {
+            if (showFinish) {
               onPressFinishRound();
               return;
             }
             openScoreEntry();
           }}
-          disabled={savingRound && currentHole === endHole}
+          disabled={savingRound && showFinish}
         >
-          <Text style={[styles.greenText, currentHole === endHole && styles.greenTextFinish]}>
-            {currentHole === endHole ? (savingRound ? "Saving…" : "Finish Round") : "Input Scores"}
+          <Text style={[styles.greenText, showFinish && styles.greenTextFinish]}>
+            {showFinish ? (savingRound ? "Saving…" : "Finish Round") : "Input Scores"}
           </Text>
         </Pressable>
       </View>
