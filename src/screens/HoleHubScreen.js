@@ -321,7 +321,7 @@ function FrontNinePromptModal({ visible, onView, onDismiss }) {
           >
             <View style={styles.modalTop}>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.modalTitle, { fontSize: 20 }]}>Turn</Text>
+                <Text style={[styles.modalTitle, { fontSize: 20 }]}>You're Now At The Turn</Text>
                 <Text style={[styles.modalSub, { fontSize: 18, lineHeight: 24, marginTop: 8 }]}>
                   See front nine stats
                 </Text>
@@ -675,20 +675,54 @@ export default function HoleHubScreen({ navigation, route }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params?.showFrontNineStatsPrompt]);
 
-  function completeTurnPrompt() {
+  const [showQueuedAfterTurnStats, setShowQueuedAfterTurnStats] = useState(false);
+
+  function dismissTurnPrompt() {
     setTurnPromptVisible(false);
 
     try {
       navigation.setParams({ showFrontNineStatsPrompt: null });
     } catch { }
 
-    // If we queued a splash, show it next.
+    // Not now -> show queued splash immediately.
     if (queuedSplash) {
       setPostSplash(queuedSplash);
       setPostSplashVisible(true);
       setQueuedSplash(null);
     }
   }
+
+  function viewFrontNineStats() {
+    setTurnPromptVisible(false);
+
+    try {
+      navigation.setParams({ showFrontNineStatsPrompt: null });
+    } catch { }
+
+    // View stats -> delay queued splash until user returns to HoleHub.
+    if (queuedSplash) setShowQueuedAfterTurnStats(true);
+
+    navigation.navigate(ROUTES.FRONT_NINE_STATS, { roundId });
+  }
+
+  // When we come back from FrontNineStats, show the queued splash (once).
+  useFocusEffect(
+    useCallback(() => {
+      if (!showQueuedAfterTurnStats) return undefined;
+      if (turnPromptVisible) return undefined;
+      if (!queuedSplash) {
+        setShowQueuedAfterTurnStats(false);
+        return undefined;
+      }
+
+      setPostSplash(queuedSplash);
+      setPostSplashVisible(true);
+      setQueuedSplash(null);
+      setShowQueuedAfterTurnStats(false);
+
+      return () => { };
+    }, [showQueuedAfterTurnStats, turnPromptVisible, queuedSplash])
+  );
 
   // Post-hole splash (e.g., Skins result) — shown once, then cleared from params.
   // If the turn prompt is active, we queue the splash instead of showing it.
@@ -1328,8 +1362,8 @@ export default function HoleHubScreen({ navigation, route }) {
 
       <FrontNinePromptModal
         visible={turnPromptVisible}
-        onView={completeTurnPrompt}
-        onDismiss={completeTurnPrompt}
+        onView={viewFrontNineStats}
+        onDismiss={dismissTurnPrompt}
       />
 
       <PostHoleSplashModal

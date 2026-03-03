@@ -67,6 +67,9 @@ const ROUTES = {
   // NEW: match play status splash (regular games)
   MATCH_STATUS_SPLASH: "MatchStatusSplash",
 
+  // NEW: Front 9 stats screen (Turn prompt)
+  FRONT_NINE_STATS: "FrontNineStats",
+
   /* ---------------- Tournaments ---------------- */
 
   TOURNAMENTS: "Tournaments",

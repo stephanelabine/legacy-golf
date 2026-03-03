@@ -65,6 +65,7 @@ import MatchStatusSplashScreen from "../screens/MatchStatusSplashScreen";
 
 // NEW: regular game round start splash (Start Round -> Hole Hub runway)
 import GameRoundStartSplashScreen from "../screens/GameRoundStartSplashScreen";
+
 // NEW: regular game format details (post-select)
 import GameFormatDetailsScreen from "../screens/GameFormatDetailsScreen";
 
@@ -73,6 +74,9 @@ import GameFormatPoolsScreen from "../screens/GameFormatPoolsScreen";
 
 // NEW: regular game settle up (replaces temp tournament reuse)
 import RegularSettleUpScreen from "../screens/RegularSettleUpScreen";
+
+// NEW: Front 9 stats (Turn prompt)
+import FrontNineStatsScreen from "../screens/FrontNineStatsScreen";
 
 /* ---------------- tournaments ---------------- */
 
@@ -185,6 +189,9 @@ export default function RootNavigator() {
           <Stack.Screen name={ROUTES.GPS} component={GpsScreen} />
           <Stack.Screen name={ROUTES.GREEN_VIEW} component={GreenViewScreen} />
           <Stack.Screen name={ROUTES.HOLE_STRATEGY} component={HoleStrategyScreen} />
+
+          {/* Turn: front 9 stats */}
+          <Stack.Screen name={ROUTES.FRONT_NINE_STATS} component={FrontNineStatsScreen} />
 
           {/* Regular game score entry (tournament-style UI) */}
           <Stack.Screen name={ROUTES.SCORE_ENTRY} component={GameScoreEntryScreen} />
