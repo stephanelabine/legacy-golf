@@ -301,30 +301,106 @@ function sideGameKeyForHole(roundDoc, holeNum) {
   return null;
 }
 function PostHoleSplashModal({ visible, data, onDismiss }) {
-  const title = String(data?.title || "Update");
-  const lines = Array.isArray(data?.lines) ? data.lines : [];
+  const title = String(data?.title || "Skins");
+  const headline = String(data?.headline || "");
+  const rows = Array.isArray(data?.rows) ? data.rows : [];
+  const winnerPid = data?.holeWinnerPid ? String(data.holeWinnerPid) : null;
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onDismiss} statusBarTranslucent>
       <Pressable style={styles.modalBg} onPress={onDismiss}>
         <View style={[styles.modalWrap, { justifyContent: "center" }]}>
-          <Pressable style={[styles.modalCard, { borderColor: "rgba(214, 171, 84, 0.38)" }]} onPress={() => { }}>
+          <Pressable
+            style={[
+              styles.modalCard,
+              {
+                width: "92%",
+                alignSelf: "center",
+                paddingHorizontal: 18,
+                paddingTop: 18,
+                paddingBottom: 14,
+                borderColor: "rgba(214, 171, 84, 0.55)",
+              },
+            ]}
+            onPress={() => { }}
+          >
             <View style={styles.modalTop}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.modalTitle}>{title}</Text>
-                {lines.length ? (
-                  <Text style={styles.modalSub}>
-                    {lines.filter(Boolean).join("\n")}
+                <Text style={[styles.modalTitle, { fontSize: 20 }]}>{title}</Text>
+
+                {!!headline && (
+                  <Text style={[styles.modalSub, { fontSize: 18, lineHeight: 24, marginTop: 8, color: "#D6AB54" }]}>
+                    {headline}
                   </Text>
-                ) : null}
+                )}
+
+                {!!rows.length && (
+                  <View style={{ marginTop: 14 }}>
+                    <View style={{ flexDirection: "row", paddingBottom: 8, opacity: 0.75 }}>
+                      <Text style={[styles.modalSub, { flex: 1, fontSize: 14 }]}>Player</Text>
+                      <Text style={[styles.modalSub, { width: 64, textAlign: "right", fontSize: 14 }]}>Skins</Text>
+                      <Text style={[styles.modalSub, { width: 78, textAlign: "right", fontSize: 14 }]}>$</Text>
+                    </View>
+
+                    {rows.map((r) => {
+                      const pid = String(r?.pid || "");
+                      const isWinner = winnerPid && pid && pid === winnerPid;
+                      const skins = Number(r?.skins || 0);
+                      const amount = Number(r?.amount || 0);
+
+                      return (
+                        <View key={pid || r?.name || Math.random()} style={{ flexDirection: "row", paddingVertical: 6 }}>
+                          <Text
+                            style={[
+                              styles.modalSub,
+                              { flex: 1, fontSize: 16, lineHeight: 20 },
+                              isWinner && { color: "#D6AB54" },
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {String(r?.name || "")}
+                          </Text>
+
+                          <Text
+                            style={[
+                              styles.modalSub,
+                              { width: 64, textAlign: "right", fontSize: 16, lineHeight: 20 },
+                              isWinner && { color: "#D6AB54" },
+                            ]}
+                          >
+                            {String(skins)}
+                          </Text>
+
+                          <Text
+                            style={[
+                              styles.modalSub,
+                              { width: 78, textAlign: "right", fontSize: 16, lineHeight: 20 },
+                              isWinner && { color: "#D6AB54" },
+                            ]}
+                          >
+                            {`$${String(Math.round(amount))}`}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
               </View>
+
               <Pressable onPress={onDismiss} style={({ pressed }) => [styles.modalX, pressed && styles.pressed]}>
                 <Text style={styles.modalXText}>✕</Text>
               </Pressable>
             </View>
 
-            <Pressable onPress={onDismiss} style={({ pressed }) => [styles.modalDone, pressed && styles.pressed]}>
-              <Text style={styles.modalDoneText}>Continue</Text>
+            <Pressable
+              onPress={onDismiss}
+              style={({ pressed }) => [
+                styles.modalDone,
+                { marginTop: 16, paddingVertical: 14 },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={[styles.modalDoneText, { fontSize: 16 }]}>Continue</Text>
             </Pressable>
           </Pressable>
         </View>

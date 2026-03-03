@@ -745,6 +745,9 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                         included.forEach((p) => (skinsByPid[p.pid] = 0));
 
                         let carry = 0;
+                        let winSkinsThisHole = null;      // number of skins awarded on THIS hole (includes carry)
+                        let carryAfterThisHole = null;     // carry count AFTER evaluating this hole (used for wash message)
+                        let tieThisHole = false;
 
                         for (let h = startH; h <= endH; h++) {
                             // only evaluate up to the current hole
@@ -766,13 +769,28 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                             const min = Math.min(...contenders.map((x) => x.score));
                             const winners = contenders.filter((x) => x.score === min);
 
+                            const isThisHole = h === holeNum;
+                            const carryIn = carry;
+
                             if (winners.length === 1) {
                                 const winPid = winners[0].pid;
-                                const winSkins = 1 + carry;
+                                const winSkins = 1 + carryIn;
                                 skinsByPid[winPid] = (skinsByPid[winPid] || 0) + winSkins;
                                 carry = 0;
+
+                                if (isThisHole) {
+                                    winSkinsThisHole = winSkins;
+                                    tieThisHole = false;
+                                    carryAfterThisHole = carry;
+                                }
                             } else {
                                 carry += 1;
+
+                                if (isThisHole) {
+                                    winSkinsThisHole = 0;
+                                    tieThisHole = true;
+                                    carryAfterThisHole = carry;
+                                }
                             }
                         }
 
@@ -793,9 +811,25 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
                             let headline = "";
                             if (nowWinners.length === 1) {
-                                headline = `Skin won by ${nowWinners[0].name} • Hole ${holeNum}`;
+                                const n = nowWinners[0].name;
+                                if (Number(winSkinsThisHole) > 1) {
+                                    headline = `Skin: ${n} • Hole ${holeNum} (wins ${winSkinsThisHole})`;
+                                } else {
+                                    headline = `Skin: ${n} • Hole ${holeNum}`;
+                                }
                             } else {
-                                headline = `Carryover (tie) • Hole ${holeNum}`;
+                                const carryNow = Number.isFinite(carryAfterThisHole) ? carryAfterThisHole : carry;
+
+                                if (holeNum === endH && carryNow > 0) {
+                                    headline = `Carryover washed • Hole ${holeNum}`;
+                                } else if (carryNow > 0) {
+                                    const startCarryHole = Math.max(startH, holeNum - carryNow + 1);
+                                    const endCarryHole = holeNum;
+                                    const nextHoleLabel = Math.min(endH, holeNum + 1);
+                                    headline = `Carryover: ${startCarryHole}-${endCarryHole} (currently on hole ${nextHoleLabel})`;
+                                } else {
+                                    headline = `Carryover (tie) • Hole ${holeNum}`;
+                                }
                             }
 
                             // Build leaderboard lines (sorted)
@@ -809,14 +843,19 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
                             const topLines = list.map((x) => `${x.name}: ${x.skins} (${x.est > 0 ? `$${x.est}` : "$0"})`);
 
+                            const holeWinnerPid = (nowWinners.length === 1) ? String(nowWinners[0].pid || "") : null;
+
+                            const rows = included.map((p) => {
+                                const skins = Number(skinsByPid[p.pid] || 0);
+                                const amount = skins * perSkin * Math.max(0, included.length - 1);
+                                return { pid: String(p.pid), name: String(p.name), skins, amount };
+                            }).sort((a, b) => (b.skins - a.skins) || (a.name.localeCompare(b.name)));
+
                             postHoleSplash = {
                                 title: "Skins",
-                                lines: [
-                                    headline,
-                                    `Value per skin: $${String(perSkin)}`,
-                                    `Estimated totals so far:`,
-                                    ...topLines,
-                                ],
+                                headline,
+                                holeWinnerPid,
+                                rows,
                             };
                         }
                     }
@@ -928,6 +967,9 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                     included.forEach((p) => (skinsByPid[p.pid] = 0));
 
                     let carry = 0;
+                    let winSkinsThisHole = null;      // number of skins awarded on THIS hole (includes carry)
+                    let carryAfterThisHole = null;     // carry count AFTER evaluating this hole (used for wash message)
+                    let tieThisHole = false;
 
                     for (let h = startH; h <= endH; h++) {
                         if (h > holeNum) break;
@@ -948,13 +990,28 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                         const min = Math.min(...contenders.map((x) => x.score));
                         const winners = contenders.filter((x) => x.score === min);
 
+                        const isThisHole = h === holeNum;
+                        const carryIn = carry;
+
                         if (winners.length === 1) {
                             const winPid = winners[0].pid;
-                            const winSkins = 1 + carry;
+                            const winSkins = 1 + carryIn;
                             skinsByPid[winPid] = (skinsByPid[winPid] || 0) + winSkins;
                             carry = 0;
+
+                            if (isThisHole) {
+                                winSkinsThisHole = winSkins;
+                                tieThisHole = false;
+                                carryAfterThisHole = carry;
+                            }
                         } else {
                             carry += 1;
+
+                            if (isThisHole) {
+                                winSkinsThisHole = 0;
+                                tieThisHole = true;
+                                carryAfterThisHole = carry;
+                            }
                         }
                     }
 
@@ -974,9 +1031,25 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
                         let headline = "";
                         if (nowWinners.length === 1) {
-                            headline = `Skin won by ${nowWinners[0].name} • Hole ${holeNum}`;
+                            const n = nowWinners[0].name;
+                            if (Number(winSkinsThisHole) > 1) {
+                                headline = `Skin: ${n} • Hole ${holeNum} (wins ${winSkinsThisHole})`;
+                            } else {
+                                headline = `Skin: ${n} • Hole ${holeNum}`;
+                            }
                         } else {
-                            headline = `Carryover (tie) • Hole ${holeNum}`;
+                            const carryNow = Number.isFinite(carryAfterThisHole) ? carryAfterThisHole : carry;
+
+                            if (holeNum === endH && carryNow > 0) {
+                                headline = `Carryover washed • Hole ${holeNum}`;
+                            } else if (carryNow > 0) {
+                                const startCarryHole = Math.max(startH, holeNum - carryNow + 1);
+                                const endCarryHole = holeNum;
+                                const nextHoleLabel = Math.min(endH, holeNum + 1);
+                                headline = `Carryover: ${startCarryHole}-${endCarryHole} (currently on hole ${nextHoleLabel})`;
+                            } else {
+                                headline = `Carryover (tie) • Hole ${holeNum}`;
+                            }
                         }
 
                         const list = included
@@ -989,14 +1062,19 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
                         const topLines = list.map((x) => `${x.name}: ${x.skins} (${x.est > 0 ? `$${x.est}` : "$0"})`);
 
+                        const holeWinnerPid = (nowWinners.length === 1) ? String(nowWinners[0].pid || "") : null;
+
+                        const rows = included.map((p) => {
+                            const skins = Number(skinsByPid[p.pid] || 0);
+                            const amount = skins * perSkin * Math.max(0, included.length - 1);
+                            return { pid: String(p.pid), name: String(p.name), skins, amount };
+                        }).sort((a, b) => (b.skins - a.skins) || (a.name.localeCompare(b.name)));
+
                         postHoleSplash = {
                             title: "Skins",
-                            lines: [
-                                headline,
-                                `Value per skin: $${String(perSkin)}`,
-                                `Estimated totals so far:`,
-                                ...topLines,
-                            ],
+                            headline,
+                            holeWinnerPid,
+                            rows,
                         };
                     }
                 }
