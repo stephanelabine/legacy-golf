@@ -447,9 +447,7 @@ function PostHoleSplashModal({ visible, data, onDismiss }) {
                 )}
               </View>
 
-              <Pressable onPress={onDismiss} style={({ pressed }) => [styles.modalX, pressed && styles.pressed]}>
-                <Text style={styles.modalXText}>✕</Text>
-              </Pressable>
+              <View style={{ width: 28 }} />
             </View>
 
             <Pressable
