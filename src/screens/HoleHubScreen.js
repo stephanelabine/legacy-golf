@@ -300,6 +300,66 @@ function sideGameKeyForHole(roundDoc, holeNum) {
 
   return null;
 }
+function FrontNinePromptModal({ visible, onView, onDismiss }) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onDismiss} statusBarTranslucent>
+      <Pressable style={styles.modalBg} onPress={onDismiss}>
+        <View style={[styles.modalWrap, { justifyContent: "center" }]}>
+          <Pressable
+            style={[
+              styles.modalCard,
+              {
+                width: "92%",
+                alignSelf: "center",
+                paddingHorizontal: 18,
+                paddingTop: 18,
+                paddingBottom: 14,
+                borderColor: "rgba(214, 171, 84, 0.55)",
+              },
+            ]}
+            onPress={() => { }}
+          >
+            <View style={styles.modalTop}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.modalTitle, { fontSize: 20 }]}>Turn</Text>
+                <Text style={[styles.modalSub, { fontSize: 18, lineHeight: 24, marginTop: 8 }]}>
+                  See front nine stats
+                </Text>
+              </View>
+
+              <Pressable onPress={onDismiss} style={({ pressed }) => [styles.modalX, pressed && styles.pressed]}>
+                <Text style={styles.modalXText}>✕</Text>
+              </Pressable>
+            </View>
+
+            <Pressable
+              onPress={onView}
+              style={({ pressed }) => [
+                styles.modalDone,
+                { marginTop: 16, paddingVertical: 14 },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={[styles.modalDoneText, { fontSize: 16 }]}>See front nine stats</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={onDismiss}
+              style={({ pressed }) => [
+                styles.modalDone,
+                { marginTop: 10, paddingVertical: 14, opacity: 0.92 },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={[styles.modalDoneText, { fontSize: 16 }]}>Not now</Text>
+            </Pressable>
+          </Pressable>
+        </View>
+      </Pressable>
+    </Modal>
+  );
+}
+
 function PostHoleSplashModal({ visible, data, onDismiss }) {
   const title = String(data?.title || "Skins");
   const headline = String(data?.headline || "");
@@ -593,15 +653,61 @@ export default function HoleHubScreen({ navigation, route }) {
   const [postSplashVisible, setPostSplashVisible] = useState(false);
   const [postSplash, setPostSplash] = useState(null);
 
+  const [turnPromptVisible, setTurnPromptVisible] = useState(false);
+  const [queuedSplash, setQueuedSplash] = useState(null);
+
+  // Turn prompt (front 9 stats) — takes priority and blocks all other splashes until handled.
+  useEffect(() => {
+    const wantTurnPrompt = !!params?.showFrontNineStatsPrompt;
+
+    if (!wantTurnPrompt) return;
+
+    setTurnPromptVisible(true);
+
+    // If a postHoleSplash arrives at the same time, queue it and clear the param
+    // so it cannot show until after the turn prompt is handled.
+    if (params?.postHoleSplash) {
+      setQueuedSplash(params.postHoleSplash);
+      try {
+        navigation.setParams({ postHoleSplash: null });
+      } catch { }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params?.showFrontNineStatsPrompt]);
+
+  function completeTurnPrompt() {
+    setTurnPromptVisible(false);
+
+    try {
+      navigation.setParams({ showFrontNineStatsPrompt: null });
+    } catch { }
+
+    // If we queued a splash, show it next.
+    if (queuedSplash) {
+      setPostSplash(queuedSplash);
+      setPostSplashVisible(true);
+      setQueuedSplash(null);
+    }
+  }
+
   // Post-hole splash (e.g., Skins result) — shown once, then cleared from params.
+  // If the turn prompt is active, we queue the splash instead of showing it.
   useEffect(() => {
     const s = params?.postHoleSplash || null;
     if (!s) return;
 
+    if (turnPromptVisible || !!params?.showFrontNineStatsPrompt) {
+      setQueuedSplash(s);
+      try {
+        navigation.setParams({ postHoleSplash: null });
+      } catch { }
+      return;
+    }
+
     setPostSplash(s);
     setPostSplashVisible(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params?.postHoleSplash]);
+  }, [params?.postHoleSplash, turnPromptVisible, params?.showFrontNineStatsPrompt]);
 
   function dismissPostHoleSplash() {
     setPostSplashVisible(false);
@@ -611,7 +717,6 @@ export default function HoleHubScreen({ navigation, route }) {
       navigation.setParams({ postHoleSplash: null });
     } catch { }
   }
-
   const sgTimerRef = useRef(null);
   const sgShownKeyRef = useRef(null);
 
@@ -729,6 +834,7 @@ export default function HoleHubScreen({ navigation, route }) {
   // If a post-hole splash is pending, do NOT show the generic side-game overlay (avoid stacking).
   useFocusEffect(
     useCallback(() => {
+      if (params?.showFrontNineStatsPrompt || turnPromptVisible) return undefined;
       if (params?.postHoleSplash || postSplashVisible) return undefined;
       if (!computedSideGameKey) return undefined;
 
@@ -1218,6 +1324,12 @@ export default function HoleHubScreen({ navigation, route }) {
         }}
         rightLabel="Home"
         onRightPress={onPressHome}
+      />
+
+      <FrontNinePromptModal
+        visible={turnPromptVisible}
+        onView={completeTurnPrompt}
+        onDismiss={completeTurnPrompt}
       />
 
       <PostHoleSplashModal

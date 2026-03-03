@@ -1083,7 +1083,14 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             postHoleSplash = null;
         }
 
-        goToHoleHub(nextHole, { roundId: rid, postHoleSplash });
+        const holesCount = Number(roundState?.holesCount);
+        const shouldShowFrontNinePrompt = holesCount === 18 && Number(nextHole) === 10 && Number(holeNumber) === 9;
+
+        goToHoleHub(nextHole, {
+            roundId: rid,
+            postHoleSplash,
+            ...(shouldShowFrontNinePrompt ? { showFrontNineStatsPrompt: true } : {}),
+        });
     }
 
     async function doneFixMode() {
