@@ -77,6 +77,7 @@ export default function FrontNineStatsScreen({ navigation, route }) {
 
         const holeMeta =
             rd?.holeMeta ||
+            rd?.meta?.holeMeta ||
             rd?.courseData?.holeMeta ||
             rd?.course?.holeMeta ||
             rd?.course?.holes ||
@@ -159,21 +160,35 @@ export default function FrontNineStatsScreen({ navigation, route }) {
                 <ScrollView contentContainerStyle={styles.scrollPad}>
                     {computed.players.map((p) => (
                         <View key={p.pid} style={styles.card}>
-                            <Text style={styles.name}>{p.name}</Text>
+                            <Text style={styles.name} numberOfLines={1}>
+                                {p.name}
+                            </Text>
 
-                            <View style={styles.row}>
-                                <Text style={styles.label}>Gross</Text>
-                                <Text style={styles.value}>{String(p.gross)}</Text>
-                            </View>
+                            <View style={styles.statsGrid}>
+                                <View style={styles.statsRow}>
+                                    <View style={styles.statsCell}>
+                                        <View style={[styles.statBox, styles.statBoxBlue]}>
+                                            <Text style={styles.statsLabel}>GROSS</Text>
+                                            <Text style={[styles.statsValue, { marginTop: 6 }]}>{String(p.gross)}</Text>
+                                        </View>
+                                    </View>
 
-                            <View style={styles.row}>
-                                <Text style={styles.label}>Putts</Text>
-                                <Text style={styles.value}>{p.putts === null ? "—" : String(p.putts)}</Text>
-                            </View>
+                                    <View style={styles.statsCell}>
+                                        <View style={[styles.statBox, styles.statBoxGreen]}>
+                                            <Text style={styles.statsLabel}>PUTTS</Text>
+                                            <Text style={[styles.statsValue, { marginTop: 6 }]}>
+                                                {p.putts === null ? "—" : String(p.putts)}
+                                            </Text>
+                                        </View>
+                                    </View>
 
-                            <View style={[styles.row, { marginBottom: 0 }]}>
-                                <Text style={styles.label}>Net</Text>
-                                <Text style={styles.value}>{String(p.net)}</Text>
+                                    <View style={styles.statsCell}>
+                                        <View style={[styles.statBox, styles.statBoxBlue]}>
+                                            <Text style={styles.statsLabel}>NET</Text>
+                                            <Text style={[styles.statsValue, { marginTop: 6 }]}>{String(p.net)}</Text>
+                                        </View>
+                                    </View>
+                                </View>
                             </View>
                         </View>
                     ))}
@@ -193,14 +208,58 @@ const styles = StyleSheet.create({
 
     card: {
         borderWidth: 1,
-        borderColor: "rgba(214, 171, 84, 0.28)",
+        borderColor: "rgba(214, 171, 84, 0.60)",
         backgroundColor: "rgba(255,255,255,0.04)",
         borderRadius: 18,
         padding: 16,
         marginBottom: 12,
+
+        shadowColor: "#D6AB54",
+        shadowOpacity: 0.22,
+        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 6 },
+        elevation: 3,
     },
 
-    name: { color: "rgba(255,255,255,0.95)", fontSize: 18, marginBottom: 10 },
+    name: {
+        color: "rgba(255,255,255,0.95)",
+        fontSize: 20,
+        fontWeight: "900",
+        textAlign: "center",
+        letterSpacing: 0.4,
+        marginBottom: 12,
+    },
+
+    statsGrid: { marginTop: 2 },
+    statsRow: { flexDirection: "row", alignItems: "center" },
+
+    statsCell: { flex: 1, paddingHorizontal: 6 },
+    statBox: {
+        borderWidth: 1,
+        backgroundColor: "rgba(255,255,255,0.03)",
+        borderRadius: 14,
+        paddingVertical: 12,
+        paddingHorizontal: 10,
+        alignItems: "center",
+        justifyContent: "center",
+        borderColor: "rgba(69,123,157,0.65)", // default blue
+    },
+    statBoxBlue: { borderColor: "rgba(69,123,157,0.75)" },
+    statBoxGreen: { borderColor: "rgba(74,222,128,0.55)" },
+
+    statsLabel: {
+        color: "rgba(255,255,255,0.78)",
+        fontSize: 13,
+        fontWeight: "900",
+        letterSpacing: 0.8,
+    },
+
+    statsValue: {
+        color: "rgba(255,255,255,0.95)",
+        fontSize: 22,
+        fontWeight: "900",
+        letterSpacing: 0.2,
+    },
 
     row: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
     label: { flex: 1, color: "rgba(255,255,255,0.72)", fontSize: 15 },
