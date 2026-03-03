@@ -157,8 +157,6 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         finishReturnHole,
     } = params;
 
-    const isFixMode = !!fixMissing;
-
     const holeNumber = Number(hole || 1);
 
     const holeMeta = useMemo(() => {
@@ -1086,75 +1084,56 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         const holesCount = Number(roundState?.holesCount);
         const shouldShowFrontNinePrompt = holesCount === 18 && Number(nextHole) === 10 && Number(holeNumber) === 9;
 
-        goToHoleHub(nextHole, {
-            roundId: rid,
-            postHoleSplash,
-            ...(shouldShowFrontNinePrompt ? { showFrontNineStatsPrompt: true } : {}),
-        });
-    }
+        // Guided "fix missing holes" mode (WITHOUT changing normal flow).
+        // If we arrived here from Finish -> Fix now, we jump only to the remaining missing holes,
+        // but we still use the normal HoleHub + splash/claim behavior.
+        const originalMissing = Array.isArray(missingHoles) ? missingHoles.map(Number).filter(Number.isFinite) : [];
+        const finishHole = Number(finishReturnHole || 0);
 
-    async function doneFixMode() {
-        Keyboard.dismiss();
-        if (!validateStrokesForThisHole()) return;
+        if (originalMissing.length && Number.isFinite(finishHole) && finishHole > 0) {
+            const remaining = getMissingHolesFromState(roundState || {}, normalizedPlayers);
 
-        await persistHole({ skipResumeUpdate: true });
+            if (!remaining.length) {
+                goToHoleHub(finishHole, {
+                    roundId: rid,
+                    showFinishPrompt: true,
+                    postHoleSplash,
+                });
+                return;
+            }
 
-        // reload from firestore (so missing calc is authoritative)
-        const rid = String(roundIdParam || "").trim();
-        const ref = roundDocRef(rid);
-        let state = {};
-        try {
-            const snap = ref ? await getDoc(ref) : null;
-            state = snap && snap.exists() ? (snap.data() || {}) : {};
-        } catch {
-            state = {};
-        }
+            let nextMissing = null;
+            let nextIdx = Number.isFinite(Number(missingIndex)) ? Number(missingIndex) : -1;
 
-        const remaining = getMissingHolesFromState(state, normalizedPlayers);
-
-        if (!remaining.length) {
-            goToHoleHub(Number(finishReturnHole || 18), {
-                showFinishPrompt: true,
-                hole: Number(finishReturnHole || 18),
-            });
-            return;
-        }
-
-        const original = Array.isArray(missingHoles) ? missingHoles : [];
-        let nextHole = null;
-        let nextIdx = Number.isFinite(Number(missingIndex)) ? Number(missingIndex) : -1;
-
-        if (original.length) {
-            for (let i = Math.max(0, nextIdx + 1); i < original.length; i++) {
-                const h = Number(original[i]);
+            for (let i = Math.max(0, nextIdx + 1); i < originalMissing.length; i++) {
+                const h = Number(originalMissing[i]);
                 if (remaining.includes(h)) {
-                    nextHole = h;
+                    nextMissing = h;
                     nextIdx = i;
                     break;
                 }
             }
-        }
 
-        if (!nextHole) {
-            nextHole = remaining[0];
-            nextIdx = original.indexOf(nextHole);
-            if (nextIdx < 0) nextIdx = 0;
-        }
+            if (!nextMissing) {
+                nextMissing = remaining[0];
+                nextIdx = originalMissing.indexOf(nextMissing);
+                if (nextIdx < 0) nextIdx = 0;
+            }
 
-        skipBeforeRemoveRef.current = true;
-        navigation.dispatch(
-            StackActions.replace(ROUTES.SCORE_ENTRY, {
-                ...params,
-                hole: nextHole,
-                fixMissing: true,
-                missingHoles: original.length ? original : remaining,
+            goToHoleHub(nextMissing, {
+                roundId: rid,
+                postHoleSplash,
+                missingHoles: originalMissing,
                 missingIndex: nextIdx,
-                finishReturnHole: Number(finishReturnHole || 18),
-            })
-        );
+                finishReturnHole: finishHole,
+            });
+            return;
+        }
 
-        requestAnimationFrame(() => {
-            skipBeforeRemoveRef.current = false;
+        goToHoleHub(nextHole, {
+            roundId: rid,
+            postHoleSplash,
+            ...(shouldShowFrontNinePrompt ? { showFrontNineStatsPrompt: true } : {}),
         });
     }
 
@@ -1196,7 +1175,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             <ScreenHeader
                 navigation={navigation}
                 title={title}
-                subtitle={isFixMode ? "Fix missing scores • Tap a box to pick a value." : "Tap a box to pick a value."}
+                subtitle={"Tap a box to pick a value."}
                 safeTop={false}
             />
 
@@ -1452,10 +1431,10 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
             <View style={[styles.footer, { paddingBottom: Math.max(10, (insets?.bottom || 0) + 8) }]}>
                 <Pressable
-                    onPress={isFixMode ? doneFixMode : onNextHole}
+                    onPress={onNextHole}
                     style={({ pressed }) => [styles.primaryBtnFull, pressed && styles.pressed]}
                 >
-                    <Text style={styles.primaryText}>{isFixMode ? "Done" : "Save • Next"}</Text>
+                    <Text style={styles.primaryText}>Save • Next</Text>
                 </Pressable>
             </View>
 

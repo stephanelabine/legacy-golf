@@ -1201,7 +1201,6 @@ export default function HoleHubScreen({ navigation, route }) {
               const first = missing[0];
               openScoreEntry({
                 hole: first,
-                fixMissing: true,
                 missingHoles: missing,
                 missingIndex: 0,
                 finishReturnHole: endHole,
