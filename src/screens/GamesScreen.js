@@ -67,26 +67,6 @@ const FALLBACK_INFO = {
       },
     ],
   },
-
-  one_v_one: {
-    title: "1v1",
-    subtitle: "A head-to-head round between two players.",
-    details: [
-      { heading: "What it is", body: "A simple two-player matchup. Pick a scoring mode and optional add-ons." },
-      { heading: "Net option", body: "If playing Net, handicaps apply to make it fair." },
-      { heading: "Add-ons", body: "Optional formats and side-games can be added after the core matchup is chosen." },
-    ],
-  },
-
-  two_v_two: {
-    title: "2v2",
-    subtitle: "Two teams of two compete.",
-    details: [
-      { heading: "What it is", body: "A team matchup between two pairs." },
-      { heading: "Common scoring", body: "Best Ball (best score per team per hole) or Total (add both)." },
-      { heading: "Add-ons", body: "Optional formats and side-games can be added after teams are set." },
-    ],
-  },
 };
 
 const GAMES = [
@@ -108,9 +88,6 @@ const GAMES = [
 
   { id: "stroke_play", title: "Stroke Play", subtitle: "Total strokes over 18 holes. The classic.", supported: true },
   { id: "match_play", title: "Match Play", subtitle: "Win holes, not strokes.", supported: true },
-
-  { id: "one_v_one", title: "1v1", subtitle: "Head-to-head golf. Simple and clean.", supported: true },
-  { id: "two_v_two", title: "2v2", subtitle: "Two teams compete. Best ball or total.", supported: true },
 
   { id: "nassau", title: "Nassau", subtitle: "Front 9, Back 9, and Total match.", supported: true },
   { id: "stableford", title: "Stableford", subtitle: "Points per hole based on score vs par.", supported: true },
