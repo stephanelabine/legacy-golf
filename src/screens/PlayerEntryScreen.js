@@ -1034,24 +1034,16 @@ export default function PlayerEntryScreen({ navigation, route }) {
               onPress={openBuddyModal}
               style={({ pressed }) => [styles.actionPillPrimary, pressed && styles.pressed]}
             >
-              <Text style={styles.actionPillText}>Buddy List</Text>
+              <Text style={styles.actionPillText}>Add from Buddy List</Text>
             </Pressable>
 
             <Pressable
               onPress={openGuest}
               style={({ pressed }) => [styles.actionPillGhost, pressed && styles.pressed]}
             >
-              <Text style={styles.actionPillText}>Guest</Text>
-            </Pressable>
-
-            <Pressable
-              onPress={onPressInvite}
-              style={({ pressed }) => [styles.actionPillGhost, pressed && styles.pressed]}
-            >
-              <Text style={styles.actionPillText}>Invite</Text>
+              <Text style={styles.actionPillText}>Add a Guest</Text>
             </Pressable>
           </View>
-
           <View style={styles.divider} pointerEvents="none" />
         </View>
       </View>
@@ -1104,7 +1096,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
                       <Text style={styles.hcpPillText}>HCP {item.handicap ?? 0}</Text>
                     </Pressable>
 
-                    <View style={{ width: 70 }} />
+                    <View style={{ width: 12 }} />
                   </View>
                 </View>
               </PremiumSwipeRow>
@@ -1133,7 +1125,7 @@ export default function PlayerEntryScreen({ navigation, route }) {
                   <Text style={styles.hcpPillText}>HCP {item.handicap ?? 0}</Text>
                 </Pressable>
 
-                <View style={{ width: 70 }} />
+                <View style={{ width: 12 }} />
               </View>
             </View>
           );
@@ -1460,25 +1452,25 @@ const styles = StyleSheet.create({
   summaryTitle: { marginTop: 10, color: "#fff", fontWeight: "900", fontSize: 16 },
   summarySub: { marginTop: 6, color: "rgba(255,255,255,0.86)", fontWeight: "900", fontSize: 13 },
 
-  actionRow: { paddingHorizontal: 16, marginTop: 12, flexDirection: "row", gap: 10 },
+  actionRow: { paddingHorizontal: 16, marginTop: 12, flexDirection: "column", gap: 10 },
   actionPillPrimary: {
-    flex: 1,
-    height: 44,
-    borderRadius: 16,
+    width: "100%",
+    height: 56,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: theme?.primary || theme?.colors?.primary || "#2E7DFF",
+    backgroundColor: "rgba(46,125,255,0.20)",
     borderWidth: 2,
-    borderColor: "rgba(255, 210, 92, 0.35)",
+    borderColor: "rgba(46,125,255,0.35)",
     ...Platform.select({
-      ios: { shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 14, shadowOffset: { width: 0, height: 8 } },
-      android: { elevation: 4 },
+      ios: { shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 14, shadowOffset: { width: 0, height: 8 } },
+      android: { elevation: 3 },
     }),
   },
   actionPillGhost: {
-    flex: 1,
-    height: 44,
-    borderRadius: 16,
+    width: "100%",
+    height: 56,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 2,
@@ -1486,7 +1478,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.06)",
   },
 
-  actionPillText: { color: "#fff", fontWeight: "900", fontSize: 13 },
+  actionPillText: { color: "#fff", fontWeight: "900", fontSize: 14 },
 
   divider: { marginTop: 12, height: 1, backgroundColor: "rgba(255,255,255,0.08)" },
 
