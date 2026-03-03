@@ -111,20 +111,23 @@ function buildHtml() {
       ].join("|");
     }
 
-    function fit(points){
-      const valid = points.filter(p => p && isFinite(p.lon) && isFinite(p.lat));
-      if(valid.length === 0) return;
-      if(valid.length === 1){
-        map.easeTo({ center:[valid[0].lon, valid[0].lat], zoom:17, duration:450 });
-        return;
-      }
-      let minLon=valid[0].lon, maxLon=valid[0].lon, minLat=valid[0].lat, maxLat=valid[0].lat;
-      valid.forEach(p=>{
-        minLon=Math.min(minLon,p.lon); maxLon=Math.max(maxLon,p.lon);
-        minLat=Math.min(minLat,p.lat); maxLat=Math.max(maxLat,p.lat);
-      });
-      map.fitBounds([[minLon,minLat],[maxLon,maxLat]],{padding:90,duration:650});
-    }
+function fit(points){
+  const valid = points.filter(p => p && isFinite(p.lon) && isFinite(p.lat));
+  if(valid.length === 0) return;
+
+  if(valid.length === 1){
+    map.easeTo({ center:[valid[0].lon, valid[0].lat], zoom:18, duration:450 });
+    return;
+  }
+
+  let minLon=valid[0].lon, maxLon=valid[0].lon, minLat=valid[0].lat, maxLat=valid[0].lat;
+  valid.forEach(p=>{
+    minLon=Math.min(minLon,p.lon); maxLon=Math.max(maxLon,p.lon);
+    minLat=Math.min(minLat,p.lat); maxLat=Math.max(maxLat,p.lat);
+  });
+
+  map.fitBounds([[minLon,minLat],[maxLon,maxLat]],{padding:70,duration:650});
+}
 
     function applyPayload(d){
       if(d.user){
@@ -145,21 +148,33 @@ function buildHtml() {
         });
       }
 
-      if(d.cmd === "recenter"){
-        if(d.at && isFinite(d.at[0]) && isFinite(d.at[1])){
-          map.easeTo({ center:d.at, zoom:17, duration:420 });
-        } else if(d.user){
-          map.easeTo({ center:[d.user.lon, d.user.lat], zoom:17, duration:420 });
-        }
-        return;
-      }
+if(d.cmd === "recenter"){
+  const z = map.getZoom();
+  if(d.at && isFinite(d.at[0]) && isFinite(d.at[1])){
+    map.easeTo({ center:d.at, zoom:z, duration:420 });
+  } else if(d.user){
+    map.easeTo({ center:[d.user.lon, d.user.lat], zoom:z, duration:420 });
+  }
+  return;
+}
 
-      const nextKey = keyFrom(d);
-      const changed = nextKey !== lastKey;
-      if(changed && d.fit){
-        fit([d.user, d.center, d.tee, d.green?.front, d.green?.middle, d.green?.back]);
-      }
-      lastKey = nextKey;
+const nextKey = keyFrom(d);
+const changed = nextKey !== lastKey;
+
+if(changed && d.fit){
+  // Tight hole viewport: fit to hole points only (tee + green points).
+  // Do NOT include course center (or user) in the fit, otherwise it zooms way out.
+  const holePts = [d.tee, d.green?.front, d.green?.middle, d.green?.back].filter(Boolean);
+
+  if(holePts.length) {
+    fit(holePts);
+  } else {
+    // Fallback if no hole points exist yet
+    fit([d.user, d.center].filter(Boolean));
+  }
+}
+
+lastKey = nextKey;
     }
 
     function listen(handler){
@@ -195,6 +210,7 @@ function all18Complete(courseData) {
 export default function HoleMapScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const web = useRef(null);
+  const didAutoCenterRef = useRef(false);
 
   const params = route?.params || {};
   const course = params.course || null;
@@ -391,15 +407,33 @@ export default function HoleMapScreen({ navigation, route }) {
 
 
   function recenter() {
-
     if (!web.current || !webReady) return;
+
     const payload = {
       cmd: "recenter",
       at: user ? [user.lon, user.lat] : null,
       user: user ? { lon: user.lon, lat: user.lat } : null,
     };
+
     web.current.postMessage(JSON.stringify(payload));
   }
+
+  // Auto-center ONCE when the map opens (first GPS fix + WebView ready).
+  // The GPS chip remains a manual re-center after that.
+  useEffect(() => {
+    if (!webReady) return;
+    if (!user || !Number.isFinite(user?.lat) || !Number.isFinite(user?.lon)) return;
+    if (didAutoCenterRef.current) return;
+
+    didAutoCenterRef.current = true;
+    recenter();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [webReady, user?.lat, user?.lon]);
+
+  // Reset the one-time auto-center when the user changes holes (so each hole map open feels correct).
+  useEffect(() => {
+    didAutoCenterRef.current = false;
+  }, [clampedHoleIndex]);
 
   const [setupOpen, setSetupOpen] = useState(false);
   const [savingSetup, setSavingSetup] = useState(false);
