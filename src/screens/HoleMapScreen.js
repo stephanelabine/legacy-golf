@@ -361,6 +361,14 @@ export default function HoleMapScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const web = useRef(null);
 
+  // Disable iOS swipe-back gesture on this screen (round flow safety)
+  useEffect(() => {
+    navigation.setOptions({
+      gestureEnabled: false,
+      headerBackButtonMenuEnabled: false,
+    });
+  }, [navigation]);
+
   const screenW = Dimensions.get("window").width;
 
   const yardPos = useRef(new Animated.ValueXY({ x: 0, y: -120 })).current;
