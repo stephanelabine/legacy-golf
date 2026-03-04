@@ -240,6 +240,13 @@ function buildHtml() {
         if(!d) return;
         applyPayload(d);
       });
+
+      // Tell React Native the map is truly ready to receive messages
+      try{
+        if(window.ReactNativeWebView){
+          window.ReactNativeWebView.postMessage(JSON.stringify({ cmd:"ready" }));
+        }
+      }catch(_){}
     });
   </script></body></html>`;
 }
@@ -851,7 +858,16 @@ export default function HoleMapScreen({ navigation, route }) {
           ref={web}
           source={{ html: buildHtml() }}
           style={styles.web}
-          onLoadEnd={() => setWebReady(true)}
+          onLoadStart={() => setWebReady(false)}
+          onMessage={(e) => {
+            let msg = null;
+            try {
+              msg = JSON.parse(e?.nativeEvent?.data || "");
+            } catch {
+              msg = null;
+            }
+            if (msg?.cmd === "ready") setWebReady(true);
+          }}
         />
       </View>
 
