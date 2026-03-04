@@ -17,7 +17,6 @@ import { WebView } from "react-native-webview";
 import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import ROUTES from "../navigation/routes";
 import { MAPBOX_TOKEN } from "../config/mapbox";
 import { loadCourseData, saveCourseData } from "../storage/courseData";
 import { isAdmin as isAdminUser } from "../storage/courseDataRemote";
@@ -75,6 +74,17 @@ function pickCourseCenterAny(stateOrParams) {
   return stateOrParams?.courseCenter ?? c?.center ?? c?.courseCenter ?? null;
 }
 
+function teeKeyFromParams(teeObj) {
+  const raw =
+    (teeObj && (teeObj.key || teeObj.color || teeObj.name || teeObj.label)) || "";
+  const k = String(raw).toLowerCase().trim();
+  if (k.includes("gold")) return "gold";
+  if (k.includes("blue")) return "blue";
+  if (k.includes("red")) return "red";
+  if (k.includes("white")) return "white";
+  return "white";
+}
+
 function buildHtml() {
   return `<!doctype html><html><head>
   <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no"/>
@@ -84,6 +94,12 @@ function buildHtml() {
     html,body,#map{margin:0;padding:0;height:100%;background:#000}
     .dot{width:12px;height:12px;border-radius:999px;background:#2E86FF;border:2px solid #fff;box-shadow:0 8px 20px rgba(0,0,0,.35)}
     .pin{width:10px;height:10px;border-radius:999px;background:#fff;border:2px solid #000;box-shadow:0 8px 20px rgba(0,0,0,.35)}
+    .tee{width:11px;height:11px;border-radius:999px;background:#fff;border:2px solid rgba(0,0,0,.85);box-shadow:0 8px 20px rgba(0,0,0,.35)}
+    .fw{width:11px;height:11px;border-radius:3px;background:#FFD54A;border:2px solid rgba(0,0,0,.85);box-shadow:0 8px 20px rgba(0,0,0,.35)}
+    .haz{width:11px;height:11px;border-radius:2px;border:2px solid rgba(0,0,0,.85);box-shadow:0 8px 20px rgba(0,0,0,.35)}
+    .hazWater{background:#2E7DFF}
+    .hazBunker{background:#E7CBA1}
+    .hazOB{background:#FF4D4D}
   </style>
   </head><body><div id="map"></div>
   <script>
@@ -95,49 +111,67 @@ function buildHtml() {
       zoom:17
     });
 
-    let u=null, tee=null, f=null, m=null, b=null;
+    let u=null, tee=null, f=null, m=null, b=null, fw=null;
+    let hazMarkers=[];
     const mk=(c)=>{const e=document.createElement("div");e.className=c;return e};
 
     let lastKey = "";
     function keyFrom(d){
       const p = (x)=>x && isFinite(x.lon) && isFinite(x.lat) ? (x.lon.toFixed(6)+","+x.lat.toFixed(6)) : "";
+      const hz = Array.isArray(d.hazards) ? String(d.hazards.length) : "0";
       return [
         p(d.user),
         p(d.center),
         p(d.tee),
+        p(d.fairwayMid),
         p(d.green?.front),
         p(d.green?.middle),
         p(d.green?.back),
+        hz
       ].join("|");
     }
 
-function fit(points){
-  const valid = points.filter(p => p && isFinite(p.lon) && isFinite(p.lat));
-  if(valid.length === 0) return;
+    function fit(points){
+      const valid = points.filter(p => p && isFinite(p.lon) && isFinite(p.lat));
+      if(valid.length === 0) return;
 
-  if(valid.length === 1){
-    map.easeTo({ center:[valid[0].lon, valid[0].lat], zoom:18, duration:450 });
-    return;
-  }
+      if(valid.length === 1){
+        map.easeTo({ center:[valid[0].lon, valid[0].lat], zoom:18, duration:450 });
+        return;
+      }
 
-  let minLon=valid[0].lon, maxLon=valid[0].lon, minLat=valid[0].lat, maxLat=valid[0].lat;
-  valid.forEach(p=>{
-    minLon=Math.min(minLon,p.lon); maxLon=Math.max(maxLon,p.lon);
-    minLat=Math.min(minLat,p.lat); maxLat=Math.max(maxLat,p.lat);
-  });
+      let minLon=valid[0].lon, maxLon=valid[0].lon, minLat=valid[0].lat, maxLat=valid[0].lat;
+      valid.forEach(p=>{
+        minLon=Math.min(minLon,p.lon); maxLon=Math.max(maxLon,p.lon);
+        minLat=Math.min(minLat,p.lat); maxLat=Math.max(maxLat,p.lat);
+      });
 
-  map.fitBounds([[minLon,minLat],[maxLon,maxLat]],{padding:70,duration:650});
-}
+      map.fitBounds([[minLon,minLat],[maxLon,maxLat]],{padding:70,duration:650});
+    }
+
+    function clearHaz(){
+      try{
+        hazMarkers.forEach(m=>m.remove());
+      }catch(_){}
+      hazMarkers=[];
+    }
 
     function applyPayload(d){
       if(d.user){
         u ? u.setLngLat([d.user.lon,d.user.lat])
           : u=new mapboxgl.Marker({element:mk("dot")}).setLngLat([d.user.lon,d.user.lat]).addTo(map);
       }
+
       if(d.tee){
         tee ? tee.setLngLat([d.tee.lon,d.tee.lat])
-          : tee=new mapboxgl.Marker({element:mk("pin")}).setLngLat([d.tee.lon,d.tee.lat]).addTo(map);
+          : tee=new mapboxgl.Marker({element:mk("tee")}).setLngLat([d.tee.lon,d.tee.lat]).addTo(map);
       }
+
+      if(d.fairwayMid){
+        fw ? fw.setLngLat([d.fairwayMid.lon,d.fairwayMid.lat])
+          : fw=new mapboxgl.Marker({element:mk("fw")}).setLngLat([d.fairwayMid.lon,d.fairwayMid.lat]).addTo(map);
+      }
+
       if(d.green){
         const pts=[["f",d.green.front],["m",d.green.middle],["b",d.green.back]];
         pts.forEach(([k,p])=>{
@@ -148,33 +182,50 @@ function fit(points){
         });
       }
 
-if(d.cmd === "recenter"){
-  const z = map.getZoom();
-  if(d.at && isFinite(d.at[0]) && isFinite(d.at[1])){
-    map.easeTo({ center:d.at, zoom:z, duration:420 });
-  } else if(d.user){
-    map.easeTo({ center:[d.user.lon, d.user.lat], zoom:z, duration:420 });
-  }
-  return;
-}
+      if(Array.isArray(d.hazards)){
+        clearHaz();
+        d.hazards.forEach((h)=>{
+          if(!h || !isFinite(h.lon) || !isFinite(h.lat)) return;
+          let cls="haz";
+          if(h.type==="water") cls="haz hazWater";
+          if(h.type==="bunker") cls="haz hazBunker";
+          if(h.type==="ob") cls="haz hazOB";
+          const mm = new mapboxgl.Marker({element:mk(cls)}).setLngLat([h.lon,h.lat]).addTo(map);
+          hazMarkers.push(mm);
+        });
+      }
 
-const nextKey = keyFrom(d);
-const changed = nextKey !== lastKey;
+      if(d.cmd === "recenter"){
+        const z = map.getZoom();
+        const nextZ =
+          (d.forceZoom === true) ? 18 :
+          (z < 17.5 ? 18 : z);
 
-if(changed && d.fit){
-  // Tight hole viewport: fit to hole points only (tee + green points).
-  // Do NOT include course center (or user) in the fit, otherwise it zooms way out.
-  const holePts = [d.tee, d.green?.front, d.green?.middle, d.green?.back].filter(Boolean);
+        if(d.at && isFinite(d.at[0]) && isFinite(d.at[1])){
+          map.easeTo({ center:d.at, zoom:nextZ, duration:420 });
+        } else if(d.user){
+          map.easeTo({ center:[d.user.lon, d.user.lat], zoom:nextZ, duration:420 });
+        }
+        return;
+      }
 
-  if(holePts.length) {
-    fit(holePts);
-  } else {
-    // Fallback if no hole points exist yet
-    fit([d.user, d.center].filter(Boolean));
-  }
-}
+      const nextKey = keyFrom(d);
+      const changed = nextKey !== lastKey;
 
-lastKey = nextKey;
+      if(changed && d.fit){
+        // Tight hole viewport: fit to hole points only.
+        // Include: tee + fairway mid + green points.
+        const holePts = [d.tee, d.fairwayMid, d.green?.front, d.green?.middle, d.green?.back].filter(Boolean);
+
+        if(holePts.length) {
+          fit(holePts);
+        } else {
+          // Fallback if no hole points exist yet
+          fit([d.user, d.center].filter(Boolean));
+        }
+      }
+
+      lastKey = nextKey;
     }
 
     function listen(handler){
@@ -210,16 +261,18 @@ function all18Complete(courseData) {
 export default function HoleMapScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const web = useRef(null);
+
   const didAutoCenterRef = useRef(false);
+  const autoCenterWindowStartRef = useRef(0);
+  const lastAutoCenterRef = useRef(null);
 
   const params = route?.params || {};
   const course = params.course || null;
   const teeObj = params.tee || null;
-  const players = params.players || [];
-  const roundId = params.roundId ?? null;
   const holeMetaParam = params.holeMeta || null;
 
-  // IMPORTANT: allow HoleMap to work even when navigated with only {roundId, holeIndex}
+  const teeKey = teeKeyFromParams(teeObj);
+
   const [resolvedCourseId, setResolvedCourseId] = useState(
     pickCourseIdAny(params) || pickCourseIdAny({ course })
   );
@@ -234,7 +287,6 @@ export default function HoleMapScreen({ navigation, route }) {
     let live = true;
 
     (async () => {
-      // if we already have it, done
       const cidNow = pickCourseIdAny({ courseId: resolvedCourseId, course });
       if (cidNow) return;
 
@@ -265,7 +317,9 @@ export default function HoleMapScreen({ navigation, route }) {
   const courseName = String(resolvedCourseName || "Course");
   const courseCenter = resolvedCourseCenter || null;
 
-  const [holeIndex, setHoleIndex] = useState(Number.isFinite(params.holeIndex) ? params.holeIndex : 0);
+  const [holeIndex, setHoleIndex] = useState(
+    Number.isFinite(params.holeIndex) ? params.holeIndex : 0
+  );
   const clampedHoleIndex = Math.max(0, Math.min(17, holeIndex));
   const holeNumber = clampedHoleIndex + 1;
 
@@ -298,14 +352,99 @@ export default function HoleMapScreen({ navigation, route }) {
     let sub = null;
     let cancelled = false;
 
+    const inAutoCenterWindow = () => {
+      if (!autoCenterWindowStartRef.current)
+        autoCenterWindowStartRef.current = Date.now();
+      return Date.now() - autoCenterWindowStartRef.current <= 30000; // 30s
+    };
+
+    const isUsableFix = (p) => {
+      if (!p || !p.coords) return false;
+
+      const lat = p.coords.latitude;
+      const lon = p.coords.longitude;
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+
+      if (Math.abs(lat) < 0.0001 && Math.abs(lon) < 0.0001) return false;
+
+      const ts = Number.isFinite(p.timestamp) ? p.timestamp : Date.now();
+      const ageMs = Date.now() - ts;
+
+      // Allow rough fixes (we still want to center on the correct general area).
+      if (ageMs > 300000) return false; // 5 min
+
+      return true;
+    };
+
+    const maybeAutoCenter = (p) => {
+      if (!webReady) return;
+      if (!inAutoCenterWindow()) return;
+      if (!isUsableFix(p)) return;
+
+      const lat = p.coords.latitude;
+      const lon = p.coords.longitude;
+
+      const next = { lat, lon };
+      const last = lastAutoCenterRef.current;
+
+      const jumpMeters = last ? haversineMeters(last, next) : Infinity;
+
+      // allow one retry if we jumped far (river -> correct)
+      if (didAutoCenterRef.current && jumpMeters < 500) return;
+
+      didAutoCenterRef.current = true;
+      lastAutoCenterRef.current = next;
+
+      const payload = {
+        cmd: "recenter",
+        at: [lon, lat],
+        user: { lon, lat },
+        forceZoom: true,
+      };
+
+      if (web.current) web.current.postMessage(JSON.stringify(payload));
+    };
+
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (cancelled) return;
       if (status !== "granted") return;
 
+      if (!autoCenterWindowStartRef.current)
+        autoCenterWindowStartRef.current = Date.now();
+
+      try {
+        const p0 = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Highest,
+        });
+        if (!cancelled && p0?.coords) {
+          const lat0 = p0.coords.latitude;
+          const lon0 = p0.coords.longitude;
+          if (Number.isFinite(lat0) && Number.isFinite(lon0)) {
+            setUser({ lat: lat0, lon: lon0 });
+            maybeAutoCenter(p0);
+          }
+        }
+      } catch {
+        // ignore
+      }
+
       sub = await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.Highest, distanceInterval: 2 },
-        (p) => setUser({ lat: p.coords.latitude, lon: p.coords.longitude })
+        {
+          accuracy: Location.Accuracy.Highest,
+          distanceInterval: 2,
+          timeInterval: 1000,
+        },
+        (p) => {
+          if (!p?.coords) return;
+
+          const lat = p.coords.latitude;
+          const lon = p.coords.longitude;
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+
+          setUser({ lat, lon });
+          maybeAutoCenter(p);
+        }
       );
     })();
 
@@ -313,7 +452,7 @@ export default function HoleMapScreen({ navigation, route }) {
       cancelled = true;
       if (sub) sub.remove();
     };
-  }, []);
+  }, [webReady]);
 
   const gpsLocked = courseData?.gpsLocked === true;
   const canLockNow = useMemo(() => all18Complete(courseData), [courseData]);
@@ -336,7 +475,20 @@ export default function HoleMapScreen({ navigation, route }) {
   }, [courseData, holeNumber]);
 
   const green = savedGps?.green || null;
-  const teePoint = savedGps?.tee || null;
+
+  const teePoints = savedGps?.teePoints && typeof savedGps.teePoints === "object" ? savedGps.teePoints : null;
+  const teePoint =
+    (teePoints && teePoints[teeKey] && Number.isFinite(teePoints[teeKey]?.lat) && Number.isFinite(teePoints[teeKey]?.lon)
+      ? teePoints[teeKey]
+      : null) ||
+    (savedGps?.tee && Number.isFinite(savedGps?.tee?.lat) && Number.isFinite(savedGps?.tee?.lon) ? savedGps.tee : null);
+
+  const fairwayMid =
+    savedGps?.fairway?.mid && Number.isFinite(savedGps?.fairway?.mid?.lat) && Number.isFinite(savedGps?.fairway?.mid?.lon)
+      ? savedGps.fairway.mid
+      : null;
+
+  const hazardsArr = Array.isArray(savedGps?.hazards) ? savedGps.hazards : [];
 
   const center = useMemo(() => {
     if (courseCenter && Array.isArray(courseCenter) && courseCenter.length === 2) {
@@ -375,6 +527,7 @@ export default function HoleMapScreen({ navigation, route }) {
       user: user ? { lon: user.lon, lat: user.lat } : null,
       center,
       tee: teePoint && Number.isFinite(teePoint?.lon) && Number.isFinite(teePoint?.lat) ? teePoint : null,
+      fairwayMid: fairwayMid && Number.isFinite(fairwayMid?.lon) && Number.isFinite(fairwayMid?.lat) ? fairwayMid : null,
       green: green
         ? {
           front: green.front || null,
@@ -382,6 +535,15 @@ export default function HoleMapScreen({ navigation, route }) {
           back: green.back || null,
         }
         : null,
+      hazards: hazardsArr
+        .map((h) => {
+          if (!h) return null;
+          const lat = h.lat;
+          const lon = h.lon;
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+          return { type: h.type || "bunker", lat, lon };
+        })
+        .filter(Boolean),
       fit,
     };
 
@@ -391,20 +553,12 @@ export default function HoleMapScreen({ navigation, route }) {
   useEffect(() => {
     postPayload(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [webReady, clampedHoleIndex, center, teePoint, green]);
+  }, [webReady, clampedHoleIndex, center, teePoint, fairwayMid, green, hazardsArr.length]);
 
   useEffect(() => {
     postPayload(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
-
-  function prevHole() {
-    setHoleIndex((h) => Math.max(0, h - 1));
-  }
-  function nextHole() {
-    setHoleIndex((h) => Math.min(17, h + 1));
-  }
-
 
   function recenter() {
     if (!web.current || !webReady) return;
@@ -413,26 +567,16 @@ export default function HoleMapScreen({ navigation, route }) {
       cmd: "recenter",
       at: user ? [user.lon, user.lat] : null,
       user: user ? { lon: user.lon, lat: user.lat } : null,
+      forceZoom: true,
     };
 
     web.current.postMessage(JSON.stringify(payload));
   }
 
-  // Auto-center ONCE when the map opens (first GPS fix + WebView ready).
-  // The GPS chip remains a manual re-center after that.
-  useEffect(() => {
-    if (!webReady) return;
-    if (!user || !Number.isFinite(user?.lat) || !Number.isFinite(user?.lon)) return;
-    if (didAutoCenterRef.current) return;
-
-    didAutoCenterRef.current = true;
-    recenter();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [webReady, user?.lat, user?.lon]);
-
-  // Reset the one-time auto-center when the user changes holes (so each hole map open feels correct).
   useEffect(() => {
     didAutoCenterRef.current = false;
+    autoCenterWindowStartRef.current = Date.now();
+    lastAutoCenterRef.current = null;
   }, [clampedHoleIndex]);
 
   const [setupOpen, setSetupOpen] = useState(false);
@@ -447,9 +591,8 @@ export default function HoleMapScreen({ navigation, route }) {
     return "GPS ready";
   }, [user]);
 
-  async function setGreenPoint(kind) {
+  async function setTeeColor(colorKey) {
     if (!admin) return;
-
     if (!courseId) {
       Alert.alert("Set point unavailable", "No courseId in route params.");
       return;
@@ -461,26 +604,27 @@ export default function HoleMapScreen({ navigation, route }) {
       const cid = String(courseId);
       const existing = (await loadCourseData(cid)) || {};
 
-      if (existing?.gpsLocked === true) {
-        Alert.alert(
-          "Green points locked",
-          "These green points are locked for this course and cannot be overwritten. If you truly need to start over, use “Wipe this course” from Course Data."
-        );
-        return;
-      }
-
       const gps = existing.gps && typeof existing.gps === "object" ? existing.gps : {};
       const holes = gps.holes && typeof gps.holes === "object" ? gps.holes : {};
       const hKey = String(holeNumber);
       const holeObj = holes[hKey] && typeof holes[hKey] === "object" ? holes[hKey] : {};
-      const existingGreen = holeObj.green && typeof holeObj.green === "object" ? holeObj.green : {};
 
-      const nextGreen = {
-        ...existingGreen,
-        [kind]: { lat: user.lat, lon: user.lon },
+      const existingTeePoints =
+        holeObj.teePoints && typeof holeObj.teePoints === "object" ? holeObj.teePoints : {};
+
+      const nextTeePoints = {
+        ...existingTeePoints,
+        [colorKey]: { lat: user.lat, lon: user.lon },
       };
 
-      const nextHoleObj = { ...holeObj, green: nextGreen };
+      const nextHoleObj = {
+        ...holeObj,
+        teePoints: nextTeePoints,
+        // keep legacy tee populated for safety
+        tee: holeObj.tee && Number.isFinite(holeObj.tee?.lat) && Number.isFinite(holeObj.tee?.lon)
+          ? holeObj.tee
+          : { lat: user.lat, lon: user.lon },
+      };
 
       const next = {
         ...existing,
@@ -497,18 +641,17 @@ export default function HoleMapScreen({ navigation, route }) {
       if (ok) {
         await reloadCourseData();
         postPayload(true);
-        Alert.alert("Saved", `Green ${kind} saved for Hole ${holeNumber}.`);
+        Alert.alert("Saved", `Tee (${colorKey}) saved for Hole ${holeNumber}.`);
       }
     } finally {
       setSavingSetup(false);
     }
   }
 
-  async function setTeePoint() {
+  async function setFairwayMid() {
     if (!admin) return;
-
     if (!courseId) {
-      Alert.alert("Set Tee unavailable", "No courseId in route params.");
+      Alert.alert("Set point unavailable", "No courseId in route params.");
       return;
     }
     if (!canSet) return;
@@ -523,7 +666,13 @@ export default function HoleMapScreen({ navigation, route }) {
       const hKey = String(holeNumber);
       const holeObj = holes[hKey] && typeof holes[hKey] === "object" ? holes[hKey] : {};
 
-      const nextHoleObj = { ...holeObj, tee: { lat: user.lat, lon: user.lon } };
+      const nextHoleObj = {
+        ...holeObj,
+        fairway: {
+          ...(holeObj.fairway && typeof holeObj.fairway === "object" ? holeObj.fairway : {}),
+          mid: { lat: user.lat, lon: user.lon },
+        },
+      };
 
       const next = {
         ...existing,
@@ -540,7 +689,97 @@ export default function HoleMapScreen({ navigation, route }) {
       if (ok) {
         await reloadCourseData();
         postPayload(true);
-        Alert.alert("Saved", `Tee point saved for Hole ${holeNumber}.`);
+        Alert.alert("Saved", `Fairway mid saved for Hole ${holeNumber}.`);
+      }
+    } finally {
+      setSavingSetup(false);
+    }
+  }
+
+  async function addHazard(type) {
+    if (!admin) return;
+    if (!courseId) {
+      Alert.alert("Set point unavailable", "No courseId in route params.");
+      return;
+    }
+    if (!canSet) return;
+
+    setSavingSetup(true);
+    try {
+      const cid = String(courseId);
+      const existing = (await loadCourseData(cid)) || {};
+
+      const gps = existing.gps && typeof existing.gps === "object" ? existing.gps : {};
+      const holes = gps.holes && typeof gps.holes === "object" ? gps.holes : {};
+      const hKey = String(holeNumber);
+      const holeObj = holes[hKey] && typeof holes[hKey] === "object" ? holes[hKey] : {};
+
+      const existingHaz = Array.isArray(holeObj.hazards) ? holeObj.hazards : [];
+
+      const nextHaz = [
+        ...existingHaz,
+        { type, lat: user.lat, lon: user.lon, createdAt: Date.now() },
+      ];
+
+      const nextHoleObj = { ...holeObj, hazards: nextHaz };
+
+      const next = {
+        ...existing,
+        gps: {
+          ...gps,
+          holes: {
+            ...holes,
+            [hKey]: nextHoleObj,
+          },
+        },
+      };
+
+      const ok = await saveCourseData(cid, next);
+      if (ok) {
+        await reloadCourseData();
+        postPayload(true);
+        Alert.alert("Saved", `${type.toUpperCase()} hazard saved for Hole ${holeNumber}.`);
+      }
+    } finally {
+      setSavingSetup(false);
+    }
+  }
+
+  async function undoLastHazard() {
+    if (!admin) return;
+    if (!courseId) return;
+
+    setSavingSetup(true);
+    try {
+      const cid = String(courseId);
+      const existing = (await loadCourseData(cid)) || {};
+
+      const gps = existing.gps && typeof existing.gps === "object" ? existing.gps : {};
+      const holes = gps.holes && typeof gps.holes === "object" ? gps.holes : {};
+      const hKey = String(holeNumber);
+
+      const holeObj = holes[hKey] && typeof holes[hKey] === "object" ? holes[hKey] : {};
+      const existingHaz = Array.isArray(holeObj.hazards) ? holeObj.hazards : [];
+      if (!existingHaz.length) return;
+
+      const nextHaz = existingHaz.slice(0, -1);
+
+      const next = {
+        ...existing,
+        gps: {
+          ...gps,
+          holes: {
+            ...holes,
+            [hKey]: { ...holeObj, hazards: nextHaz },
+          },
+        },
+      };
+
+      const ok = await saveCourseData(cid, next);
+      if (ok) {
+        await reloadCourseData();
+        postPayload(true);
+        Alert.alert("Undone", "Removed last hazard point.");
       }
     } finally {
       setSavingSetup(false);
@@ -556,13 +795,16 @@ export default function HoleMapScreen({ navigation, route }) {
     }
 
     if (!canLockNow) {
-      Alert.alert("Not ready to lock", "To lock green points, you must have Front/Mid/Back saved for all 18 holes.");
+      Alert.alert(
+        "Not ready to lock",
+        "To lock green points, you must have Front/Mid/Back saved for all 18 holes."
+      );
       return;
     }
 
     Alert.alert(
       "Lock green points?",
-      "After locking, green points cannot be overwritten. This is your safeguard once Wednesday’s full mapping is done.\n\nIf you ever need to start over, use “Wipe this course” from Course Data.",
+      "After locking, green points cannot be overwritten.\n\nIf you ever need to start over, use “Wipe this course” from Course Data.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -583,7 +825,24 @@ export default function HoleMapScreen({ navigation, route }) {
     );
   }
 
-  const teeSet = !!(teePoint && Number.isFinite(teePoint?.lat) && Number.isFinite(teePoint?.lon));
+  const teeSetGold = !!(teePoints?.gold && Number.isFinite(teePoints?.gold?.lat) && Number.isFinite(teePoints?.gold?.lon));
+  const teeSetBlue = !!(teePoints?.blue && Number.isFinite(teePoints?.blue?.lat) && Number.isFinite(teePoints?.blue?.lon));
+  const teeSetWhite = !!(teePoints?.white && Number.isFinite(teePoints?.white?.lat) && Number.isFinite(teePoints?.white?.lon));
+  const teeSetRed = !!(teePoints?.red && Number.isFinite(teePoints?.red?.lat) && Number.isFinite(teePoints?.red?.lon));
+
+  const fwSet = !!(fairwayMid && Number.isFinite(fairwayMid?.lat) && Number.isFinite(fairwayMid?.lon));
+
+  const hazCounts = useMemo(() => {
+    const out = { bunker: 0, water: 0, ob: 0, total: 0 };
+    hazardsArr.forEach((h) => {
+      if (!h || !h.type) return;
+      if (h.type === "bunker") out.bunker += 1;
+      if (h.type === "water") out.water += 1;
+      if (h.type === "ob") out.ob += 1;
+      out.total += 1;
+    });
+    return out;
+  }, [hazardsArr]);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -595,7 +854,6 @@ export default function HoleMapScreen({ navigation, route }) {
           onLoadEnd={() => setWebReady(true)}
         />
       </View>
-
 
       <View style={[styles.top, { top: insets.top + 10 }]}>
         <Pressable onPress={() => navigation.goBack()} style={styles.topBtn}>
@@ -610,7 +868,6 @@ export default function HoleMapScreen({ navigation, route }) {
             Hole {holeNumber}
             {par ? ` • Par ${par}` : ""}
             {si ? ` • SI ${si}` : ""}
-            {teeSet ? "" : " • Tee not set"}
           </Text>
         </View>
 
@@ -619,7 +876,6 @@ export default function HoleMapScreen({ navigation, route }) {
         </Pressable>
       </View>
 
-      {/* GPS chip (top center under header) */}
       <View style={[styles.gpsChipWrap, { top: insets.top + 88 }]}>
         <Pressable onPress={recenter} style={({ pressed }) => [styles.gpsChip, pressed && styles.pressed]}>
           <View style={styles.gpsDot} />
@@ -628,9 +884,7 @@ export default function HoleMapScreen({ navigation, route }) {
         </Pressable>
       </View>
 
-      {/* Bottom panel: yardages + back to Hole Hub */}
       <View style={[styles.bottomWrap, { paddingBottom: insets.bottom + 40 }]}>
-
         <View style={styles.yardPanel}>
           <View style={styles.yRow3}>
             <View style={styles.yCol}>
@@ -665,10 +919,13 @@ export default function HoleMapScreen({ navigation, route }) {
         </Pressable>
       </View>
 
-
       <Modal visible={setupOpen} transparent animationType="fade" onRequestClose={() => setSetupOpen(false)}>
         <View style={styles.modalBg}>
-          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalCard}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setSetupOpen(false)} />
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={styles.modalCard}
+          >
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Course Mapping Setup</Text>
               <Pressable onPress={() => setSetupOpen(false)} style={styles.modalClose}>
@@ -677,9 +934,7 @@ export default function HoleMapScreen({ navigation, route }) {
             </View>
 
             <Text style={styles.modalSub}>
-              {admin
-                ? "Stand at tee / green points and tap Set. Tee is used for Long Drive distance."
-                : "Read-only for guests."}
+              {admin ? "Stand on the point and tap Set/Add. You can save multiple hazards per hole." : "Read-only for guests."}
             </Text>
 
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.holePills}>
@@ -698,7 +953,11 @@ export default function HoleMapScreen({ navigation, route }) {
               })}
             </ScrollView>
 
-            <View style={styles.modalBody}>
+            <ScrollView
+              style={styles.modalBody}
+              contentContainerStyle={styles.modalBodyContent}
+              showsVerticalScrollIndicator={false}
+            >
               {loadingCourseData ? (
                 <View style={styles.modalLoading}>
                   <ActivityIndicator />
@@ -713,7 +972,7 @@ export default function HoleMapScreen({ navigation, route }) {
                         {!admin
                           ? "Guests cannot set or lock points."
                           : gpsLocked
-                            ? "Set buttons are disabled forever (safeguard)."
+                            ? "Set buttons for greens are disabled forever (safeguard)."
                             : canLockNow
                               ? "All 18 holes complete — you can lock now."
                               : "Lock becomes available after all 18 holes have Front/Mid/Back saved."}
@@ -737,74 +996,143 @@ export default function HoleMapScreen({ navigation, route }) {
 
                   <Text style={styles.gpsStatus}>{currentAccuracyText}</Text>
 
+                  <View style={styles.sectionTitleRow}>
+                    <Text style={styles.sectionTitle}>Tee points</Text>
+                    <Text style={styles.sectionSub}>Gold / Blue / White / Red</Text>
+                  </View>
+
+                  <View style={styles.setRow2}>
+                    <Pressable
+                      disabled={!canSet || savingSetup}
+                      onPress={() => setTeeColor("gold")}
+                      style={({ pressed }) => [styles.setBtn, pressed && styles.pressed, (!canSet || savingSetup) && { opacity: 0.45 }]}
+                    >
+                      <Text style={styles.setBtnT}>Set Tee (Gold)</Text>
+                      <Text style={styles.setBtnS}>{teeSetGold ? "Saved" : "Not set"}</Text>
+                    </Pressable>
+
+                    <Pressable
+                      disabled={!canSet || savingSetup}
+                      onPress={() => setTeeColor("blue")}
+                      style={({ pressed }) => [styles.setBtn, pressed && styles.pressed, (!canSet || savingSetup) && { opacity: 0.45 }]}
+                    >
+                      <Text style={styles.setBtnT}>Set Tee (Blue)</Text>
+                      <Text style={styles.setBtnS}>{teeSetBlue ? "Saved" : "Not set"}</Text>
+                    </Pressable>
+                  </View>
+
+                  <View style={styles.setRow2}>
+                    <Pressable
+                      disabled={!canSet || savingSetup}
+                      onPress={() => setTeeColor("white")}
+                      style={({ pressed }) => [styles.setBtn, pressed && styles.pressed, (!canSet || savingSetup) && { opacity: 0.45 }]}
+                    >
+                      <Text style={styles.setBtnT}>Set Tee (White)</Text>
+                      <Text style={styles.setBtnS}>{teeSetWhite ? "Saved" : "Not set"}</Text>
+                    </Pressable>
+
+                    <Pressable
+                      disabled={!canSet || savingSetup}
+                      onPress={() => setTeeColor("red")}
+                      style={({ pressed }) => [styles.setBtn, pressed && styles.pressed, (!canSet || savingSetup) && { opacity: 0.45 }]}
+                    >
+                      <Text style={styles.setBtnT}>Set Tee (Red)</Text>
+                      <Text style={styles.setBtnS}>{teeSetRed ? "Saved" : "Not set"}</Text>
+                    </Pressable>
+                  </View>
+
+                  <View style={styles.sectionTitleRow}>
+                    <Text style={styles.sectionTitle}>Fairway</Text>
+                    <Text style={styles.sectionSub}>Midpoint</Text>
+                  </View>
+
                   <Pressable
                     disabled={!canSet || savingSetup}
-                    onPress={setTeePoint}
+                    onPress={setFairwayMid}
                     style={({ pressed }) => [
                       styles.setTeeBtn,
                       pressed && styles.pressed,
                       (!canSet || savingSetup) && { opacity: 0.45 },
                     ]}
                   >
-                    <Text style={styles.setTeeBtnT}>Set Tee</Text>
-                    <Text style={styles.setTeeBtnS}>{teeSet ? "Saved" : "Not set"}</Text>
+                    <Text style={styles.setTeeBtnT}>Set Fairway Mid</Text>
+                    <Text style={styles.setTeeBtnS}>{fwSet ? "Saved" : "Not set"}</Text>
                   </Pressable>
+
+                  <View style={styles.sectionTitleRow}>
+                    <Text style={styles.sectionTitle}>Hazards</Text>
+                    <Text style={styles.sectionSub}>
+                      Bunker {hazCounts.bunker} • Water {hazCounts.water} • OB {hazCounts.ob}
+                    </Text>
+                  </View>
 
                   <View style={styles.setRow}>
                     <Pressable
-                      disabled={!canSet || savingSetup || gpsLocked}
-                      onPress={() => setGreenPoint("front")}
+                      disabled={!canSet || savingSetup}
+                      onPress={() => addHazard("bunker")}
                       style={({ pressed }) => [
                         styles.setBtn,
                         pressed && styles.pressed,
-                        (!canSet || savingSetup || gpsLocked) && { opacity: 0.45 },
+                        (!canSet || savingSetup) && { opacity: 0.45 },
                       ]}
                     >
-                      <Text style={styles.setBtnT}>Set Front</Text>
-                      <Text style={styles.setBtnS}>
-                        {!admin ? "Read-only" : gpsLocked ? "Locked" : green?.front ? "Saved" : "Not set"}
-                      </Text>
+                      <Text style={styles.setBtnT}>Add Bunker</Text>
+                      <Text style={styles.setBtnS}>Adds a point</Text>
                     </Pressable>
 
                     <Pressable
-                      disabled={!canSet || savingSetup || gpsLocked}
-                      onPress={() => setGreenPoint("middle")}
+                      disabled={!canSet || savingSetup}
+                      onPress={() => addHazard("water")}
                       style={({ pressed }) => [
                         styles.setBtn,
                         pressed && styles.pressed,
-                        (!canSet || savingSetup || gpsLocked) && { opacity: 0.45 },
+                        (!canSet || savingSetup) && { opacity: 0.45 },
                       ]}
                     >
-                      <Text style={styles.setBtnT}>Set Mid</Text>
-                      <Text style={styles.setBtnS}>
-                        {!admin ? "Read-only" : gpsLocked ? "Locked" : green?.middle ? "Saved" : "Not set"}
-                      </Text>
+                      <Text style={styles.setBtnT}>Add Water</Text>
+                      <Text style={styles.setBtnS}>Adds a point</Text>
                     </Pressable>
 
                     <Pressable
-                      disabled={!canSet || savingSetup || gpsLocked}
-                      onPress={() => setGreenPoint("back")}
+                      disabled={!canSet || savingSetup}
+                      onPress={() => addHazard("ob")}
                       style={({ pressed }) => [
                         styles.setBtn,
                         pressed && styles.pressed,
-                        (!canSet || savingSetup || gpsLocked) && { opacity: 0.45 },
+                        (!canSet || savingSetup) && { opacity: 0.45 },
                       ]}
                     >
-                      <Text style={styles.setBtnT}>Set Back</Text>
-                      <Text style={styles.setBtnS}>
-                        {!admin ? "Read-only" : gpsLocked ? "Locked" : green?.back ? "Saved" : "Not set"}
-                      </Text>
+                      <Text style={styles.setBtnT}>Add OB</Text>
+                      <Text style={styles.setBtnS}>Adds a point</Text>
                     </Pressable>
                   </View>
 
+                  <Pressable
+                    disabled={!admin || savingSetup || hazCounts.total === 0}
+                    onPress={undoLastHazard}
+                    style={({ pressed }) => [
+                      styles.undoBtn,
+                      pressed && styles.pressed,
+                      (!admin || savingSetup || hazCounts.total === 0) && { opacity: 0.45 },
+                    ]}
+                  >
+                    <Text style={styles.undoBtnT}>Undo last hazard</Text>
+                    <Text style={styles.undoBtnS}>{hazCounts.total ? `${hazCounts.total} total saved` : "None saved"}</Text>
+                  </Pressable>
+
                   <Text style={styles.modalHint}>
-                    {admin
-                      ? "After you set points, yardages update live as you walk. Tee is used for Long Drive distance."
-                      : "Guests can view yardages once points are published."}
+                    Tip: tap “GPS Active” to re-center before saving points. You can add multiple hazards per hole.
                   </Text>
+
+                  <Pressable
+                    onPress={() => setSetupOpen(false)}
+                    style={({ pressed }) => [styles.closeBtn, pressed && styles.pressed]}
+                  >
+                    <Text style={styles.closeBtnT}>Close</Text>
+                  </Pressable>
                 </>
               )}
-            </View>
+            </ScrollView>
           </KeyboardAvoidingView>
         </View>
       </Modal>
@@ -839,7 +1167,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 
-
   top: {
     position: "absolute",
     left: 12,
@@ -848,7 +1175,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     justifyContent: "space-between",
-
   },
   topBtn: {
     paddingHorizontal: 12,
@@ -878,7 +1204,6 @@ const styles = StyleSheet.create({
   },
   setupBtnT: { color: "#fff", fontWeight: "900" },
 
-  yardWrap: { position: "absolute", right: 12 },
   yardPanel: {
     width: "100%",
     borderRadius: 20,
@@ -957,38 +1282,6 @@ const styles = StyleSheet.create({
     elevation: 50,
   },
 
-  dock: {
-    borderRadius: 22,
-    flexDirection: "row",
-    gap: 10,
-    padding: 12,
-    backgroundColor: "rgba(18,22,30,0.72)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-  },
-  square: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.10)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-  },
-  icon: { color: "#fff", fontSize: 28, fontWeight: "900" },
-
-  primary: {
-    flex: 1,
-    borderRadius: 18,
-    backgroundColor: GREEN,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 8,
-  },
-  primaryT: { color: GREEN_TEXT, fontWeight: "900", letterSpacing: 0.6 },
-  primaryS: { color: "rgba(11,31,18,0.82)", fontSize: 12, fontWeight: "900", marginTop: 2 },
-
   modalBg: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.70)",
@@ -1044,9 +1337,9 @@ const styles = StyleSheet.create({
   },
   holePillActive: { backgroundColor: "rgba(46,125,255,0.35)", borderColor: "rgba(46,125,255,0.55)" },
   holePillT: { color: "#fff", fontWeight: "900" },
-  holePillTActive: { opacity: 1 },
 
-  modalBody: { padding: 14, paddingTop: 6, paddingBottom: 16 },
+  modalBody: { maxHeight: 520, paddingHorizontal: 14, paddingTop: 6 },
+  modalBodyContent: { paddingBottom: 16 },
   modalLoading: { paddingVertical: 16, alignItems: "center", justifyContent: "center", gap: 10 },
   modalLoadingT: { color: "rgba(255,255,255,0.72)", fontWeight: "800" },
 
@@ -1091,6 +1384,9 @@ const styles = StyleSheet.create({
 
   gpsStatus: { color: "rgba(255,255,255,0.82)", fontWeight: "900", marginBottom: 10 },
 
+  setRow: { flexDirection: "row", gap: 10 },
+  setRow2: { flexDirection: "row", gap: 10, marginBottom: 10 },
+
   setTeeBtn: {
     borderRadius: 18,
     paddingVertical: 14,
@@ -1103,7 +1399,6 @@ const styles = StyleSheet.create({
   setTeeBtnT: { color: "#fff", fontWeight: "900", fontSize: 16 },
   setTeeBtnS: { marginTop: 6, color: "rgba(255,255,255,0.70)", fontWeight: "800", fontSize: 12 },
 
-  setRow: { flexDirection: "row", gap: 10 },
   setBtn: {
     flex: 1,
     borderRadius: 18,
@@ -1116,7 +1411,34 @@ const styles = StyleSheet.create({
   setBtnT: { color: "#fff", fontWeight: "900" },
   setBtnS: { marginTop: 6, color: "rgba(255,255,255,0.70)", fontWeight: "800", fontSize: 12 },
 
+  sectionTitleRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", marginTop: 6, marginBottom: 8 },
+  sectionTitle: { color: "#fff", fontWeight: "900" },
+  sectionSub: { color: "rgba(255,255,255,0.72)", fontWeight: "800", fontSize: 12 },
+
+  undoBtn: {
+    borderRadius: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    marginTop: 10,
+  },
+  undoBtnT: { color: "#fff", fontWeight: "900" },
+  undoBtnS: { marginTop: 6, color: "rgba(255,255,255,0.70)", fontWeight: "800", fontSize: 12 },
+
   modalHint: { marginTop: 12, color: "rgba(255,255,255,0.70)", fontWeight: "800", fontSize: 12, lineHeight: 17 },
 
+  closeBtn: {
+    marginTop: 12,
+    borderRadius: 18,
+    paddingVertical: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+  closeBtnT: { color: "#fff", fontWeight: "900", fontSize: 15 },
   pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
 });
