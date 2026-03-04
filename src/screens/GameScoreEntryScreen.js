@@ -862,7 +862,13 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                 postHoleSplash = null;
             }
 
-            goToHoleHub(holeEnd, { roundId: rid, showFinishPrompt: true, postHoleSplash });
+            goToHoleHub(holeEnd, {
+                roundId: rid,
+                showFinishPrompt: true,
+                postHoleSplash,
+                // End-of-window return: avoid re-triggering the generic format splash (ex: Long Drive) after Save
+                showFormatSplash: false,
+            });
             return;
         }
 

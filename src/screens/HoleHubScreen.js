@@ -868,6 +868,10 @@ export default function HoleHubScreen({ navigation, route }) {
     useCallback(() => {
       if (params?.showFrontNineStatsPrompt || turnPromptVisible) return undefined;
       if (params?.postHoleSplash || postSplashVisible) return undefined;
+
+      // Allow callers (ex: last-hole Save -> Finish prompt) to suppress the generic side-game splash
+      if (params?.showFormatSplash === false) return undefined;
+
       if (!computedSideGameKey) return undefined;
 
       const onceKey = `${String(roundId || "r")}__${String(currentHole || "h")}__${String(computedSideGameKey)}`;
@@ -876,7 +880,7 @@ export default function HoleHubScreen({ navigation, route }) {
 
       setSgVisible(true);
       return () => { };
-    }, [computedSideGameKey, roundId, currentHole, params?.postHoleSplash, postSplashVisible])
+    }, [computedSideGameKey, roundId, currentHole, params?.postHoleSplash, postSplashVisible, params?.showFormatSplash, params?.showFrontNineStatsPrompt, turnPromptVisible])
   );
 
   useEffect(() => {
