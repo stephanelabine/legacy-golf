@@ -12,6 +12,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  Animated,
+  PanResponder,
+  Dimensions,
 } from "react-native";
 import { WebView } from "react-native-webview";
 import * as Location from "expo-location";
@@ -85,7 +88,10 @@ function teeKeyFromParams(teeObj) {
   return "white";
 }
 
-function buildHtml() {
+function buildHtml(initialCenter) {
+  const initLon = Number.isFinite(initialCenter?.lon) ? initialCenter.lon : -122.9;
+  const initLat = Number.isFinite(initialCenter?.lat) ? initialCenter.lat : 49.2;
+
   return `<!doctype html><html><head>
   <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no"/>
   <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet"/>
@@ -107,7 +113,7 @@ function buildHtml() {
     const map = new mapboxgl.Map({
       container:"map",
       style:"mapbox://styles/mapbox/satellite-streets-v12",
-      center:[-122.9,49.2],
+      center:[${initLon},${initLat}],
       zoom:17
     });
 
@@ -116,6 +122,8 @@ function buildHtml() {
     const mk=(c)=>{const e=document.createElement("div");e.className=c;return e};
 
     let lastKey = "";
+    let lastHolePoseKey = "";
+
     function keyFrom(d){
       const p = (x)=>x && isFinite(x.lon) && isFinite(x.lat) ? (x.lon.toFixed(6)+","+x.lat.toFixed(6)) : "";
       const hz = Array.isArray(d.hazards) ? String(d.hazards.length) : "0";
@@ -131,22 +139,82 @@ function buildHtml() {
       ].join("|");
     }
 
-    function fit(points){
-      const valid = points.filter(p => p && isFinite(p.lon) && isFinite(p.lat));
-      if(valid.length === 0) return;
+    function poseKeyFrom(d){
+      const p = (x)=>x && isFinite(x.lon) && isFinite(x.lat) ? (x.lon.toFixed(6)+","+x.lat.toFixed(6)) : "";
+      return [
+        p(d.tee),
+        p(d.green?.middle),
+        p(d.green?.back),
+        p(d.green?.front),
+        p(d.fairwayMid)
+      ].join("|");
+    }
 
-      if(valid.length === 1){
-        map.easeTo({ center:[valid[0].lon, valid[0].lat], zoom:18, duration:450 });
+    function bearingDeg(a,b){
+      if(!a || !b) return null;
+      if(!isFinite(a.lon)||!isFinite(a.lat)||!isFinite(b.lon)||!isFinite(b.lat)) return null;
+      const φ1 = a.lat * Math.PI/180;
+      const φ2 = b.lat * Math.PI/180;
+      const Δλ = (b.lon - a.lon) * Math.PI/180;
+      const y = Math.sin(Δλ) * Math.cos(φ2);
+      const x = Math.cos(φ1)*Math.sin(φ2) - Math.sin(φ1)*Math.cos(φ2)*Math.cos(Δλ);
+      let θ = Math.atan2(y,x) * 180/Math.PI; // from north, clockwise
+      if(!isFinite(θ)) return null;
+      θ = (θ + 360) % 360;
+      return θ;
+    }
+
+    function frameHole(teeP, greenAim, points, bearing){
+      const valid = (points || []).filter(p => p && isFinite(p.lon) && isFinite(p.lat));
+      const offset = [0, 60]; // no left/right bias; only slight down-bias so green trends higher
+
+      // If we have tee + green, prefer midpoint framing with a controlled zoom (tighter + centered)
+      if(teeP && greenAim && isFinite(teeP.lon) && isFinite(teeP.lat) && isFinite(greenAim.lon) && isFinite(greenAim.lat)){
+        const midLon = (teeP.lon + greenAim.lon) / 2;
+        const midLat = (teeP.lat + greenAim.lat) / 2;
+
+        // rough distance in meters (good enough for zoom selection)
+        const dx = (greenAim.lon - teeP.lon) * 111320 * Math.cos(((teeP.lat + greenAim.lat)/2) * Math.PI/180);
+        const dy = (greenAim.lat - teeP.lat) * 110540;
+        const distM = Math.sqrt(dx*dx + dy*dy);
+
+        // dynamic zoom: open wider by default so the whole hole is visible on first open
+        let z = 16.85;
+        if(distM > 420) z = 16.25;
+        else if(distM > 320) z = 16.45;
+        else if(distM > 220) z = 16.65;
+
+        // clamp (wider view range)
+        z = Math.max(16.0, Math.min(17.2, z));
+
+        const opts = { center:[midLon, midLat], zoom:z, duration:520, offset };
+        if(isFinite(bearing)) opts.bearing = bearing;
+        map.easeTo(opts);
         return;
       }
 
-      let minLon=valid[0].lon, maxLon=valid[0].lon, minLat=valid[0].lat, maxLat=valid[0].lat;
-      valid.forEach(p=>{
-        minLon=Math.min(minLon,p.lon); maxLon=Math.max(maxLon,p.lon);
-        minLat=Math.min(minLat,p.lat); maxLat=Math.max(maxLat,p.lat);
-      });
+      // Fallback: fit bounds (smaller padding so we don’t zoom out too much)
+      if(valid.length === 1){
+        // When only one hole point exists (ex: only tee), open wider so user can see context
+        const opts = { center:[valid[0].lon, valid[0].lat], zoom:16.6, duration:450, offset };
+        if(isFinite(bearing)) opts.bearing = bearing;
+        map.easeTo(opts);
+        return;
+      }
 
-      map.fitBounds([[minLon,minLat],[maxLon,maxLat]],{padding:70,duration:650});
+      if(valid.length >= 2){
+        let minLon=valid[0].lon, maxLon=valid[0].lon, minLat=valid[0].lat, maxLat=valid[0].lat;
+        valid.forEach(p=>{
+          minLon=Math.min(minLon,p.lon); maxLon=Math.max(maxLon,p.lon);
+          minLat=Math.min(minLat,p.lat); maxLat=Math.max(maxLat,p.lat);
+        });
+
+        const padding = { top: 90, bottom: 90, left: 55, right: 55 };
+        const opts = { padding, duration:650, offset, maxZoom:18.6 };
+        if(isFinite(bearing)) opts.bearing = bearing;
+
+        map.fitBounds([[minLon,minLat],[maxLon,maxLat]], opts);
+      }
     }
 
     function clearHaz(){
@@ -213,16 +281,25 @@ function buildHtml() {
       const changed = nextKey !== lastKey;
 
       if(changed && d.fit){
-        // Tight hole viewport: fit to hole points only.
-        // Include: tee + fairway mid + green points.
+        // Fit to hole points only (tee -> green), rotate so green is "up", and offset so green sits near top.
         const holePts = [d.tee, d.fairwayMid, d.green?.front, d.green?.middle, d.green?.back].filter(Boolean);
 
+        const teeP = d.tee || null;
+        const greenAim = d.green?.middle || d.green?.back || d.green?.front || null;
+        const brg = bearingDeg(teeP, greenAim);
+
+        const poseKey = poseKeyFrom(d);
+        const poseChanged = poseKey !== lastHolePoseKey;
+
         if(holePts.length) {
-          fit(holePts);
+          // Prefer tee->green midpoint framing for tight/centered open
+          frameHole(teeP, greenAim, holePts, brg);
         } else {
           // Fallback if no hole points exist yet
-          fit([d.user, d.center].filter(Boolean));
+          frameHole(null, null, [d.center].filter(Boolean), null);
         }
+
+        lastHolePoseKey = poseKey;
       }
 
       lastKey = nextKey;
@@ -269,9 +346,18 @@ export default function HoleMapScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const web = useRef(null);
 
+  const screenW = Dimensions.get("window").width;
+
+  const yardPos = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+  const yardDockRef = useRef("center"); // "left" | "center" | "right"
+
+  const [yardStacked, setYardStacked] = useState(false);
+
   const didAutoCenterRef = useRef(false);
   const autoCenterWindowStartRef = useRef(0);
   const lastAutoCenterRef = useRef(null);
+
+  const didInitialFrameRef = useRef(false);
 
   const params = route?.params || {};
   const course = params.course || null;
@@ -383,33 +469,10 @@ export default function HoleMapScreen({ navigation, route }) {
       return true;
     };
 
-    const maybeAutoCenter = (p) => {
-      if (!webReady) return;
-      if (!inAutoCenterWindow()) return;
-      if (!isUsableFix(p)) return;
-
-      const lat = p.coords.latitude;
-      const lon = p.coords.longitude;
-
-      const next = { lat, lon };
-      const last = lastAutoCenterRef.current;
-
-      const jumpMeters = last ? haversineMeters(last, next) : Infinity;
-
-      // allow one retry if we jumped far (river -> correct)
-      if (didAutoCenterRef.current && jumpMeters < 500) return;
-
-      didAutoCenterRef.current = true;
-      lastAutoCenterRef.current = next;
-
-      const payload = {
-        cmd: "recenter",
-        at: [lon, lat],
-        user: { lon, lat },
-        forceZoom: true,
-      };
-
-      if (web.current) web.current.postMessage(JSON.stringify(payload));
+    const maybeAutoCenter = (_p) => {
+      // Disabled: we do NOT auto-recenter to user on open.
+      // Camera framing is hole-based (tee->green). User can tap “GPS Active” to recenter.
+      return;
     };
 
     (async () => {
@@ -512,6 +575,23 @@ export default function HoleMapScreen({ navigation, route }) {
     return null;
   }, [courseCenter]);
 
+  const initialCenter = useMemo(() => {
+    // Prefer hole green middle, then tee point, then fairway mid, then course center
+    if (green?.middle && Number.isFinite(green.middle?.lat) && Number.isFinite(green.middle?.lon)) {
+      return { lon: green.middle.lon, lat: green.middle.lat };
+    }
+    if (teePoint && Number.isFinite(teePoint?.lat) && Number.isFinite(teePoint?.lon)) {
+      return { lon: teePoint.lon, lat: teePoint.lat };
+    }
+    if (fairwayMid && Number.isFinite(fairwayMid?.lat) && Number.isFinite(fairwayMid?.lon)) {
+      return { lon: fairwayMid.lon, lat: fairwayMid.lat };
+    }
+    if (center && Number.isFinite(center?.lat) && Number.isFinite(center?.lon)) {
+      return { lon: center.lon, lat: center.lat };
+    }
+    return null;
+  }, [green, teePoint, fairwayMid, center]);
+
   const dist = useMemo(() => {
     if (!user || !green) return {};
     const out = {};
@@ -526,6 +606,76 @@ export default function HoleMapScreen({ navigation, route }) {
     middle: green?.middle ? yds(dist.m) : "—",
     back: green?.back ? yds(dist.b) : "—",
   };
+
+  const yardPan = useMemo(() => {
+    const edgeSnap = 70; // px from edge to trigger left/right dock
+    const stackEdge = 95; // slightly deeper edge threshold to enable stacked layout
+
+    return PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+
+      onPanResponderGrant: () => {
+        yardPos.setOffset({ x: yardPos.x.__getValue(), y: yardPos.y.__getValue() });
+        yardPos.setValue({ x: 0, y: 0 });
+      },
+
+      onPanResponderMove: Animated.event(
+        [null, { dx: yardPos.x, dy: yardPos.y }],
+        { useNativeDriver: false }
+      ),
+
+      onPanResponderRelease: (_evt, gesture) => {
+        yardPos.flattenOffset();
+
+        const currentX = yardPos.x.__getValue();
+        const absX = Math.abs(currentX);
+
+        // Decide dock target
+        let dock = "center";
+        if (currentX < -(screenW / 2 - edgeSnap)) dock = "left";
+        if (currentX > (screenW / 2 - edgeSnap)) dock = "right";
+
+        // Stacked only when docked left/right
+        const shouldStack =
+          dock === "left"
+            ? currentX < -(screenW / 2 - stackEdge)
+            : dock === "right"
+              ? currentX > (screenW / 2 - stackEdge)
+              : false;
+
+        yardDockRef.current = dock;
+        setYardStacked(!!shouldStack);
+
+        // Snap positions
+        // Clamp X so panel never goes off-screen (wide vs stacked)
+        const isStack = !!shouldStack;
+        const panelHalfW = isStack ? 60 : (screenW * 0.92) / 2; // stacked width 120, wide width 92%
+        const edgePad = 8;
+        const maxX = (screenW / 2) - panelHalfW - edgePad;
+
+        const snapX =
+          dock === "left"
+            ? -maxX
+            : dock === "right"
+              ? maxX
+              : 0;
+
+        // Keep Y where user dropped it (float). Clamp so it stays on-screen.
+        // Negative Y moves up. Positive Y moves down.
+        const maxUp = -520;
+        const maxDown = 40;
+        const snapY = Math.max(maxUp, Math.min(maxDown, yardPos.y.__getValue()));
+
+        Animated.spring(yardPos, {
+          toValue: { x: snapX, y: snapY },
+          useNativeDriver: false,
+          speed: 18,
+          bounciness: 6,
+        }).start();
+      },
+    });
+  }, [yardPos, screenW]);
 
   const postPayload = (fit = false) => {
     if (!web.current || !webReady) return;
@@ -557,16 +707,40 @@ export default function HoleMapScreen({ navigation, route }) {
     web.current.postMessage(JSON.stringify(payload));
   };
 
+  const hasHoleFramePoints = useMemo(() => {
+    const tOk = !!(teePoint && Number.isFinite(teePoint?.lat) && Number.isFinite(teePoint?.lon));
+    const g = green;
+    const gOk = !!(
+      (g?.middle && Number.isFinite(g.middle?.lat) && Number.isFinite(g.middle?.lon)) ||
+      (g?.back && Number.isFinite(g.back?.lat) && Number.isFinite(g.back?.lon)) ||
+      (g?.front && Number.isFinite(g.front?.lat) && Number.isFinite(g.front?.lon))
+    );
+    return tOk && gOk;
+  }, [teePoint, green]);
+
+  // Stability: initial frame happens exactly once, only when we have real hole points loaded.
   useEffect(() => {
+    if (!webReady) return;
+    if (loadingCourseData) return;
+    if (!hasHoleFramePoints) return;
+    if (didInitialFrameRef.current) return;
+
+    didInitialFrameRef.current = true;
     postPayload(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [webReady, loadingCourseData, hasHoleFramePoints, clampedHoleIndex]);
+
+  // Stability: do NOT frame on webReady alone. We wait until course data + hole points exist.
+  useEffect(() => {
+    // no-op (framing handled by the stable initial-frame effect below)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [webReady, clampedHoleIndex, center, teePoint, fairwayMid, green, hazardsArr.length]);
 
+  // User updates: update blue dot only, do not reframe camera
   useEffect(() => {
     postPayload(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
-
   function recenter() {
     if (!web.current || !webReady) return;
 
@@ -584,6 +758,9 @@ export default function HoleMapScreen({ navigation, route }) {
     didAutoCenterRef.current = false;
     autoCenterWindowStartRef.current = Date.now();
     lastAutoCenterRef.current = null;
+
+    // New hole = allow one stable initial frame again
+    didInitialFrameRef.current = false;
   }, [clampedHoleIndex]);
 
   const [setupOpen, setSetupOpen] = useState(false);
@@ -856,7 +1033,7 @@ export default function HoleMapScreen({ navigation, route }) {
       <View style={styles.mapWrap}>
         <WebView
           ref={web}
-          source={{ html: buildHtml() }}
+          source={{ html: buildHtml(initialCenter) }}
           style={styles.web}
           onLoadStart={() => setWebReady(false)}
           onMessage={(e) => {
@@ -901,21 +1078,28 @@ export default function HoleMapScreen({ navigation, route }) {
       </View>
 
       <View style={[styles.bottomWrap, { paddingBottom: insets.bottom + 40 }]}>
-        <View style={styles.yardPanel}>
-          <View style={styles.yRow3}>
-            <View style={styles.yCol}>
+        <Animated.View
+          {...yardPan.panHandlers}
+          style={[
+            styles.yardPanel,
+            { transform: [{ translateX: yardPos.x }, { translateY: yardPos.y }] },
+            yardStacked ? styles.yardPanelStacked : styles.yardPanelWide,
+          ]}
+        >
+          <View style={yardStacked ? styles.yColStackWrap : styles.yRow3}>
+            <View style={[styles.yCol, yardStacked && styles.yColStack]}>
               <Text style={styles.yLabelCol}>BACK</Text>
               <Text style={styles.yValCol}>{distVals.back}</Text>
               <Text style={styles.yUnitCol}>YDS</Text>
             </View>
 
-            <View style={styles.yCol}>
+            <View style={[styles.yCol, yardStacked && styles.yColStack]}>
               <Text style={styles.yLabelCol}>MID</Text>
               <Text style={styles.yValCol}>{distVals.middle}</Text>
               <Text style={styles.yUnitCol}>YDS</Text>
             </View>
 
-            <View style={styles.yCol}>
+            <View style={[styles.yCol, yardStacked && styles.yColStack]}>
               <Text style={styles.yLabelCol}>FRONT</Text>
               <Text style={styles.yValCol}>{distVals.front}</Text>
               <Text style={styles.yUnitCol}>YDS</Text>
@@ -925,7 +1109,7 @@ export default function HoleMapScreen({ navigation, route }) {
           {!green?.front && !green?.middle && !green?.back ? (
             <Text style={styles.yHint}>No green points loaded for this course.</Text>
           ) : null}
-        </View>
+        </Animated.View>
 
         <Pressable
           onPress={() => navigation.goBack()}
@@ -1221,13 +1405,29 @@ const styles = StyleSheet.create({
   setupBtnT: { color: "#fff", fontWeight: "900" },
 
   yardPanel: {
-    width: "100%",
-    borderRadius: 20,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
+    alignSelf: "center",
+    borderRadius: 18,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
     backgroundColor: "rgba(0,0,0,0.55)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.14)",
+  },
+
+  yardPanelWide: {
+    width: "92%",
+  },
+
+  yardPanelStacked: {
+    width: 120,
+  },
+
+  yColStackWrap: {
+    gap: 8,
+  },
+
+  yColStack: {
+    width: "100%",
   },
 
   yRow3: {
