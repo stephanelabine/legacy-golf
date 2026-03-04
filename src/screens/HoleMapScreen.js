@@ -906,13 +906,12 @@ export default function HoleMapScreen({ navigation, route }) {
 
       // Planner defaults ON. Initialize target to saved fairway midpoint when available.
       planner: {
-        on: true,
+        on: plannerOn,
         initTarget:
           fairwayMid && Number.isFinite(fairwayMid?.lon) && Number.isFinite(fairwayMid?.lat)
             ? { lon: fairwayMid.lon, lat: fairwayMid.lat }
             : null,
       },
-
       fit,
     };
 
@@ -977,6 +976,9 @@ export default function HoleMapScreen({ navigation, route }) {
 
   const [setupOpen, setSetupOpen] = useState(false);
   const [savingSetup, setSavingSetup] = useState(false);
+
+  // Planner: target line + draggable target (default ON)
+  const [plannerOn, setPlannerOn] = useState(true);
 
   const canSet = useMemo(() => {
     return admin && !!user && Number.isFinite(user?.lat) && Number.isFinite(user?.lon);
@@ -1281,6 +1283,31 @@ export default function HoleMapScreen({ navigation, route }) {
         </Pressable>
       </View>
 
+      <View style={[styles.topChipRowWrap, { top: insets.top + 74 }]}>
+        <View style={styles.topChipRow}>
+          <Pressable
+            onPress={recenter}
+            style={({ pressed }) => [styles.gpsChipTop, pressed && styles.pressed]}
+          >
+            <View style={styles.gpsDot} />
+            <Text style={styles.gpsChipT}>GPS Re-center</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => setPlannerOn((v) => !v)}
+            style={({ pressed }) => [
+              styles.plannerChipTop,
+              pressed && styles.pressed,
+              !plannerOn && styles.plannerChipTopOff,
+            ]}
+          >
+            <Text style={styles.plannerChipT}>
+              {plannerOn ? "Planner On" : "Planner Off"}
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+
       {/* GPS chip moved to bottom stack (below yardage panel) */}
 
       <View style={[styles.bottomWrap, { paddingBottom: insets.bottom + 40 }]}>
@@ -1317,11 +1344,7 @@ export default function HoleMapScreen({ navigation, route }) {
           ) : null}
         </Animated.View>
 
-        <Pressable onPress={recenter} style={({ pressed }) => [styles.gpsChipBottom, pressed && styles.pressed]}>
-          <View style={styles.gpsDot} />
-          <Text style={styles.gpsChipT}>GPS Active</Text>
-          <Text style={styles.gpsChipS}>Tap to re-center</Text>
-        </Pressable>
+        {/* bottom GPS chip removed (now in top chip row) */}
 
         <Pressable
           onPress={goToHoleHub}
@@ -1616,6 +1639,62 @@ const styles = StyleSheet.create({
   },
   setupBtnT: { color: "#fff", fontWeight: "900" },
 
+  topChipRowWrap: {
+    position: "absolute",
+    left: 14,
+    right: 14,
+    zIndex: 60,
+    elevation: 60,
+  },
+
+  topChipRow: {
+    width: "92%",
+    alignSelf: "center",
+    flexDirection: "row",
+    gap: 10,
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  gpsChipTop: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 999,
+    backgroundColor: "rgba(0,0,0,0.42)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.16)",
+  },
+
+  plannerChipTop: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.14)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+  },
+
+  plannerChipTopOff: {
+    backgroundColor: "rgba(0,0,0,0.40)",
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+
+  plannerChipT: {
+    color: "#fff",
+    fontWeight: "900",
+    fontSize: 12,
+    letterSpacing: 0.3,
+  },
+
   yardPanel: {
     alignSelf: "center",
     borderRadius: 18,
@@ -1713,7 +1792,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.95)",
   },
   gpsChipT: { color: "#fff", fontWeight: "900" },
-  gpsChipS: { color: "rgba(255,255,255,0.78)", fontWeight: "800" },
+  gpsChipS: { color: "rgba(255,255,255,0.78)", fontWeight: "800", fontSize: 11 },
 
   bottomWrap: {
     position: "absolute",
