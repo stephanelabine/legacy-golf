@@ -20,7 +20,12 @@ function safeStr(x, fallback = "") {
 }
 
 function safePlayerId(p, fallback) {
-  return String(p?.uid || p?.id || p?._id || p?.playerId || fallback || "");
+  // For normal rounds, our canonical "me" id is literally "me"
+  if (String(p?.id || "") === "me") return "me";
+  if (String(p?.source || "") === "me") return "me";
+
+  // Prefer explicit id over uid so score lookups match holes[n].players[pid]
+  return String(p?.id || p?.uid || p?._id || p?.playerId || fallback || "");
 }
 
 function safePlayerName(p) {
@@ -443,15 +448,23 @@ export default function ScorecardScreen({ navigation, route }) {
       })
       .filter((p) => !!p._pid);
 
-    // Ensure logged-in user row exists (but do not invent extra “Player” rows).
+    // Ensure logged-in user row exists, using canonical id "me" for normal rounds
     if (meUid) {
-      const hasMe = rows.some((r) => String(r._pid) === String(meUid));
+      const hasMe = rows.some(
+        (r) =>
+          String(r?._pid) === "me" ||
+          String(r?.id || "") === "me" ||
+          String(r?.source || "") === "me" ||
+          String(r?._pid) === String(meUid)
+      );
+
       if (!hasMe) {
         const meName =
           String(auth?.currentUser?.displayName || "").trim() ||
           String(auth?.currentUser?.email || "").trim() ||
           "Me";
-        rows.unshift({ uid: meUid, id: meUid, _pid: meUid, _name: meName });
+
+        rows.unshift({ uid: meUid, id: "me", source: "me", _pid: "me", _name: meName });
       }
     }
 

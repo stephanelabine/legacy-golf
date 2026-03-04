@@ -1,5 +1,5 @@
 // src/screens/HomeScreen.js
-import React, { useMemo, useRef, useEffect, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import {
   SafeAreaView,
   View,
@@ -15,11 +15,10 @@ import {
   KeyboardAvoidingView,
   TouchableWithoutFeedback,
   Keyboard,
-  Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import Svg, { Circle, Path } from "react-native-svg";
+import Svg, { Path } from "react-native-svg";
 
 import ROUTES from "../navigation/routes";
 import { useTheme } from "../theme/ThemeProvider";
@@ -33,16 +32,13 @@ function safeOverlayColor(input, isDark) {
   const raw = typeof input === "string" ? input.trim() : "";
   if (!raw) return fallback;
 
-  // If theme accidentally gives a solid color, force an alpha overlay instead.
   if (raw === "#000" || raw === "#000000" || raw.toLowerCase() === "black") return fallback;
 
-  // If it's rgb(...) (no alpha), convert to rgba with a safe alpha.
   if (/^rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)$/i.test(raw)) {
     const inner = raw.slice(raw.indexOf("(") + 1, raw.lastIndexOf(")"));
     return `rgba(${inner},${isDark ? "0.45" : "0.25"})`;
   }
 
-  // If it's rgba(...), clamp alpha so it can’t hit full opacity.
   const m = raw.match(/^rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([0-9.]+)\s*\)$/i);
   if (m) {
     const r = m[1];
@@ -53,7 +49,6 @@ function safeOverlayColor(input, isDark) {
     return `rgba(${r},${g},${b},${safeA})`;
   }
 
-  // Otherwise trust it.
   return raw;
 }
 
@@ -126,9 +121,7 @@ export default function HomeScreen({ navigation }) {
 
   function goJoinStep() {
     setRoundSheetStep("join");
-    requestAnimationFrame(() => {
-      // focus will be manual by tap; keep it simple/stable
-    });
+    requestAnimationFrame(() => { });
   }
 
   function doJoinRound() {
@@ -142,6 +135,7 @@ export default function HomeScreen({ navigation }) {
       joinCode: code,
     });
   }
+
   const sheetY = sheetAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [SHEET_H + 40, 0],
@@ -181,9 +175,7 @@ export default function HomeScreen({ navigation }) {
               style={({ pressed }) => [
                 styles.btn,
                 styles.btnPrimary,
-                {
-                  backgroundColor: isDark ? "rgba(255,255,255,0.92)" : "rgba(10,15,26,0.92)",
-                },
+                { backgroundColor: isDark ? "rgba(255,255,255,0.92)" : "rgba(10,15,26,0.92)" },
                 pressed && styles.pressed,
               ]}
             >
@@ -216,7 +208,6 @@ export default function HomeScreen({ navigation }) {
                       const cx = gridBox.w / 2;
                       const cy = gridBox.h / 2;
 
-                      // notch radius (slightly larger than ring radius to create a clean gap)
                       const notchR = RING_RADIUS + 10;
 
                       function clamp(n, min, max) {
@@ -252,23 +243,18 @@ export default function HomeScreen({ navigation }) {
                       const y1B = yB;
                       const y2B = yB + cardH;
 
-                      // TL notch at bottom-right (edges: right=x2L, bottom=y2T)
                       const tl_yOnRight = intersectV(x2L, true);
                       const tl_xOnBottom = intersectH(y2T, true);
 
-                      // TR notch at bottom-left (edges: left=x1R, bottom=y2T)
                       const tr_yOnLeft = intersectV(x1R, true);
                       const tr_xOnBottom = intersectH(y2T, false);
 
-                      // BL notch at top-right (edges: right=x2L, top=y1B)
                       const bl_yOnRight = intersectV(x2L, false);
                       const bl_xOnTop = intersectH(y1B, true);
 
-                      // BR notch at top-left (edges: left=x1R, top=y1B)
                       const br_yOnLeft = intersectV(x1R, false);
                       const br_xOnTop = intersectH(y1B, false);
 
-                      // fallbacks
                       const TLrY = tl_yOnRight ?? y2T - rx;
                       const TLbX = tl_xOnBottom ?? x2L - rx;
 
@@ -281,7 +267,6 @@ export default function HomeScreen({ navigation }) {
                       const BRlY = br_yOnLeft ?? y1B + rx;
                       const BRtX = br_xOnTop ?? x1R + rx;
 
-                      // clamp points
                       const tl_rightY = clamp(TLrY, y1T + rx, y2T - rx);
                       const tl_bottomX = clamp(TLbX, x1L + rx, x2L - rx);
 
@@ -374,10 +359,7 @@ export default function HomeScreen({ navigation }) {
                   <Text style={[styles.gridTitle, { color: theme.text }]}>Player Profile</Text>
                 </Pressable>
 
-                <Pressable
-                  onPress={() => navigation.navigate(ROUTES.PLAYER_STATS)}
-                  style={({ pressed }) => [styles.gridCard, pressed && styles.pressedCard]}
-                >
+                <Pressable onPress={() => navigation.navigate(ROUTES.PLAYER_STATS)} style={({ pressed }) => [styles.gridCard, pressed && styles.pressedCard]}>
                   <View style={[styles.gridIconWrap, styles.iconTopRight]}>
                     <MaterialCommunityIcons name="chart-line" size={16} color={isDark ? "#fff" : "#0A0F1A"} />
                   </View>
@@ -386,20 +368,14 @@ export default function HomeScreen({ navigation }) {
               </View>
 
               <View style={styles.gridRow}>
-                <Pressable
-                  onPress={() => navigation.navigate(ROUTES.HISTORY)}
-                  style={({ pressed }) => [styles.gridCard, pressed && styles.pressedCard]}
-                >
+                <Pressable onPress={() => navigation.navigate(ROUTES.HISTORY)} style={({ pressed }) => [styles.gridCard, pressed && styles.pressedCard]}>
                   <View style={[styles.gridIconWrap, styles.iconBottomLeft]}>
                     <MaterialCommunityIcons name="history" size={22} color={isDark ? "#fff" : "#0A0F1A"} />
                   </View>
                   <Text style={[styles.gridTitle, { color: theme.text }]}>Round History</Text>
                 </Pressable>
 
-                <Pressable
-                  onPress={() => navigation.navigate(ROUTES.BUDDIES)}
-                  style={({ pressed }) => [styles.gridCard, pressed && styles.pressedCard]}
-                >
+                <Pressable onPress={() => navigation.navigate(ROUTES.BUDDIES)} style={({ pressed }) => [styles.gridCard, pressed && styles.pressedCard]}>
                   <View style={[styles.gridIconWrap, styles.iconBottomRight]}>
                     <MaterialCommunityIcons name="account-multiple" size={16} color={isDark ? "#fff" : "#0A0F1A"} />
                   </View>
@@ -560,12 +536,7 @@ export default function HomeScreen({ navigation }) {
                         autoCorrect={false}
                         placeholder="CODE"
                         placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.35)"}
-                        style={[
-                          styles.codeInput,
-                          {
-                            color: theme.text,
-                          },
-                        ]}
+                        style={[styles.codeInput, { color: theme.text }]}
                         maxLength={8}
                         returnKeyType="done"
                         onSubmitEditing={doJoinRound}
@@ -582,9 +553,7 @@ export default function HomeScreen({ navigation }) {
                             ? isDark
                               ? "rgba(255,255,255,0.18)"
                               : "rgba(10,15,26,0.18)"
-                            : isDark
-                              ? "rgba(242,201,76,0.22)"
-                              : "rgba(242,201,76,0.22)",
+                            : "rgba(242,201,76,0.22)",
                           borderColor: isDark ? "rgba(255,255,255,0.16)" : "rgba(0,0,0,0.12)",
                           opacity: joinDisabled ? 0.6 : 1,
                         },
@@ -653,21 +622,9 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.08)",
   },
 
-  iconTopRight: {
-    left: undefined,
-    right: 8,
-  },
-  iconBottomLeft: {
-    top: undefined,
-    bottom: 8,
-    left: 8,
-  },
-  iconBottomRight: {
-    top: undefined,
-    bottom: 8,
-    left: undefined,
-    right: 8,
-  },
+  iconTopRight: { left: undefined, right: 8 },
+  iconBottomLeft: { top: undefined, bottom: 8, left: 8 },
+  iconBottomRight: { top: undefined, bottom: 8, left: undefined, right: 8 },
 
   gridTitle: {
     fontFamily: "Cinzel",
@@ -774,22 +731,12 @@ const styles = StyleSheet.create({
     opacity: Platform.OS === "ios" ? 0.85 : 0.9,
     transform: [{ scale: 0.99 }],
   },
-  pressedRow: {
-    opacity: Platform.OS === "ios" ? 0.86 : 0.9,
-  },
-  pressedTiny: {
-    opacity: Platform.OS === "ios" ? 0.9 : 0.92,
-  },
+  pressedRow: { opacity: Platform.OS === "ios" ? 0.86 : 0.9 },
+  pressedTiny: { opacity: Platform.OS === "ios" ? 0.9 : 0.92 },
 
   // Sheet
-  sheetBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.55)",
-  },
-  sheetKAV: {
-    flex: 1,
-    justifyContent: "flex-end",
-  },
+  sheetBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.55)" },
+  sheetKAV: { flex: 1, justifyContent: "flex-end" },
   sheetWrap: {
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,
@@ -831,58 +778,14 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 10,
   },
-  sheetBigLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  sheetIconPill: {
-    width: 38,
-    height: 38,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-  },
-  sheetBigText: {
-    fontFamily: "Cinzel",
-    fontSize: 14,
-    fontWeight: "700",
-    letterSpacing: 0.4,
-  },
-  sheetBigHelp: {
-    fontFamily: "Cinzel",
-    fontSize: 11,
-    fontWeight: "600",
-    letterSpacing: 0.4,
-    opacity: 0.85,
-  },
-  sheetCancel: {
-    height: 44,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 2,
-    marginBottom: 8,
-  },
-  sheetCancelText: {
-    fontFamily: "Cinzel",
-    fontSize: 13,
-    fontWeight: "700",
-    letterSpacing: 0.6,
-    opacity: 0.9,
-  },
-  sheetTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  sheetBack: {
-    width: 34,
-    height: 34,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  sheetBigLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
+  sheetIconPill: { width: 38, height: 38, borderRadius: 14, alignItems: "center", justifyContent: "center", borderWidth: 1 },
+  sheetBigText: { fontFamily: "Cinzel", fontSize: 14, fontWeight: "700", letterSpacing: 0.4 },
+  sheetBigHelp: { fontFamily: "Cinzel", fontSize: 11, fontWeight: "600", letterSpacing: 0.4, opacity: 0.85 },
+  sheetCancel: { height: 44, alignItems: "center", justifyContent: "center", marginTop: 2, marginBottom: 8 },
+  sheetCancelText: { fontFamily: "Cinzel", fontSize: 13, fontWeight: "700", letterSpacing: 0.6, opacity: 0.9 },
+  sheetTopRow: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
+  sheetBack: { width: 34, height: 34, borderRadius: 14, alignItems: "center", justifyContent: "center" },
 
   codeBox: {
     height: 62,

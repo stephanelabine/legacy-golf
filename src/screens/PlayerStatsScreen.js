@@ -3,6 +3,7 @@ import React, { useCallback, useMemo, useState } from "react";
 import { SafeAreaView, View, Text, StyleSheet, ScrollView, Pressable, Keyboard } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 
+import { auth } from "../firebase/firebase";
 import { getRounds } from "../storage/rounds";
 
 const BG = "#0B1220";
@@ -63,6 +64,51 @@ function fmtPct(a, b) {
     return `${pct}%`;
 }
 
+function toMs(x) {
+    if (!x) return 0;
+    try {
+        // Firestore Timestamp support
+        if (typeof x?.toDate === "function") return x.toDate().getTime();
+        if (typeof x?.seconds === "number") return x.seconds * 1000;
+    } catch { }
+    const d = new Date(x);
+    const ms = d.getTime();
+    return Number.isFinite(ms) ? ms : 0;
+}
+
+function findMyPlayerId(rounds) {
+    const uid = String(auth?.currentUser?.uid || "").trim();
+
+    // Prefer explicit "source: me"
+    for (const r of (Array.isArray(rounds) ? rounds : [])) {
+        const ps = Array.isArray(r?.players) ? r.players : [];
+        const hit = ps.find((p) => String(p?.source || "").toLowerCase() === "me");
+        if (hit?.id) return String(hit.id);
+        if (uid && String(hit?.uid || "") === uid) return String(hit.id || hit.uid);
+    }
+
+    // Prefer matching uid
+    if (uid) {
+        for (const r of (Array.isArray(rounds) ? rounds : [])) {
+            const ps = Array.isArray(r?.players) ? r.players : [];
+            const hit = ps.find((p) => String(p?.uid || "") === uid);
+            if (hit?.id) return String(hit.id);
+        }
+    }
+
+    // Prefer id === "me"
+    for (const r of (Array.isArray(rounds) ? rounds : [])) {
+        const ps = Array.isArray(r?.players) ? r.players : [];
+        const hit = ps.find((p) => String(p?.id || "").toLowerCase() === "me");
+        if (hit?.id) return String(hit.id);
+    }
+
+    // Fallback: first player of first round
+    const first = (Array.isArray(rounds) ? rounds : [])[0];
+    const p0 = Array.isArray(first?.players) ? first.players[0] : null;
+    return String(p0?.id || "me");
+}
+
 export default function PlayerStatsScreen({ navigation }) {
     const [rounds, setRounds] = useState([]);
 
@@ -80,16 +126,22 @@ export default function PlayerStatsScreen({ navigation }) {
         }, [])
     );
 
-    const myPlayerId = useMemo(() => {
-        const first = rounds?.[0];
-        const p0 = Array.isArray(first?.players) ? first.players[0] : null;
-        return String(p0?.id || "p1");
+    const sortedRounds = useMemo(() => {
+        const list = Array.isArray(rounds) ? [...rounds] : [];
+        list.sort((a, b) => {
+            const ta = toMs(a?.playedAt || a?.date || a?.updatedAt || a?.createdAt);
+            const tb = toMs(b?.playedAt || b?.date || b?.updatedAt || b?.createdAt);
+            return tb - ta;
+        });
+        return list;
     }, [rounds]);
 
+    const myPlayerId = useMemo(() => findMyPlayerId(sortedRounds), [sortedRounds]);
+
     const completedRounds = useMemo(() => {
-        const list = Array.isArray(rounds) ? rounds : [];
-        return list.filter((r) => String(r?.status || "") === "completed");
-    }, [rounds]);
+        const list = Array.isArray(sortedRounds) ? sortedRounds : [];
+        return list.filter((r) => String(r?.status || "").toLowerCase() === "completed");
+    }, [sortedRounds]);
 
     const aggregates = useMemo(() => {
         const list = completedRounds;
@@ -125,8 +177,11 @@ export default function PlayerStatsScreen({ navigation }) {
             }
 
             for (let h = 1; h <= 18; h++) {
-                const putts = toInt(readField(r, h, myPlayerId, "putts"));
-                if (putts > 0) {
+                // Putts: count only if the field exists and is numeric (supports "0" if saved)
+                const rawPutts = readField(r, h, myPlayerId, "putts");
+                const hasPutts = rawPutts !== null && rawPutts !== undefined && String(rawPutts).length > 0;
+                const putts = toInt(rawPutts);
+                if (hasPutts && putts >= 0) {
                     puttsHoles += 1;
                     puttsTotal += putts;
                 }
@@ -177,10 +232,10 @@ export default function PlayerStatsScreen({ navigation }) {
             const courseName = String(r?.courseName || r?.course?.name || "Course");
             const teeName = String(r?.teeName || r?.tee?.name || "Tees");
             const when = r?.playedAt || r?.date || r?.createdAt || r?.updatedAt || null;
-            const dateLabel = when ? new Date(when).toLocaleDateString() : "";
+            const dateLabel = when ? new Date(toMs(when)).toLocaleDateString() : "";
             const total = sumTotal(r, myPlayerId);
             return {
-                id: String(r?.id || ""),
+                id: String(r?.id || r?.roundId || ""),
                 courseName,
                 teeName,
                 dateLabel,
@@ -199,11 +254,7 @@ export default function PlayerStatsScreen({ navigation }) {
                 <View style={styles.topGlowB} pointerEvents="none" />
 
                 <View style={styles.topRow}>
-                    <Pressable
-                        onPress={() => navigation.goBack?.()}
-                        hitSlop={12}
-                        style={({ pressed }) => [styles.headerPill, pressed && styles.pressed]}
-                    >
+                    <Pressable onPress={() => navigation.goBack?.()} hitSlop={12} style={({ pressed }) => [styles.headerPill, pressed && styles.pressed]}>
                         <Text style={styles.headerPillText}>Back</Text>
                     </Pressable>
 
@@ -221,9 +272,7 @@ export default function PlayerStatsScreen({ navigation }) {
                     <View style={styles.goldRing}>
                         <View style={styles.card}>
                             <Text style={styles.cardTitle}>No completed rounds yet</Text>
-                            <Text style={styles.cardSub}>
-                                Finish a round to start building your stats. This first version reads from Round History on this device.
-                            </Text>
+                            <Text style={styles.cardSub}>Finish a round to start building your stats. This first version reads from Round History on this device.</Text>
 
                             <Pressable onPress={() => navigation.goBack()} style={({ pressed }) => [styles.cta, pressed && styles.pressed]}>
                                 <Text style={styles.ctaText}>Back</Text>

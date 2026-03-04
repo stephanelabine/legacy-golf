@@ -107,7 +107,7 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
   const greenRectRef = useRef({ x: 0, y: 0, w: 0, h: 0 });
   const hasRectRef = useRef(false);
 
-  const GreenShape = useMemo(() => require("../../assets/GreenShape3.png"), []);
+  const GreenShape = useMemo(() => require("../../assets/GreenShape3.jpg"), []);
 
   const greenInfo = useMemo(() => {
     return params?.greenInfo || "Green notes can be added later (optional).";
