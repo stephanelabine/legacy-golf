@@ -19,7 +19,9 @@ import {
 import { WebView } from "react-native-webview";
 import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { CommonActions } from "@react-navigation/native";
 
+import ROUTES from "../navigation/routes";
 import { MAPBOX_TOKEN } from "../config/mapbox";
 import { loadCourseData, saveCourseData } from "../storage/courseData";
 import { isAdmin as isAdminUser } from "../storage/courseDataRemote";
@@ -343,6 +345,19 @@ function all18Complete(courseData) {
 }
 
 export default function HoleMapScreen({ navigation, route }) {
+  const params = route?.params || {};
+
+  const goToHoleHub = () => {
+    // Never allow backing into setup screens (Formats/Add Players/etc.)
+    // Always return to Hole Hub as the root of the current session.
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 0,
+        routes: [{ name: ROUTES.HOLE_HUB, params }],
+      })
+    );
+  };
+
   const insets = useSafeAreaInsets();
   const web = useRef(null);
 
@@ -371,7 +386,6 @@ export default function HoleMapScreen({ navigation, route }) {
 
   const didInitialFrameRef = useRef(false);
 
-  const params = route?.params || {};
   const course = params.course || null;
   const teeObj = params.tee || null;
   const holeMetaParam = params.holeMeta || null;
@@ -1061,7 +1075,7 @@ export default function HoleMapScreen({ navigation, route }) {
       </View>
 
       <View style={[styles.top, { top: insets.top + 10 }]}>
-        <Pressable onPress={() => navigation.goBack()} style={styles.topBtn}>
+        <Pressable onPress={goToHoleHub} style={styles.topBtn}>
           <Text style={styles.topBtnT}>Back</Text>
         </Pressable>
 
@@ -1124,7 +1138,7 @@ export default function HoleMapScreen({ navigation, route }) {
         </Pressable>
 
         <Pressable
-          onPress={() => navigation.goBack()}
+          onPress={goToHoleHub}
           style={({ pressed }) => [styles.backHubBtn, pressed && styles.pressed]}
         >
           <Text style={styles.backHubBtnT}>Back to Hole Hub</Text>
