@@ -100,16 +100,38 @@ function buildHtml(initialCenter) {
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
   <style>
     html,body,#map{margin:0;padding:0;height:100%;background:#000}
+
     .dot{width:12px;height:12px;border-radius:999px;background:#2E86FF;border:2px solid #fff;box-shadow:0 8px 20px rgba(0,0,0,.35)}
-    .pin{width:10px;height:10px;border-radius:999px;background:#fff;border:2px solid #000;box-shadow:0 8px 20px rgba(0,0,0,.35)}
-    .tee{width:11px;height:11px;border-radius:999px;background:#fff;border:2px solid rgba(0,0,0,.85);box-shadow:0 8px 20px rgba(0,0,0,.35)}
-    .fw{width:11px;height:11px;border-radius:3px;background:#FFD54A;border:2px solid rgba(0,0,0,.85);box-shadow:0 8px 20px rgba(0,0,0,.35)}
-    .haz{width:11px;height:11px;border-radius:2px;border:2px solid rgba(0,0,0,.85);box-shadow:0 8px 20px rgba(0,0,0,.35)}
-    .hazWater{background:#2E7DFF}
-    .hazBunker{background:#E7CBA1}
-    .hazOB{background:#FF4D4D}
+
+    /* Planner target */
+    .tgtWrap{width:30px;height:30px;display:flex;align-items:center;justify-content:center}
+    .tgtRing{width:22px;height:22px;border-radius:999px;border:2px solid rgba(255,255,255,0.95);background:rgba(255,255,255,0.12);box-shadow:0 10px 22px rgba(0,0,0,.38)}
+    .tgtCore{position:absolute;width:9px;height:9px;border-radius:999px;background:#fff;box-shadow:0 8px 18px rgba(0,0,0,.35)}
+
+    /* Floating distance labels */
+    .distLbl{
+      position:absolute;
+      padding:6px 10px;
+      border-radius:999px;
+      background:rgba(0,0,0,0.62);
+      border:1px solid rgba(255,255,255,0.16);
+      color:#fff;
+      font-weight:900;
+      font-size:12px;
+      letter-spacing:.6px;
+      transform:translate(-50%,-50%);
+      white-space:nowrap;
+      pointer-events:none;
+      box-shadow:0 10px 22px rgba(0,0,0,.35);
+    }
+    #lbl1,#lbl2{display:none}
   </style>
-  </head><body><div id="map"></div>
+  </head>
+  <body>
+    <div id="map"></div>
+    <div id="lbl1" class="distLbl"></div>
+    <div id="lbl2" class="distLbl"></div>
+
   <script>
     mapboxgl.accessToken="${MAPBOX_TOKEN}";
     const map = new mapboxgl.Map({
@@ -119,16 +141,174 @@ function buildHtml(initialCenter) {
       zoom:17
     });
 
-    let u=null, tee=null, f=null, m=null, b=null, fw=null;
-    let hazMarkers=[];
+    let u=null;
     const mk=(c)=>{const e=document.createElement("div");e.className=c;return e};
+
+    // Planner state
+    let plannerOn = true;
+    let tgt = null;          // {lon,lat}
+    let greenMid = null;     // {lon,lat}
+    let userPt = null;       // {lon,lat}
+    let tgtMarker = null;
+
+    const lbl1 = document.getElementById("lbl1");
+    const lbl2 = document.getElementById("lbl2");
+
+    function toRad(v){ return (v*Math.PI)/180; }
+    function haversineM(a,b){
+      if(!a||!b) return NaN;
+      if(!isFinite(a.lon)||!isFinite(a.lat)||!isFinite(b.lon)||!isFinite(b.lat)) return NaN;
+      const R=6371000;
+      const dLat=toRad(b.lat-a.lat);
+      const dLon=toRad(b.lon-a.lon);
+      const s1=Math.sin(dLat/2);
+      const s2=Math.sin(dLon/2);
+      const x=s1*s1+Math.cos(toRad(a.lat))*Math.cos(toRad(b.lat))*s2*s2;
+      return 2*R*Math.asin(Math.sqrt(x));
+    }
+    function yds(m){
+      if(!isFinite(m)) return "—";
+      return String(Math.round(m*1.09361));
+    }
+
+    function ensurePlannerLayers(){
+      if(map.getSource("lg_planner_line")) return;
+
+      map.addSource("lg_planner_line", {
+        type: "geojson",
+        data: { type:"FeatureCollection", features: [] }
+      });
+
+      map.addLayer({
+        id: "lg_planner_line_layer",
+        type: "line",
+        source: "lg_planner_line",
+        paint: {
+          "line-color": "#FFFFFF",
+          "line-width": 3.0,
+          "line-opacity": 0.95
+        }
+      });
+
+      map.addLayer({
+        id: "lg_planner_line_layer_glow",
+        type: "line",
+        source: "lg_planner_line",
+        paint: {
+          "line-color": "#000000",
+          "line-width": 5.5,
+          "line-opacity": 0.35
+        }
+      }, "lg_planner_line_layer");
+    }
+
+    function setPlannerLine(a,b,c){
+      if(!map.getSource("lg_planner_line")) return;
+
+      const feats = [];
+      if(a && b){
+        feats.push({
+          type:"Feature",
+          geometry:{ type:"LineString", coordinates:[[a.lon,a.lat],[b.lon,b.lat]] },
+          properties:{ seg:"ab" }
+        });
+      }
+      if(b && c){
+        feats.push({
+          type:"Feature",
+          geometry:{ type:"LineString", coordinates:[[b.lon,b.lat],[c.lon,c.lat]] },
+          properties:{ seg:"bc" }
+        });
+      }
+
+      map.getSource("lg_planner_line").setData({
+        type:"FeatureCollection",
+        features: feats
+      });
+    }
+
+    function showLabels(show){
+      lbl1.style.display = show ? "block" : "none";
+      lbl2.style.display = show ? "block" : "none";
+    }
+
+    function posLabel(el, a, b){
+      if(!a || !b) return;
+      const mid = { lon:(a.lon+b.lon)/2, lat:(a.lat+b.lat)/2 };
+      const p = map.project([mid.lon, mid.lat]);
+      el.style.left = p.x + "px";
+      el.style.top  = p.y + "px";
+    }
+
+    function updatePlannerUI(){
+      const ok = plannerOn && userPt && tgt && greenMid;
+      showLabels(!!ok);
+      if(!ok){
+        setPlannerLine(null,null,null);
+        return;
+      }
+
+      setPlannerLine(userPt, tgt, greenMid);
+
+      const d1 = haversineM(userPt, tgt);
+      const d2 = haversineM(tgt, greenMid);
+
+      lbl1.textContent = yds(d1) + " YDS";
+      lbl2.textContent = yds(d2) + " YDS";
+
+      posLabel(lbl1, userPt, tgt);
+      posLabel(lbl2, tgt, greenMid);
+    }
+
+    function ensureTargetMarker(){
+      if(tgtMarker) return;
+
+      const wrap = document.createElement("div");
+      wrap.className = "tgtWrap";
+      const ring = document.createElement("div");
+      ring.className = "tgtRing";
+      const core = document.createElement("div");
+      core.className = "tgtCore";
+      wrap.appendChild(ring);
+      wrap.appendChild(core);
+
+      tgtMarker = new mapboxgl.Marker({ element: wrap, draggable: true })
+        .setLngLat([tgt.lon, tgt.lat])
+        .addTo(map);
+
+      tgtMarker.on("drag", () => {
+        const ll = tgtMarker.getLngLat();
+        tgt = { lon: ll.lng, lat: ll.lat };
+        updatePlannerUI();
+      });
+    }
+
+    function setTarget(lon, lat){
+      if(!isFinite(lon) || !isFinite(lat)) return;
+      tgt = { lon, lat };
+      if(!plannerOn) return;
+
+      ensureTargetMarker();
+      tgtMarker.setLngLat([lon,lat]);
+      updatePlannerUI();
+    }
+
+    map.on("move", () => {
+      // keep floating labels aligned while panning/zooming/rotating
+      if(plannerOn) updatePlannerUI();
+    });
+
+    map.on("click", (e) => {
+      if(!plannerOn) return;
+      if(!e || !e.lngLat) return;
+      setTarget(e.lngLat.lng, e.lngLat.lat);
+    });
 
     let lastKey = "";
     let lastHolePoseKey = "";
 
     function keyFrom(d){
       const p = (x)=>x && isFinite(x.lon) && isFinite(x.lat) ? (x.lon.toFixed(6)+","+x.lat.toFixed(6)) : "";
-      const hz = Array.isArray(d.hazards) ? String(d.hazards.length) : "0";
       return [
         p(d.user),
         p(d.center),
@@ -137,7 +317,7 @@ function buildHtml(initialCenter) {
         p(d.green?.front),
         p(d.green?.middle),
         p(d.green?.back),
-        hz
+        (d.planner && d.planner.on===false) ? "off" : "on"
       ].join("|");
     }
 
@@ -160,7 +340,7 @@ function buildHtml(initialCenter) {
       const Δλ = (b.lon - a.lon) * Math.PI/180;
       const y = Math.sin(Δλ) * Math.cos(φ2);
       const x = Math.cos(φ1)*Math.sin(φ2) - Math.sin(φ1)*Math.cos(φ2)*Math.cos(Δλ);
-      let θ = Math.atan2(y,x) * 180/Math.PI; // from north, clockwise
+      let θ = Math.atan2(y,x) * 180/Math.PI;
       if(!isFinite(θ)) return null;
       θ = (θ + 360) % 360;
       return θ;
@@ -168,25 +348,21 @@ function buildHtml(initialCenter) {
 
     function frameHole(teeP, greenAim, points, bearing){
       const valid = (points || []).filter(p => p && isFinite(p.lon) && isFinite(p.lat));
-      const offset = [0, 60]; // no left/right bias; only slight down-bias so green trends higher
+      const offset = [0, 60];
 
-      // If we have tee + green, prefer midpoint framing with a controlled zoom (tighter + centered)
       if(teeP && greenAim && isFinite(teeP.lon) && isFinite(teeP.lat) && isFinite(greenAim.lon) && isFinite(greenAim.lat)){
         const midLon = (teeP.lon + greenAim.lon) / 2;
         const midLat = (teeP.lat + greenAim.lat) / 2;
 
-        // rough distance in meters (good enough for zoom selection)
         const dx = (greenAim.lon - teeP.lon) * 111320 * Math.cos(((teeP.lat + greenAim.lat)/2) * Math.PI/180);
         const dy = (greenAim.lat - teeP.lat) * 110540;
         const distM = Math.sqrt(dx*dx + dy*dy);
 
-        // dynamic zoom: open wider by default so the whole hole is visible on first open
         let z = 17.05;
         if(distM > 420) z = 16.45;
         else if(distM > 320) z = 16.65;
         else if(distM > 220) z = 16.85;
 
-        // clamp (slightly tighter)
         z = Math.max(16.2, Math.min(17.4, z));
 
         const opts = { center:[midLon, midLat], zoom:z, duration:520, offset };
@@ -195,9 +371,7 @@ function buildHtml(initialCenter) {
         return;
       }
 
-      // Fallback: fit bounds (smaller padding so we don’t zoom out too much)
       if(valid.length === 1){
-        // When only one hole point exists (ex: only tee), open wider so user can see context
         const opts = { center:[valid[0].lon, valid[0].lat], zoom:16.6, duration:450, offset };
         if(isFinite(bearing)) opts.bearing = bearing;
         map.easeTo(opts);
@@ -219,22 +393,48 @@ function buildHtml(initialCenter) {
       }
     }
 
-    function clearHaz(){
-      try{
-        hazMarkers.forEach(m=>m.remove());
-      }catch(_){}
-      hazMarkers=[];
-    }
-
     function applyPayload(d){
+      // Blue dot
       if(d.user){
+        userPt = { lon:d.user.lon, lat:d.user.lat };
         u ? u.setLngLat([d.user.lon,d.user.lat])
           : u=new mapboxgl.Marker({element:mk("dot")}).setLngLat([d.user.lon,d.user.lat]).addTo(map);
       }
 
-      // Public UI: hide all course/debug markers (tee, fairway, green pins, hazards).
-      // Keep only the user (blue) dot visible.
-      if (hazMarkers.length) clearHaz();
+      // Planner settings + green endpoint
+      if(d.planner && typeof d.planner === "object"){
+        plannerOn = d.planner.on !== false;
+      } else {
+        plannerOn = true;
+      }
+
+      // Green MID endpoint for planner
+      if(d.green && d.green.middle && isFinite(d.green.middle.lon) && isFinite(d.green.middle.lat)){
+        greenMid = { lon:d.green.middle.lon, lat:d.green.middle.lat };
+      }
+
+      // Initialize planner target from fairway dot (only when provided)
+      if(d.planner && d.planner.initTarget && isFinite(d.planner.initTarget.lon) && isFinite(d.planner.initTarget.lat)){
+        setTarget(d.planner.initTarget.lon, d.planner.initTarget.lat);
+      } else {
+        // If we have no target yet, fall back to a midpoint between user and green mid
+        if(!tgt && userPt && greenMid){
+          setTarget((userPt.lon + greenMid.lon)/2, (userPt.lat + greenMid.lat)/2);
+        }
+      }
+
+      if(!plannerOn){
+        if(tgtMarker){ try{ tgtMarker.remove(); }catch(_){ } tgtMarker=null; }
+        tgt = tgt || null;
+        showLabels(false);
+        setPlannerLine(null,null,null);
+      } else {
+        if(tgt && !tgtMarker){
+          ensureTargetMarker();
+          tgtMarker.setLngLat([tgt.lon,tgt.lat]);
+        }
+        updatePlannerUI();
+      }
 
       if(d.cmd === "recenter"){
         const z = map.getZoom();
@@ -254,7 +454,6 @@ function buildHtml(initialCenter) {
       const changed = nextKey !== lastKey;
 
       if(changed && d.fit){
-        // Fit to hole points only (tee -> green), rotate so green is "up", and offset so green sits near top.
         const holePts = [d.tee, d.fairwayMid, d.green?.front, d.green?.middle, d.green?.back].filter(Boolean);
 
         const teeP = d.tee || null;
@@ -262,13 +461,10 @@ function buildHtml(initialCenter) {
         const brg = bearingDeg(teeP, greenAim);
 
         const poseKey = poseKeyFrom(d);
-        const poseChanged = poseKey !== lastHolePoseKey;
 
         if(holePts.length) {
-          // Prefer tee->green midpoint framing for tight/centered open
           frameHole(teeP, greenAim, holePts, brg);
         } else {
-          // Fallback if no hole points exist yet
           frameHole(null, null, [d.center].filter(Boolean), null);
         }
 
@@ -284,6 +480,8 @@ function buildHtml(initialCenter) {
     }
 
     map.on("load",()=>{
+      ensurePlannerLayers();
+
       listen((e)=>{
         let d=null;
         try{ d=JSON.parse(e.data); }catch(_){}
@@ -291,7 +489,6 @@ function buildHtml(initialCenter) {
         applyPayload(d);
       });
 
-      // Tell React Native the map is truly ready to receive messages
       try{
         if(window.ReactNativeWebView){
           window.ReactNativeWebView.postMessage(JSON.stringify({ cmd:"ready" }));
@@ -706,6 +903,16 @@ export default function HoleMapScreen({ navigation, route }) {
           return { type: h.type || "bunker", lat, lon };
         })
         .filter(Boolean),
+
+      // Planner defaults ON. Initialize target to saved fairway midpoint when available.
+      planner: {
+        on: true,
+        initTarget:
+          fairwayMid && Number.isFinite(fairwayMid?.lon) && Number.isFinite(fairwayMid?.lat)
+            ? { lon: fairwayMid.lon, lat: fairwayMid.lat }
+            : null,
+      },
+
       fit,
     };
 
