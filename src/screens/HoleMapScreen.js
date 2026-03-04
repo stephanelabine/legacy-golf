@@ -179,13 +179,13 @@ function buildHtml(initialCenter) {
         const distM = Math.sqrt(dx*dx + dy*dy);
 
         // dynamic zoom: open wider by default so the whole hole is visible on first open
-        let z = 16.85;
-        if(distM > 420) z = 16.25;
-        else if(distM > 320) z = 16.45;
-        else if(distM > 220) z = 16.65;
+        let z = 17.05;
+        if(distM > 420) z = 16.45;
+        else if(distM > 320) z = 16.65;
+        else if(distM > 220) z = 16.85;
 
-        // clamp (wider view range)
-        z = Math.max(16.0, Math.min(17.2, z));
+        // clamp (slightly tighter)
+        z = Math.max(16.2, Math.min(17.4, z));
 
         const opts = { center:[midLon, midLat], zoom:z, duration:520, offset };
         if(isFinite(bearing)) opts.bearing = bearing;
@@ -348,10 +348,22 @@ export default function HoleMapScreen({ navigation, route }) {
 
   const screenW = Dimensions.get("window").width;
 
-  const yardPos = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
-  const yardDockRef = useRef("center"); // "left" | "center" | "right"
+  const yardPos = useRef(new Animated.ValueXY({ x: 0, y: -120 })).current;
+  const yardDockRef = useRef("right"); // "left" | "center" | "right"
 
-  const [yardStacked, setYardStacked] = useState(false);
+  const [yardStacked, setYardStacked] = useState(true);
+
+  // Default position: right-docked + stacked, but still draggable
+  useEffect(() => {
+    const panelHalfW = 60; // stacked width 120
+    const edgePad = 8;
+    const maxX = (screenW / 2) - panelHalfW - edgePad;
+
+    yardDockRef.current = "right";
+    setYardStacked(true);
+    yardPos.setValue({ x: maxX, y: -120 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screenW]);
 
   const didAutoCenterRef = useRef(false);
   const autoCenterWindowStartRef = useRef(0);
@@ -1069,13 +1081,7 @@ export default function HoleMapScreen({ navigation, route }) {
         </Pressable>
       </View>
 
-      <View style={[styles.gpsChipWrap, { top: insets.top + 88 }]}>
-        <Pressable onPress={recenter} style={({ pressed }) => [styles.gpsChip, pressed && styles.pressed]}>
-          <View style={styles.gpsDot} />
-          <Text style={styles.gpsChipT}>GPS Active</Text>
-          <Text style={styles.gpsChipS}>Tap to re-center</Text>
-        </Pressable>
-      </View>
+      {/* GPS chip moved to bottom stack (below yardage panel) */}
 
       <View style={[styles.bottomWrap, { paddingBottom: insets.bottom + 40 }]}>
         <Animated.View
@@ -1110,6 +1116,12 @@ export default function HoleMapScreen({ navigation, route }) {
             <Text style={styles.yHint}>No green points loaded for this course.</Text>
           ) : null}
         </Animated.View>
+
+        <Pressable onPress={recenter} style={({ pressed }) => [styles.gpsChipBottom, pressed && styles.pressed]}>
+          <View style={styles.gpsDot} />
+          <Text style={styles.gpsChipT}>GPS Active</Text>
+          <Text style={styles.gpsChipS}>Tap to re-center</Text>
+        </Pressable>
 
         <Pressable
           onPress={() => navigation.goBack()}
@@ -1349,16 +1361,16 @@ const styles = StyleSheet.create({
   web: { flex: 1 },
 
   backHubBtn: {
-    width: "100%",
+    width: "92%",
     alignSelf: "center",
     paddingVertical: 14,
     borderRadius: 999,
-    backgroundColor: "rgba(46, 204, 113, 0.26)",
+    backgroundColor: "rgba(0,0,0,0.52)",
     borderWidth: 1,
-    borderColor: "rgba(46, 204, 113, 0.55)",
+    borderColor: "rgba(46, 204, 113, 0.35)",
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 12,
+    marginTop: 2,
   },
   backHubBtnT: {
     color: "#fff",
@@ -1477,6 +1489,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(46,125,255,0.30)",
   },
+
+  gpsChipBottom: {
+    width: "92%",
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: "rgba(46,125,255,0.14)",
+    borderWidth: 1,
+    borderColor: "rgba(46,125,255,0.26)",
+  },
   gpsDot: {
     width: 10,
     height: 10,
@@ -1493,7 +1520,7 @@ const styles = StyleSheet.create({
     left: 14,
     right: 14,
     bottom: 0,
-    gap: 10,
+    gap: 8,
     zIndex: 50,
     elevation: 50,
   },
