@@ -57,98 +57,11 @@ function safeOverlayColor(input, isDark) {
   return raw;
 }
 
-function ThemeToggle({ mode, setMode, theme }) {
-  const W = 140;
-  const H = 30;
-  const PAD = 3;
-  const KNOB = H - PAD * 2;
-  const travel = W - PAD * 2 - KNOB;
-
-  const anim = useRef(new Animated.Value(mode === "dark" ? 1 : 0)).current;
-
-  useEffect(() => {
-    Animated.timing(anim, {
-      toValue: mode === "dark" ? 1 : 0,
-      duration: 170,
-      useNativeDriver: true,
-    }).start();
-  }, [mode, anim]);
-
-  const knobX = anim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, travel],
-  });
-
-  function toggle() {
-    setMode(mode === "dark" ? "light" : "dark");
-  }
-
-  const leftLabel = "DARK";
-  const rightLabel = "LIGHT";
-
-  const leftActive = mode === "dark";
-  const rightActive = mode === "light";
-
-  return (
-    <Pressable
-      onPress={toggle}
-      style={({ pressed }) => [
-        styles.toggleWrap,
-        {
-          width: W,
-          height: H,
-          borderColor: theme.heroPillBorder,
-          backgroundColor: theme.heroPillBg,
-        },
-        pressed && styles.pressedTiny,
-      ]}
-    >
-      <Text
-        style={[
-          styles.toggleLabelLeft,
-          {
-            color: leftActive ? theme.heroPillOnText : theme.heroPillOffText,
-            opacity: leftActive ? 1 : 0.55,
-          },
-        ]}
-        numberOfLines={1}
-      >
-        {leftLabel}
-      </Text>
-
-      <Text
-        style={[
-          styles.toggleLabelRight,
-          {
-            color: rightActive ? theme.heroPillOnText : theme.heroPillOffText,
-            opacity: rightActive ? 1 : 0.55,
-          },
-        ]}
-        numberOfLines={1}
-      >
-        {rightLabel}
-      </Text>
-
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          styles.toggleKnob,
-          {
-            width: KNOB,
-            height: KNOB,
-            borderRadius: KNOB / 2,
-            backgroundColor: theme.heroPillOn,
-            transform: [{ translateX: knobX }],
-          },
-        ]}
-      />
-    </Pressable>
-  );
-}
+// Theme toggle removed (app is dark-first and uses OS scheme styling only)
 
 export default function HomeScreen({ navigation }) {
   const insets = useSafeAreaInsets();
-  const { mode, scheme, theme, setMode } = useTheme();
+  const { scheme, theme } = useTheme();
   const isDark = scheme === "dark";
 
   const bottomPad = useMemo(() => Math.max(18, (insets?.bottom || 0) + 14), [insets?.bottom]);
@@ -254,10 +167,7 @@ export default function HomeScreen({ navigation }) {
         />
 
         <View style={[styles.content, { paddingBottom: bottomPad }]}>
-          <View style={styles.topRow}>
-            <ThemeToggle mode={mode} setMode={setMode} theme={theme} />
-            <View style={{ width: 42 }} />
-          </View>
+          <View />
 
           <View style={styles.brand}>
             <Text style={[styles.welcome, { color: theme.muted }]}>WELCOME TO</Text>
@@ -814,52 +724,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     paddingTop: 22,
     justifyContent: "space-between",
-  },
-
-  topRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-
-  toggleWrap: {
-    borderRadius: 999,
-    borderWidth: 1,
-    overflow: "hidden",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 6,
-  },
-  toggleKnob: {
-    position: "absolute",
-    left: 3,
-    top: 3,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.18)",
-    shadowColor: "#000",
-    shadowOpacity: 0.22,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 8,
-  },
-  toggleLabelLeft: {
-    position: "absolute",
-    left: 12,
-    fontFamily: "Cinzel",
-    fontWeight: "700",
-    letterSpacing: 0.9,
-    fontSize: 10,
-  },
-  toggleLabelRight: {
-    position: "absolute",
-    right: 12,
-    fontFamily: "Cinzel",
-    fontWeight: "700",
-    letterSpacing: 0.9,
-    fontSize: 10,
   },
 
   brand: { alignItems: "center", paddingTop: 112 },
