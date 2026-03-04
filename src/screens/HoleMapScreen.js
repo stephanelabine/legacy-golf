@@ -232,38 +232,9 @@ function buildHtml(initialCenter) {
           : u=new mapboxgl.Marker({element:mk("dot")}).setLngLat([d.user.lon,d.user.lat]).addTo(map);
       }
 
-      if(d.tee){
-        tee ? tee.setLngLat([d.tee.lon,d.tee.lat])
-          : tee=new mapboxgl.Marker({element:mk("tee")}).setLngLat([d.tee.lon,d.tee.lat]).addTo(map);
-      }
-
-      if(d.fairwayMid){
-        fw ? fw.setLngLat([d.fairwayMid.lon,d.fairwayMid.lat])
-          : fw=new mapboxgl.Marker({element:mk("fw")}).setLngLat([d.fairwayMid.lon,d.fairwayMid.lat]).addTo(map);
-      }
-
-      if(d.green){
-        const pts=[["f",d.green.front],["m",d.green.middle],["b",d.green.back]];
-        pts.forEach(([k,p])=>{
-          if(!p) return;
-          if(k==="f") f ? f.setLngLat([p.lon,p.lat]) : f=new mapboxgl.Marker({element:mk("pin")}).setLngLat([p.lon,p.lat]).addTo(map);
-          if(k==="m") m ? m.setLngLat([p.lon,p.lat]) : m=new mapboxgl.Marker({element:mk("pin")}).setLngLat([p.lon,p.lat]).addTo(map);
-          if(k==="b") b ? b.setLngLat([p.lon,p.lat]) : b=new mapboxgl.Marker({element:mk("pin")}).setLngLat([p.lon,p.lat]).addTo(map);
-        });
-      }
-
-      if(Array.isArray(d.hazards)){
-        clearHaz();
-        d.hazards.forEach((h)=>{
-          if(!h || !isFinite(h.lon) || !isFinite(h.lat)) return;
-          let cls="haz";
-          if(h.type==="water") cls="haz hazWater";
-          if(h.type==="bunker") cls="haz hazBunker";
-          if(h.type==="ob") cls="haz hazOB";
-          const mm = new mapboxgl.Marker({element:mk(cls)}).setLngLat([h.lon,h.lat]).addTo(map);
-          hazMarkers.push(mm);
-        });
-      }
+      // Public UI: hide all course/debug markers (tee, fairway, green pins, hazards).
+      // Keep only the user (blue) dot visible.
+      if (hazMarkers.length) clearHaz();
 
       if(d.cmd === "recenter"){
         const z = map.getZoom();
