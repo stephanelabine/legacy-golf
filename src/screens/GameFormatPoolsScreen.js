@@ -31,6 +31,8 @@ import { auth, db } from "../firebase/firebase";
       longdrive: { amountPerHole, excludedIds: [] },
       secondshotkp: { amountPerHole, excludedIds: [] },
       skins: { amountPerSkin, excludedIds: [] },
+      birdie_buckets: { entryFee, excludedIds: [] },
+      stableford: { entryFee, excludedIds: [] },
       deuce_pot: { entryFee, excludedIds: [] },
       putting_contest: { entryFee, excludedIds: [] },
     }
@@ -80,6 +82,18 @@ function detectFormatType(f) {
     if (s.includes("puttingcontest") || (s.includes("putting") && s.includes("contest"))) return "putting_contest";
 
     if (s.includes("skins")) return "skins";
+
+    // Birdie Buckets
+    if (
+        s.includes("birdiebuckets") ||
+        (s.includes("birdie") && s.includes("bucket")) ||
+        (s.includes("birdie") && s.includes("buckets"))
+    ) {
+        return "birdie_buckets";
+    }
+
+    // Stableford
+    if (s.includes("stableford")) return "stableford";
 
     // Nassau (Front / Back / Total)
     if (s.includes("nassau")) return "nassau";
@@ -142,6 +156,16 @@ const FORMAT_META = {
         title: "Skins",
         blurb: "Enter the value per skin. The total depends on results and is calculated later.",
         hint: "per skin",
+    },
+    birdie_buckets: {
+        title: "Birdie Buckets",
+        blurb: "Enter the amount contributed for each bucket event (ex: $1 for every FIR/GIR). Payouts are calculated from posted events. Make a birdie and get paid!",
+        hint: "per event",
+    },
+    stableford: {
+        title: "Stableford",
+        blurb: "Enter the amount contributed per Stableford point (or per point difference, depending on game rules). Payouts are calculated from Stableford results.",
+        hint: "per point",
     },
     nassau: {
         title: "Nassau",
@@ -482,7 +506,12 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
                         if (type === "skins") {
                             const v = Number(p?.amountPerSkin);
                             nextFeeByKey[fk] = Number.isFinite(v) && v > 0 ? String(v) : "";
-                        } else if (type === "deuce_pot" || type === "putting_contest") {
+                        } else if (
+                            type === "deuce_pot" ||
+                            type === "putting_contest" ||
+                            type === "birdie_buckets" ||
+                            type === "stableford"
+                        ) {
                             const v = Number(p?.entryFee);
                             nextFeeByKey[fk] = Number.isFinite(v) && v > 0 ? String(v) : "";
 
@@ -598,7 +627,7 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
             if (type === "skins") {
                 if (parsed === null || parsed <= 0) return { ok: false, reason: `need:${fk}` };
             }
-            if (type === "deuce_pot" || type === "putting_contest") {
+            if (type === "deuce_pot" || type === "putting_contest" || type === "birdie_buckets" || type === "stableford") {
                 if (parsed === null || parsed <= 0) return { ok: false, reason: `need:${fk}` };
             }
 
@@ -679,7 +708,7 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
                     nextPools[fk] = { amountPerSkin: parsed === null ? null : parsed, excludedIds };
                     return;
                 }
-                if (type === "deuce_pot") {
+                if (type === "deuce_pot" || type === "birdie_buckets" || type === "stableford") {
                     nextPools[fk] = { entryFee: parsed === null ? null : parsed, excludedIds };
                     return;
                 }
