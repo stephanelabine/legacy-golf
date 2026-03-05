@@ -194,6 +194,10 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
     const [inputs, setInputs] = useState({});
 
+    // Birdie Buckets enforcement (regular games)
+    const [bbActive, setBbActive] = useState(false);
+    const [bbFormatKey, setBbFormatKey] = useState(null);
+
     // -----------------------------
     // Regular format claim (Firestore)
     // -----------------------------
@@ -360,6 +364,31 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         });
     }, [playerRows]);
 
+    // Birdie Buckets: force Stats ON + force FIR/GIR controls to be available.
+    // (User can still set Yes/No on the hole; we just ensure the toggles are visible and not disable-able.)
+    useEffect(() => {
+        if (!bbActive) return;
+
+        setInputs((prev) => {
+            const next = { ...(prev || {}) };
+
+            playerRows.forEach((p) => {
+                const pid = String(p._pid);
+                if (!pid) return;
+
+                const cur = next[pid] || {};
+                next[pid] = {
+                    ...cur,
+                    trackStats: true,
+                    fairway: cur?.fairway ?? "na",
+                    green: cur?.green ?? "na",
+                };
+            });
+
+            return next;
+        });
+    }, [bbActive, playerRows]);
+
     // Load saved hole values from Firestore round doc (SOLO or SHARED)
     useEffect(() => {
         let live = true;
@@ -374,6 +403,24 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                 if (!live) return;
                 const state = snap.exists() ? (snap.data() || {}) : null;
                 if (!state) return;
+
+                // Detect Birdie Buckets selection + remember the exact format key used in formatsSelected
+                try {
+                    const formatsSelected = Array.isArray(state?.formatsSelected) ? state.formatsSelected : [];
+                    const found = formatsSelected.find((x) => {
+                        const k = typeof x === "string" ? x : x?.key || x?.id || "";
+                        const n = typeof x === "string" ? x : x?.name || x?.label || x?.title || "";
+                        const s = `${String(k || "")} ${String(n || "")}`.toLowerCase();
+                        return s.includes("birdie") && s.includes("bucket");
+                    });
+
+                    const fk = found ? (typeof found === "string" ? String(found) : String(found?.key || found?.id || "")) : "";
+                    setBbActive(!!found);
+                    setBbFormatKey(fk ? fk : null);
+                } catch {
+                    setBbActive(false);
+                    setBbFormatKey(null);
+                }
 
                 const savedHole = state?.holes?.[String(holeNumber)]?.players || null;
                 if (!savedHole) return;
@@ -904,9 +951,152 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
         // Post-hole Skins splash (single, premium) + running totals (skins count + estimated $).
         let postHoleSplash = null;
+        let birdieBucketsSplash = null;
+
         try {
             const roundBasis = String(roundState?.scoringMode || roundState?.scoring || "net").toLowerCase();
             const useNet = roundBasis === "net";
+
+            // Birdie Buckets (FIR/GIR build pot; birdie-or-better wins pot; net/gross respects scoring basis)
+            try {
+                const formatsSelectedBB = Array.isArray(roundState?.formatsSelected) ? roundState.formatsSelected : [];
+
+                const bbFound = formatsSelectedBB.find((x) => {
+                    const k = typeof x === "string" ? x : x?.key || x?.id || "";
+                    const n = typeof x === "string" ? x : x?.name || x?.label || x?.title || "";
+                    const s = `${String(k || "")} ${String(n || "")}`.toLowerCase();
+                    return s.includes("birdie") && s.includes("bucket");
+                });
+
+                const bbKey = bbFound ? (typeof bbFound === "string" ? String(bbFound) : String(bbFound?.key || bbFound?.id || "")) : "";
+                const pools = (roundState && typeof roundState === "object" ? roundState.formatPools : null) || {};
+                const bbPool = (pools && typeof pools === "object" ? (bbKey ? pools[bbKey] : null) : null) || {};
+                const perEvent = Number(bbPool?.entryFee);
+
+                // pot stored on round doc under wagers.birdieBuckets for stability
+                const bbWagers = (roundState?.wagers && typeof roundState.wagers === "object" ? roundState.wagers : {}) || {};
+                const bbState = (bbWagers?.birdieBuckets && typeof bbWagers.birdieBuckets === "object" ? bbWagers.birdieBuckets : {}) || {};
+                const potNow = Number(bbState?.pot || 0);
+                const mode = String(bbState?.mode || "hits_pay_all").trim(); // "hits_pay_all" | "misses_pay"
+
+                if (bbKey && Number.isFinite(perEvent) && perEvent > 0) {
+                    const holeNum = Number(holeNumber) || 1;
+
+                    // Helper: stroke index + strokes received (same as skins)
+                    function holeStrokeIndex(h) {
+                        const hm = holeMeta && typeof holeMeta === "object" ? (holeMeta[String(h)] || holeMeta[h] || {}) : {};
+                        const siRaw = hm?.si ?? hm?.strokeIndex ?? hm?.SI ?? hm?.handicap ?? null;
+                        const si = Number(siRaw);
+                        return Number.isFinite(si) ? si : null;
+                    }
+
+                    function strokesReceived(hcp, strokeIndex) {
+                        const h = Math.max(0, Math.floor(Number(hcp) || 0));
+                        if (!Number.isFinite(strokeIndex) || strokeIndex < 1 || strokeIndex > 18) return 0;
+                        const base = Math.floor(h / 18);
+                        const extra = h % 18;
+                        return base + (strokeIndex <= extra ? 1 : 0);
+                    }
+
+                    const playersBB = (normalizedPlayers || []).map((p, idx) => ({
+                        pid: String(p?.id || ""),
+                        name: String(p?.name || `Player ${idx + 1}`).trim() || `Player ${idx + 1}`,
+                        handicap: Number(p?.handicap ?? 0),
+                    })).filter((x) => x.pid);
+
+                    const nPlayers = playersBB.length;
+
+                    // Contributions depend on mode:
+                    // - hits_pay_all (default/current): each YES triggers everyone paying (perEvent * nPlayers)
+                    // - misses_pay: each NO triggers only that player paying (perEvent)
+                    let add = 0;
+                    playersBB.forEach((p) => {
+                        const fairway = String(inputs?.[p.pid]?.fairway || "na");
+                        const green = String(inputs?.[p.pid]?.green || "na");
+
+                        if (mode === "misses_pay") {
+                            if (fairway === "no") add += perEvent;
+                            if (green === "no") add += perEvent;
+                            return;
+                        }
+
+                        // hits_pay_all
+                        if (fairway === "yes") add += perEvent * nPlayers;
+                        if (green === "yes") add += perEvent * nPlayers;
+                    });
+
+                    let potAfter = potNow + add;
+
+                    // Determine birdie-or-better winner (net or gross) on this hole
+                    const parNow = Number(holeMeta?.[String(holeNum)]?.par ?? 4);
+                    const siNow = holeStrokeIndex(holeNum);
+
+                    const contenders = playersBB.map((p) => {
+                        const gross = toInt(inputs?.[p.pid]?.strokes);
+                        if (gross <= 0) return null;
+
+                        const net = useNet ? (gross - strokesReceived(p.handicap, siNow)) : gross;
+                        const diff = net - parNow; // <= -1 is birdie or better
+
+                        return { ...p, gross, net, diff };
+                    }).filter(Boolean);
+
+                    const birdies = contenders.filter((c) => c.diff <= -1);
+                    let winLine = "";
+                    let paid = false;
+
+                    if (birdies.length) {
+                        const best = Math.min(...birdies.map((b) => b.diff)); // most negative wins (eagle beats birdie)
+                        const bestList = birdies.filter((b) => b.diff === best);
+
+                        if (bestList.length === 1) {
+                            // unique best -> wins pot
+                            const winner = bestList[0];
+                            const paidAmount = potAfter;
+
+                            winLine = `${winner.name} won $${String(Math.round(paidAmount))}`;
+                            potAfter = 0;
+                            paid = true;
+                        } else {
+                            // tie best -> carry (no payout)
+                            paid = false;
+                        }
+                    }
+
+                    // Write pot back to round doc (single source of truth)
+                    try {
+                        const ridWrite = String(rid || roundIdParam || "").trim();
+                        const refWrite = ridWrite ? roundDocRef(ridWrite) : null;
+                        if (refWrite) {
+                            await setDoc(
+                                refWrite,
+                                {
+                                    wagers: {
+                                        birdieBuckets: {
+                                            key: bbKey,
+                                            mode: mode === "misses_pay" ? "misses_pay" : "hits_pay_all",
+                                            perEvent,
+                                            pot: potAfter,
+                                            lastHole: holeNum,
+                                            lastWin: paid ? winLine : null,
+                                            updatedAt: serverTimestamp(),
+                                        },
+                                    },
+                                    updatedAt: serverTimestamp(),
+                                },
+                                { merge: true }
+                            );
+                        }
+                    } catch { }
+
+                    birdieBucketsSplash = {
+                        winLine: winLine || "",
+                        potLine: `Current Pot – $${String(Math.round(potAfter))}`,
+                    };
+                }
+            } catch {
+                birdieBucketsSplash = null;
+            }
 
             const formatsSelected = Array.isArray(roundState?.formatsSelected) ? roundState.formatsSelected : [];
             const hasSkins = formatsSelected.some((x) => {
@@ -1129,6 +1319,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             goToHoleHub(nextMissing, {
                 roundId: rid,
                 postHoleSplash,
+                birdieBucketsSplash,
                 missingHoles: originalMissing,
                 missingIndex: nextIdx,
                 finishReturnHole: finishHole,
@@ -1139,6 +1330,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         goToHoleHub(nextHole, {
             roundId: rid,
             postHoleSplash,
+            birdieBucketsSplash,
             ...(shouldShowFrontNinePrompt ? { showFrontNineStatsPrompt: true } : {}),
         });
     }
@@ -1361,10 +1553,18 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                                     </View>
 
                                     <Pressable
-                                        onPress={() => setPlayerField(pid, "trackStats", !trackStats)}
-                                        style={({ pressed }) => [styles.statsPill, trackStats ? styles.statsPillOn : styles.statsPillOff, pressed && styles.pressed]}
+                                        onPress={() => {
+                                            if (bbActive) return;
+                                            setPlayerField(pid, "trackStats", !trackStats);
+                                        }}
+                                        style={({ pressed }) => [
+                                            styles.statsPill,
+                                            (bbActive || trackStats) ? styles.statsPillOn : styles.statsPillOff,
+                                            pressed && !bbActive && styles.pressed,
+                                            bbActive && { opacity: 0.85 },
+                                        ]}
                                     >
-                                        <Text style={styles.statsPillText}>Stats {trackStats ? "ON" : "OFF"}</Text>
+                                        <Text style={styles.statsPillText}>Stats {(bbActive || trackStats) ? "ON" : "OFF"}</Text>
                                     </Pressable>
                                 </View>
 
@@ -1386,7 +1586,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                                     </Pressable>
                                 </View>
 
-                                {trackStats ? (
+                                {(bbActive || trackStats) ? (
                                     <>
                                         <View style={styles.divider} />
 

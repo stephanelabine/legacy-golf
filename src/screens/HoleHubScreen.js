@@ -467,6 +467,63 @@ function PostHoleSplashModal({ visible, data, onDismiss }) {
   );
 }
 
+function BirdieBucketsSplashModal({ visible, data, onDismiss }) {
+  const winLine = String(data?.winLine || ""); // ex: "Steph won $20"
+  const potLine = String(data?.potLine || "Current Pot – $0"); // ex: "Current Pot – $20"
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onDismiss} statusBarTranslucent>
+      <Pressable style={styles.modalBg} onPress={onDismiss}>
+        <View style={[styles.modalWrap, { justifyContent: "center" }]}>
+          <Pressable
+            style={[
+              styles.modalCard,
+              {
+                width: "92%",
+                alignSelf: "center",
+                paddingHorizontal: 18,
+                paddingTop: 18,
+                paddingBottom: 14,
+                borderColor: "rgba(214, 171, 84, 0.55)",
+              },
+            ]}
+            onPress={() => { }}
+          >
+            <View style={styles.modalTop}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.modalTitle, { fontSize: 20 }]}>Birdie Buckets</Text>
+
+                {!!winLine ? (
+                  <Text style={[styles.modalSub, { fontSize: 20, lineHeight: 26, marginTop: 10, color: "#D6AB54", fontWeight: "900" }]}>
+                    {winLine}
+                  </Text>
+                ) : null}
+
+                <Text style={[styles.modalSub, { fontSize: 18, lineHeight: 24, marginTop: winLine ? 10 : 12, opacity: 0.9 }]}>
+                  {potLine}
+                </Text>
+              </View>
+
+              <View style={{ width: 28 }} />
+            </View>
+
+            <Pressable
+              onPress={onDismiss}
+              style={({ pressed }) => [
+                styles.modalDone,
+                { marginTop: 16, paddingVertical: 14 },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={[styles.modalDoneText, { fontSize: 16 }]}>Continue</Text>
+            </Pressable>
+          </Pressable>
+        </View>
+      </Pressable>
+    </Modal>
+  );
+}
+
 function SideGameOverlayModal({ visible, meta, currentHole, roundNumber, holderName, carryIn, carryFromHole, onDismiss }) {
   const holderLine = holderName ? `Current holder: ${String(holderName)}` : "Currently unclaimed";
 
@@ -651,6 +708,9 @@ export default function HoleHubScreen({ navigation, route }) {
   const [postSplashVisible, setPostSplashVisible] = useState(false);
   const [postSplash, setPostSplash] = useState(null);
 
+  const [bbSplashVisible, setBbSplashVisible] = useState(false);
+  const [bbSplash, setBbSplash] = useState(null);
+
   const [turnPromptVisible, setTurnPromptVisible] = useState(false);
   const [queuedSplash, setQueuedSplash] = useState(null);
 
@@ -741,12 +801,43 @@ export default function HoleHubScreen({ navigation, route }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params?.postHoleSplash, turnPromptVisible, params?.showFrontNineStatsPrompt]);
 
+  // Birdie Buckets splash — shown once, then cleared from params.
+  // If the turn prompt is active, we skip showing it until prompt is handled (caller should resend if needed).
+  useEffect(() => {
+    const s = params?.birdieBucketsSplash || null;
+    if (!s) return;
+
+    if (turnPromptVisible || !!params?.showFrontNineStatsPrompt) {
+      try {
+        navigation.setParams({ birdieBucketsSplash: null });
+      } catch { }
+      return;
+    }
+
+    setBbSplash(s);
+    setBbSplashVisible(true);
+
+    try {
+      navigation.setParams({ birdieBucketsSplash: null });
+    } catch { }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params?.birdieBucketsSplash, turnPromptVisible, params?.showFrontNineStatsPrompt]);
+
   function dismissPostHoleSplash() {
     setPostSplashVisible(false);
     setPostSplash(null);
 
     try {
       navigation.setParams({ postHoleSplash: null });
+    } catch { }
+  }
+
+  function dismissBirdieBucketsSplash() {
+    setBbSplashVisible(false);
+    setBbSplash(null);
+
+    try {
+      navigation.setParams({ birdieBucketsSplash: null });
     } catch { }
   }
   const sgTimerRef = useRef(null);
@@ -868,6 +959,7 @@ export default function HoleHubScreen({ navigation, route }) {
     useCallback(() => {
       if (params?.showFrontNineStatsPrompt || turnPromptVisible) return undefined;
       if (params?.postHoleSplash || postSplashVisible) return undefined;
+      if (params?.birdieBucketsSplash || bbSplashVisible) return undefined;
 
       // Allow callers (ex: last-hole Save -> Finish prompt) to suppress the generic side-game splash
       if (params?.showFormatSplash === false) return undefined;
@@ -880,7 +972,7 @@ export default function HoleHubScreen({ navigation, route }) {
 
       setSgVisible(true);
       return () => { };
-    }, [computedSideGameKey, roundId, currentHole, params?.postHoleSplash, postSplashVisible, params?.showFormatSplash, params?.showFrontNineStatsPrompt, turnPromptVisible])
+    }, [computedSideGameKey, roundId, currentHole, params?.postHoleSplash, postSplashVisible, params?.birdieBucketsSplash, bbSplashVisible, params?.showFormatSplash, params?.showFrontNineStatsPrompt, turnPromptVisible])
   );
 
   useEffect(() => {
@@ -1371,6 +1463,12 @@ export default function HoleHubScreen({ navigation, route }) {
         visible={postSplashVisible}
         data={postSplash}
         onDismiss={dismissPostHoleSplash}
+      />
+
+      <BirdieBucketsSplashModal
+        visible={bbSplashVisible}
+        data={bbSplash}
+        onDismiss={dismissBirdieBucketsSplash}
       />
 
       <SideGameOverlayModal

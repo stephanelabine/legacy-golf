@@ -219,6 +219,10 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
     const [nassauTotal, setNassauTotal] = useState("");
     const [nassauEnabled, setNassauEnabled] = useState(false);
 
+    // Birdie Buckets mode (stored in roundDoc.wagers.birdieBuckets.mode)
+    // Default stays the current model: "hits_pay_all"
+    const [bbMode, setBbMode] = useState("hits_pay_all"); // "hits_pay_all" | "misses_pay"
+
     // putting contest payout places keyed by formatKey (1 | 2 | 3)
     const [payoutPlacesByKey, setPayoutPlacesByKey] = useState({});
 
@@ -543,6 +547,11 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
                     setNassauFront(nas?.front ? String(nas.front) : "");
                     setNassauBack(nas?.back ? String(nas.back) : "");
                     setNassauTotal(nas?.total ? String(nas.total) : "");
+
+                    // Birdie Buckets mode (default to current model)
+                    const bb = safeObj(data?.wagers?.birdieBuckets);
+                    const mode = String(bb?.mode || "").trim();
+                    setBbMode(mode === "misses_pay" ? "misses_pay" : "hits_pay_all");
                 }
                 setExcludedByKey(nextExcludedByKey);
 
@@ -739,6 +748,7 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
             });
 
             const shouldWriteNassau = (formats || []).some((f) => detectFormatType(f) === "nassau");
+            const shouldWriteBirdieBuckets = (formats || []).some((f) => detectFormatType(f) === "birdie_buckets");
 
             const nasPayload = shouldWriteNassau
                 ? {
@@ -753,12 +763,23 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
                 }
                 : {};
 
+            const bbPayload = shouldWriteBirdieBuckets
+                ? {
+                    wagers: {
+                        birdieBuckets: {
+                            mode: String(bbMode) === "misses_pay" ? "misses_pay" : "hits_pay_all",
+                        },
+                    },
+                }
+                : {};
+
             await setDoc(
                 roundRef(uid, roundId),
                 {
                     formatPools: nextPools,
                     poolsReady: true,
                     ...nasPayload,
+                    ...bbPayload,
                     updatedAt: serverTimestamp(),
                 },
                 { merge: true }
@@ -828,6 +849,41 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
                 </View>
 
                 {sub ? <Text style={styles.sub}>{sub}</Text> : null}
+
+                {type === "birdie_buckets" ? (
+                    <View style={styles.payoutPlacesRow}>
+                        <Text style={styles.payoutPlacesLabel}>Mode</Text>
+
+                        <View style={styles.payoutPlacesPills}>
+                            {[
+                                { k: "hits_pay_all", t: "Hits add" },
+                                { k: "misses_pay", t: "Misses pay" },
+                            ].map((o) => {
+                                const active = String(bbMode) === o.k;
+                                return (
+                                    <Pressable
+                                        key={`bbmode-${o.k}`}
+                                        onPress={() => {
+                                            dirtyRef.current = true;
+                                            setBbMode(o.k);
+                                        }}
+                                        disabled={saving}
+                                        style={({ pressed }) => [
+                                            styles.payoutPill,
+                                            active ? styles.payoutPillActive : styles.payoutPillIdle,
+                                            pressed && !saving && styles.pressed,
+                                            saving && { opacity: 0.7 },
+                                        ]}
+                                    >
+                                        <Text style={active ? styles.payoutPillTextActive : styles.payoutPillTextIdle}>
+                                            {o.t}
+                                        </Text>
+                                    </Pressable>
+                                );
+                            })}
+                        </View>
+                    </View>
+                ) : null}
 
                 {type === "putting_contest" ? (
                     <View style={styles.payoutPlacesRow}>
