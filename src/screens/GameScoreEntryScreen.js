@@ -973,7 +973,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                 const bbPool = (pools && typeof pools === "object" ? (bbKey ? pools[bbKey] : null) : null) || {};
                 const perEvent = Number(bbPool?.entryFee);
 
-                // pot stored on round doc under wagers.birdieBuckets for stability
+                // pot + mode stored on round doc under wagers.birdieBuckets (single source of truth)
                 const bbWagers = (roundState?.wagers && typeof roundState.wagers === "object" ? roundState.wagers : {}) || {};
                 const bbState = (bbWagers?.birdieBuckets && typeof bbWagers.birdieBuckets === "object" ? bbWagers.birdieBuckets : {}) || {};
                 const potNow = Number(bbState?.pot || 0);
@@ -998,88 +998,163 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                         return base + (strokeIndex <= extra ? 1 : 0);
                     }
 
-                    const playersBB = (normalizedPlayers || []).map((p, idx) => ({
-                        pid: String(p?.id || ""),
-                        name: String(p?.name || `Player ${idx + 1}`).trim() || `Player ${idx + 1}`,
-                        handicap: Number(p?.handicap ?? 0),
-                    })).filter((x) => x.pid);
+                    const playersBB = (normalizedPlayers || [])
+                        .map((p, idx) => ({
+                            pid: String(p?.id || ""),
+                            name: String(p?.name || `Player ${idx + 1}`).trim() || `Player ${idx + 1}`,
+                            handicap: Number(p?.handicap ?? 0),
+                        }))
+                        .filter((x) => x.pid);
 
                     const nPlayers = playersBB.length;
 
-                    // Contributions depend on mode:
-                    // - hits_pay_all (default/current): each YES triggers everyone paying (perEvent * nPlayers)
-                    // - misses_pay: each NO triggers only that player paying (perEvent)
-                    let add = 0;
-                    playersBB.forEach((p) => {
-                        const fairway = String(inputs?.[p.pid]?.fairway || "na");
-                        const green = String(inputs?.[p.pid]?.green || "na");
+                    // Build per-hole charge events (so results/settle-up can line up later)
+                    // Store under wagers.birdieBuckets.holes[holeNum] to avoid array growth + avoid concurrency issues.
+                    const chargeEvents = [];
+                    const safeMode = mode === "misses_pay" ? "misses_pay" : "hits_pay_all";
 
-                        if (mode === "misses_pay") {
-                            if (fairway === "no") add += perEvent;
-                            if (green === "no") add += perEvent;
-                            return;
-                        }
+                    if (safeMode === "misses_pay") {
+                        // Immunity for hitters: ONLY the missers pay.
+                        playersBB.forEach((p) => {
+                            const fairway = String(inputs?.[p.pid]?.fairway || "na");
+                            const green = String(inputs?.[p.pid]?.green || "na");
 
-                        // hits_pay_all
-                        if (fairway === "yes") add += perEvent * nPlayers;
-                        if (green === "yes") add += perEvent * nPlayers;
-                    });
+                            if (fairway === "no") {
+                                chargeEvents.push({
+                                    hole: holeNum,
+                                    payerPid: p.pid,
+                                    payerName: p.name,
+                                    amount: perEvent,
+                                    reason: "FIR_MISS",
+                                });
+                            }
 
+                            if (green === "no") {
+                                chargeEvents.push({
+                                    hole: holeNum,
+                                    payerPid: p.pid,
+                                    payerName: p.name,
+                                    amount: perEvent,
+                                    reason: "GIR_MISS",
+                                });
+                            }
+                        });
+                    } else {
+                        // hits_pay_all (default/current): each HIT triggers EVERYONE paying.
+                        // If a player hits FIR, all players pay perEvent (one charge each). Same for GIR.
+                        playersBB.forEach((trigger) => {
+                            const fairway = String(inputs?.[trigger.pid]?.fairway || "na");
+                            const green = String(inputs?.[trigger.pid]?.green || "na");
+
+                            if (fairway === "yes") {
+                                playersBB.forEach((payer) => {
+                                    chargeEvents.push({
+                                        hole: holeNum,
+                                        payerPid: payer.pid,
+                                        payerName: payer.name,
+                                        amount: perEvent,
+                                        reason: "FIR_HIT",
+                                        triggerPid: trigger.pid,
+                                        triggerName: trigger.name,
+                                    });
+                                });
+                            }
+
+                            if (green === "yes") {
+                                playersBB.forEach((payer) => {
+                                    chargeEvents.push({
+                                        hole: holeNum,
+                                        payerPid: payer.pid,
+                                        payerName: payer.name,
+                                        amount: perEvent,
+                                        reason: "GIR_HIT",
+                                        triggerPid: trigger.pid,
+                                        triggerName: trigger.name,
+                                    });
+                                });
+                            }
+                        });
+                    }
+
+                    const add = chargeEvents.reduce((sum, e) => sum + (Number(e?.amount) || 0), 0);
                     let potAfter = potNow + add;
 
                     // Determine birdie-or-better winner (net or gross) on this hole
                     const parNow = Number(holeMeta?.[String(holeNum)]?.par ?? 4);
                     const siNow = holeStrokeIndex(holeNum);
 
-                    const contenders = playersBB.map((p) => {
-                        const gross = toInt(inputs?.[p.pid]?.strokes);
-                        if (gross <= 0) return null;
+                    const contenders = playersBB
+                        .map((p) => {
+                            const gross = toInt(inputs?.[p.pid]?.strokes);
+                            if (gross <= 0) return null;
 
-                        const net = useNet ? (gross - strokesReceived(p.handicap, siNow)) : gross;
-                        const diff = net - parNow; // <= -1 is birdie or better
-
-                        return { ...p, gross, net, diff };
-                    }).filter(Boolean);
+                            const net = useNet ? (gross - strokesReceived(p.handicap, siNow)) : gross;
+                            const diff = net - parNow; // <= -1 is birdie or better
+                            return { ...p, gross, net, diff };
+                        })
+                        .filter(Boolean);
 
                     const birdies = contenders.filter((c) => c.diff <= -1);
+
                     let winLine = "";
                     let paid = false;
+                    let winObj = null;
 
                     if (birdies.length) {
                         const best = Math.min(...birdies.map((b) => b.diff)); // most negative wins (eagle beats birdie)
                         const bestList = birdies.filter((b) => b.diff === best);
 
                         if (bestList.length === 1) {
-                            // unique best -> wins pot
                             const winner = bestList[0];
                             const paidAmount = potAfter;
 
                             winLine = `${winner.name} won $${String(Math.round(paidAmount))}`;
-                            potAfter = 0;
                             paid = true;
-                        } else {
-                            // tie best -> carry (no payout)
-                            paid = false;
+
+                            winObj = {
+                                hole: holeNum,
+                                winnerPid: winner.pid,
+                                winnerName: winner.name,
+                                amount: paidAmount,
+                                scoring: useNet ? "net" : "gross",
+                                bestDiff: best,
+                            };
+
+                            potAfter = 0;
                         }
                     }
 
-                    // Write pot back to round doc (single source of truth)
+                    // Write pot + per-hole history back to round doc (single source of truth)
                     try {
                         const ridWrite = String(rid || roundIdParam || "").trim();
                         const refWrite = ridWrite ? roundDocRef(ridWrite) : null;
+
                         if (refWrite) {
+                            const holeKey = String(holeNum);
+
                             await setDoc(
                                 refWrite,
                                 {
                                     wagers: {
                                         birdieBuckets: {
                                             key: bbKey,
-                                            mode: mode === "misses_pay" ? "misses_pay" : "hits_pay_all",
+                                            mode: safeMode,
                                             perEvent,
                                             pot: potAfter,
                                             lastHole: holeNum,
                                             lastWin: paid ? winLine : null,
                                             updatedAt: serverTimestamp(),
+                                            holes: {
+                                                [holeKey]: {
+                                                    hole: holeNum,
+                                                    mode: safeMode,
+                                                    perEvent,
+                                                    add,
+                                                    charges: chargeEvents,
+                                                    win: winObj || null,
+                                                    updatedAt: serverTimestamp(),
+                                                },
+                                            },
                                         },
                                     },
                                     updatedAt: serverTimestamp(),
@@ -1089,9 +1164,10 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                         }
                     } catch { }
 
+                    // Splash UI (also fix the "looks negative" dash)
                     birdieBucketsSplash = {
                         winLine: winLine || "",
-                        potLine: `Current Pot – $${String(Math.round(potAfter))}`,
+                        potLine: `Current Pot: $${String(Math.round(potAfter))}`,
                     };
                 }
             } catch {
