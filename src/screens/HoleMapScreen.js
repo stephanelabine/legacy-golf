@@ -265,6 +265,7 @@ function buildHtml(initialCenter) {
 
       const wrap = document.createElement("div");
       wrap.className = "tgtWrap";
+
       const ring = document.createElement("div");
       ring.className = "tgtRing";
       const core = document.createElement("div");
@@ -272,17 +273,83 @@ function buildHtml(initialCenter) {
       wrap.appendChild(ring);
       wrap.appendChild(core);
 
-      tgtMarker = new mapboxgl.Marker({ element: wrap, draggable: true })
+      // iOS WebView: don't rely on Mapbox draggable markers (can be unreliable).
+      // We move the marker ourselves from touch/mouse events.
+      tgtMarker = new mapboxgl.Marker({ element: wrap, draggable: false })
         .setLngLat([tgt.lon, tgt.lat])
         .addTo(map);
 
-      tgtMarker.on("drag", () => {
-        const ll = tgtMarker.getLngLat();
-        tgt = { lon: ll.lng, lat: ll.lat };
+      if (window.__lgTargetDragBound) return;
+      window.__lgTargetDragBound = true;
+
+      let dragging = false;
+      const canvas = map.getCanvas();
+
+      const clientToLngLat = (clientX, clientY) => {
+        const r = canvas.getBoundingClientRect();
+        const x = clientX - r.left;
+        const y = clientY - r.top;
+        const ll = map.unproject([x, y]);
+        return { lon: ll.lng, lat: ll.lat };
+      };
+
+      const startDrag = (clientX, clientY) => {
+        if (!plannerOn) return;
+        dragging = true;
+        try { map.dragPan.disable(); } catch(_) {}
+        const ll = clientToLngLat(clientX, clientY);
+        setTarget(ll.lon, ll.lat);
+      };
+
+      const moveDrag = (clientX, clientY) => {
+        if (!plannerOn) return;
+        if (!dragging) return;
+        const ll = clientToLngLat(clientX, clientY);
+        setTarget(ll.lon, ll.lat);
+      };
+
+      const endDrag = () => {
+        if (!dragging) return;
+        dragging = false;
+        try { map.dragPan.enable(); } catch(_) {}
         updatePlannerUI();
+      };
+
+      // Start drag ONLY when pressing on the target marker
+      wrap.addEventListener("touchstart", (e) => {
+        const t = e.touches && e.touches[0];
+        if (!t) return;
+        try { e.preventDefault(); e.stopPropagation(); } catch(_) {}
+        startDrag(t.clientX, t.clientY);
+      }, { passive: false });
+
+      wrap.addEventListener("mousedown", (e) => {
+        try { e.preventDefault(); e.stopPropagation(); } catch(_) {}
+        startDrag(e.clientX, e.clientY);
+      });
+
+      // Continue drag even if finger moves off the marker
+      document.addEventListener("touchmove", (e) => {
+        if (!dragging) return;
+        const t = e.touches && e.touches[0];
+        if (!t) return;
+        try { e.preventDefault(); } catch(_) {}
+        moveDrag(t.clientX, t.clientY);
+      }, { passive: false });
+
+      document.addEventListener("touchend", () => {
+        endDrag();
+      }, { passive: true });
+
+      document.addEventListener("mousemove", (e) => {
+        if (!dragging) return;
+        moveDrag(e.clientX, e.clientY);
+      });
+
+      document.addEventListener("mouseup", () => {
+        endDrag();
       });
     }
-
     function setTarget(lon, lat){
       if(!isFinite(lon) || !isFinite(lat)) return;
       tgt = { lon, lat };
