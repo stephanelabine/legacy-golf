@@ -7,6 +7,8 @@ module.exports = ({ config }) => {
     process.env.EXPO_PUBLIC_GOOGLE_API_KEY ||
     "";
 
+  const mapboxToken = process.env.EXPO_PUBLIC_MAPBOX_TOKEN || "";
+
   if (!apiKey) {
     // Fail fast with a clear message instead of Firebase exploding later
     throw new Error(
@@ -26,9 +28,21 @@ module.exports = ({ config }) => {
 
   return {
     ...config,
+
+    ios: {
+      ...(config.ios || {}),
+      bundleIdentifier: "com.legacygolf.legacygolf",
+    },
+
+    android: {
+      ...(config.android || {}),
+      package: "com.legacygolf.legacygolf",
+    },
+
     plugins,
     extra: {
       ...(config.extra || {}),
+      mapboxToken,
       firebase: {
         apiKey,
         authDomain: "legacy-golf-dev.firebaseapp.com",

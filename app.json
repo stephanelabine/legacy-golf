@@ -9,7 +9,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#050B14"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "updates": {
       "fallbackToCacheTimeout": 0
     },
@@ -19,6 +21,10 @@
         "image": "./assets/splash.png",
         "resizeMode": "contain",
         "backgroundColor": "#050B14"
+      },
+      "bundleIdentifier": "com.legacygolf.legacygolf",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -31,16 +37,11 @@
         "resizeMode": "contain",
         "backgroundColor": "#050B14"
       },
-      "package": "com.anonymous.legacygolf"
+      "package": "com.legacygolf.legacygolf"
     },
     "extra": {
-      "MAPBOX_TOKEN": "pk.eyJ1Ijoic3RlcGhhbmVsYWJpbmUiLCJhIjoiY21qeXZrMDdxMDhydDNocTNlYmI2cnJ1bCJ9.lP-pkAlnfKfHPu5PiJ4xyg",
-      "firebaseConfig": {
-        "authDomain": "legacy-golf.firebaseapp.com",
-        "projectId": "legacy-golf",
-        "storageBucket": "legacy-golf.firebasestorage.app",
-        "messagingSenderId": "126362129345",
-        "appId": "1:126362129345:web:c02c8cfb87b4f97e2b5540"
+      "eas": {
+        "projectId": "bb371011-992f-41cb-b4fe-76984180f5cc"
       }
     }
   }
