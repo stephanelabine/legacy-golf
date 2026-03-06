@@ -628,6 +628,7 @@ export default function HoleMapScreen({ navigation, route }) {
   const lastAutoCenterRef = useRef(null);
 
   const didInitialFrameRef = useRef(false);
+  const didInitPlannerTargetRef = useRef(false);
 
   const course = params.course || null;
   const teeObj = params.tee || null;
@@ -949,6 +950,12 @@ export default function HoleMapScreen({ navigation, route }) {
   const postPayload = (fit = false) => {
     if (!web.current || !webReady) return;
 
+    const shouldSendInitTarget =
+      !didInitPlannerTargetRef.current &&
+      fairwayMid &&
+      Number.isFinite(fairwayMid?.lon) &&
+      Number.isFinite(fairwayMid?.lat);
+
     const payload = {
       user: user ? { lon: user.lon, lat: user.lat } : null,
       center,
@@ -971,18 +978,21 @@ export default function HoleMapScreen({ navigation, route }) {
         })
         .filter(Boolean),
 
-      // Planner defaults ON. Initialize target to saved fairway midpoint when available.
+      // Planner defaults ON. Only send the initial target once per hole load.
       planner: {
         on: plannerOn,
-        initTarget:
-          fairwayMid && Number.isFinite(fairwayMid?.lon) && Number.isFinite(fairwayMid?.lat)
-            ? { lon: fairwayMid.lon, lat: fairwayMid.lat }
-            : null,
+        initTarget: shouldSendInitTarget
+          ? { lon: fairwayMid.lon, lat: fairwayMid.lat }
+          : null,
       },
       fit,
     };
 
     web.current.postMessage(JSON.stringify(payload));
+
+    if (shouldSendInitTarget) {
+      didInitPlannerTargetRef.current = true;
+    }
   };
 
   const hasHoleFramePoints = useMemo(() => {
@@ -1039,6 +1049,7 @@ export default function HoleMapScreen({ navigation, route }) {
 
     // New hole = allow one stable initial frame again
     didInitialFrameRef.current = false;
+    didInitPlannerTargetRef.current = false;
   }, [clampedHoleIndex]);
 
   const [setupOpen, setSetupOpen] = useState(false);
@@ -1350,8 +1361,8 @@ export default function HoleMapScreen({ navigation, route }) {
         </Pressable>
       </View>
 
-      <View style={[styles.topChipRowWrap, { top: insets.top + 74 }]}>
-        <View style={styles.topChipRow}>
+      <View pointerEvents="box-none" style={[styles.topChipRowWrap, { top: insets.top + 74 }]}>
+        <View pointerEvents="box-none" style={styles.topChipRow}>
           <Pressable
             onPress={recenter}
             style={({ pressed }) => [styles.gpsChipTop, pressed && styles.pressed]}
@@ -1377,8 +1388,9 @@ export default function HoleMapScreen({ navigation, route }) {
 
       {/* GPS chip moved to bottom stack (below yardage panel) */}
 
-      <View style={[styles.bottomWrap, { paddingBottom: insets.bottom + 40 }]}>
+      <View pointerEvents="box-none" style={[styles.bottomWrap, { paddingBottom: insets.bottom + 40 }]}>
         <Animated.View
+          pointerEvents="box-none"
           {...yardPan.panHandlers}
           style={[
             styles.yardPanel,
@@ -1414,6 +1426,7 @@ export default function HoleMapScreen({ navigation, route }) {
         {/* bottom GPS chip removed (now in top chip row) */}
 
         <Pressable
+          pointerEvents="auto"
           onPress={goToHoleHub}
           style={({ pressed }) => [styles.backHubBtn, pressed && styles.pressed]}
         >
