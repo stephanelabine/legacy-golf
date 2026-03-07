@@ -65,6 +65,8 @@ function detectFormatType(f) {
     const n = normKey(f?.name);
     const s = `${k} ${n}`.trim();
 
+    if (s.includes("matchplay") || (s.includes("match") && s.includes("play"))) return "match_play";
+
     const isSecondShot =
         s.includes("secondshotkp") ||
         s.includes("secondshot") ||
@@ -137,6 +139,11 @@ function playerName(p, idx) {
 }
 
 const FORMAT_META = {
+    match_play: {
+        title: "Match Play",
+        blurb: "Enter the match stake. This is the amount used for the head-to-head match result.",
+        hint: "match amount",
+    },
     kp: {
         title: "KP",
         blurb: "Enter the cost per KP hole. Total is calculated from selected KP holes.",
@@ -511,6 +518,7 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
                             const v = Number(p?.amountPerSkin);
                             nextFeeByKey[fk] = Number.isFinite(v) && v > 0 ? String(v) : "";
                         } else if (
+                            type === "match_play" ||
                             type === "deuce_pot" ||
                             type === "putting_contest" ||
                             type === "birdie_buckets" ||
@@ -636,7 +644,13 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
             if (type === "skins") {
                 if (parsed === null || parsed <= 0) return { ok: false, reason: `need:${fk}` };
             }
-            if (type === "deuce_pot" || type === "putting_contest" || type === "birdie_buckets" || type === "stableford") {
+            if (
+                type === "match_play" ||
+                type === "deuce_pot" ||
+                type === "putting_contest" ||
+                type === "birdie_buckets" ||
+                type === "stableford"
+            ) {
                 if (parsed === null || parsed <= 0) return { ok: false, reason: `need:${fk}` };
             }
 
@@ -717,7 +731,7 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
                     nextPools[fk] = { amountPerSkin: parsed === null ? null : parsed, excludedIds };
                     return;
                 }
-                if (type === "deuce_pot" || type === "birdie_buckets" || type === "stableford") {
+                if (type === "match_play" || type === "deuce_pot" || type === "birdie_buckets" || type === "stableford") {
                     nextPools[fk] = { entryFee: parsed === null ? null : parsed, excludedIds };
                     return;
                 }
@@ -835,6 +849,9 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
             } else {
                 previewRight = `Holes: ${holesSelected}`;
             }
+        } else if (type === "match_play") {
+            previewRight =
+                included > 0 && Number.isFinite(feeNum) && feeNum > 0 ? `Match pot: ${money(feeNum)}` : "Match amount";
         } else if (type === "deuce_pot" || type === "putting_contest") {
             previewRight =
                 included > 0 && Number.isFinite(feeNum) && feeNum > 0 ? `Pool: ${money(feeNum * included)}` : `Included: ${included}`;

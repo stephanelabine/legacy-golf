@@ -19,8 +19,6 @@ function safeObj(v) {
 
 function playerId(p, idx) {
     const o = p && typeof p === "object" ? p : {};
-    // IMPORTANT: prefer stable round player id first (e.g., "me", "p2")
-    // MatchPlay matchups and holes.players keys are based on these ids.
     const id =
         o.id ||
         o.playerId ||
@@ -42,7 +40,6 @@ function playerName(p, idx) {
     const first = parts[0] || `Player ${idx + 1}`;
     const lastInitial = parts.length > 1 ? String(parts[parts.length - 1]).slice(0, 1).toUpperCase() : "";
 
-    // Default: just first name (premium + avoids truncation)
     return { first, lastInitial };
 }
 
@@ -53,6 +50,39 @@ function readStroke(roundRoot, holeNumber, pid) {
     const row = safeObj(players?.[String(pid)]);
     const n = Number(row?.strokes);
     return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function parseHandicap(v) {
+    if (v == null) return 0;
+    if (typeof v === "number") return Number.isFinite(v) ? Math.round(v) : 0;
+
+    const s = String(v).trim();
+    if (!s) return 0;
+
+    const m = s.match(/-?\d+(\.\d+)?/);
+    if (!m) return 0;
+
+    const n = Number(m[0]);
+    return Number.isFinite(n) ? Math.round(n) : 0;
+}
+
+function strokeIndexForHole(roundRoot, holeNumber) {
+    const metaHole = safeObj(roundRoot?.meta?.holeMeta);
+    const holeMeta = safeObj(roundRoot?.holeMeta);
+    const row = safeObj(metaHole?.[String(holeNumber)] || holeMeta?.[String(holeNumber)]);
+
+    const raw =
+        row?.si ??
+        row?.strokeIndex ??
+        row?.SI ??
+        row?.handicap ??
+        row?.hcp ??
+        row?.hdcp ??
+        row?.rank ??
+        null;
+
+    const n = parseInt(String(raw ?? "").replace(/[^\d]/g, ""), 10);
+    return Number.isFinite(n) && n >= 1 && n <= 18 ? n : 99;
 }
 
 function bestBallStroke(roundRoot, holeNumber, ids) {
@@ -73,26 +103,30 @@ function computeMatchState(roundDoc, matchPlay, playersList, holeMax) {
 
     const players = safeArr(playersList);
 
-    // Handicap map (by round player id)
     const hcpById = {};
     players.forEach((p, idx) => {
         const id = String(playerId(p, idx));
-        const n = Number((p && typeof p === "object" ? p.handicap : null));
-        hcpById[id] = Number.isFinite(n) ? n : 0;
+        const raw = p && typeof p === "object"
+            ? (
+                p.handicap ??
+                p.hcp ??
+                p.handicapIndex ??
+                p.index ??
+                p.courseHandicap ??
+                p.handicapStrokes ??
+                p.strokesHdcp ??
+                0
+            )
+            : 0;
+
+        hcpById[id] = parseHandicap(raw);
     });
 
-    // SI lookup from round doc (single source of truth)
     const siByHole = {};
-    const metaHole = safeObj(roundRoot?.meta?.holeMeta);
-    const holeMeta = safeObj(roundRoot?.holeMeta);
     for (let h = 1; h <= 18; h++) {
-        const row = safeObj(metaHole?.[String(h)] || holeMeta?.[String(h)]);
-        const siRaw = row?.si;
-        const siNum = Number(siRaw);
-        siByHole[h] = Number.isFinite(siNum) && siNum > 0 ? siNum : 99;
+        siByHole[h] = strokeIndexForHole(roundRoot, h);
     }
 
-    // Holes in play (supports 9-hole back nine)
     const holesCountRaw =
         Number(roundRoot?.holesCount) ||
         Number(roundRoot?.totalHoles) ||
@@ -107,27 +141,19 @@ function computeMatchState(roundDoc, matchPlay, playersList, holeMax) {
     const holesSide = String(roundRoot?.holesSide || "").toLowerCase();
     const isBack = holesSide === "back" || modeRaw.includes("back");
 
-    // Prefer explicit startHole if present; otherwise infer for 9-hole back nine.
-    let startHole = Number(roundRoot?.startHole);
-    if (!Number.isFinite(startHole) || startHole < 1 || startHole > 18) startHole = 1;
-
-    if (capCount === 9 && isBack) startHole = 10;
-
+    const startHole = capCount === 9 && isBack ? 10 : 1;
     const holeCap = Math.min(18, startHole + capCount - 1);
-
     const effectiveMax = Math.max(startHole, Math.min(Number(holeMax) || startHole, holeCap));
 
     const holesInPlay = [];
     for (let h = startHole; h <= holeCap; h++) holesInPlay.push(h);
-    // Build display names:
-    // - Prefer first name only
-    // - If duplicate first names exist, use "First L."
+
     const nameById = {};
     const firstCounts = {};
 
     const parsed = players.map((p, idx) => {
         const id = playerId(p, idx);
-        const out = playerName(p, idx); // { first, lastInitial }
+        const out = playerName(p, idx);
         const first = String(out?.first || `Player ${idx + 1}`).trim();
         const lastInitial = String(out?.lastInitial || "").trim();
         return { id: String(id), first, lastInitial, idx };
@@ -164,7 +190,6 @@ function computeMatchState(roundDoc, matchPlay, playersList, holeMax) {
         const list = safeArr(ids).map(String).filter(Boolean);
         if (!list.length) return 0;
 
-        // For team sides, use the lowest handicap on the side (stable + common)
         const vals = list.map((id) => Number(hcpById[id] || 0)).filter((n) => Number.isFinite(n));
         if (!vals.length) return 0;
         return Math.min(...vals);
@@ -175,12 +200,10 @@ function computeMatchState(roundDoc, matchPlay, playersList, holeMax) {
         holesInPlay.forEach((h) => (strokes[h] = 0));
         if (!higherSideGets || !Number.isFinite(diff) || diff <= 0) return strokes;
 
-        // Rank holes by difficulty (lowest SI = hardest)
         const ranked = holesInPlay
             .slice()
             .sort((a, b) => (siByHole[a] || 99) - (siByHole[b] || 99));
 
-        // Allocate 1 stroke to each ranked hole, looping if diff > holes count
         for (let k = 1; k <= diff; k++) {
             const idx = (k - 1) % ranked.length;
             const h = ranked[idx];
@@ -215,7 +238,6 @@ function computeMatchState(roundDoc, matchPlay, playersList, holeMax) {
         let rightWins = 0;
         let thru = 0;
 
-        // Net: handicap strokes allocation by SI across holes in play
         const leftH = sideHcp(leftIds);
         const rightH = sideHcp(rightIds);
 
@@ -224,11 +246,9 @@ function computeMatchState(roundDoc, matchPlay, playersList, holeMax) {
 
         if (matchScoring === "net") {
             if (handicapMethod === "full") {
-                // Both sides receive their own strokes on the hardest holes
                 leftStrokesByHole = buildSideStrokesByHole(true, Math.max(0, Math.round(leftH)));
                 rightStrokesByHole = buildSideStrokesByHole(true, Math.max(0, Math.round(rightH)));
             } else {
-                // Difference method (recommended): only higher handicap side receives the difference
                 const diff = Math.max(0, Math.round(Math.abs(leftH - rightH)));
                 const leftGets = leftH > rightH;
                 const rightGets = rightH > leftH;
@@ -252,7 +272,6 @@ function computeMatchState(roundDoc, matchPlay, playersList, holeMax) {
                 l = matchScoring === "net" ? bestBallSideScore(roundRoot, h, leftIds, lStrokeAdj) : bestBallStroke(roundRoot, h, leftIds);
                 r = matchScoring === "net" ? bestBallSideScore(roundRoot, h, rightIds, rStrokeAdj) : bestBallStroke(roundRoot, h, rightIds);
             } else {
-                // default: single player side; if multiple ids, use best score (safe fallback)
                 l = matchScoring === "net" ? bestBallSideScore(roundRoot, h, leftIds, lStrokeAdj) : bestBallStroke(roundRoot, h, leftIds);
                 r = matchScoring === "net" ? bestBallSideScore(roundRoot, h, rightIds, rStrokeAdj) : bestBallStroke(roundRoot, h, rightIds);
             }
@@ -264,7 +283,7 @@ function computeMatchState(roundDoc, matchPlay, playersList, holeMax) {
             else if (r < l) rightWins += 1;
         }
 
-        const lead = leftWins - rightWins; // + = left up, - = right up
+        const lead = leftWins - rightWins;
 
         const leftLabel = leftIds.length === 1 ? resolveSingle(leftIds[0], "Left") : "Team A";
         const rightLabel = rightIds.length === 1 ? resolveSingle(rightIds[0], "Right") : "Team B";
@@ -273,6 +292,8 @@ function computeMatchState(roundDoc, matchPlay, playersList, holeMax) {
         if (lead > 0) line = `${leftLabel} ${Math.abs(lead)} up`;
         if (lead < 0) line = `${rightLabel} ${Math.abs(lead)} up`;
 
+        const basisLabel = matchScoring === "net" ? "net" : "gross";
+
         return {
             id: String(m?.id || ""),
             leftLabel,
@@ -280,6 +301,7 @@ function computeMatchState(roundDoc, matchPlay, playersList, holeMax) {
             lead,
             thru,
             line,
+            metaLine: `L HCP ${leftH} • R HCP ${rightH} • ${basisLabel}`,
         };
     });
 
@@ -330,7 +352,6 @@ export default function MatchStatusSplashScreen({ navigation, route }) {
     }, [roundDoc, matchPlay, players, holeMax]);
 
     const rows = computed.results || [];
-    const primary = rows[0] || null;
 
     const styles = useMemo(() => {
         const goldBorder = isDark ? "rgba(214, 171, 84, 0.78)" : "rgba(214, 171, 84, 0.82)";
@@ -358,8 +379,38 @@ export default function MatchStatusSplashScreen({ navigation, route }) {
                 opacity: 0.78,
                 textTransform: "uppercase",
             },
-            heroTitle: { marginTop: 10, color: theme.text, fontSize: 22, fontWeight: "900" },
-            heroSub: { marginTop: 8, color: theme.text, opacity: 0.74, fontSize: 13, fontWeight: "700", lineHeight: 19 },
+            heroSub: {
+                marginTop: 12,
+                color: theme.text,
+                opacity: 0.74,
+                fontSize: 13,
+                fontWeight: "700",
+                lineHeight: 19,
+            },
+
+            heroMatchStack: {
+                marginTop: 12,
+                gap: 10,
+            },
+            heroMatchCard: {
+                borderRadius: 16,
+                padding: 12,
+                borderWidth: 1,
+                borderColor: goldBorder,
+                backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.45)",
+            },
+            heroMatchLabel: {
+                color: theme.text,
+                fontSize: 13,
+                fontWeight: "900",
+                opacity: 0.9,
+            },
+            heroMatchValue: {
+                marginTop: 6,
+                color: theme.text,
+                fontSize: 17,
+                fontWeight: "900",
+            },
 
             card: {
                 borderRadius: 18,
@@ -370,11 +421,31 @@ export default function MatchStatusSplashScreen({ navigation, route }) {
                 marginBottom: 12,
             },
 
-            row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12, paddingVertical: 10 },
+            matchCard: {
+                borderRadius: 16,
+                padding: 12,
+                borderWidth: 1,
+                borderColor: softBorder,
+                backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "rgba(10,15,26,0.03)",
+            },
+
+            row: {
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 12,
+            },
             label: { color: theme.text, fontSize: 13, fontWeight: "900", opacity: 0.9 },
             value: { color: theme.text, fontSize: 13, fontWeight: "900" },
 
-            sub: { marginTop: 8, color: theme.text, opacity: 0.72, fontSize: 12, fontWeight: "800", lineHeight: 18 },
+            sub: {
+                marginTop: 8,
+                color: theme.text,
+                opacity: 0.72,
+                fontSize: 12,
+                fontWeight: "800",
+                lineHeight: 18,
+            },
 
             footer: {
                 position: "absolute",
@@ -407,15 +478,34 @@ export default function MatchStatusSplashScreen({ navigation, route }) {
             <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
                 <View style={styles.hero}>
                     <Text style={styles.heroKicker}>Match status</Text>
-                    <Text style={styles.heroTitle}>{primary?.line || "AS"}</Text>
+
+                    <View style={styles.heroMatchStack}>
+                        {rows.slice(0, 8).map((r, idx) => (
+                            <View key={`hero_${r.id || idx}`} style={styles.heroMatchCard}>
+                                <Text style={styles.heroMatchLabel} numberOfLines={1}>
+                                    {r.leftLabel} vs {r.rightLabel}
+                                </Text>
+                                <Text style={styles.heroMatchValue} numberOfLines={1}>
+                                    {r.line}
+                                </Text>
+                            </View>
+                        ))}
+                    </View>
+
                     <Text style={styles.heroSub}>Tap Continue to proceed to Hole {nextHole}.</Text>
                 </View>
 
-                {rows.length > 1 ? (
-                    <>
-                        <View style={styles.card}>
-                            {rows.slice(0, 8).map((r, idx) => (
-                                <View key={`${r.id || idx}`} style={[styles.row, idx === 0 ? { paddingTop: 0 } : null]}>
+                {rows.length > 0 ? (
+                    <View style={styles.card}>
+                        {rows.slice(0, 8).map((r, idx) => (
+                            <View
+                                key={`${r.id || idx}`}
+                                style={[
+                                    styles.matchCard,
+                                    idx > 0 ? { marginTop: 10 } : null,
+                                ]}
+                            >
+                                <View style={styles.row}>
                                     <Text style={styles.label} numberOfLines={1}>
                                         {r.leftLabel} vs {r.rightLabel}
                                     </Text>
@@ -423,10 +513,15 @@ export default function MatchStatusSplashScreen({ navigation, route }) {
                                         {r.line} (thru {r.thru || 0})
                                     </Text>
                                 </View>
-                            ))}
-                            {rows.length > 8 ? <Text style={styles.sub}>More matches are tracked. Full panel coming next.</Text> : null}
-                        </View>
-                    </>
+
+                                {!!r.metaLine ? (
+                                    <Text style={styles.sub}>{r.metaLine}</Text>
+                                ) : null}
+                            </View>
+                        ))}
+
+                        {rows.length > 8 ? <Text style={styles.sub}>More matches are tracked. Full panel coming next.</Text> : null}
+                    </View>
                 ) : null}
             </ScrollView>
 

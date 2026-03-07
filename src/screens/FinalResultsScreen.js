@@ -152,8 +152,18 @@ function sumNetTotal(roundRoot, playerId, playerHcp) {
 
   if (!Number.isFinite(hcp) || hcp <= 0) return gross;
 
+  const hcRaw = Number(roundRoot?.holesCount ?? roundRoot?.meta?.holesCount);
+  const holesCount = hcRaw === 9 || hcRaw === 18 ? hcRaw : 18;
+
+  const sideRaw = String(roundRoot?.holesSide ?? roundRoot?.meta?.holesSide ?? "").toLowerCase().trim();
+  const holesSide = sideRaw === "back" ? "back" : sideRaw === "front" ? "front" : null;
+
+  const startHole = holesCount === 9 ? (holesSide === "back" ? 10 : 1) : 1;
+  const endHole = holesCount === 9 ? (holesSide === "back" ? 18 : 9) : 18;
+  const playedHoleCount = endHole - startHole + 1;
+
   let anyStrokeIndex = false;
-  for (let h = 1; h <= 18; h++) {
+  for (let h = startHole; h <= endHole; h++) {
     const si = getStrokeIndex(roundRoot, h);
     if (Number.isFinite(si)) {
       anyStrokeIndex = true;
@@ -162,7 +172,8 @@ function sumNetTotal(roundRoot, playerId, playerHcp) {
   }
 
   if (!anyStrokeIndex) {
-    const netFallback = gross - hcp;
+    const prorated = Math.round((hcp * playedHoleCount) / 18);
+    const netFallback = gross - prorated;
     return Number.isFinite(netFallback) ? netFallback : gross;
   }
 
@@ -171,7 +182,7 @@ function sumNetTotal(roundRoot, playerId, playerHcp) {
 
   let net = 0;
 
-  for (let h = 1; h <= 18; h++) {
+  for (let h = startHole; h <= endHole; h++) {
     const strokes = readStroke(roundRoot, h, playerId);
     if (strokes <= 0) continue;
 

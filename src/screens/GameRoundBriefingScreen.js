@@ -35,6 +35,8 @@ function detectFormatType(f) {
     const n = normKey(f?.name);
     const s = `${k} ${n}`.trim();
 
+    if (s.includes("matchplay") || (s.includes("match") && s.includes("play"))) return "match_play";
+
     const isSecondShot =
         s.includes("secondshotkp") ||
         s.includes("secondshot") ||
@@ -47,6 +49,12 @@ function detectFormatType(f) {
     if (s.includes("deucepot") || (s.includes("deuce") && s.includes("pot"))) return "deuce_pot";
     if (s.includes("puttingcontest") || (s.includes("putting") && s.includes("contest"))) return "putting_contest";
     if (s.includes("skins")) return "skins";
+    if (
+        s.includes("birdiebuckets") ||
+        (s.includes("birdie") && s.includes("bucket")) ||
+        (s.includes("birdie") && s.includes("buckets"))
+    ) return "birdie_buckets";
+    if (s.includes("stableford")) return "stableford";
     if (s.includes("nassau")) return "nassau";
     if (s.includes("kp")) return "kp";
     return "unknown";
@@ -77,11 +85,14 @@ function playerName(p, idx) {
 }
 
 const TITLE_BY_TYPE = {
+    match_play: "Match Play",
     kp: "KP",
     longdrive: "Long Drive",
     secondshotkp: "Second Shot KP",
     skins: "Skins",
     nassau: "Nassau",
+    stableford: "Stableford",
+    birdie_buckets: "Birdie Buckets",
     deuce_pot: "Deuce Pot",
     putting_contest: "Putting Contest",
 };
@@ -211,7 +222,13 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
                 const excluded = new Set(safeArr(pool?.excludedIds).map((x) => String(x)));
                 if (excluded.has(String(pid))) return;
 
-                if (type === "deuce_pot" || type === "putting_contest") {
+                if (
+                    type === "match_play" ||
+                    type === "deuce_pot" ||
+                    type === "putting_contest" ||
+                    type === "birdie_buckets" ||
+                    type === "stableford"
+                ) {
                     const fee = Number(pool?.entryFee);
                     if (Number.isFinite(fee) && fee > 0) owes[pid] += fee;
                 } else if (type === "skins") {
@@ -242,9 +259,8 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
                                 (Number.isFinite(b) ? b : 0) +
                                 (Number.isFinite(t) ? t : 0);
                         } else if (holesCount === 9) {
-                            // For 9-hole rounds, include only the segment being played.
                             if (holesSide === "back") sum = (Number.isFinite(b) ? b : 0);
-                            else sum = (Number.isFinite(f) ? f : 0); // default front
+                            else sum = (Number.isFinite(f) ? f : 0);
                         }
 
                         if (sum > 0) owes[pid] += sum;

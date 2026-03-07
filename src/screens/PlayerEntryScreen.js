@@ -290,13 +290,47 @@ export default function PlayerEntryScreen({ navigation, route }) {
 
     (async () => {
       try {
-        const raw = await AsyncStorage.getItem(PROFILE_KEY);
+        const myUid = auth?.currentUser?.uid || null;
+
+        let parsed = null;
+
+        if (myUid) {
+          try {
+            const { getDoc, doc } = await import("firebase/firestore");
+            const snap = await getDoc(doc(db, "users", String(myUid)));
+
+            if (snap.exists()) {
+              const d = snap.data() || {};
+              const rawHcp =
+                d?.handicapIndex ??
+                d?.handicapManual ??
+                d?.handicap ??
+                0;
+
+              parsed = {
+                name:
+                  String(
+                    d?.nickname ||
+                    d?.displayName ||
+                    d?.name ||
+                    auth?.currentUser?.displayName ||
+                    ""
+                  ).trim() || null,
+                handicap: clampHandicap(Number(rawHcp) || 0),
+              };
+            }
+          } catch { }
+        }
+
+        if (!parsed) {
+          const raw = await AsyncStorage.getItem(PROFILE_KEY);
+          if (!mounted) return;
+          parsed = raw ? parseProfile(raw) : null;
+        }
+
         if (!mounted) return;
 
-        const parsed = raw ? parseProfile(raw) : null;
-
         setPlayers((prev) => {
-          const myUid = auth?.currentUser?.uid || null;
           const hasMe = prev.some((p) => p?.id === "me");
           const base = hasMe
             ? prev
@@ -317,8 +351,16 @@ export default function PlayerEntryScreen({ navigation, route }) {
           return base.map((p) => {
             if (p.id !== "me") return p;
 
-            const nextName = parsed?.name || p.name || "Stephane L";
-            const nextHcp = parsed?.handicap ?? clampHandicap(p.handicap ?? 0);
+            const nextName =
+              parsed?.name ||
+              auth?.currentUser?.displayName ||
+              p.name ||
+              "Stephane L";
+
+            const nextHcp =
+              parsed?.handicap != null
+                ? clampHandicap(Number(parsed.handicap) || 0)
+                : clampHandicap(p.handicap ?? 0);
 
             return {
               ...p,

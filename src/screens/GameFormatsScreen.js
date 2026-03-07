@@ -17,6 +17,14 @@ import { auth, db } from "../firebase/firebase";
 
 const FORMAT_CATALOG = [
     {
+        key: "match_play",
+        name: "Match Play",
+        subtitle: "Head-to-head match",
+        needsHoles: false,
+        blurb: "Set match payouts and match settings next.",
+        comingSoon: false,
+    },
+    {
         key: "kp",
         name: "KP",
         subtitle: "Closest to the pin",
@@ -122,10 +130,30 @@ export default function GameFormatsScreen({ navigation, route }) {
     const params = route?.params || {};
     const roundId = params?.roundId || null;
 
-    // If user started from a specific game card, this is the "primary format".
-    // We use it ONLY to order the tiles (no auto-selection).
+    // If user started from a specific game card, this is the locked primary format.
+    // It should auto-select, appear first, and prevent skipping formats.
     const startGameIdRaw = params?.gameId || params?.gameFormat || params?.format || params?.gameType || null;
-    const startGameId = String(startGameIdRaw || "").trim();
+
+    const startGameId = useMemo(() => {
+        const raw = String(startGameIdRaw || "").trim().toLowerCase();
+
+        if (!raw) return "";
+
+        if (raw === "match" || raw === "matchplay" || raw === "match_play") return "match_play";
+        if (raw === "skins") return "skins";
+        if (raw === "stableford") return "stableford";
+        if (raw === "birdie_buckets" || raw === "birdiebuckets" || raw === "birdie-buckets") return "birdie_buckets";
+        if (raw === "nassau") return "nassau";
+
+        return raw;
+    }, [startGameIdRaw]);
+
+    const lockedGameKeys = useMemo(
+        () => new Set(["match_play", "skins", "stableford", "birdie_buckets", "nassau"]),
+        []
+    );
+
+    const lockedPrimaryKey = lockedGameKeys.has(startGameId) ? startGameId : null;
 
     const [saving, setSaving] = useState(false);
     const [activeRound, setActiveRound] = useState(null);
@@ -199,20 +227,19 @@ export default function GameFormatsScreen({ navigation, route }) {
     const selectedCount = selectedKeys.size;
 
     const orderedCatalog = useMemo(() => {
-        const primaryKeys = new Set(["skins", "stableford", "birdie_buckets", "nassau"]);
-        const primary = primaryKeys.has(startGameId) ? startGameId : null;
+        const primary = lockedPrimaryKey;
 
-        // If no primary format, keep default order.
+        // If no locked primary format, keep default order.
         if (!primary) return FORMAT_CATALOG;
 
         // Move the matching tile to the top, keep the rest in original order.
         const list = Array.isArray(FORMAT_CATALOG) ? FORMAT_CATALOG.slice() : [];
         const idx = list.findIndex((f) => String(f?.key || "") === primary);
-        if (idx <= 0) return list; // already first or not found
+        if (idx <= 0) return list;
 
         const [hit] = list.splice(idx, 1);
         return [hit, ...list];
-    }, [startGameId]);
+    }, [lockedPrimaryKey]);
 
     const styles = useMemo(() => {
         const softBorder = isDark ? "rgba(255,255,255,0.14)" : "rgba(10,15,26,0.12)";
@@ -388,59 +415,25 @@ export default function GameFormatsScreen({ navigation, route }) {
     }
     useEffect(() => {
         if (!roundId) return;
-        if (!startGameId) return;
+        if (!lockedPrimaryKey) return;
+        if (selectedKeys.has(lockedPrimaryKey)) return;
 
-        const primaryKeys = new Set(["skins", "stableford", "birdie_buckets", "nassau"]);
-        if (!primaryKeys.has(startGameId)) return;
-
-        const existing = activeRound?.formatsSelected;
-        const hasAny =
-            (Array.isArray(existing) && existing.length > 0) ||
-            (!!existing && typeof existing === "object" && Object.keys(existing).length > 0);
-
-        if (hasAny) return;
-
-        // If we already have it locally selectedKeys, don't write again.
-        if (selectedCount > 0) return;
-
-        // Add it (writes to Firestore via existing helper).
         const next = new Set(selectedKeys);
-        next.add(startGameId);
+        next.add(lockedPrimaryKey);
         setSelectedKeys(next);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [roundId, startGameId, activeRound, selectedCount]);
-
+    }, [roundId, lockedPrimaryKey, selectedKeys]);
     async function toggleFormat(item) {
         if (!item?.key) return;
         if (item.comingSoon) return;
 
         const key = String(item.key);
-        const next = new Set(selectedKeys);
 
-        const primaryKeys = new Set(["skins", "stableford", "birdie_buckets", "nassau"]);
-        const isPrimary = primaryKeys.has(startGameId) && key === startGameId;
-
-        // Premium guard: if user started from a primary game card and tries to turn OFF that same primary format,
-        // confirm first.
-        if (isPrimary && next.has(key)) {
-            Alert.alert(
-                `Turn off ${String(item?.name || "this format")}?`,
-                `You started this round from the ${String(item?.name || "selected")} game card. Turning it off means it will not be played for this round.`,
-                [
-                    { text: "Keep ON", style: "cancel" },
-                    {
-                        text: "Turn OFF",
-                        style: "destructive",
-                        onPress: async () => {
-                            const after = new Set(selectedKeys);
-                            after.delete(key);
-                            await setSelectedKeys(after);
-                        },
-                    },
-                ]
-            );
+        if (lockedPrimaryKey && key === lockedPrimaryKey) {
             return;
         }
+
+        const next = new Set(selectedKeys);
 
         if (next.has(key)) next.delete(key);
         else next.add(key);
@@ -450,6 +443,11 @@ export default function GameFormatsScreen({ navigation, route }) {
 
     async function skipFormats() {
         if (saving) return;
+
+        if (lockedPrimaryKey) {
+            Alert.alert("Formats required", "This game already includes a required format. Complete the format setup to continue.");
+            return;
+        }
 
         if (!roundId) {
             Alert.alert("Missing round", "No roundId found. Please go back and start again.");
@@ -610,8 +608,12 @@ export default function GameFormatsScreen({ navigation, route }) {
 
                 <Pressable
                     onPress={skipFormats}
-                    disabled={saving}
-                    style={({ pressed }) => [styles.secondaryBtn, pressed && !saving && styles.pressed, saving && { opacity: 0.7 }]}
+                    disabled={saving || !!lockedPrimaryKey}
+                    style={({ pressed }) => [
+                        styles.secondaryBtn,
+                        pressed && !saving && !lockedPrimaryKey && styles.pressed,
+                        (saving || lockedPrimaryKey) && { opacity: 0.45 },
+                    ]}
                 >
                     <Text style={styles.secondaryText}>Skip Formats</Text>
                 </Pressable>

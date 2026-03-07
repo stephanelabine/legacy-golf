@@ -650,20 +650,16 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
     function goToHoleHub(targetHole, extraParams = {}) {
         navigation.dispatch(
-            CommonActions.navigate({
-                name: ROUTES.HOLE_HUB,
-                params: {
-                    course,
-                    tee,
-                    players,
-                    hole: targetHole,
-                    holeMeta,
-                    roundId: roundIdParam || null,
-                    courseName: course?.name,
-                    teeName: tee?.name,
-                    ...extraParams,
-                },
-                merge: true,
+            StackActions.replace(ROUTES.HOLE_HUB, {
+                course,
+                tee,
+                players,
+                hole: targetHole,
+                holeMeta,
+                roundId: roundIdParam || null,
+                courseName: course?.name,
+                teeName: tee?.name,
+                ...extraParams,
             })
         );
     }
@@ -939,15 +935,6 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                 typeof roundState.matchPlay === "object" &&
                 Array.isArray(roundState.matchPlay.matches) &&
                 roundState.matchPlay.matches.length);
-
-        if (isMatchPlay && hasMatchSetup) {
-            navigation.replace(ROUTES.MATCH_STATUS_SPLASH, {
-                roundId: rid,
-                holeCompleted: Number(holeNumber) || 1,
-                nextHole: Number(nextHole) || nextHole,
-            });
-            return;
-        }
 
         // Post-hole Skins splash (single, premium) + running totals (skins count + estimated $).
         let postHoleSplash = null;
@@ -1403,11 +1390,31 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             return;
         }
 
+        if (isMatchPlay && hasMatchSetup) {
+            goToHoleHub(nextHole, {
+                roundId: rid,
+                postHoleSplash,
+                birdieBucketsSplash,
+                showMatchStatusSplash: true,
+                matchStatusHoleCompleted: Number(holeNumber) || 1,
+                matchStatusNextHole: Number(nextHole) || nextHole,
+                ...(shouldShowFrontNinePrompt ? { showFrontNineStatsPrompt: true } : {}),
+            });
+            return;
+        }
+
         goToHoleHub(nextHole, {
             roundId: rid,
             postHoleSplash,
             birdieBucketsSplash,
             ...(shouldShowFrontNinePrompt ? { showFrontNineStatsPrompt: true } : {}),
+            ...(isMatchPlay && hasMatchSetup
+                ? {
+                    showMatchStatusSplash: true,
+                    matchStatusHoleCompleted: Number(holeNumber) || 1,
+                    matchStatusNextHole: Number(nextHole) || nextHole,
+                }
+                : {}),
         });
     }
 

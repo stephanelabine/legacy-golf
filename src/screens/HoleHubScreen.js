@@ -711,6 +711,9 @@ export default function HoleHubScreen({ navigation, route }) {
   const [bbSplashVisible, setBbSplashVisible] = useState(false);
   const [bbSplash, setBbSplash] = useState(null);
 
+  const [showQueuedMatchStatusAfterPostSplash, setShowQueuedMatchStatusAfterPostSplash] = useState(false);
+  const [showImmediateMatchStatus, setShowImmediateMatchStatus] = useState(false);
+
   const [turnPromptVisible, setTurnPromptVisible] = useState(false);
   const [queuedSplash, setQueuedSplash] = useState(null);
 
@@ -823,6 +826,30 @@ export default function HoleHubScreen({ navigation, route }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params?.birdieBucketsSplash, turnPromptVisible, params?.showFrontNineStatsPrompt]);
 
+  useEffect(() => {
+    if (!params?.showMatchStatusSplash) return;
+
+    const blocked =
+      !!params?.postHoleSplash ||
+      !!params?.birdieBucketsSplash ||
+      postSplashVisible ||
+      bbSplashVisible ||
+      turnPromptVisible ||
+      !!params?.showFrontNineStatsPrompt;
+
+    if (blocked) return;
+
+    setShowImmediateMatchStatus(true);
+  }, [
+    params?.showMatchStatusSplash,
+    params?.postHoleSplash,
+    params?.birdieBucketsSplash,
+    params?.showFrontNineStatsPrompt,
+    postSplashVisible,
+    bbSplashVisible,
+    turnPromptVisible,
+  ]);
+
   function dismissPostHoleSplash() {
     setPostSplashVisible(false);
     setPostSplash(null);
@@ -830,6 +857,10 @@ export default function HoleHubScreen({ navigation, route }) {
     try {
       navigation.setParams({ postHoleSplash: null });
     } catch { }
+
+    if (params?.showMatchStatusSplash) {
+      setShowQueuedMatchStatusAfterPostSplash(true);
+    }
   }
 
   function dismissBirdieBucketsSplash() {
@@ -840,6 +871,73 @@ export default function HoleHubScreen({ navigation, route }) {
       navigation.setParams({ birdieBucketsSplash: null });
     } catch { }
   }
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!showImmediateMatchStatus) return undefined;
+      if (postSplashVisible) return undefined;
+      if (bbSplashVisible) return undefined;
+      if (turnPromptVisible) return undefined;
+
+      setShowImmediateMatchStatus(false);
+
+      try {
+        navigation.setParams({ showMatchStatusSplash: null });
+      } catch { }
+
+      navigation.navigate(ROUTES.MATCH_STATUS_SPLASH, {
+        roundId,
+        holeCompleted: Number(params?.matchStatusHoleCompleted) || Number(currentHole) || 1,
+        nextHole: Number(params?.matchStatusNextHole) || Number(currentHole) || 1,
+      });
+
+      return () => { };
+    }, [
+      showImmediateMatchStatus,
+      postSplashVisible,
+      bbSplashVisible,
+      turnPromptVisible,
+      navigation,
+      roundId,
+      params?.matchStatusHoleCompleted,
+      params?.matchStatusNextHole,
+      currentHole,
+    ])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!showQueuedMatchStatusAfterPostSplash) return undefined;
+      if (postSplashVisible) return undefined;
+      if (bbSplashVisible) return undefined;
+      if (turnPromptVisible) return undefined;
+
+      setShowQueuedMatchStatusAfterPostSplash(false);
+
+      try {
+        navigation.setParams({ showMatchStatusSplash: null });
+      } catch { }
+
+      navigation.navigate(ROUTES.MATCH_STATUS_SPLASH, {
+        roundId,
+        holeCompleted: Number(params?.matchStatusHoleCompleted) || Number(currentHole) || 1,
+        nextHole: Number(params?.matchStatusNextHole) || Number(currentHole) || 1,
+      });
+
+      return () => { };
+    }, [
+      showQueuedMatchStatusAfterPostSplash,
+      postSplashVisible,
+      bbSplashVisible,
+      turnPromptVisible,
+      navigation,
+      roundId,
+      params?.matchStatusHoleCompleted,
+      params?.matchStatusNextHole,
+      currentHole,
+    ])
+  );
+
   const sgTimerRef = useRef(null);
   const sgShownKeyRef = useRef(null);
 
