@@ -877,6 +877,12 @@ export default function HoleMapScreen({ navigation, route }) {
     back: green?.back ? yds(dist.b) : "—",
   };
 
+  const greenSetFront = !!(green?.front && Number.isFinite(green?.front?.lat) && Number.isFinite(green?.front?.lon));
+  const greenSetMiddle = !!(green?.middle && Number.isFinite(green?.middle?.lat) && Number.isFinite(green?.middle?.lon));
+  const greenSetBack = !!(green?.back && Number.isFinite(green?.back?.lat) && Number.isFinite(green?.back?.lon));
+  const greenSetLeft = !!(green?.left && Number.isFinite(green?.left?.lat) && Number.isFinite(green?.left?.lon));
+  const greenSetRight = !!(green?.right && Number.isFinite(green?.right?.lat) && Number.isFinite(green?.right?.lon));
+
   const yardPan = useMemo(() => {
     const edgeSnap = 70; // px from edge to trigger left/right dock
     const stackEdge = 95; // slightly deeper edge threshold to enable stacked layout
@@ -966,6 +972,8 @@ export default function HoleMapScreen({ navigation, route }) {
           front: green.front || null,
           middle: green.middle || null,
           back: green.back || null,
+          left: green.left || null,
+          right: green.right || null,
         }
         : null,
       hazards: hazardsArr
@@ -1124,6 +1132,57 @@ export default function HoleMapScreen({ navigation, route }) {
     }
   }
 
+  async function setGreenPoint(pointKey) {
+    if (!admin) return;
+    if (!courseId) {
+      Alert.alert("Set point unavailable", "No courseId in route params.");
+      return;
+    }
+    if (!canSet) return;
+    if (!pointKey) return;
+
+    setSavingSetup(true);
+    try {
+      const cid = String(courseId);
+      const existing = (await loadCourseData(cid)) || {};
+
+      const gps = existing.gps && typeof existing.gps === "object" ? existing.gps : {};
+      const holes = gps.holes && typeof gps.holes === "object" ? gps.holes : {};
+      const hKey = String(holeNumber);
+      const holeObj = holes[hKey] && typeof holes[hKey] === "object" ? holes[hKey] : {};
+
+      const prevGreen = holeObj.green && typeof holeObj.green === "object" ? holeObj.green : {};
+
+      const nextHoleObj = {
+        ...holeObj,
+        green: {
+          ...prevGreen,
+          [pointKey]: { lat: user.lat, lon: user.lon },
+        },
+      };
+
+      const next = {
+        ...existing,
+        gps: {
+          ...gps,
+          holes: {
+            ...holes,
+            [hKey]: nextHoleObj,
+          },
+        },
+      };
+
+      const ok = await saveCourseData(cid, next);
+      if (ok) {
+        await reloadCourseData();
+        postPayload(true);
+        Alert.alert("Saved", `${String(pointKey).toUpperCase()} saved for Hole ${holeNumber}.`);
+      }
+    } finally {
+      setSavingSetup(false);
+    }
+  }
+
   async function setFairwayMid() {
     if (!admin) return;
     if (!courseId) {
@@ -1138,7 +1197,7 @@ export default function HoleMapScreen({ navigation, route }) {
       const existing = (await loadCourseData(cid)) || {};
 
       const gps = existing.gps && typeof existing.gps === "object" ? existing.gps : {};
-      const holes = gps.holes && typeof gps.holes === "object" ? gps.holes : {};
+      const holes = gps.holes && typeof holes === "object" ? gps.holes : {};
       const hKey = String(holeNumber);
       const holeObj = holes[hKey] && typeof holes[hKey] === "object" ? holes[hKey] : {};
 
@@ -1553,6 +1612,62 @@ export default function HoleMapScreen({ navigation, route }) {
                     >
                       <Text style={styles.setBtnT}>Set Tee (Red)</Text>
                       <Text style={styles.setBtnS}>{teeSetRed ? "Saved" : "Not set"}</Text>
+                    </Pressable>
+                  </View>
+
+                  <View style={styles.sectionTitleRow}>
+                    <Text style={styles.sectionTitle}>Green points</Text>
+                    <Text style={styles.sectionSub}>Front / Middle / Back / Left / Right</Text>
+                  </View>
+
+                  <View style={styles.setRow2}>
+                    <Pressable
+                      disabled={!canSet || savingSetup || (gpsLocked && greenSetFront)}
+                      onPress={() => setGreenPoint("front")}
+                      style={({ pressed }) => [styles.setBtn, pressed && styles.pressed, (!canSet || savingSetup || (gpsLocked && greenSetFront)) && { opacity: 0.45 }]}
+                    >
+                      <Text style={styles.setBtnT}>Set Front</Text>
+                      <Text style={styles.setBtnS}>{greenSetFront ? "Saved" : "Not set"}</Text>
+                    </Pressable>
+
+                    <Pressable
+                      disabled={!canSet || savingSetup || (gpsLocked && greenSetMiddle)}
+                      onPress={() => setGreenPoint("middle")}
+                      style={({ pressed }) => [styles.setBtn, pressed && styles.pressed, (!canSet || savingSetup || (gpsLocked && greenSetMiddle)) && { opacity: 0.45 }]}
+                    >
+                      <Text style={styles.setBtnT}>Set Middle</Text>
+                      <Text style={styles.setBtnS}>{greenSetMiddle ? "Saved" : "Not set"}</Text>
+                    </Pressable>
+                  </View>
+
+                  <View style={styles.setRow2}>
+                    <Pressable
+                      disabled={!canSet || savingSetup || (gpsLocked && greenSetBack)}
+                      onPress={() => setGreenPoint("back")}
+                      style={({ pressed }) => [styles.setBtn, pressed && styles.pressed, (!canSet || savingSetup || (gpsLocked && greenSetBack)) && { opacity: 0.45 }]}
+                    >
+                      <Text style={styles.setBtnT}>Set Back</Text>
+                      <Text style={styles.setBtnS}>{greenSetBack ? "Saved" : "Not set"}</Text>
+                    </Pressable>
+
+                    <Pressable
+                      disabled={!canSet || savingSetup || (gpsLocked && greenSetLeft)}
+                      onPress={() => setGreenPoint("left")}
+                      style={({ pressed }) => [styles.setBtn, pressed && styles.pressed, (!canSet || savingSetup || (gpsLocked && greenSetLeft)) && { opacity: 0.45 }]}
+                    >
+                      <Text style={styles.setBtnT}>Set Left</Text>
+                      <Text style={styles.setBtnS}>{greenSetLeft ? "Saved" : "Not set"}</Text>
+                    </Pressable>
+                  </View>
+
+                  <View style={styles.setRow2}>
+                    <Pressable
+                      disabled={!canSet || savingSetup || (gpsLocked && greenSetRight)}
+                      onPress={() => setGreenPoint("right")}
+                      style={({ pressed }) => [styles.setBtn, pressed && styles.pressed, (!canSet || savingSetup || (gpsLocked && greenSetRight)) && { opacity: 0.45 }]}
+                    >
+                      <Text style={styles.setBtnT}>Set Right</Text>
+                      <Text style={styles.setBtnS}>{greenSetRight ? "Saved" : "Not set"}</Text>
                     </Pressable>
                   </View>
 

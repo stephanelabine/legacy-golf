@@ -91,7 +91,8 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
   const [courseData, setCourseData] = useState(null);
   const [userPt, setUserPt] = useState(null);
 
-  const [activeTab, setActiveTab] = useState("pin"); // front | pin | back
+  const [activeTarget, setActiveTarget] = useState("middle"); // front | middle | back
+  const [pinMode, setPinMode] = useState(false);
 
   const [greenBox, setGreenBox] = useState({ w: 0, h: 0 });
   const [pinPx, setPinPx] = useState({ x: 0, y: 0 });
@@ -103,7 +104,6 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
   const draggingRef = useRef(false);
   const [scrollLocked, setScrollLocked] = useState(false);
 
-  // absolute rect of greenBox (window coordinates)
   const greenRectRef = useRef({ x: 0, y: 0, w: 0, h: 0 });
   const hasRectRef = useRef(false);
 
@@ -177,77 +177,113 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
   const gFront = useMemo(() => normPoint(green?.front), [green?.front]);
   const gMiddle = useMemo(() => normPoint(green?.middle), [green?.middle]);
   const gBack = useMemo(() => normPoint(green?.back), [green?.back]);
+  const gLeft = useMemo(() => normPoint(green?.left), [green?.left]);
+  const gRight = useMemo(() => normPoint(green?.right), [green?.right]);
 
   const hasGreenPoints = !!(gFront || gMiddle || gBack);
+  const hasLateralGreenPoints = !!(gLeft && gRight);
 
   const passedYardages = params?.yardages && typeof params.yardages === "object" ? params.yardages : null;
 
-  const computedEdgeYardages = useMemo(() => {
-    if (!userPt) return { front: "—", back: "—" };
-    const out = { front: "—", back: "—" };
-    if (gFront) out.front = yds(haversineMeters(userPt, gFront));
-    if (gBack) out.back = yds(haversineMeters(userPt, gBack));
-    return out;
-  }, [userPt, gFront, gBack]);
+  const computedTargetYardages = useMemo(() => {
+    if (!userPt) return { front: "—", middle: "—", back: "—" };
 
-  const edgeYardages = useMemo(() => {
+    return {
+      front: gFront ? yds(haversineMeters(userPt, gFront)) : "—",
+      middle: gMiddle ? yds(haversineMeters(userPt, gMiddle)) : "—",
+      back: gBack ? yds(haversineMeters(userPt, gBack)) : "—",
+    };
+  }, [userPt, gFront, gMiddle, gBack]);
+
+  const targetYardages = useMemo(() => {
     const pf = passedYardages?.front;
+    const pm = passedYardages?.middle ?? passedYardages?.center ?? passedYardages?.pin;
     const pb = passedYardages?.back;
 
-    const looksOk = (pf && pf !== "—") || (pb && pb !== "—");
-    if (looksOk) return { front: String(pf ?? "—"), back: String(pb ?? "—") };
-    return computedEdgeYardages;
-  }, [passedYardages, computedEdgeYardages]);
+    const looksOk = (pf && pf !== "—") || (pm && pm !== "—") || (pb && pb !== "—");
+    if (looksOk) {
+      return {
+        front: String(pf ?? "—"),
+        middle: String(pm ?? "—"),
+        back: String(pb ?? "—"),
+      };
+    }
+
+    return computedTargetYardages;
+  }, [passedYardages, computedTargetYardages]);
 
   const pinWorld = useMemo(() => {
     if (!hasGreenPoints) return null;
 
-    const A = gFront || gMiddle || gBack;
-    const B = gBack || gMiddle || gFront;
-    if (!A || !B) return gMiddle || gFront || gBack;
+    const frontBackStart = gFront || gMiddle || gBack;
+    const frontBackEnd = gBack || gMiddle || gFront;
+    if (!frontBackStart || !frontBackEnd) return gMiddle || gFront || gBack;
 
     const w = Number(greenBox?.w || 0);
     const h = Number(greenBox?.h || 0);
-    if (!w || !h) return gMiddle || A;
+    if (!w || !h) return gMiddle || frontBackStart;
 
-    // Invert Y so dragging UP increases yardage (back of green)
     const t = clamp(1 - pinPx.y / h, 0, 1);
     const s = clamp((pinPx.x / w - 0.5) * 2, -1, 1);
 
-    const d = latLonToMetersDelta(A, B);
-    const len = Math.hypot(d.dNorth, d.dEast) || 1;
+    const fb = latLonToMetersDelta(frontBackStart, frontBackEnd);
+    const fbLen = Math.hypot(fb.dNorth, fb.dEast) || 1;
 
-    const uN = d.dNorth / len;
-    const uE = d.dEast / len;
+    const uN = fb.dNorth / fbLen;
+    const uE = fb.dEast / fbLen;
 
     const pN = -uE;
     const pE = uN;
 
-    const along = t * len;
-    const lateralMeters = 10 * s;
+    const along = t * fbLen;
 
-    const north = uN * along + pN * lateralMeters;
-    const east = uE * along + pE * lateralMeters;
+    let lateralMeters = 0;
 
-    return offsetLatLon(A, north, east);
-  }, [hasGreenPoints, gFront, gMiddle, gBack, greenBox, pinPx]);
+    if (hasLateralGreenPoints) {
+      const lr = latLonToMetersDelta(gLeft, gRight);
+      const lrWidth = Math.hypot(lr.dNorth, lr.dEast) || 0;
+      lateralMeters = (lrWidth * 0.5) * s;
+    } else {
+      lateralMeters = 12 * s;
+    }
+
+    return offsetLatLon(
+      frontBackStart,
+      uN * along + pN * lateralMeters,
+      uE * along + pE * lateralMeters
+    );
+  }, [hasGreenPoints, hasLateralGreenPoints, gFront, gMiddle, gBack, gLeft, gRight, greenBox, pinPx]);
 
   const pinYardage = useMemo(() => {
     if (!userPt || !pinWorld) return "—";
     return yds(haversineMeters(userPt, pinWorld));
   }, [userPt, pinWorld]);
 
-  // Pin icon sizing + clamping
+  const selectedTargetLabel = useMemo(() => {
+    if (pinMode) return "Local pin estimate";
+    if (activeTarget === "front") return "Front";
+    if (activeTarget === "back") return "Back";
+    return "Middle";
+  }, [pinMode, activeTarget]);
+
+  const selectedTargetYardage = useMemo(() => {
+    if (pinMode) return pinYardage;
+    if (activeTarget === "front") return targetYardages.front;
+    if (activeTarget === "back") return targetYardages.back;
+    return targetYardages.middle;
+  }, [pinMode, activeTarget, pinYardage, targetYardages]);
+
   const FLAG_W = 34;
   const FLAG_H = 48;
-  const INNER_PAD = 14;
+  const INNER_PAD_X = 42;
+  const INNER_PAD_Y = 52;
 
   const clampPinCenter = useCallback(
     (x, y, w, h) => {
-      const minX = INNER_PAD + FLAG_W / 2;
-      const maxX = w - INNER_PAD - FLAG_W / 2;
-      const minY = INNER_PAD + FLAG_H / 2;
-      const maxY = h - INNER_PAD - FLAG_H / 2;
+      const minX = INNER_PAD_X + FLAG_W / 2;
+      const maxX = w - INNER_PAD_X - FLAG_W / 2;
+      const minY = INNER_PAD_Y + FLAG_H / 2;
+      const maxY = h - INNER_PAD_Y - FLAG_H / 2;
 
       return {
         x: clamp(x, minX, maxX),
@@ -323,9 +359,10 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
     (e) => {
       if (!hasGreenPoints) return;
 
+      if (!pinMode) setPinMode(true);
+
       refreshGreenRect();
       lockScroll();
-      setActiveTab("pin");
 
       const px = e?.nativeEvent?.pageX;
       const py = e?.nativeEvent?.pageY;
@@ -333,12 +370,14 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
         updatePinFromPageXY(px, py);
       }
     },
-    [hasGreenPoints, refreshGreenRect, lockScroll, updatePinFromPageXY]
+    [hasGreenPoints, pinMode, refreshGreenRect, lockScroll, updatePinFromPageXY]
   );
 
   const handleMove = useCallback(
     (e) => {
       if (!hasGreenPoints) return;
+
+      if (!pinMode) setPinMode(true);
 
       if (!draggingRef.current) {
         refreshGreenRect();
@@ -351,21 +390,47 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
         updatePinFromPageXY(px, py);
       }
     },
-    [hasGreenPoints, refreshGreenRect, lockScroll, updatePinFromPageXY]
+    [hasGreenPoints, pinMode, refreshGreenRect, lockScroll, updatePinFromPageXY]
   );
 
   function goBackToScoreEntry() {
-    const TARGET = ROUTES.TOURNAMENT_SCORE_ENTRY || "TournamentScoreEntry";
+    if (navigation?.canGoBack?.()) {
+      navigation.goBack();
+      return;
+    }
+
+    const isTournamentFlow = !!(params?.tournamentId || tournamentId);
+
+    if (isTournamentFlow) {
+      const TARGET = ROUTES.TOURNAMENT_SCORE_ENTRY || "TournamentScoreEntry";
+
+      navigation.navigate(TARGET, {
+        ...params,
+        ...pickTournamentNavParams(params),
+        tournamentId: params?.tournamentId ?? tournamentId,
+        roundNumber: params?.roundNumber ?? roundNumber,
+        roundId: params?.roundId ?? roundId,
+        holeNumber: params?.holeNumber ?? hole,
+        hole: params?.hole ?? hole,
+        totalHoles: params?.totalHoles,
+        groupPlayerIds: params?.groupPlayerIds,
+        sideGameKey: params?.sideGameKey,
+        courseId: params?.courseId ?? courseId ?? null,
+        courseName: params?.courseName ?? courseName,
+        teeName: params?.teeName ?? teeName,
+      });
+      return;
+    }
+
+    const TARGET = ROUTES.GAME_SCORE_ENTRY || "GameScoreEntry";
+
     navigation.navigate(TARGET, {
-      ...pickTournamentNavParams(params),
-      tournamentId,
-      roundNumber,
-      roundId,
-      holeNumber: hole,
-      hole,
-      courseId: courseId || null,
-      courseName,
-      teeName,
+      ...params,
+      holeNumber: params?.holeNumber ?? hole,
+      hole: params?.hole ?? hole,
+      courseId: params?.courseId ?? courseId ?? null,
+      courseName: params?.courseName ?? courseName,
+      teeName: params?.teeName ?? teeName,
     });
   }
 
@@ -394,9 +459,14 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
 
   function showGreenHelp() {
     Alert.alert(
-      "Putting Surface",
-      "Tap or drag the flag on the green to set your pin distance (local only). Front/Back are from saved green edge points."
+      "Green View",
+      "Front, middle, and back come from saved green points. If left and right are also saved, drag estimates use that width too for a better back-left / front-right target estimate."
     );
+  }
+
+  function togglePinMode() {
+    if (!hasGreenPoints) return;
+    setPinMode((v) => !v);
   }
 
   return (
@@ -415,42 +485,51 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
       >
         <View style={styles.topRow}>
           <Pressable
-            onPress={() => setActiveTab("front")}
+            onPress={() => {
+              setPinMode(false);
+              setActiveTarget("front");
+            }}
             style={({ pressed }) => [
               styles.topCard,
               styles.goldBorderCard,
-              activeTab === "front" && styles.topCardActive,
+              activeTarget === "front" && !pinMode && styles.topCardActive,
               pressed && styles.pressed,
             ]}
           >
             <Text style={styles.topLabel}>Front</Text>
-            <Text style={styles.topValue}>{edgeYardages.front}</Text>
+            <Text style={styles.topValue}>{targetYardages.front}</Text>
           </Pressable>
 
           <Pressable
-            onPress={() => setActiveTab("pin")}
+            onPress={() => {
+              setPinMode(false);
+              setActiveTarget("middle");
+            }}
             style={({ pressed }) => [
               styles.topCard,
               styles.goldBorderCard,
-              activeTab === "pin" && styles.topCardActiveGold,
+              activeTarget === "middle" && !pinMode && styles.topCardActiveGold,
               pressed && styles.pressed,
             ]}
           >
-            <Text style={styles.topLabel}>Pin</Text>
-            <Text style={styles.topValue}>{pinYardage}</Text>
+            <Text style={styles.topLabel}>Middle</Text>
+            <Text style={styles.topValue}>{targetYardages.middle}</Text>
           </Pressable>
 
           <Pressable
-            onPress={() => setActiveTab("back")}
+            onPress={() => {
+              setPinMode(false);
+              setActiveTarget("back");
+            }}
             style={({ pressed }) => [
               styles.topCard,
               styles.goldBorderCard,
-              activeTab === "back" && styles.topCardActive,
+              activeTarget === "back" && !pinMode && styles.topCardActive,
               pressed && styles.pressed,
             ]}
           >
             <Text style={styles.topLabel}>Back</Text>
-            <Text style={styles.topValue}>{edgeYardages.back}</Text>
+            <Text style={styles.topValue}>{targetYardages.back}</Text>
           </Pressable>
         </View>
 
@@ -459,7 +538,7 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.hintTitle}>Green points not set yet</Text>
               <Text style={styles.hintSub}>
-                Set front / middle / back once. Then you can tap/drag the pin for your own yardage.
+                Set front / middle / back once. These are the trusted distances used by Green View.
               </Text>
             </View>
 
@@ -469,21 +548,41 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
             </Pressable>
           </View>
         ) : (
-          <View style={[styles.infoCard, styles.goldBorder]}>
-            <View style={styles.infoRow}>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.infoTitle}>Pin distance is adjustable</Text>
-                <Text style={styles.infoSub}>Tap or drag inside the green. Page won’t scroll while your finger is down.</Text>
-              </View>
-
-              <Pressable onPress={setGreenPoints} style={({ pressed }) => [styles.smallBtn, pressed && styles.pressed]}>
-                <Text style={styles.smallBtnT}>Edit points</Text>
-                <Text style={styles.smallBtnS}>→</Text>
-              </Pressable>
+          <View style={styles.playRow}>
+            <View style={[styles.topCard, styles.goldBorderCard, styles.playCardMatch]}>
+              <Text style={[styles.topLabel, styles.greenNotesText]}>Green</Text>
+              <Text style={[styles.topLabel, styles.greenNotesText]}>Notes</Text>
             </View>
+
+            <View
+              style={[
+                styles.topCard,
+                styles.goldBorderCard,
+                styles.topCardActiveGold,
+                styles.playCardMatch,
+                styles.playBoxYardage,
+              ]}
+            >
+              <Text style={styles.topLabel}>{pinMode ? "Target" : selectedTargetLabel}</Text>
+              <Text style={styles.topValue}>{selectedTargetYardage}</Text>
+              <Text style={styles.playBoxUnit}>YDS</Text>
+            </View>
+
+            <Pressable
+              onPress={goBackToScoreEntry}
+              style={({ pressed }) => [
+                styles.topCard,
+                styles.goldBorderCard,
+                styles.playCardMatch,
+                styles.playBoxButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={[styles.topLabel, styles.returnText]}>Back to</Text>
+              <Text style={[styles.topLabel, styles.returnText]}>Score Entry</Text>
+            </Pressable>
           </View>
         )}
-
         <View style={[styles.card, styles.goldBorderBig]}>
           <View style={styles.cardHeaderRow}>
             <Text style={styles.cardTitle}>Putting Surface</Text>
@@ -516,8 +615,13 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
               onTouchEnd={unlockScroll}
               onTouchCancel={unlockScroll}
             >
-              {/* MATCH the “bar” color to the greenBox background so it looks intentional */}
               <Image source={GreenShape} style={styles.greenImage} resizeMode="cover" pointerEvents="none" />
+
+              <View style={styles.greenGuideOverlay} pointerEvents="none">
+                <View style={styles.greenBandTop} />
+                <View style={styles.greenBandMid} />
+                <View style={styles.greenBandBot} />
+              </View>
 
               <View
                 style={[
@@ -527,6 +631,7 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
                     height: FLAG_H,
                     left: pinPx.x - FLAG_W / 2,
                     top: pinPx.y - FLAG_H / 2,
+                    opacity: pinMode ? 1 : 0.55,
                   },
                 ]}
                 pointerEvents="none"
@@ -534,18 +639,13 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
                 <View style={styles.flagShadow} />
                 <Text style={styles.flagIcon}>⛳</Text>
               </View>
+
+              <View style={styles.pinHintBadge} pointerEvents="none">
+                <Text style={styles.pinHintBadgeText}>Drag the flag to estimate yardage to your target</Text>
+              </View>
             </View>
           </View>
         </View>
-
-        <View style={[styles.card, styles.goldBorder]}>
-          <Text style={styles.cardTitle}>Green notes</Text>
-          <Text style={styles.cardBody}>{greenInfo}</Text>
-        </View>
-
-        <Pressable onPress={goBackToScoreEntry} style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}>
-          <Text style={styles.primaryBtnText}>Back to Score Entry</Text>
-        </Pressable>
 
         <Text style={styles.footerMeta}>
           {courseName} • {teeName}
@@ -557,8 +657,6 @@ export default function TournamentGreenViewScreen({ navigation, route }) {
 
 const GOLD = "rgba(242,201,76,0.85)";
 const GOLD_SOFT = "rgba(242,201,76,0.60)";
-
-// Use SAME dark as greenBox for any “letterbox” area
 const GREEN_BOX_BG = "#0E1A14";
 
 const styles = StyleSheet.create({
@@ -566,11 +664,12 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   wrap: { padding: 16, gap: 12 },
 
-  topRow: { flexDirection: "row", gap: 10 },
+  topRow: { flexDirection: "row", gap: 8 },
   topCard: {
     flex: 1,
-    borderRadius: 18,
-    paddingVertical: 14,
+    minHeight: 74,
+    borderRadius: 16,
+    paddingVertical: 8,
     backgroundColor: "rgba(255,255,255,0.040)",
     alignItems: "center",
     justifyContent: "center",
@@ -617,25 +716,35 @@ const styles = StyleSheet.create({
   hintBtnT: { color: "#fff", fontWeight: "900", fontSize: 12, letterSpacing: 0.3 },
   hintBtnS: { color: "rgba(255,255,255,0.82)", fontWeight: "900", fontSize: 14 },
 
-  infoCard: { borderRadius: 22, padding: 12, backgroundColor: "rgba(255,255,255,0.04)" },
-  infoRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  infoTitle: { color: "rgba(255,255,255,0.90)", fontSize: 13, fontWeight: "900" },
-  infoSub: { marginTop: 4, color: "rgba(255,255,255,0.68)", fontWeight: "800", fontSize: 12 },
-
-  smallBtn: {
-    height: 40,
-    paddingHorizontal: 12,
-    borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    alignItems: "center",
-    justifyContent: "center",
+  playRow: {
     flexDirection: "row",
     gap: 8,
+    alignItems: "stretch",
   },
-  smallBtnT: { color: "#fff", fontWeight: "900", fontSize: 12, letterSpacing: 0.2 },
-  smallBtnS: { color: "rgba(255,255,255,0.82)", fontWeight: "900", fontSize: 14 },
+  playCardMatch: {
+    minHeight: 74,
+    paddingVertical: 8,
+  },
+  playBoxYardage: {
+    backgroundColor: "rgba(242,201,76,0.10)",
+  },
+  playBoxButton: {
+    alignItems: "center",
+  },
+  playBoxUnit: {
+    marginTop: 2,
+    color: "rgba(255,255,255,0.72)",
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    textAlign: "center",
+  },
+  greenNotesText: {
+    color: "#2ECC71",
+  },
+  returnText: {
+    color: "#FF6B3D",
+  },
 
   card: { borderRadius: 22, padding: 16, backgroundColor: "rgba(255,255,255,0.04)" },
   cardHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
@@ -680,12 +789,81 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
     opacity: 0.98,
-    backgroundColor: GREEN_BOX_BG, // fills letterbox area same as box
+    backgroundColor: GREEN_BOX_BG,
+  },
+
+  greenGuideOverlay: {
+    position: "absolute",
+    left: 42,
+    right: 42,
+    top: 52,
+    bottom: 52,
+    borderRadius: 140,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    overflow: "hidden",
+  },
+  greenBandTop: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    height: "33.333%",
+    backgroundColor: "rgba(255,255,255,0.02)",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.08)",
+  },
+  greenBandMid: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: "33.333%",
+    height: "33.333%",
+    backgroundColor: "rgba(255,255,255,0.01)",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.08)",
+  },
+  greenBandBot: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: "33.333%",
+    backgroundColor: "rgba(255,255,255,0.02)",
   },
 
   flagWrap: { position: "absolute", alignItems: "center", justifyContent: "center" },
-  flagShadow: { position: "absolute", bottom: 6, width: 16, height: 7, borderRadius: 999, backgroundColor: "rgba(0,0,0,0.32)" },
+  flagShadow: {
+    position: "absolute",
+    bottom: 6,
+    width: 16,
+    height: 7,
+    borderRadius: 999,
+    backgroundColor: "rgba(0,0,0,0.32)",
+  },
   flagIcon: { fontSize: 26, lineHeight: 28 },
+
+  pinHintBadge: {
+    position: "absolute",
+    left: 12,
+    right: 12,
+    bottom: 12,
+    minHeight: 38,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: "rgba(11,18,32,0.72)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pinHintBadgeText: {
+    color: "rgba(255,255,255,0.82)",
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "center",
+  },
 
   primaryBtn: {
     marginTop: 4,
@@ -699,7 +877,13 @@ const styles = StyleSheet.create({
   },
   primaryBtnText: { color: "#fff", fontSize: 16, fontWeight: "900" },
 
-  footerMeta: { textAlign: "center", color: "rgba(255,255,255,0.45)", fontSize: 12, fontWeight: "800", marginTop: 2 },
+  footerMeta: {
+    textAlign: "center",
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 2,
+  },
 
   pressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
 });
