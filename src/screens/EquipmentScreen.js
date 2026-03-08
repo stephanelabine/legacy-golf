@@ -9,10 +9,14 @@ import {
   Platform,
   Pressable,
   Keyboard,
+  Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+
+import { auth, db } from "../firebase/firebase";
 
 const PROFILE_KEY = "LEGACY_GOLF_PROFILE_V1";
 
@@ -70,12 +74,50 @@ export default function EquipmentScreen({ navigation }) {
   }, []);
 
   const loadProfile = useCallback(async () => {
-    const raw = await AsyncStorage.getItem(PROFILE_KEY);
-    const parsed = raw ? safeParse(raw) : null;
-    const nextProfile = parsed || {};
-    const nextBag = normalizeBag(nextProfile.equipmentBag);
+    const uid = String(auth?.currentUser?.uid || "").trim();
+
+    let localProfile = {};
+    try {
+      const raw = await AsyncStorage.getItem(PROFILE_KEY);
+      const parsed = raw ? safeParse(raw) : null;
+      localProfile = parsed || {};
+    } catch {
+      localProfile = {};
+    }
+
+    if (uid) {
+      try {
+        const snap = await getDoc(doc(db, "users", uid));
+        if (snap.exists()) {
+          const cloudProfile = snap.data() || {};
+          const mergedProfile = {
+            ...localProfile,
+            ...cloudProfile,
+            equipmentBag: normalizeBag(
+              Array.isArray(cloudProfile.equipmentBag)
+                ? cloudProfile.equipmentBag
+                : localProfile.equipmentBag
+            ),
+          };
+
+          setProfile(mergedProfile);
+          setBag(mergedProfile.equipmentBag);
+
+          await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(mergedProfile));
+          return;
+        }
+      } catch {
+        // fallback to local below
+      }
+    }
+
+    const nextProfile = {
+      ...localProfile,
+      equipmentBag: normalizeBag(localProfile.equipmentBag),
+    };
+
     setProfile(nextProfile);
-    setBag(nextBag);
+    setBag(nextProfile.equipmentBag);
   }, []);
 
   useEffect(() => {
@@ -90,10 +132,33 @@ export default function EquipmentScreen({ navigation }) {
   }, [bag.length, hasAny]);
 
   async function persist(nextBag) {
-    const nextProfile = { ...(profile || {}), equipmentBag: nextBag };
+    const normalizedBag = normalizeBag(nextBag);
+    const nextProfile = { ...(profile || {}), equipmentBag: normalizedBag };
+
     setProfile(nextProfile);
-    setBag(nextBag);
-    await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
+    setBag(normalizedBag);
+
+    try {
+      await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
+    } catch {
+      // ignore local mirror failure
+    }
+
+    const uid = String(auth?.currentUser?.uid || "").trim();
+    if (!uid) return;
+
+    try {
+      await setDoc(
+        doc(db, "users", uid),
+        {
+          equipmentBag: normalizedBag,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } catch (e) {
+      Alert.alert("Save failed", String(e?.message || "Could not save equipment."));
+    }
   }
 
   function enterCategory(cat) {
