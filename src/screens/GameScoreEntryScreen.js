@@ -198,6 +198,9 @@ export default function GameScoreEntryScreen({ navigation, route }) {
     const [bbActive, setBbActive] = useState(false);
     const [bbFormatKey, setBbFormatKey] = useState(null);
 
+    // Putting Contest enforcement (regular games)
+    const [puttingContestActive, setPuttingContestActive] = useState(false);
+
     // -----------------------------
     // Regular format claim (Firestore)
     // -----------------------------
@@ -404,22 +407,35 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                 const state = snap.exists() ? (snap.data() || {}) : null;
                 if (!state) return;
 
-                // Detect Birdie Buckets selection + remember the exact format key used in formatsSelected
+                // Detect Birdie Buckets + Putting Contest selections from formatsSelected
                 try {
-                    const formatsSelected = Array.isArray(state?.formatsSelected) ? state.formatsSelected : [];
-                    const found = formatsSelected.find((x) => {
+                    const formatsSelected = Array.isArray(state?.formatsSelected) ? state?.formatsSelected : [];
+
+                    const birdieFound = formatsSelected.find((x) => {
                         const k = typeof x === "string" ? x : x?.key || x?.id || "";
                         const n = typeof x === "string" ? x : x?.name || x?.label || x?.title || "";
                         const s = `${String(k || "")} ${String(n || "")}`.toLowerCase();
                         return s.includes("birdie") && s.includes("bucket");
                     });
 
-                    const fk = found ? (typeof found === "string" ? String(found) : String(found?.key || found?.id || "")) : "";
-                    setBbActive(!!found);
+                    const puttingFound = formatsSelected.find((x) => {
+                        const k = typeof x === "string" ? x : x?.key || x?.id || "";
+                        const n = typeof x === "string" ? x : x?.name || x?.label || x?.title || "";
+                        const s = `${String(k || "")} ${String(n || "")}`.toLowerCase();
+                        return s.includes("puttingcontest") || (s.includes("putting") && s.includes("contest"));
+                    });
+
+                    const fk = birdieFound
+                        ? (typeof birdieFound === "string" ? String(birdieFound) : String(birdieFound?.key || birdieFound?.id || ""))
+                        : "";
+
+                    setBbActive(!!birdieFound);
                     setBbFormatKey(fk ? fk : null);
+                    setPuttingContestActive(!!puttingFound);
                 } catch {
                     setBbActive(false);
                     setBbFormatKey(null);
+                    setPuttingContestActive(false);
                 }
 
                 const savedHole = state?.holes?.[String(holeNumber)]?.players || null;
@@ -702,6 +718,33 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             roundState0 = snap0 && snap0.exists() ? (snap0.data() || null) : null;
         } catch {
             roundState0 = null;
+        }
+
+        if (puttingContestActive) {
+            const missingPuttsPlayers = (playerRows || [])
+                .map((p, idx) => {
+                    const pid = String(p?._pid || "");
+                    const name = String(p?._name || `Player ${idx + 1}`).trim() || `Player ${idx + 1}`;
+                    const val = inputs?.[pid] || {};
+                    const strokes = toInt(val?.strokes);
+                    const hasPuttsSaved = val?._hasPuttsSaved === true;
+
+                    if (strokes <= 0) return null;
+                    if (hasPuttsSaved) return null;
+
+                    return name;
+                })
+                .filter(Boolean);
+
+            if (missingPuttsPlayers.length) {
+                Alert.alert(
+                    "Putts required",
+                    missingPuttsPlayers.length === 1
+                        ? `${missingPuttsPlayers[0]} must enter putts before advancing.`
+                        : `${missingPuttsPlayers.join(", ")} must enter putts before advancing.`
+                );
+                return;
+            }
         }
 
         const win = resolveHoleWindow(roundState0 || {});

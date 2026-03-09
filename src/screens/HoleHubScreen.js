@@ -524,8 +524,36 @@ function BirdieBucketsSplashModal({ visible, data, onDismiss }) {
   );
 }
 
-function SideGameOverlayModal({ visible, meta, currentHole, roundNumber, holderName, carryIn, carryFromHole, onDismiss }) {
-  const holderLine = holderName ? `Current holder: ${String(holderName)}` : "Currently unclaimed";
+function SideGameOverlayModal({
+  visible,
+  meta,
+  currentHole,
+  roundNumber,
+  holderName,
+  claimStatus,
+  carryIn,
+  carryFromHole,
+  onDismiss,
+}) {
+  const normalizedStatus = String(claimStatus || "").toLowerCase().trim();
+
+  let holderLine = "Currently unclaimed";
+  let badgeText = "FORMAT ACTIVE";
+
+  if (carryIn) {
+    badgeText = "CARRYOVER";
+  } else if (normalizedStatus === "claimed") {
+    holderLine = holderName ? `Won by ${String(holderName)}` : "Claimed";
+    badgeText = "RESULT RECORDED";
+  } else if (normalizedStatus === "washed" || normalizedStatus === "push") {
+    holderLine = "Washed";
+    badgeText = "RESULT RECORDED";
+  } else if (normalizedStatus === "unclaimed") {
+    holderLine = "Unclaimed";
+    badgeText = "RESULT RECORDED";
+  } else if (holderName) {
+    holderLine = `Current holder: ${String(holderName)}`;
+  }
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onDismiss} statusBarTranslucent>
@@ -567,7 +595,7 @@ function SideGameOverlayModal({ visible, meta, currentHole, roundNumber, holderN
 
           <View style={styles.sgBottomRow}>
             <View style={styles.sgMiniPill}>
-              <Text style={styles.sgMiniText}>FORMAT ACTIVE</Text>
+              <Text style={styles.sgMiniText}>{badgeText}</Text>
             </View>
 
             <Pressable onPress={onDismiss} style={({ pressed }) => [styles.sgBtn, pressed && styles.pressed]}>
@@ -1027,6 +1055,7 @@ export default function HoleHubScreen({ navigation, route }) {
   }, [sgVisible, prevClaimRef]);
 
   const holderName = String(claimDoc?.claimedByPlayerName || "").trim();
+  const claimStatus = String(claimDoc?.status || "").toLowerCase().trim();
 
   const carryIn = useMemo(() => {
     if (!prevClaimDoc) return false;
@@ -1434,12 +1463,7 @@ export default function HoleHubScreen({ navigation, route }) {
         style: "destructive",
         onPress: () => {
           skipBeforeRemoveRef.current = true;
-          navigation.dispatch(
-            CommonActions.reset({
-              index: 0,
-              routes: [{ name: ROUTES.HOME }],
-            })
-          );
+          navigation.navigate(ROUTES.HOME);
           setTimeout(() => {
             skipBeforeRemoveRef.current = false;
           }, 600);
@@ -1452,12 +1476,7 @@ export default function HoleHubScreen({ navigation, route }) {
           await doSaveRoundNow({ status: "in_progress" });
 
           skipBeforeRemoveRef.current = true;
-          navigation.dispatch(
-            CommonActions.reset({
-              index: 0,
-              routes: [{ name: ROUTES.HOME }],
-            })
-          );
+          navigation.navigate(ROUTES.HOME);
           setTimeout(() => {
             skipBeforeRemoveRef.current = false;
           }, 600);
@@ -1465,11 +1484,6 @@ export default function HoleHubScreen({ navigation, route }) {
       },
     ]);
   }
-
-  const activeForChecks = (activeSnap || {}).activeRound || activeSnap || {};
-
-  const currentHoleHasScores =
-    getMissingHolesFromState(activeForChecks, players, currentHole, currentHole).length === 0;
 
   // Show Finish only after scores exist for the last hole.
   // (If earlier holes are missing, Finish still works but will trigger the "Missing scores" fix flow.)
@@ -1575,6 +1589,7 @@ export default function HoleHubScreen({ navigation, route }) {
         currentHole={currentHole}
         roundNumber={roundNumber}
         holderName={holderName}
+        claimStatus={claimStatus}
         carryIn={carryIn}
         carryFromHole={prevEligibleHole}
         onDismiss={dismissSideGameOverlay}

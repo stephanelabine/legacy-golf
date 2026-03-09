@@ -379,12 +379,7 @@ export default function FinalResultsScreen({ navigation, route }) {
         text: "Exit (no save)",
         style: "destructive",
         onPress: () => {
-          navigation.dispatch(
-            CommonActions.reset({
-              index: 0,
-              routes: [{ name: ROUTES.HOME }],
-            })
-          );
+          navigation.navigate(ROUTES.HOME);
         },
       },
       {
@@ -450,12 +445,7 @@ export default function FinalResultsScreen({ navigation, route }) {
             // non-blocking
           }
 
-          navigation.dispatch(
-            CommonActions.reset({
-              index: 0,
-              routes: [{ name: ROUTES.HOME }],
-            })
-          );
+          navigation.navigate(ROUTES.HOME);
         },
       },
     ]);
@@ -986,14 +976,16 @@ export default function FinalResultsScreen({ navigation, route }) {
         }
       }
 
-      const perDeuce = totalDeuces > 0 ? poolTotal / totalDeuces : 0;
+      const collectiblePool = buyIn * Math.max(0, playersCount - 1);
+      const perDeuce = totalDeuces > 0 ? collectiblePool / totalDeuces : 0;
 
       return {
         headline: totalDeuces > 0 ? `${money(perDeuce)} per deuce` : "No deuces yet",
         lines: [
           `Buy-in (per player): ${money(buyIn)}`,
           `Players: ${playersCount}`,
-          `Pot total: ${money(poolTotal)}`,
+          `Total pool: ${money(poolTotal)}`,
+          `Collectible winnings pool: ${money(collectiblePool)}`,
           `Total deuces: ${String(totalDeuces)}`,
           `Per deuce: ${totalDeuces > 0 ? money(perDeuce) : "—"}`,
         ],
@@ -1012,15 +1004,16 @@ export default function FinalResultsScreen({ navigation, route }) {
             ? [0.75, 0.25]
             : [1];
 
-      const amounts = splits.map((s) => poolTotal * s);
+      const collectiblePool = buyIn * Math.max(0, playersCount - 1);
+      const amounts = splits.map((s) => collectiblePool * s);
       const headline = amounts.map((a) => money(a)).join(" / ");
 
       const splitLine =
         payoutPlaces === 3
-          ? "Split: 1st 60%, 2nd 30%, 3rd 10% of the total pool."
+          ? "Split: 1st 60%, 2nd 30%, 3rd 10% of collectible winnings."
           : payoutPlaces === 2
-            ? "Split: 1st 75% and 2nd 25% of the total pool."
-            : "Split: 1st place wins 100% of the total pool.";
+            ? "Split: 1st 75% and 2nd 25% of collectible winnings."
+            : "Split: 1st place wins 100% of collectible winnings.";
 
       return {
         headline,
@@ -1029,7 +1022,8 @@ export default function FinalResultsScreen({ navigation, route }) {
           splitLine,
           `Buy-in (per player): ${money(buyIn)}`,
           `Players: ${playersCount}`,
-          `Pool total: ${money(poolTotal)}`,
+          `Total pool: ${money(poolTotal)}`,
+          `Collectible winnings pool: ${money(collectiblePool)}`,
         ],
       };
     }

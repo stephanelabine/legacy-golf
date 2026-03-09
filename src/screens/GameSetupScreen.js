@@ -134,10 +134,10 @@ export default function GameSetupScreen({ navigation, route }) {
     });
   }, [roundId, paramGameId, paramGameTitle]);
 
-  const effectiveGameId = fsGameId || paramGameId || null;
+  const effectiveGameId = paramGameId || fsGameId || null;
   const effectiveGameTitle =
-    fsGameTitle ||
     paramGameTitle ||
+    fsGameTitle ||
     (effectiveGameId ? gameFormats?.[effectiveGameId]?.title : null) ||
     null;
 

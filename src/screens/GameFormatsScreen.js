@@ -227,13 +227,23 @@ export default function GameFormatsScreen({ navigation, route }) {
     const selectedCount = selectedKeys.size;
 
     const orderedCatalog = useMemo(() => {
+        const list = Array.isArray(FORMAT_CATALOG) ? FORMAT_CATALOG.slice() : [];
         const primary = lockedPrimaryKey;
 
-        // If no locked primary format, keep default order.
-        if (!primary) return FORMAT_CATALOG;
+        // Default regular-game flow:
+        // keep Match Play available, but do not lead with it unless the user entered through the Match Play card.
+        if (!primary) {
+            const idx = list.findIndex((f) => String(f?.key || "") === "match_play");
+            if (idx > -1) {
+                const [matchItem] = list.splice(idx, 1);
+                const insertAt = Math.min(5, list.length);
+                list.splice(insertAt, 0, matchItem);
+            }
+            return list;
+        }
 
-        // Move the matching tile to the top, keep the rest in original order.
-        const list = Array.isArray(FORMAT_CATALOG) ? FORMAT_CATALOG.slice() : [];
+        // Locked primary flow:
+        // move the selected primary format to the top, keep the rest in original order.
         const idx = list.findIndex((f) => String(f?.key || "") === primary);
         if (idx <= 0) return list;
 

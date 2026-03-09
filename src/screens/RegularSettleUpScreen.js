@@ -566,7 +566,7 @@ export default function RegularSettleUpScreen({ navigation, route }) {
 
             const fee = getEntryFee(r, formatKey);
 
-            // Hole formats: FULL POOL PAYOUTS
+            // Hole formats: winner never pays themselves
             if (type === "kp" || type === "longdrive" || type === "secondshotkp") {
                 const holes = getOfficialHolesForFormat(r, formatKey);
                 const perHole = fee > 0 ? fee : 0;
@@ -591,7 +591,7 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                         const units = 1 + carryUnits;
                         fundedUnits += units;
                         carryUnits = 0;
-                        addWon(winnerId, units * perHole * includedCount);
+                        addWon(winnerId, units * perHole * Math.max(0, includedCount - 1));
                     } else if (isCarry) {
                         carryUnits += 1;
                     } else {
@@ -603,7 +603,7 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                 return;
             }
 
-            // Deuce pot: only fund if at least one deuce exists (else washed)
+            // Deuce pot: winner never pays themselves
             if (type === "deucepot") {
                 const perPlayer = fee > 0 ? fee : 0;
                 if (!perPlayer) return;
@@ -626,8 +626,8 @@ export default function RegularSettleUpScreen({ navigation, route }) {
 
                 includedIds.forEach((pid) => addPaid(pid, perPlayer));
 
-                const pot = perPlayer * includedCount;
-                const perDeuce = pot / totalDeuces;
+                const potFromOthers = perPlayer * Math.max(0, includedCount - 1);
+                const perDeuce = totalDeuces > 0 ? potFromOthers / totalDeuces : 0;
 
                 Object.keys(deucesById).forEach((pid) => {
                     addWon(pid, perDeuce * Number(deucesById[pid] || 0));
@@ -636,7 +636,7 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                 return;
             }
 
-            // Putting contest: only fund if we have any putts data (else washed)
+            // Putting contest: winner never pays themselves
             if (type === "puttingcontest") {
                 const perPlayer = fee > 0 ? fee : 0;
                 if (!perPlayer) return;
@@ -703,13 +703,13 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                     }
                 }
 
-                const pot = perPlayer * includedCount;
+                const potFromOthers = perPlayer * Math.max(0, includedCount - 1);
 
                 for (let place = 0; place < splits.length; place++) {
                     const g = groups[place];
                     if (!g || !g.rows.length) continue;
 
-                    const payoutForPlace = pot * splits[place];
+                    const payoutForPlace = potFromOthers * splits[place];
                     const each = payoutForPlace / g.rows.length;
 
                     g.rows.forEach((x) => addWon(x.id, each));
@@ -914,11 +914,11 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                         <Text style={styles.title}>Who Won What</Text>
                         <View style={styles.pill}>
                             <MaterialCommunityIcons name="cash-multiple" size={16} color="rgba(242,201,76,0.98)" />
-                            <Text style={styles.pillText}>REGULAR</Text>
+                            <Text style={styles.pillText}>GROSS</Text>
                         </View>
                     </View>
 
-                    <Text style={styles.sub}>Below are the details of who won what.</Text>
+                    <Text style={styles.sub}>Gross winnings by player across the selected formats before final net settlement.</Text>
 
                     <View style={styles.divider} />
 
@@ -946,16 +946,16 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                         <Text style={styles.title}>Who Pays Who</Text>
                         <View style={styles.pill}>
                             <MaterialCommunityIcons name="swap-horizontal" size={16} color="rgba(242,201,76,0.98)" />
-                            <Text style={styles.pillText}>AUTO</Text>
+                            <Text style={styles.pillText}>NET</Text>
                         </View>
                     </View>
 
                     {!settleModel?.transfers?.length ? (
-                        <Text style={styles.sub}>Nothing to settle (or payouts not recorded yet).</Text>
+                        <Text style={styles.sub}>Nothing to settle right now.</Text>
                     ) : (
                         <>
                             <Text style={styles.sub}>
-                                Simple pairing to settle balances (ties split evenly for putting contest places).
+                                Final payment instructions after netting each player’s gross winnings against their round obligations.
                             </Text>
                             <View style={styles.divider} />
 
