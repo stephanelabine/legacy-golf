@@ -1,6 +1,6 @@
 // src/screens/GamesScreen.js
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, Pressable, FlatList, Alert, ScrollView, Platform } from "react-native";
+import { View, Text, StyleSheet, Pressable, FlatList, Alert, ScrollView, Platform, Image } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import ROUTES from "../navigation/routes";
@@ -9,6 +9,8 @@ import ScreenHeader from "../components/ScreenHeader";
 import gameFormats from "../data/gameFormats.json";
 import { useTheme } from "../theme/ThemeProvider";
 import { createSetupRound, createSharedSetupRound, joinSharedRoundByCode } from "../storage/roundState";
+
+const RYDER_CUP_LOGO = require("../../assets/ryder-cup-logo.png");
 
 const FALLBACK_INFO = {
   tournaments: {
@@ -26,6 +28,25 @@ const FALLBACK_INFO = {
       {
         heading: "Today’s scope",
         body: "A premium entry point that routes into the dedicated tournament flow you’ve already built.",
+      },
+    ],
+  },
+
+  ryder_cup: {
+    title: "Ryder Cup",
+    subtitle: "A premium team-vs-team event mode inspired by classic Ryder Cup play.",
+    details: [
+      {
+        heading: "What it is",
+        body: "A dedicated Ryder Cup experience for team competitions with formats like match play, alternate shot, and other team-based structures.",
+      },
+      {
+        heading: "Future direction",
+        body: "This should grow into its own full setup flow, similar in importance to the tournament hub, with premium visuals and a dedicated event experience.",
+      },
+      {
+        heading: "Today’s scope",
+        body: "A premium placeholder card that reserves the Ryder Cup lane now so the system can be expanded cleanly later.",
       },
     ],
   },
@@ -67,6 +88,55 @@ const FALLBACK_INFO = {
       },
     ],
   },
+
+  vegas: {
+    title: "Vegas",
+    subtitle: "Pairs rotate and combined scores create the game number.",
+    details: [
+      {
+        heading: "How it works",
+        body: "A foursome plays in pairs, with pairings rotating every 6 holes so each player partners with different players during the round.",
+      },
+      {
+        heading: "Scoring",
+        body: "Each team combines scores into a two-digit number. Example: two pars can be 44, while a par and bogey can be 45. A birdie flips the team number, creating the classic Vegas scoring twist.",
+      },
+      {
+        heading: "Today’s scope",
+        body: "A placeholder card for a future dedicated Vegas build with proper pairing rotation, scoring logic, and premium results presentation.",
+      },
+    ],
+  },
+
+  legacy_card: {
+    title: "Legacy",
+    subtitle: "Your best score on each hole—built over a season or chosen rounds.",
+    details: [
+      {
+        heading: "What it is",
+        body: "A Legacy Golf signature mode built around your best score on each hole over time, creating your personal legacy round.",
+      },
+      {
+        heading: "Why it matters",
+        body: "This is a unique brand-defining game for Legacy Golf and should stay visible even while the deeper logic is still being expanded.",
+      },
+      {
+        heading: "Today’s scope",
+        body: "A premium placeholder card that keeps the feature visible in the game ecosystem while the full build continues later.",
+      },
+    ],
+  },
+
+  more_games: {
+    title: "More Games To Come",
+    subtitle: "More premium formats are on the way.",
+    details: [
+      {
+        heading: "What it means",
+        body: "Legacy Golf is being built as a long-term platform, so more games, team modes, and premium event formats will continue to be added.",
+      },
+    ],
+  },
 };
 
 const GAMES = [
@@ -79,27 +149,39 @@ const GAMES = [
   },
 
   {
-    id: "legacy_card",
-    title: "Legacy",
-    subtitle: "Your best score on each hole—built over a season or chosen rounds.",
+    id: "ryder_cup",
+    title: "Ryder Cup",
+    subtitle: "Team-vs-team event play with a premium Legacy Golf feel.",
     supported: true,
     premium: true,
   },
 
   { id: "stroke_play", title: "Stroke Play", subtitle: "Total strokes over 18 holes. The classic.", supported: true },
   { id: "match_play", title: "Match Play", subtitle: "Win holes, not strokes.", supported: true },
-
   { id: "nassau", title: "Nassau", subtitle: "Front 9, Back 9, and Total match.", supported: true },
   { id: "stableford", title: "Stableford", subtitle: "Points per hole based on score vs par.", supported: true },
-  { id: "wolf", title: "Wolf", subtitle: "Rotating captain chooses a partner.", supported: true },
-
-  { id: "birdie_buckets", title: "Birdie Buckets", subtitle: "Rolling pot. Birdie wins it.", supported: true },
-
-  { id: "team_vs_team", title: "Team vs Team", subtitle: "Set teams, then play the match.", supported: true },
-
   { id: "skins", title: "Skins Game", subtitle: "Win holes outright for skins.", supported: true },
+  { id: "birdie_buckets", title: "Birdie Buckets", subtitle: "Rolling pot. Birdie wins it.", supported: true },
+  { id: "wolf", title: "Wolf", subtitle: "Rotating captain chooses a partner.", supported: true },
+  { id: "team_vs_team", title: "Team vs Team", subtitle: "Set teams, then play the match.", supported: true },
+  { id: "vegas", title: "Vegas", subtitle: "Rotating pairs with classic Vegas scoring.", supported: true },
 
-  { id: "legacy_points", title: "Legacy Points", subtitle: "A points-based game built for the Legacy vibe.", supported: true },
+  {
+    id: "legacy_card",
+    title: "Legacy",
+    subtitle: "Your best score on each hole—built over a season or chosen rounds.",
+    supported: true,
+    premium: false,
+  },
+
+  {
+    id: "more_games",
+    title: "More Games To Come",
+    subtitle: "More premium formats are on the way.",
+    supported: false,
+    infoOnly: true,
+    premium: false,
+  },
 ];
 
 export default function GamesScreen({ navigation, route }) {
@@ -341,6 +423,67 @@ export default function GamesScreen({ navigation, route }) {
         elevation: 8,
       },
 
+      cardRyderCup: {
+        borderWidth: 2,
+        borderColor: "rgba(140,175,255,0.78)",
+        backgroundColor: "rgba(40,68,145,0.28)",
+        shadowColor: "rgba(94,126,214,0.48)",
+        shadowOpacity: 0.26,
+        shadowRadius: 14,
+        shadowOffset: { width: 0, height: 8 },
+        elevation: 6,
+      },
+      cardRyderCupActive: {
+        borderWidth: 2,
+        borderColor: "rgba(220,92,92,0.90)",
+        backgroundColor: "rgba(108,42,64,0.34)",
+        shadowColor: "rgba(220,92,92,0.42)",
+        shadowOpacity: 0.32,
+        shadowRadius: 18,
+        shadowOffset: { width: 0, height: 10 },
+        elevation: 8,
+      },
+
+      cardRyderContent: {
+        minHeight: 104,
+        justifyContent: "space-between",
+      },
+      cardRyderTop: {
+        flexDirection: "row",
+        alignItems: "flex-start",
+        justifyContent: "space-between",
+        gap: 10,
+      },
+      cardRyderTextWrap: {
+        flex: 1,
+        minWidth: 0,
+        paddingRight: 2,
+      },
+      cardRyderLogoWrap: {
+        width: 72,
+        height: 72,
+        alignItems: "center",
+        justifyContent: "flex-start",
+      },
+      cardRyderLogo: {
+        width: 64,
+        height: 64,
+        resizeMode: "contain",
+      },
+      cardRyderTitle: {
+        color: "#FFFFFF",
+        fontSize: 19,
+        fontWeight: "900",
+        letterSpacing: 0.2,
+      },
+      cardRyderSub: {
+        marginTop: 6,
+        color: "rgba(255,255,255,0.86)",
+        fontSize: 13,
+        fontWeight: "700",
+        lineHeight: 18,
+        maxWidth: "94%",
+      },
       greenRing: {
         ...StyleSheet.absoluteFillObject,
         borderRadius: 18,
@@ -516,6 +659,7 @@ export default function GamesScreen({ navigation, route }) {
     const disabled = !item.supported;
     const infoable = !!(gameFormats?.[item.id] || FALLBACK_INFO?.[item.id]);
     const isTournaments = item.id === "tournaments";
+    const isRyderCup = item.id === "ryder_cup";
 
     return (
       <Pressable
@@ -528,9 +672,11 @@ export default function GamesScreen({ navigation, route }) {
           styles.card,
           item.premium && styles.cardPremium,
           isTournaments && styles.cardTournaments,
+          isRyderCup && styles.cardRyderCup,
           active && !item.premium && styles.cardActive,
           active && item.premium && styles.cardPremiumActive,
           active && isTournaments && styles.cardTournamentsActive,
+          active && isRyderCup && styles.cardRyderCupActive,
           disabled && styles.cardDisabled,
           pressed && !disabled && !item.infoOnly && styles.pressed,
         ]}
@@ -548,23 +694,52 @@ export default function GamesScreen({ navigation, route }) {
           />
         ) : null}
 
-        <View style={styles.cardTop}>
-          <Text style={[styles.cardTitle, item.premium && styles.cardTitlePremium]}>{item.title}</Text>
-        </View>
+        {isRyderCup ? (
+          <View style={styles.cardRyderContent}>
+            <View style={styles.cardRyderTop}>
+              <View style={styles.cardRyderTextWrap}>
+                <Text style={styles.cardRyderTitle}>{item.title}</Text>
+                <Text style={styles.cardRyderSub}>{item.subtitle}</Text>
+              </View>
 
-        <Text style={[styles.cardSub, item.premium && styles.cardSubPremium]}>{item.subtitle}</Text>
+              <View style={styles.cardRyderLogoWrap}>
+                <Image source={RYDER_CUP_LOGO} style={styles.cardRyderLogo} />
+              </View>
+            </View>
 
-        <View style={styles.cardBottom}>
-          <View style={{ flex: 1 }} />
-          <Pressable
-            onPress={() => openInfo(item.id)}
-            disabled={!infoable}
-            style={({ pressed }) => [styles.infoBtn, !infoable && styles.infoBtnDisabled, pressed && infoable && styles.infoPressed]}
-            hitSlop={10}
-          >
-            <Text style={styles.infoText}>Info</Text>
-          </Pressable>
-        </View>
+            <View style={styles.cardBottom}>
+              <View style={{ flex: 1 }} />
+              <Pressable
+                onPress={() => openInfo(item.id)}
+                disabled={!infoable}
+                style={({ pressed }) => [styles.infoBtn, !infoable && styles.infoBtnDisabled, pressed && infoable && styles.infoPressed]}
+                hitSlop={10}
+              >
+                <Text style={styles.infoText}>Info</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : (
+          <>
+            <View style={styles.cardTop}>
+              <Text style={[styles.cardTitle, item.premium && styles.cardTitlePremium]}>{item.title}</Text>
+            </View>
+
+            <Text style={[styles.cardSub, item.premium && styles.cardSubPremium]}>{item.subtitle}</Text>
+
+            <View style={styles.cardBottom}>
+              <View style={{ flex: 1 }} />
+              <Pressable
+                onPress={() => openInfo(item.id)}
+                disabled={!infoable}
+                style={({ pressed }) => [styles.infoBtn, !infoable && styles.infoBtnDisabled, pressed && infoable && styles.infoPressed]}
+                hitSlop={10}
+              >
+                <Text style={styles.infoText}>Info</Text>
+              </Pressable>
+            </View>
+          </>
+        )}
 
         {!item.infoOnly && active ? (
           <>

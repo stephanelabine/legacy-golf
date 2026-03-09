@@ -1806,19 +1806,19 @@ const styles = StyleSheet.create({
 
     playerCard: {
         backgroundColor: CARD,
-        borderRadius: 20,
-        padding: 10,
-        marginBottom: 8,
+        borderRadius: 18,
+        padding: 8,
+        marginBottom: 6,
         borderWidth: 1,
         borderColor: "rgba(242,201,76,0.35)",
     },
 
-    playerTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-    playerName: { flex: 1, color: WHITE, fontWeight: "900", fontSize: 15, letterSpacing: 0.2 },
+    playerTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 6 },
+    playerName: { flex: 1, color: WHITE, fontWeight: "900", fontSize: 13, letterSpacing: 0.2 },
 
     statsPill: {
-        height: 30,
-        paddingHorizontal: 10,
+        height: 26,
+        paddingHorizontal: 8,
         borderRadius: 999,
         borderWidth: 1,
         alignItems: "center",
@@ -1884,31 +1884,30 @@ const styles = StyleSheet.create({
 
     sideBtnText: { color: WHITE, fontWeight: "900", fontSize: 13, letterSpacing: 0.2 },
 
-    inputRow: { flexDirection: "row", gap: 10, marginTop: 8 },
+    inputRow: { flexDirection: "row", gap: 8, marginTop: 6 },
     fieldWrap: {
         flex: 1,
         backgroundColor: INNER,
-        borderRadius: 16,
-        padding: 10,
+        borderRadius: 14,
+        padding: 8,
         borderWidth: 1,
         borderColor: "rgba(46,204,113,0.35)",
     },
-    fieldLabel: { color: MUTED, fontWeight: "900", fontSize: 10, letterSpacing: 0.6 },
+    fieldLabel: { color: MUTED, fontWeight: "900", fontSize: 9, letterSpacing: 0.4 },
     valueBox: {
-        marginTop: 8,
-        height: 44,
-        borderRadius: 14,
+        marginTop: 6,
+        height: 38,
+        borderRadius: 12,
         backgroundColor: "rgba(0,0,0,0.22)",
         borderWidth: 1,
         borderColor: "rgba(255,255,255,0.14)",
         alignItems: "center",
         justifyContent: "center",
     },
-    valueText: { color: WHITE, fontSize: 19, fontWeight: "900", letterSpacing: 0.2 },
-    fieldHint: { marginTop: 6, color: "rgba(255,255,255,0.60)", fontWeight: "800", fontSize: 9, letterSpacing: 0.2 },
+    valueText: { color: WHITE, fontSize: 17, fontWeight: "900", letterSpacing: 0.2 },
+    fieldHint: { marginTop: 4, color: "rgba(255,255,255,0.60)", fontWeight: "800", fontSize: 8, letterSpacing: 0.2 },
 
-    divider: { marginTop: 14, height: 1, backgroundColor: "rgba(255,255,255,0.10)" },
-
+    divider: { marginTop: 10, height: 1, backgroundColor: "rgba(255,255,255,0.10)" },
     statRow: {
         marginTop: 12,
         borderRadius: 18,
