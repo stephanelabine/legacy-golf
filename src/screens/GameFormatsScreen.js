@@ -17,14 +17,6 @@ import { auth, db } from "../firebase/firebase";
 
 const FORMAT_CATALOG = [
     {
-        key: "match_play",
-        name: "Match Play",
-        subtitle: "Head-to-head match",
-        needsHoles: false,
-        blurb: "Set match payouts and match settings next.",
-        comingSoon: false,
-    },
-    {
         key: "kp",
         name: "KP",
         subtitle: "Closest to the pin",
@@ -49,6 +41,14 @@ const FORMAT_CATALOG = [
         comingSoon: false,
     },
     {
+        key: "skins",
+        name: "Skins",
+        subtitle: "Win a hole outright",
+        needsHoles: false,
+        blurb: "Lowest score wins the hole. Ties carry over to the next hole.",
+        comingSoon: false,
+    },
+    {
         key: "deuce_pot",
         name: "Deuce Pot",
         subtitle: "All 2s split the pot",
@@ -65,11 +65,19 @@ const FORMAT_CATALOG = [
         comingSoon: false,
     },
     {
-        key: "skins",
-        name: "Skins",
-        subtitle: "Win a hole outright",
+        key: "birdie_buckets",
+        name: "Birdie Buckets",
+        subtitle: "Bucket builds, birdie wins",
         needsHoles: false,
-        blurb: "Lowest score wins the hole. Ties carry over to the next hole.",
+        blurb: "Contributions build the pot. First birdie (or better) wins the bucket. Full rules display coming soon.",
+        comingSoon: false,
+    },
+    {
+        key: "match_play",
+        name: "Match Play",
+        subtitle: "Head-to-head match",
+        needsHoles: false,
+        blurb: "Set match payouts and match settings next.",
         comingSoon: false,
     },
     {
@@ -86,14 +94,6 @@ const FORMAT_CATALOG = [
         subtitle: "Points scoring system",
         needsHoles: false,
         blurb: "Score points per hole. Rule set selection coming soon.",
-        comingSoon: false,
-    },
-    {
-        key: "birdie_buckets",
-        name: "Birdie Buckets",
-        subtitle: "Bucket builds, birdie wins",
-        needsHoles: false,
-        blurb: "Contributions build the pot. First birdie (or better) wins the bucket. Full rules display coming soon.",
         comingSoon: false,
     },
     {
@@ -231,14 +231,8 @@ export default function GameFormatsScreen({ navigation, route }) {
         const primary = lockedPrimaryKey;
 
         // Default regular-game flow:
-        // keep Match Play available, but do not lead with it unless the user entered through the Match Play card.
+        // use the catalog order exactly as defined unless the user entered through a locked primary game card.
         if (!primary) {
-            const idx = list.findIndex((f) => String(f?.key || "") === "match_play");
-            if (idx > -1) {
-                const [matchItem] = list.splice(idx, 1);
-                const insertAt = Math.min(5, list.length);
-                list.splice(insertAt, 0, matchItem);
-            }
             return list;
         }
 

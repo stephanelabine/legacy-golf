@@ -1485,6 +1485,25 @@ export default function HoleHubScreen({ navigation, route }) {
     ]);
   }
 
+  const currentHoleHasScores = useMemo(() => {
+    const holePlayers = activeRoot?.holes?.[String(currentHole)]?.players || null;
+    if (!holePlayers || typeof holePlayers !== "object") return false;
+
+    const roster =
+      (Array.isArray(players) && players.length ? players : null) ||
+      (Array.isArray(activeRoot?.players) && activeRoot.players.length ? activeRoot.players : null) ||
+      [];
+
+    if (!roster.length) {
+      return Object.values(holePlayers).some((p) => toInt(p?.strokes) > 0);
+    }
+
+    return roster.every((p, idx) => {
+      const pid = String(p?.id ?? String(idx));
+      return toInt(holePlayers?.[pid]?.strokes) > 0;
+    });
+  }, [activeRoot, currentHole, players]);
+
   // Show Finish only after scores exist for the last hole.
   // (If earlier holes are missing, Finish still works but will trigger the "Missing scores" fix flow.)
   const showFinish = currentHole === endHole && currentHoleHasScores;

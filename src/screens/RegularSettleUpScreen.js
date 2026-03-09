@@ -337,6 +337,65 @@ function greedySettlement(netById, playersById) {
     return transfers;
 }
 
+function collapseReciprocalTransfers(rawTransfers, playersById) {
+    const pairMap = {};
+
+    (rawTransfers || []).forEach((t) => {
+        const fromId = String(t?.fromId || "");
+        const toId = String(t?.toId || "");
+        const amt = Number(t?.amount || 0);
+
+        if (!fromId || !toId || fromId === toId) return;
+        if (!Number.isFinite(amt) || amt <= 0.005) return;
+
+        const a = fromId < toId ? fromId : toId;
+        const b = fromId < toId ? toId : fromId;
+        const key = `${a}__${b}`;
+
+        if (!pairMap[key]) {
+            pairMap[key] = { a, b, ab: 0, ba: 0 };
+        }
+
+        if (fromId === a && toId === b) {
+            pairMap[key].ab += amt;
+        } else {
+            pairMap[key].ba += amt;
+        }
+    });
+
+    const transfers = [];
+
+    Object.values(pairMap).forEach((pair) => {
+        const ab = Number(pair?.ab || 0);
+        const ba = Number(pair?.ba || 0);
+        const net = ab - ba;
+
+        if (net > 0.005) {
+            transfers.push({
+                fromId: pair.a,
+                toId: pair.b,
+                amount: net,
+                fromName: playersById?.[pair.a]?.name || "Player",
+                toName: playersById?.[pair.b]?.name || "Player",
+            });
+            return;
+        }
+
+        if (net < -0.005) {
+            transfers.push({
+                fromId: pair.b,
+                toId: pair.a,
+                amount: Math.abs(net),
+                fromName: playersById?.[pair.b]?.name || "Player",
+                toName: playersById?.[pair.a]?.name || "Player",
+            });
+        }
+    });
+
+    transfers.sort((a, b) => b.amount - a.amount || a.fromName.localeCompare(b.fromName));
+    return transfers;
+}
+
 export default function RegularSettleUpScreen({ navigation, route }) {
     const params = route?.params || {};
     const roundId = String(params.roundId || "");
@@ -494,6 +553,7 @@ export default function RegularSettleUpScreen({ navigation, route }) {
         const netById = {};
         const paidById = {};
         const wonById = {};
+        const rawTransfers = [];
 
         players.forEach((p) => {
             const id = String(p.id);
@@ -516,6 +576,19 @@ export default function RegularSettleUpScreen({ navigation, route }) {
             if (!Number.isFinite(a) || a <= 0) return;
             wonById[key] = (wonById[key] || 0) + a;
             netById[key] = (netById[key] || 0) + a;
+        };
+
+        const addTransfer = (fromId, toId, amt) => {
+            const from = String(fromId || "");
+            const to = String(toId || "");
+            const a = Number(amt || 0);
+
+            if (!from || !to || from === to) return;
+            if (!Number.isFinite(a) || a <= 0) return;
+
+            rawTransfers.push({ fromId: from, toId: to, amount: a });
+            addPaid(from, a);
+            addWon(to, a);
         };
 
         const readPutts = (holeNumber, pid) => {
@@ -603,7 +676,7 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                 return;
             }
 
-            // Deuce pot: winner never pays themselves
+            // Deuce pot: every player funds the deuce split, but reciprocal winner-vs-winner payments cancel later
             if (type === "deucepot") {
                 const perPlayer = fee > 0 ? fee : 0;
                 if (!perPlayer) return;
@@ -624,13 +697,21 @@ export default function RegularSettleUpScreen({ navigation, route }) {
 
                 if (!totalDeuces) return;
 
-                includedIds.forEach((pid) => addPaid(pid, perPlayer));
+                includedIds.forEach((payerId) => {
+                    const fromId = String(payerId);
 
-                const potFromOthers = perPlayer * Math.max(0, includedCount - 1);
-                const perDeuce = totalDeuces > 0 ? potFromOthers / totalDeuces : 0;
+                    Object.keys(deucesById).forEach((winnerId) => {
+                        const toId = String(winnerId);
+                        if (!toId || toId === fromId) return;
 
-                Object.keys(deucesById).forEach((pid) => {
-                    addWon(pid, perDeuce * Number(deucesById[pid] || 0));
+                        const winnerDeuces = Number(deucesById[toId] || 0);
+                        if (!Number.isFinite(winnerDeuces) || winnerDeuces <= 0) return;
+
+                        const amt = perPlayer * (winnerDeuces / totalDeuces);
+                        if (!Number.isFinite(amt) || amt <= 0) return;
+
+                        addTransfer(fromId, toId, amt);
+                    });
                 });
 
                 return;
@@ -669,8 +750,6 @@ export default function RegularSettleUpScreen({ navigation, route }) {
 
                 if (!rows.length) return;
 
-                includedIds.forEach((pid) => addPaid(pid, perPlayer));
-
                 rows.sort((a, b) => {
                     if (a.total !== b.total) return a.total - b.total;
                     if (a.zero !== b.zero) return b.zero - a.zero;
@@ -703,17 +782,27 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                     }
                 }
 
-                const potFromOthers = perPlayer * Math.max(0, includedCount - 1);
+                includedIds.forEach((payerId) => {
+                    const fromId = String(payerId);
 
-                for (let place = 0; place < splits.length; place++) {
-                    const g = groups[place];
-                    if (!g || !g.rows.length) continue;
+                    for (let place = 0; place < splits.length; place++) {
+                        const g = groups[place];
+                        if (!g || !g.rows.length) continue;
 
-                    const payoutForPlace = potFromOthers * splits[place];
-                    const each = payoutForPlace / g.rows.length;
+                        const split = Number(splits[place] || 0);
+                        if (!Number.isFinite(split) || split <= 0) continue;
 
-                    g.rows.forEach((x) => addWon(x.id, each));
-                }
+                        const each = (perPlayer * split) / g.rows.length;
+                        if (!Number.isFinite(each) || each <= 0) continue;
+
+                        g.rows.forEach((x) => {
+                            const toId = String(x?.id || "");
+                            if (!toId || toId === fromId) return;
+
+                            addTransfer(fromId, toId, each);
+                        });
+                    }
+                });
 
                 return;
             }
@@ -829,7 +918,10 @@ export default function RegularSettleUpScreen({ navigation, route }) {
             return;
         });
 
-        const transfers = greedySettlement(netById, playersById) || [];
+        const transfers = rawTransfers.length
+            ? collapseReciprocalTransfers(rawTransfers, playersById)
+            : (greedySettlement(netById, playersById) || []);
+
         return { netById, paidById, wonById, transfers };
     }, [round, players, playersById, formatsSelected, claimsByFormat]);
 
