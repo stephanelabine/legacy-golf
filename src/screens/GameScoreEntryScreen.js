@@ -54,8 +54,31 @@ function safePlayerName(p, idx) {
 
 function defaultTrackStatsForPlayer() {
     // Regular games: default Stats OFF for all players.
-    // Strokes + Putts are always tracked regardless.
     return false;
+}
+
+function defaultSelectedStats() {
+    return {
+        putts: false,
+        fairway: false,
+        green: false,
+        sandSave: false,
+        updown: false,
+        penalties: false,
+        driveDistance: false,
+    };
+}
+
+function getRequiredStatsFlags({ puttingContestActive, bbActive }) {
+    return {
+        putts: !!puttingContestActive,
+        fairway: !!bbActive,
+        green: !!bbActive,
+        sandSave: false,
+        updown: false,
+        penalties: false,
+        driveDistance: false,
+    };
 }
 
 function Seg3({ value, onChange }) {
@@ -352,6 +375,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                 if (!next[pid]) {
                     next[pid] = {
                         trackStats: defaultTrackStatsForPlayer(),
+                        selectedStats: defaultSelectedStats(),
                         strokes: 0,
                         putts: 0,
                         _hasPuttsSaved: false,
@@ -359,6 +383,8 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                         green: "na",
                         sandSave: "na",
                         updown: "na",
+                        penalties: "",
+                        driveDistance: "",
                     };
                 }
             });
@@ -439,15 +465,17 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                 }
 
                 const savedHole = state?.holes?.[String(holeNumber)]?.players || null;
-                if (!savedHole) return;
+                const roundSelectedStatsByPlayer =
+                    state?.playerSelectedStats && typeof state.playerSelectedStats === "object"
+                        ? state.playerSelectedStats
+                        : {};
 
                 setInputs((prev) => {
                     const next = { ...(prev || {}) };
 
                     playerRows.forEach((p) => {
                         const pid = String(p._pid);
-                        const saved = savedHole[String(pid)];
-                        if (!saved) return;
+                        const saved = savedHole?.[String(pid)] || null;
 
                         const track =
                             typeof saved?.trackStats === "boolean"
@@ -463,13 +491,19 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                         next[pid] = {
                             ...(next[pid] || {}),
                             trackStats: !!track,
-                            strokes: Number.isFinite(Number(sStrokes)) ? sStrokes : 0,
-                            putts: Number.isFinite(Number(sPutts)) ? sPutts : 0,
-                            _hasPuttsSaved: hasPutts,
-                            fairway: saved?.fairway ?? next[pid]?.fairway ?? "na",
-                            green: saved?.green ?? next[pid]?.green ?? "na",
-                            sandSave: saved?.sandSave ?? next[pid]?.sandSave ?? "na",
-                            updown: saved?.updown ?? next[pid]?.updown ?? "na",
+                            selectedStats: {
+                                ...defaultSelectedStats(),
+                                ...(roundSelectedStatsByPlayer?.[String(pid)] || saved?.selectedStats || next[pid]?.selectedStats || {}),
+                            },
+                            strokes: saved ? (Number.isFinite(Number(sStrokes)) ? sStrokes : 0) : (next[pid]?.strokes ?? 0),
+                            putts: saved ? (Number.isFinite(Number(sPutts)) ? sPutts : 0) : (next[pid]?.putts ?? 0),
+                            _hasPuttsSaved: saved ? hasPutts : (next[pid]?._hasPuttsSaved ?? false),
+                            fairway: saved ? (saved?.fairway ?? next[pid]?.fairway ?? "na") : (next[pid]?.fairway ?? "na"),
+                            green: saved ? (saved?.green ?? next[pid]?.green ?? "na") : (next[pid]?.green ?? "na"),
+                            sandSave: saved ? (saved?.sandSave ?? next[pid]?.sandSave ?? "na") : (next[pid]?.sandSave ?? "na"),
+                            updown: saved ? (saved?.updown ?? next[pid]?.updown ?? "na") : (next[pid]?.updown ?? "na"),
+                            penalties: saved ? (saved?.penalties ?? next[pid]?.penalties ?? "") : (next[pid]?.penalties ?? ""),
+                            driveDistance: saved ? (saved?.driveDistance ?? next[pid]?.driveDistance ?? "") : (next[pid]?.driveDistance ?? ""),
                         };
                     });
 
@@ -491,6 +525,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             const next = { ...(prev || {}) };
             const cur = next[id] || {
                 trackStats: defaultTrackStatsForPlayer(),
+                selectedStats: defaultSelectedStats(),
                 strokes: 0,
                 putts: 0,
                 _hasPuttsSaved: false,
@@ -498,6 +533,8 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                 green: "na",
                 sandSave: "na",
                 updown: "na",
+                penalties: "",
+                driveDistance: "",
             };
 
             if (field === "trackStats") {
@@ -508,15 +545,34 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                     next[id] = {
                         ...cur,
                         trackStats: false,
+                        selectedStats: defaultSelectedStats(),
                         fairway: "na",
                         green: "na",
                         sandSave: "na",
                         updown: "na",
+                        penalties: "",
+                        driveDistance: "",
                     };
                     return next;
                 }
 
-                next[id] = { ...cur, trackStats: true };
+                next[id] = {
+                    ...cur,
+                    trackStats: true,
+                    selectedStats: cur.selectedStats || defaultSelectedStats(),
+                };
+                return next;
+            }
+
+            if (field === "selectedStats") {
+                next[id] = {
+                    ...cur,
+                    selectedStats: {
+                        ...defaultSelectedStats(),
+                        ...(cur.selectedStats || {}),
+                        ...(value || {}),
+                    },
+                };
                 return next;
             }
 
@@ -587,6 +643,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             if (holeMeta && typeof holeMeta === "object") state.meta.holeMeta = holeMeta;
 
             if (!state.holes[String(holeNumber)]) state.holes[String(holeNumber)] = { players: {} };
+            if (!state.playerSelectedStats || typeof state.playerSelectedStats !== "object") state.playerSelectedStats = {};
 
             const payload = {};
             playerRows.forEach((p) => {
@@ -594,15 +651,28 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                 const val = inputs?.[pid] || {};
                 const track = !!val.trackStats;
 
+                const requiredStats = getRequiredStatsFlags({
+                    puttingContestActive,
+                    bbActive,
+                });
+
+                const selectedStats = {
+                    ...defaultSelectedStats(),
+                    ...(val.selectedStats || {}),
+                };
+
+                state.playerSelectedStats[String(pid)] = selectedStats;
+
                 payload[String(pid)] = {
                     trackStats: track,
                     strokes: String(toInt(val.strokes) || ""),
-                    // Putts are always tracked (needed for games like Putting Contest), even when Stats is OFF.
-                    putts: String(toInt(val.putts) || ""),
-                    fairway: track ? (val.fairway ?? "na") : "na",
-                    green: track ? (val.green ?? "na") : "na",
-                    sandSave: track ? (val.sandSave ?? "na") : "na",
-                    updown: track ? (val.updown ?? "na") : "na",
+                    putts: requiredStats.putts || selectedStats.putts ? String(toInt(val.putts) || "") : "",
+                    fairway: requiredStats.fairway || selectedStats.fairway ? (val.fairway ?? "na") : "na",
+                    green: requiredStats.green || selectedStats.green ? (val.green ?? "na") : "na",
+                    sandSave: requiredStats.sandSave || selectedStats.sandSave ? (val.sandSave ?? "na") : "na",
+                    updown: requiredStats.updown || selectedStats.updown ? (val.updown ?? "na") : "na",
+                    penalties: requiredStats.penalties || selectedStats.penalties ? String(val.penalties ?? "") : "",
+                    driveDistance: requiredStats.driveDistance || selectedStats.driveDistance ? String(val.driveDistance ?? "") : "",
                 };
             });
 
@@ -636,7 +706,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                 return { ok: false, roundId: rid };
             }
         },
-        [roundIdParam, course, tee, normalizedPlayers, playerRows, inputs, holeMeta, holeNumber]
+        [roundIdParam, course, tee, normalizedPlayers, playerRows, inputs, holeMeta, holeNumber, puttingContestActive, bbActive]
     );
 
     // autosave on navigation away
@@ -1469,8 +1539,100 @@ export default function GameScoreEntryScreen({ navigation, route }) {
     const STROKES = useMemo(() => Array.from({ length: 10 }, (_, i) => i + 1), []);
     const PUTTS = useMemo(() => Array.from({ length: 11 }, (_, i) => i), []);
 
-    const pickTitle = useMemo(() => (pickField === "putts" ? "Putts" : "Strokes"), [pickField]);
-    const pickNumbers = useMemo(() => (pickField === "putts" ? PUTTS : STROKES), [pickField, PUTTS, STROKES]);
+    const PENALTIES = useMemo(() => Array.from({ length: 11 }, (_, i) => i), []);
+    const DRIVE_DISTANCES = useMemo(() => Array.from({ length: 41 }, (_, i) => i * 10), []);
+
+    const pickTitle = useMemo(() => {
+        if (pickField === "putts") return "Putts";
+        if (pickField === "penalties") return "Penalties";
+        if (pickField === "driveDistance") return "Drive Distance";
+        return "Strokes";
+    }, [pickField]);
+
+    const pickNumbers = useMemo(() => {
+        if (pickField === "putts") return PUTTS;
+        if (pickField === "penalties") return PENALTIES;
+        if (pickField === "driveDistance") return DRIVE_DISTANCES;
+        return STROKES;
+    }, [pickField, PUTTS, PENALTIES, DRIVE_DISTANCES, STROKES]);
+
+    const requiredStats = useMemo(
+        () => getRequiredStatsFlags({ puttingContestActive, bbActive }),
+        [puttingContestActive, bbActive]
+    );
+
+    const [statsModalOpen, setStatsModalOpen] = useState(false);
+    const [statsModalPid, setStatsModalPid] = useState("");
+
+    const openStatsModal = useCallback((pid) => {
+        Keyboard.dismiss();
+        setStatsModalPid(String(pid || ""));
+        setStatsModalOpen(true);
+    }, []);
+
+    const closeStatsModal = useCallback(() => {
+        setStatsModalOpen(false);
+        setStatsModalPid("");
+    }, []);
+
+    const statsModalPlayer = useMemo(() => {
+        return playerRows.find((p) => String(p._pid) === String(statsModalPid)) || null;
+    }, [playerRows, statsModalPid]);
+
+    const statsModalValue = useMemo(() => {
+        return inputs?.[String(statsModalPid)] || null;
+    }, [inputs, statsModalPid]);
+
+    const statsModalRequired = useMemo(
+        () => getRequiredStatsFlags({ puttingContestActive, bbActive }),
+        [puttingContestActive, bbActive]
+    );
+
+    const statsModalSelectedStats = useMemo(() => {
+        return {
+            ...defaultSelectedStats(),
+            ...(statsModalValue?.selectedStats || {}),
+        };
+    }, [statsModalValue]);
+
+    const allOptionalStatsSelected = useMemo(() => {
+        return (
+            !!statsModalSelectedStats.putts &&
+            !!statsModalSelectedStats.fairway &&
+            !!statsModalSelectedStats.green &&
+            !!statsModalSelectedStats.sandSave &&
+            !!statsModalSelectedStats.updown &&
+            !!statsModalSelectedStats.penalties &&
+            !!statsModalSelectedStats.driveDistance
+        );
+    }, [statsModalSelectedStats]);
+
+    const toggleAllStatsForModalPlayer = useCallback(() => {
+        if (!statsModalPid) return;
+
+        if (allOptionalStatsSelected) {
+            setPlayerField(statsModalPid, "selectedStats", {
+                putts: !!statsModalRequired.putts,
+                fairway: !!statsModalRequired.fairway,
+                green: !!statsModalRequired.green,
+                sandSave: !!statsModalRequired.sandSave,
+                updown: !!statsModalRequired.updown,
+                penalties: !!statsModalRequired.penalties,
+                driveDistance: !!statsModalRequired.driveDistance,
+            });
+            return;
+        }
+
+        setPlayerField(statsModalPid, "selectedStats", {
+            putts: true,
+            fairway: true,
+            green: true,
+            sandSave: true,
+            updown: true,
+            penalties: true,
+            driveDistance: true,
+        });
+    }, [statsModalPid, allOptionalStatsSelected, statsModalRequired]);
 
     const openPicker = (pid, field) => {
         Keyboard.dismiss();
@@ -1491,6 +1653,8 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         }
         if (pickField === "strokes") setPlayerField(pickPid, "strokes", Number(n));
         if (pickField === "putts") setPlayerField(pickPid, "putts", Number(n));
+        if (pickField === "penalties") setPlayerField(pickPid, "penalties", Number(n));
+        if (pickField === "driveDistance") setPlayerField(pickPid, "driveDistance", Number(n));
         closePicker();
     };
 
@@ -1626,7 +1790,42 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                         const strokes = toInt(val.strokes);
                         const putts = toInt(val.putts);
                         const trackStats = !!val.trackStats;
-                        const showPutts = val?._hasPuttsSaved === true || String(val?.putts ?? "").length > 0;
+
+                        const selectedStats = {
+                            ...defaultSelectedStats(),
+                            ...(val.selectedStats || {}),
+                        };
+
+                        const showPutts =
+                            requiredStats.putts ||
+                            selectedStats.putts;
+
+                        const showFairway =
+                            requiredStats.fairway ||
+                            selectedStats.fairway;
+
+                        const showGreen =
+                            requiredStats.green ||
+                            selectedStats.green;
+
+                        const showSandSave =
+                            requiredStats.sandSave ||
+                            selectedStats.sandSave;
+
+                        const showUpdown =
+                            requiredStats.updown ||
+                            selectedStats.updown;
+
+                        const showPenalties =
+                            requiredStats.penalties ||
+                            selectedStats.penalties;
+
+                        const showDriveDistance =
+                            requiredStats.driveDistance ||
+                            selectedStats.driveDistance;
+
+                        const reserveTopRowRightSlot =
+                            !showPutts;
 
                         return (
                             <View style={styles.playerCard}>
@@ -1679,18 +1878,16 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                                     </View>
 
                                     <Pressable
-                                        onPress={() => {
-                                            if (bbActive) return;
-                                            setPlayerField(pid, "trackStats", !trackStats);
-                                        }}
+                                        onPress={() => openStatsModal(pid)}
                                         style={({ pressed }) => [
                                             styles.statsPill,
-                                            (bbActive || trackStats) ? styles.statsPillOn : styles.statsPillOff,
-                                            pressed && !bbActive && styles.pressed,
-                                            bbActive && { opacity: 0.85 },
+                                            (showPutts || showFairway || showGreen || showSandSave || showUpdown || showPenalties || showDriveDistance) ? styles.statsPillOn : styles.statsPillOff,
+                                            pressed && styles.pressed,
                                         ]}
                                     >
-                                        <Text style={styles.statsPillText}>Stats {(bbActive || trackStats) ? "ON" : "OFF"}</Text>
+                                        <Text style={styles.statsPillText}>
+                                            Stats {(showPutts || showFairway || showGreen || showSandSave || showUpdown || showPenalties || showDriveDistance) ? "ON" : "OFF"}
+                                        </Text>
                                     </Pressable>
                                 </View>
 
@@ -1703,50 +1900,104 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                                         <Text style={styles.fieldHint}>1–10</Text>
                                     </Pressable>
 
-                                    <Pressable onPress={() => openPicker(pid, "putts")} style={({ pressed }) => [styles.fieldWrap, pressed && styles.pressed]}>
-                                        <Text style={styles.fieldLabel}>Putts</Text>
-                                        <View style={styles.valueBox}>
-                                            <Text style={styles.valueText}>{showPutts ? String(Math.max(0, Math.min(10, putts))) : "—"}</Text>
-                                        </View>
-                                        <Text style={styles.fieldHint}>0–10</Text>
-                                    </Pressable>
+                                    {showPutts ? (
+                                        <Pressable onPress={() => openPicker(pid, "putts")} style={({ pressed }) => [styles.fieldWrap, pressed && styles.pressed]}>
+                                            <Text style={styles.fieldLabel}>Putts</Text>
+                                            <View style={styles.valueBox}>
+                                                <Text style={styles.valueText}>{String(Math.max(0, Math.min(10, putts)))}</Text>
+                                            </View>
+                                            <Text style={styles.fieldHint}>0–10</Text>
+                                        </Pressable>
+                                    ) : reserveTopRowRightSlot ? (
+                                        <View style={[styles.fieldWrap, styles.fieldWrapPlaceholder]} />
+                                    ) : null}
                                 </View>
 
-                                {(bbActive || trackStats) ? (
+                                {(showFairway || showGreen || showSandSave || showUpdown || showPenalties || showDriveDistance) ? (
                                     <>
                                         <View style={styles.divider} />
 
-                                        <View style={styles.statRow}>
-                                            <View style={{ flex: 1 }}>
-                                                <Text style={styles.statTitle}>Fairway Hit</Text>
-                                                <Text style={styles.statHint}>Off the tee</Text>
+                                        {showFairway ? (
+                                            <View style={styles.statRow}>
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={styles.statTitle}>Fairway Hit</Text>
+                                                    <Text style={styles.statHint}>Off the tee</Text>
+                                                </View>
+                                                <Seg3 value={val.fairway ?? "na"} onChange={(v) => setPlayerField(pid, "fairway", v)} />
                                             </View>
-                                            <Seg3 value={val.fairway ?? "na"} onChange={(v) => setPlayerField(pid, "fairway", v)} />
-                                        </View>
+                                        ) : null}
 
-                                        <View style={styles.statRow}>
-                                            <View style={{ flex: 1 }}>
-                                                <Text style={styles.statTitle}>GIR</Text>
-                                                <Text style={styles.statHint}>Green in regulation</Text>
+                                        {showGreen ? (
+                                            <View style={styles.statRow}>
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={styles.statTitle}>GIR</Text>
+                                                    <Text style={styles.statHint}>Green in regulation</Text>
+                                                </View>
+                                                <Seg3 value={val.green ?? "na"} onChange={(v) => setPlayerField(pid, "green", v)} />
                                             </View>
-                                            <Seg3 value={val.green ?? "na"} onChange={(v) => setPlayerField(pid, "green", v)} />
-                                        </View>
+                                        ) : null}
 
-                                        <View style={styles.statRow}>
-                                            <View style={{ flex: 1 }}>
-                                                <Text style={styles.statTitle}>Sand Save</Text>
-                                                <Text style={styles.statHint}>Bunker save</Text>
+                                        {showSandSave ? (
+                                            <View style={styles.statRow}>
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={styles.statTitle}>Sand Save</Text>
+                                                    <Text style={styles.statHint}>Bunker save</Text>
+                                                </View>
+                                                <Seg3 value={val.sandSave ?? "na"} onChange={(v) => setPlayerField(pid, "sandSave", v)} />
                                             </View>
-                                            <Seg3 value={val.sandSave ?? "na"} onChange={(v) => setPlayerField(pid, "sandSave", v)} />
-                                        </View>
+                                        ) : null}
 
-                                        <View style={styles.statRow}>
-                                            <View style={{ flex: 1 }}>
-                                                <Text style={styles.statTitle}>Up & Down</Text>
-                                                <Text style={styles.statHint}>Save par or better</Text>
+                                        {showUpdown ? (
+                                            <View style={styles.statRow}>
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={styles.statTitle}>Up & Down</Text>
+                                                    <Text style={styles.statHint}>Save par or better</Text>
+                                                </View>
+                                                <Seg3 value={val.updown ?? "na"} onChange={(v) => setPlayerField(pid, "updown", v)} />
                                             </View>
-                                            <Seg3 value={val.updown ?? "na"} onChange={(v) => setPlayerField(pid, "updown", v)} />
-                                        </View>
+                                        ) : null}
+
+                                        {showPenalties ? (
+                                            <View style={styles.statRow}>
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={styles.statTitle}>Penalties</Text>
+                                                    <Text style={styles.statHint}>Penalty strokes</Text>
+                                                </View>
+
+                                                <Pressable
+                                                    onPress={() => openPicker(pid, "penalties")}
+                                                    style={({ pressed }) => [styles.fieldWrap, styles.inlineValueFieldWrap, pressed && styles.pressed]}
+                                                >
+                                                    <View style={styles.valueBox}>
+                                                        <Text style={styles.valueText}>
+                                                            {String(toInt(val.penalties) || 0)}
+                                                        </Text>
+                                                    </View>
+                                                    <Text style={styles.fieldHint}>0–10</Text>
+                                                </Pressable>
+                                            </View>
+                                        ) : null}
+
+                                        {showDriveDistance ? (
+                                            <View style={styles.statRow}>
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={styles.statTitle}>Drive Distance</Text>
+                                                    <Text style={styles.statHint}>Yards</Text>
+                                                </View>
+
+                                                <Pressable
+                                                    onPress={() => openPicker(pid, "driveDistance")}
+                                                    style={({ pressed }) => [styles.fieldWrap, styles.inlineValueFieldWrap, pressed && styles.pressed]}
+                                                >
+                                                    <View style={styles.valueBox}>
+                                                        <Text style={styles.valueText}>
+                                                            {String(toInt(val.driveDistance) || 0)}
+                                                        </Text>
+                                                    </View>
+                                                    <Text style={styles.fieldHint}>0–400</Text>
+                                                </Pressable>
+                                            </View>
+                                        ) : null}
                                     </>
                                 ) : null}
                             </View>
@@ -1793,10 +2044,387 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                         })}
                     </View>
 
-                    <Text style={styles.numHint}>{pickField === "putts" ? "Tap 0–10" : "Tap 1–10"}</Text>
+                    <Text style={styles.numHint}>
+                        {pickField === "putts"
+                            ? "Tap 0–10"
+                            : pickField === "penalties"
+                                ? "Tap 0–10"
+                                : pickField === "driveDistance"
+                                    ? "Tap 0–400"
+                                    : "Tap 1–10"}
+                    </Text>
                 </View>
             </Modal>
-        </SafeAreaView>
+
+            <Modal visible={statsModalOpen} transparent animationType="fade" onRequestClose={closeStatsModal}>
+                <View style={styles.centerModalBackdrop}>
+                    <View style={styles.centerModalCard}>
+                        <View style={styles.centerModalHeaderRow}>
+                            <Text style={styles.centerModalTitleLeft}>
+                                {statsModalPlayer?._name ? `${statsModalPlayer._name} Stats` : "Player Stats"}
+                            </Text>
+
+                            <Pressable
+                                onPress={toggleAllStatsForModalPlayer}
+                                style={({ pressed }) => [
+                                    styles.selectAllBtn,
+                                    allOptionalStatsSelected ? styles.selectAllBtnActive : null,
+                                    pressed && styles.pressed,
+                                ]}
+                            >
+                                <Text style={styles.selectAllBtnText}>
+                                    {allOptionalStatsSelected ? "Clear Optional" : "Select All"}
+                                </Text>
+                            </Pressable>
+                        </View>
+
+                        <Text style={styles.centerModalSubtext}>
+                            Choose which stats to track for this player.
+                        </Text>
+
+                        {statsModalValue ? (
+                            <>
+                                <View style={styles.statsChoiceRow}>
+                                    <Text style={styles.statsChoiceLabel}>Putts</Text>
+                                    <View style={styles.statsChoiceButtons}>
+                                        <Pressable
+                                            disabled={statsModalRequired.putts}
+                                            onPress={() =>
+                                                setPlayerField(statsModalPid, "selectedStats", {
+                                                    ...(statsModalValue?.selectedStats || {}),
+                                                    putts: true,
+                                                })
+                                            }
+                                            style={({ pressed }) => [
+                                                styles.statsChoiceBtn,
+                                                (statsModalRequired.putts || statsModalValue?.selectedStats?.putts === true) && styles.statsChoiceBtnOn,
+                                                statsModalRequired.putts && styles.statsChoiceBtnLocked,
+                                                pressed && !statsModalRequired.putts && styles.pressed,
+                                            ]}
+                                        >
+                                            <Text
+                                                style={[
+                                                    styles.statsChoiceBtnText,
+                                                    (statsModalRequired.putts || statsModalValue?.selectedStats?.putts === true) && styles.statsChoiceBtnTextOn,
+                                                ]}
+                                            >
+                                                {statsModalRequired.putts ? "On • Locked" : "On"}
+                                            </Text>
+                                        </Pressable>
+
+                                        <Pressable
+                                            disabled={statsModalRequired.putts}
+                                            onPress={() =>
+                                                setPlayerField(statsModalPid, "selectedStats", {
+                                                    ...(statsModalValue?.selectedStats || {}),
+                                                    putts: false,
+                                                })
+                                            }
+                                            style={({ pressed }) => [
+                                                styles.statsChoiceBtn,
+                                                !statsModalRequired.putts && statsModalValue?.selectedStats?.putts === false && styles.statsChoiceBtnOff,
+                                                pressed && !statsModalRequired.putts && styles.pressed,
+                                                statsModalRequired.putts && styles.statsChoiceBtnDisabled,
+                                            ]}
+                                        >
+                                            <Text
+                                                style={[
+                                                    styles.statsChoiceBtnText,
+                                                    !statsModalRequired.putts && statsModalValue?.selectedStats?.putts === false && styles.statsChoiceBtnTextOn,
+                                                    statsModalRequired.putts && styles.statsChoiceBtnTextDisabled,
+                                                ]}
+                                            >
+                                                Off
+                                            </Text>
+                                        </Pressable>
+                                    </View>
+                                </View>
+
+                                <View style={styles.statsChoiceRow}>
+                                    <Text style={styles.statsChoiceLabel}>Fairway Hit</Text>
+                                    <View style={styles.statsChoiceButtons}>
+                                        <Pressable
+                                            disabled={statsModalRequired.fairway}
+                                            onPress={() =>
+                                                setPlayerField(statsModalPid, "selectedStats", {
+                                                    ...(statsModalValue?.selectedStats || {}),
+                                                    fairway: true,
+                                                })
+                                            }
+                                            style={({ pressed }) => [
+                                                styles.statsChoiceBtn,
+                                                (statsModalRequired.fairway || statsModalValue?.selectedStats?.fairway === true) && styles.statsChoiceBtnOn,
+                                                statsModalRequired.fairway && styles.statsChoiceBtnLocked,
+                                                pressed && !statsModalRequired.fairway && styles.pressed,
+                                            ]}
+                                        >
+                                            <Text
+                                                style={[
+                                                    styles.statsChoiceBtnText,
+                                                    (statsModalRequired.fairway || statsModalValue?.selectedStats?.fairway === true) && styles.statsChoiceBtnTextOn,
+                                                ]}
+                                            >
+                                                {statsModalRequired.fairway ? "On • Locked" : "On"}
+                                            </Text>
+                                        </Pressable>
+
+                                        <Pressable
+                                            disabled={statsModalRequired.fairway}
+                                            onPress={() =>
+                                                setPlayerField(statsModalPid, "selectedStats", {
+                                                    ...(statsModalValue?.selectedStats || {}),
+                                                    fairway: false,
+                                                })
+                                            }
+                                            style={({ pressed }) => [
+                                                styles.statsChoiceBtn,
+                                                !statsModalRequired.fairway && statsModalValue?.selectedStats?.fairway === false && styles.statsChoiceBtnOff,
+                                                pressed && !statsModalRequired.fairway && styles.pressed,
+                                                statsModalRequired.fairway && styles.statsChoiceBtnDisabled,
+                                            ]}
+                                        >
+                                            <Text
+                                                style={[
+                                                    styles.statsChoiceBtnText,
+                                                    !statsModalRequired.fairway && statsModalValue?.selectedStats?.fairway === false && styles.statsChoiceBtnTextOn,
+                                                    statsModalRequired.fairway && styles.statsChoiceBtnTextDisabled,
+                                                ]}
+                                            >
+                                                Off
+                                            </Text>
+                                        </Pressable>
+                                    </View>
+                                </View>
+
+                                <View style={styles.statsChoiceRow}>
+                                    <Text style={styles.statsChoiceLabel}>GIR</Text>
+                                    <View style={styles.statsChoiceButtons}>
+                                        <Pressable
+                                            disabled={statsModalRequired.green}
+                                            onPress={() =>
+                                                setPlayerField(statsModalPid, "selectedStats", {
+                                                    ...(statsModalValue?.selectedStats || {}),
+                                                    green: true,
+                                                })
+                                            }
+                                            style={({ pressed }) => [
+                                                styles.statsChoiceBtn,
+                                                (statsModalRequired.green || statsModalValue?.selectedStats?.green === true) && styles.statsChoiceBtnOn,
+                                                statsModalRequired.green && styles.statsChoiceBtnLocked,
+                                                pressed && !statsModalRequired.green && styles.pressed,
+                                            ]}
+                                        >
+                                            <Text
+                                                style={[
+                                                    styles.statsChoiceBtnText,
+                                                    (statsModalRequired.green || statsModalValue?.selectedStats?.green === true) && styles.statsChoiceBtnTextOn,
+                                                ]}
+                                            >
+                                                {statsModalRequired.green ? "On • Locked" : "On"}
+                                            </Text>
+                                        </Pressable>
+
+                                        <Pressable
+                                            disabled={statsModalRequired.green}
+                                            onPress={() =>
+                                                setPlayerField(statsModalPid, "selectedStats", {
+                                                    ...(statsModalValue?.selectedStats || {}),
+                                                    green: false,
+                                                })
+                                            }
+                                            style={({ pressed }) => [
+                                                styles.statsChoiceBtn,
+                                                !statsModalRequired.green && statsModalValue?.selectedStats?.green === false && styles.statsChoiceBtnOff,
+                                                pressed && !statsModalRequired.green && styles.pressed,
+                                                statsModalRequired.green && styles.statsChoiceBtnDisabled,
+                                            ]}
+                                        >
+                                            <Text
+                                                style={[
+                                                    styles.statsChoiceBtnText,
+                                                    !statsModalRequired.green && statsModalValue?.selectedStats?.green === false && styles.statsChoiceBtnTextOn,
+                                                    statsModalRequired.green && styles.statsChoiceBtnTextDisabled,
+                                                ]}
+                                            >
+                                                Off
+                                            </Text>
+                                        </Pressable>
+                                    </View>
+                                </View>
+
+                                <View style={styles.statsChoiceRow}>
+                                    <Text style={styles.statsChoiceLabel}>Sand Save</Text>
+                                    <View style={styles.statsChoiceButtons}>
+                                        <Pressable
+                                            onPress={() =>
+                                                setPlayerField(statsModalPid, "selectedStats", {
+                                                    ...(statsModalValue?.selectedStats || {}),
+                                                    sandSave: true,
+                                                })
+                                            }
+                                            style={({ pressed }) => [
+                                                styles.statsChoiceBtn,
+                                                statsModalValue?.selectedStats?.sandSave === true && styles.statsChoiceBtnOn,
+                                                pressed && styles.pressed,
+                                            ]}
+                                        >
+                                            <Text style={[styles.statsChoiceBtnText, statsModalValue?.selectedStats?.sandSave === true && styles.statsChoiceBtnTextOn]}>
+                                                On
+                                            </Text>
+                                        </Pressable>
+
+                                        <Pressable
+                                            onPress={() =>
+                                                setPlayerField(statsModalPid, "selectedStats", {
+                                                    ...(statsModalValue?.selectedStats || {}),
+                                                    sandSave: false,
+                                                })
+                                            }
+                                            style={({ pressed }) => [
+                                                styles.statsChoiceBtn,
+                                                statsModalValue?.selectedStats?.sandSave === false && styles.statsChoiceBtnOff,
+                                                pressed && styles.pressed,
+                                            ]}
+                                        >
+                                            <Text style={[styles.statsChoiceBtnText, statsModalValue?.selectedStats?.sandSave === false && styles.statsChoiceBtnTextOn]}>
+                                                Off
+                                            </Text>
+                                        </Pressable>
+                                    </View>
+                                </View>
+
+                                <View style={styles.statsChoiceRow}>
+                                    <Text style={styles.statsChoiceLabel}>Up & Down</Text>
+                                    <View style={styles.statsChoiceButtons}>
+                                        <Pressable
+                                            onPress={() =>
+                                                setPlayerField(statsModalPid, "selectedStats", {
+                                                    ...(statsModalValue?.selectedStats || {}),
+                                                    updown: true,
+                                                })
+                                            }
+                                            style={({ pressed }) => [
+                                                styles.statsChoiceBtn,
+                                                statsModalValue?.selectedStats?.updown === true && styles.statsChoiceBtnOn,
+                                                pressed && styles.pressed,
+                                            ]}
+                                        >
+                                            <Text style={[styles.statsChoiceBtnText, statsModalValue?.selectedStats?.updown === true && styles.statsChoiceBtnTextOn]}>
+                                                On
+                                            </Text>
+                                        </Pressable>
+
+                                        <Pressable
+                                            onPress={() =>
+                                                setPlayerField(statsModalPid, "selectedStats", {
+                                                    ...(statsModalValue?.selectedStats || {}),
+                                                    updown: false,
+                                                })
+                                            }
+                                            style={({ pressed }) => [
+                                                styles.statsChoiceBtn,
+                                                statsModalValue?.selectedStats?.updown === false && styles.statsChoiceBtnOff,
+                                                pressed && styles.pressed,
+                                            ]}
+                                        >
+                                            <Text style={[styles.statsChoiceBtnText, statsModalValue?.selectedStats?.updown === false && styles.statsChoiceBtnTextOn]}>
+                                                Off
+                                            </Text>
+                                        </Pressable>
+                                    </View>
+                                </View>
+
+                                <View style={styles.statsChoiceRow}>
+                                    <Text style={styles.statsChoiceLabel}>Penalties</Text>
+                                    <View style={styles.statsChoiceButtons}>
+                                        <Pressable
+                                            onPress={() =>
+                                                setPlayerField(statsModalPid, "selectedStats", {
+                                                    ...(statsModalValue?.selectedStats || {}),
+                                                    penalties: true,
+                                                })
+                                            }
+                                            style={({ pressed }) => [
+                                                styles.statsChoiceBtn,
+                                                statsModalValue?.selectedStats?.penalties === true && styles.statsChoiceBtnOn,
+                                                pressed && styles.pressed,
+                                            ]}
+                                        >
+                                            <Text style={[styles.statsChoiceBtnText, statsModalValue?.selectedStats?.penalties === true && styles.statsChoiceBtnTextOn]}>
+                                                On
+                                            </Text>
+                                        </Pressable>
+
+                                        <Pressable
+                                            onPress={() =>
+                                                setPlayerField(statsModalPid, "selectedStats", {
+                                                    ...(statsModalValue?.selectedStats || {}),
+                                                    penalties: false,
+                                                })
+                                            }
+                                            style={({ pressed }) => [
+                                                styles.statsChoiceBtn,
+                                                statsModalValue?.selectedStats?.penalties === false && styles.statsChoiceBtnOff,
+                                                pressed && styles.pressed,
+                                            ]}
+                                        >
+                                            <Text style={[styles.statsChoiceBtnText, statsModalValue?.selectedStats?.penalties === false && styles.statsChoiceBtnTextOn]}>
+                                                Off
+                                            </Text>
+                                        </Pressable>
+                                    </View>
+                                </View>
+
+                                <View style={styles.statsChoiceRow}>
+                                    <Text style={styles.statsChoiceLabel}>Drive Distance</Text>
+                                    <View style={styles.statsChoiceButtons}>
+                                        <Pressable
+                                            onPress={() =>
+                                                setPlayerField(statsModalPid, "selectedStats", {
+                                                    ...(statsModalValue?.selectedStats || {}),
+                                                    driveDistance: true,
+                                                })
+                                            }
+                                            style={({ pressed }) => [
+                                                styles.statsChoiceBtn,
+                                                statsModalValue?.selectedStats?.driveDistance === true && styles.statsChoiceBtnOn,
+                                                pressed && styles.pressed,
+                                            ]}
+                                        >
+                                            <Text style={[styles.statsChoiceBtnText, statsModalValue?.selectedStats?.driveDistance === true && styles.statsChoiceBtnTextOn]}>
+                                                On
+                                            </Text>
+                                        </Pressable>
+
+                                        <Pressable
+                                            onPress={() =>
+                                                setPlayerField(statsModalPid, "selectedStats", {
+                                                    ...(statsModalValue?.selectedStats || {}),
+                                                    driveDistance: false,
+                                                })
+                                            }
+                                            style={({ pressed }) => [
+                                                styles.statsChoiceBtn,
+                                                statsModalValue?.selectedStats?.driveDistance === false && styles.statsChoiceBtnOff,
+                                                pressed && styles.pressed,
+                                            ]}
+                                        >
+                                            <Text style={[styles.statsChoiceBtnText, statsModalValue?.selectedStats?.driveDistance === false && styles.statsChoiceBtnTextOn]}>
+                                                Off
+                                            </Text>
+                                        </Pressable>
+                                    </View>
+                                </View>
+
+                                <Pressable onPress={closeStatsModal} style={({ pressed }) => [styles.centerModalSaveBtn, pressed && styles.pressed]}>
+                                    <Text style={styles.centerModalSaveBtnText}>Exit & Save</Text>
+                                </Pressable>
+                            </>
+                        ) : null}
+                    </View>
+                </View>
+            </Modal>
+        </SafeAreaView >
     );
 }
 
@@ -1892,6 +2520,14 @@ const styles = StyleSheet.create({
         padding: 8,
         borderWidth: 1,
         borderColor: "rgba(46,204,113,0.35)",
+    },
+    fieldWrapPlaceholder: {
+        opacity: 0,
+    },
+    inlineValueFieldWrap: {
+        flex: 0,
+        width: 118,
+        padding: 8,
     },
     fieldLabel: { color: MUTED, fontWeight: "900", fontSize: 9, letterSpacing: 0.4 },
     valueBox: {
@@ -2015,4 +2651,151 @@ const styles = StyleSheet.create({
     numChipTextOn: { color: WHITE },
 
     numHint: { marginTop: 4, color: "rgba(255,255,255,0.60)", fontWeight: "800", fontSize: 11, letterSpacing: 0.2, textAlign: "center" },
+
+    centerModalBackdrop: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: "rgba(0,0,0,0.60)",
+        alignItems: "center",
+        justifyContent: "center",
+        paddingHorizontal: 18,
+    },
+    centerModalCard: {
+        width: "100%",
+        maxWidth: 520,
+        backgroundColor: "#0F1B33",
+        borderRadius: 24,
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.12)",
+        padding: 18,
+    },
+    centerModalHeaderRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+    },
+    centerModalTitle: {
+        color: WHITE,
+        fontWeight: "900",
+        fontSize: 22,
+        letterSpacing: 0.2,
+        textAlign: "center",
+    },
+    centerModalTitleLeft: {
+        flex: 1,
+        color: WHITE,
+        fontWeight: "900",
+        fontSize: 22,
+        letterSpacing: 0.2,
+        textAlign: "left",
+    },
+    centerModalSubtext: {
+        marginTop: 10,
+        marginBottom: 16,
+        color: "rgba(255,255,255,0.70)",
+        fontWeight: "700",
+        fontSize: 13,
+        lineHeight: 18,
+        textAlign: "left",
+    },
+    selectAllBtn: {
+        minWidth: 112,
+        height: 38,
+        paddingHorizontal: 14,
+        borderRadius: 12,
+        backgroundColor: "rgba(255,255,255,0.07)",
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.14)",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    selectAllBtnActive: {
+        backgroundColor: "rgba(46,204,113,0.18)",
+        borderColor: "rgba(46,204,113,0.46)",
+    },
+    selectAllBtnText: {
+        color: WHITE,
+        fontWeight: "900",
+        fontSize: 12,
+        letterSpacing: 0.2,
+    },
+    statsChoiceRow: {
+        minHeight: 62,
+        borderRadius: 18,
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.12)",
+        backgroundColor: "rgba(255,255,255,0.05)",
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+        marginBottom: 10,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+    },
+    statsChoiceLabel: {
+        flex: 1,
+        color: WHITE,
+        fontWeight: "900",
+        fontSize: 15,
+        letterSpacing: 0.2,
+    },
+    statsChoiceButtons: {
+        flexDirection: "row",
+        gap: 8,
+    },
+    statsChoiceBtn: {
+        minWidth: 62,
+        height: 38,
+        borderRadius: 12,
+        backgroundColor: "rgba(255,255,255,0.07)",
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.14)",
+        alignItems: "center",
+        justifyContent: "center",
+        paddingHorizontal: 12,
+    },
+    statsChoiceBtnOn: {
+        backgroundColor: "rgba(46,204,113,0.18)",
+        borderColor: "rgba(46,204,113,0.46)",
+    },
+    statsChoiceBtnOff: {
+        backgroundColor: "rgba(255,255,255,0.12)",
+        borderColor: "rgba(255,255,255,0.24)",
+    },
+    statsChoiceBtnLocked: {
+        backgroundColor: "rgba(46,204,113,0.24)",
+        borderColor: "rgba(46,204,113,0.62)",
+    },
+    statsChoiceBtnDisabled: {
+        opacity: 0.45,
+    },
+    statsChoiceBtnText: {
+        color: "rgba(255,255,255,0.84)",
+        fontWeight: "900",
+        fontSize: 13,
+        letterSpacing: 0.2,
+    },
+    statsChoiceBtnTextOn: {
+        color: WHITE,
+    },
+    statsChoiceBtnTextDisabled: {
+        color: "rgba(255,255,255,0.42)",
+    },
+    centerModalSaveBtn: {
+        marginTop: 10,
+        height: 52,
+        borderRadius: 16,
+        backgroundColor: GREEN,
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.14)",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    centerModalSaveBtnText: {
+        color: WHITE,
+        fontWeight: "900",
+        fontSize: 16,
+        letterSpacing: 0.2,
+    },
 });
