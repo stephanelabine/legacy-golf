@@ -158,13 +158,30 @@ export async function saveRound(round) {
   const id = String(safe.id || safe.roundId || "");
   if (!id) return false;
 
+  const normalizedStatus = normalizeStatus(safe.status);
+
+  const statusPatch =
+    normalizedStatus === "completed"
+      ? {
+        status: "completed",
+        inProgress: false,
+        isActive: false,
+        completedAt: safe.completedAt ? safe.completedAt : serverTimestamp(),
+      }
+      : {
+        status: normalizedStatus,
+        inProgress: normalizedStatus === "in_progress",
+        isActive: normalizedStatus === "in_progress",
+        completedAt: null,
+      };
+
   try {
     await setDoc(
       roundRef(uid, id),
       {
         ...safe,
         roundId: safe.roundId ? String(safe.roundId) : id,
-        status: normalizeStatus(safe.status),
+        ...statusPatch,
         updatedAt: serverTimestamp(),
         createdAt: safe.createdAt ? safe.createdAt : serverTimestamp(),
       },

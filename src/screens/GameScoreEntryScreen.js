@@ -1658,6 +1658,16 @@ export default function GameScoreEntryScreen({ navigation, route }) {
         closePicker();
     };
 
+    const onTapDriveDistanceNA = () => {
+        if (!pickPid) {
+            closePicker();
+            return;
+        }
+        if (pickField === "driveDistance") {
+            setPlayerField(pickPid, "driveDistance", "na");
+        }
+        closePicker();
+    };
     return (
         <SafeAreaView style={styles.safe}>
             <ScreenHeader
@@ -1991,10 +2001,12 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                                                 >
                                                     <View style={styles.valueBox}>
                                                         <Text style={styles.valueText}>
-                                                            {String(toInt(val.driveDistance) || 0)}
+                                                            {String(val.driveDistance ?? "").trim().toLowerCase() === "na"
+                                                                ? "N/A"
+                                                                : String(toInt(val.driveDistance) || 0)}
                                                         </Text>
                                                     </View>
-                                                    <Text style={styles.fieldHint}>0–400</Text>
+                                                    <Text style={styles.fieldHint}>0–400 or N/A</Text>
                                                 </Pressable>
                                             </View>
                                         ) : null}
@@ -2038,10 +2050,41 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                     <View style={styles.numGrid}>
                         {pickNumbers.map((n) => {
                             const cur = inputs?.[String(pickPid)] || {};
-                            const curVal = pickField === "putts" ? toInt(cur.putts) : toInt(cur.strokes);
-                            const active = Number(curVal) === Number(n);
+                            const curVal =
+                                pickField === "putts"
+                                    ? toInt(cur.putts)
+                                    : pickField === "penalties"
+                                        ? toInt(cur.penalties)
+                                        : pickField === "driveDistance"
+                                            ? (String(cur.driveDistance ?? "").trim().toLowerCase() === "na" ? "__na__" : toInt(cur.driveDistance))
+                                            : toInt(cur.strokes);
+
+                            const active = pickField === "driveDistance"
+                                ? Number(curVal) === Number(n)
+                                : Number(curVal) === Number(n);
+
                             return <NumberChip key={`num-${n}`} n={n} active={active} onPress={() => onTapNumber(n)} />;
                         })}
+
+                        {pickField === "driveDistance" ? (
+                            <Pressable
+                                onPress={onTapDriveDistanceNA}
+                                style={({ pressed }) => [
+                                    styles.numChip,
+                                    String(inputs?.[String(pickPid)]?.driveDistance ?? "").trim().toLowerCase() === "na" && styles.numChipOn,
+                                    pressed && styles.pressed,
+                                ]}
+                            >
+                                <Text
+                                    style={[
+                                        styles.numChipText,
+                                        String(inputs?.[String(pickPid)]?.driveDistance ?? "").trim().toLowerCase() === "na" && styles.numChipTextOn,
+                                    ]}
+                                >
+                                    N/A
+                                </Text>
+                            </Pressable>
+                        ) : null}
                     </View>
 
                     <Text style={styles.numHint}>
@@ -2050,7 +2093,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                             : pickField === "penalties"
                                 ? "Tap 0–10"
                                 : pickField === "driveDistance"
-                                    ? "Tap 0–400"
+                                    ? "Tap 0–400 or N/A"
                                     : "Tap 1–10"}
                     </Text>
                 </View>

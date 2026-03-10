@@ -249,6 +249,7 @@ function detectFormatType(key, name) {
     s.includes("2ndshotkp") ||
     (s.includes("2nd") && s.includes("shot") && s.includes("kp"));
 
+  if (s.includes("matchplay") || (s.includes("match") && s.includes("play"))) return "matchplay";
   if (s.includes("nassau")) return "nassau";
   if (s.includes("skins")) return "skins";
   if (s.includes("stableford")) return "stableford";
@@ -271,6 +272,7 @@ function formatIconName(type) {
   if (type === "puttingcontest") return "golf";
   if (type === "deucepot") return "cash";
   if (type === "teamvsteam") return "account-group";
+  if (type === "matchplay") return "sword-cross";
   if (type === "nassau") return "trophy";
   if (type === "skins") return "star-four-points";
   if (type === "stableford") return "chart-line";
@@ -286,6 +288,7 @@ function formatDisplayTitle(type, rawName) {
   if (type === "deucepot") return "DEUCE POT";
   if (type === "puttingcontest") return "PUTTING CONTEST";
   if (type === "teamvsteam") return "TEAM VS TEAM";
+  if (type === "matchplay") return "MATCH PLAY";
   if (type === "nassau") return "NASSAU";
   if (type === "skins") return "SKINS";
   if (type === "stableford") return "STABLEFORD";
@@ -301,6 +304,7 @@ function formatTheme(type) {
   if (type === "deucepot") return { accent: "#FFCF5A", bg: "rgba(255,207,90,0.10)", border: "rgba(255,207,90,0.30)" };
   if (type === "puttingcontest") return { accent: "#FF7AC8", bg: "rgba(255,122,200,0.10)", border: "rgba(255,122,200,0.28)" };
   if (type === "teamvsteam") return { accent: "#69E6B4", bg: "rgba(105,230,180,0.10)", border: "rgba(105,230,180,0.28)" };
+  if (type === "matchplay") return { accent: "#FFCF5A", bg: "rgba(255,207,90,0.10)", border: "rgba(255,207,90,0.30)" };
 
   if (type === "nassau") return { accent: "#FFCF5A", bg: "rgba(255,207,90,0.10)", border: "rgba(255,207,90,0.30)" };
   if (type === "skins") return { accent: "#FFCF5A", bg: "rgba(255,207,90,0.10)", border: "rgba(255,207,90,0.30)" };
@@ -347,6 +351,39 @@ function getEntryFee(roundDoc, formatKey) {
   const feeByKey = roundDoc?.feeByKey && typeof roundDoc.feeByKey === "object" ? roundDoc.feeByKey : null;
   const n = feeByKey ? Number(feeByKey?.[formatKey]) : 0;
   return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function getPlayedHoles(roundRoot) {
+  const hcRaw = Number(roundRoot?.holesCount ?? roundRoot?.meta?.holesCount);
+  const holesCount = hcRaw === 9 || hcRaw === 18 ? hcRaw : 18;
+
+  const sideRaw = String(roundRoot?.holesSide ?? roundRoot?.meta?.holesSide ?? "").toLowerCase().trim();
+  const holesSide = sideRaw === "back" ? "back" : "front";
+
+  return holesCount === 9
+    ? (holesSide === "back"
+      ? Array.from({ length: 9 }).map((_, i) => 10 + i)
+      : Array.from({ length: 9 }).map((_, i) => 1 + i))
+    : Array.from({ length: 18 }).map((_, i) => 1 + i);
+}
+
+function scoreForHole(roundRoot, playerId, holeNumber, useNet, playerHcp) {
+  const strokes = readStroke(roundRoot, holeNumber, playerId);
+  if (!Number.isFinite(strokes) || strokes <= 0) return 0;
+  if (!useNet) return strokes;
+
+  const hcp = parseHcp(playerHcp);
+  if (!Number.isFinite(hcp) || hcp <= 0) return strokes;
+
+  const si = getStrokeIndex(roundRoot, holeNumber);
+  if (!Number.isFinite(si)) return strokes;
+
+  const base = Math.floor(hcp / 18);
+  const extra = hcp % 18;
+  const getsExtra = si <= extra ? 1 : 0;
+  const received = base + getsExtra;
+
+  return strokes - received;
 }
 
 export default function FinalResultsScreen({ navigation, route }) {
@@ -564,8 +601,28 @@ export default function FinalResultsScreen({ navigation, route }) {
 
   const stats = useMemo(() => {
     const r = round || {};
+
+    const yesNoValue = (value) => {
+      const s = String(value ?? "").trim().toLowerCase();
+      if (!s || s === "na") return null;
+      if (s === "yes" || s === "true" || s === "1") return "yes";
+      if (s === "no" || s === "false" || s === "0") return "no";
+      return null;
+    };
+
+    const numericValue = (value) => {
+      if (value === null || value === undefined) return null;
+      const raw = String(value).trim();
+      if (!raw.length) return null;
+
+      const n = Number(String(value).replace(/[^\d.-]/g, ""));
+      if (!Number.isFinite(n)) return null;
+      return n;
+    };
+
     const out = players.map((p) => {
       let puttsTotal = 0;
+      let puttsTracked = 0;
 
       let firYes = 0;
       let firOpp = 0;
@@ -579,43 +636,80 @@ export default function FinalResultsScreen({ navigation, route }) {
       let sandYes = 0;
       let sandOpp = 0;
 
-      for (let h = 1; h <= 18; h++) {
-        const putts = toInt(readField(r, h, p.id, "putts"));
-        if (putts > 0) puttsTotal += putts;
+      let penaltiesTotal = 0;
+      let penaltiesTracked = 0;
 
-        const fairway = String(readField(r, h, p.id, "fairway") ?? "na");
-        if (fairway !== "na") {
+      let driveDistanceTotal = 0;
+      let driveDistanceTracked = 0;
+      let driveDistanceBest = null;
+
+      for (let h = 1; h <= 18; h++) {
+        const puttsRaw = readField(r, h, p.id, "putts");
+        const putts = numericValue(puttsRaw);
+        if (putts !== null && putts >= 0) {
+          puttsTracked += 1;
+          puttsTotal += putts;
+        }
+
+        const fairway = yesNoValue(readField(r, h, p.id, "fairway"));
+        if (fairway !== null) {
           firOpp += 1;
           if (fairway === "yes") firYes += 1;
         }
 
-        const green = String(readField(r, h, p.id, "green") ?? "na");
-        if (green !== "na") {
+        const green = yesNoValue(readField(r, h, p.id, "green"));
+        if (green !== null) {
           girOpp += 1;
           if (green === "yes") girYes += 1;
         }
 
-        const updown = String(readField(r, h, p.id, "updown") ?? "na");
-        if (updown !== "na") {
+        const updown = yesNoValue(readField(r, h, p.id, "updown"));
+        if (updown !== null) {
           upOpp += 1;
           if (updown === "yes") upYes += 1;
         }
 
-        const sandSave = String(readField(r, h, p.id, "sandSave") ?? "na");
-        if (sandSave !== "na") {
+        const sandSave = yesNoValue(readField(r, h, p.id, "sandSave"));
+        if (sandSave !== null) {
           sandOpp += 1;
           if (sandSave === "yes") sandYes += 1;
         }
+
+        const penaltiesRaw = readField(r, h, p.id, "penalties");
+        const penalties = numericValue(penaltiesRaw);
+        if (penalties !== null && penalties >= 0) {
+          penaltiesTracked += 1;
+          penaltiesTotal += penalties;
+        }
+
+        const driveDistanceRaw = readField(r, h, p.id, "driveDistance");
+        const driveDistance = numericValue(driveDistanceRaw);
+        if (driveDistance !== null && driveDistance >= 0) {
+          driveDistanceTracked += 1;
+          driveDistanceTotal += driveDistance;
+          if (driveDistanceBest === null || driveDistance > driveDistanceBest) {
+            driveDistanceBest = driveDistance;
+          }
+        }
       }
+
+      const driveDistanceAvg =
+        driveDistanceTracked > 0 ? Math.round(driveDistanceTotal / driveDistanceTracked) : null;
 
       return {
         id: p.id,
         name: p.name,
         puttsTotal,
+        puttsTracked,
         fir: fmtPct(firYes, firOpp),
         gir: fmtPct(girYes, girOpp),
         updown: fmtPct(upYes, upOpp),
         sand: fmtPct(sandYes, sandOpp),
+        penaltiesTotal,
+        penaltiesTracked,
+        driveDistanceAvg,
+        driveDistanceBest,
+        driveDistanceTracked,
       };
     });
 
@@ -896,6 +990,93 @@ export default function FinalResultsScreen({ navigation, route }) {
     [round, players]
   );
 
+  const computeMatchPlaySummary = useCallback(
+    (includedIds, formatKey) => {
+      const r = round || {};
+      const ids = Array.isArray(includedIds) ? includedIds.map((x) => String(x)).filter(Boolean) : [];
+      if (ids.length < 2) {
+        return { lines: [], perMatchValue: 0, basisLabel: "gross" };
+      }
+
+      const buyInPerPlayer = getEntryFee(r, formatKey);
+      const opponentsCount = Math.max(1, ids.length - 1);
+      const perMatchValue = buyInPerPlayer > 0 ? (buyInPerPlayer / opponentsCount) : 0;
+
+      const basis = String(r?.matchPlay?.scoring?.basis || r?.scoringMode || r?.scoring || "gross").toLowerCase();
+      const useNet = basis.includes("net");
+      const basisLabel = useNet ? "net" : "gross";
+
+      const playersMap = {};
+      players.forEach((p) => {
+        playersMap[String(p.id)] = p;
+      });
+
+      const holes = getPlayedHoles(r);
+      const lines = [];
+
+      for (let i = 0; i < ids.length; i++) {
+        for (let j = i + 1; j < ids.length; j++) {
+          const aId = String(ids[i] || "");
+          const bId = String(ids[j] || "");
+          if (!aId || !bId || aId === bId) continue;
+
+          const aName = String(playersMap?.[aId]?.name || "Player");
+          const bName = String(playersMap?.[bId]?.name || "Player");
+
+          let aTotal = 0;
+          let bTotal = 0;
+          let anyPlayed = false;
+
+          holes.forEach((h) => {
+            const aScore = scoreForHole(r, aId, h, useNet, playersMap?.[aId]?.handicap);
+            const bScore = scoreForHole(r, bId, h, useNet, playersMap?.[bId]?.handicap);
+
+            if (aScore > 0 && bScore > 0) {
+              aTotal += aScore;
+              bTotal += bScore;
+              anyPlayed = true;
+            }
+          });
+
+          if (!anyPlayed) continue;
+
+          if (aTotal < bTotal) {
+            lines.push({
+              key: `${aId}-${bId}`,
+              text: `${aName} beat ${bName}`,
+              winnerId: aId,
+              loserId: bId,
+              amount: perMatchValue,
+            });
+            continue;
+          }
+
+          if (bTotal < aTotal) {
+            lines.push({
+              key: `${aId}-${bId}`,
+              text: `${bName} beat ${aName}`,
+              winnerId: bId,
+              loserId: aId,
+              amount: perMatchValue,
+            });
+            continue;
+          }
+
+          lines.push({
+            key: `${aId}-${bId}`,
+            text: `${aName} tied ${bName}`,
+            winnerId: null,
+            loserId: null,
+            amount: 0,
+          });
+        }
+      }
+
+      return { lines, perMatchValue, basisLabel };
+    },
+    [round, players]
+  );
+
   function renderFormatPayout(formatKey, type, officialHoles) {
     const includedIds = getIncludedPlayerIds(round || {}, formatKey, players);
     const playersCount = Math.max(0, includedIds.length);
@@ -1036,6 +1217,23 @@ export default function FinalResultsScreen({ navigation, route }) {
       };
     }
 
+    if (type === "matchplay") {
+      const opponentsCount = Math.max(0, playersCount - 1);
+      const perMatchValue = opponentsCount > 0 ? buyIn / opponentsCount : 0;
+      const totalPairings = playersCount >= 2 ? (playersCount * (playersCount - 1)) / 2 : 0;
+
+      return {
+        headline: perMatchValue > 0 ? `${money(perMatchValue)} each match` : "Players needed",
+        lines: [
+          `Buy-in (per player): ${money(buyIn)}`,
+          `Players: ${playersCount}`,
+          `Opponents per player: ${String(opponentsCount)}`,
+          `Total pairings: ${String(totalPairings)}`,
+          `Pool total: ${money(poolTotal)}`,
+        ],
+      };
+    }
+
     return {
       headline: `${money(poolTotal)} (winner)`,
       lines: [`Buy-in (per player): ${money(buyIn)}`, `Players: ${playersCount}`, `Pool total: ${money(poolTotal)}`],
@@ -1071,7 +1269,7 @@ export default function FinalResultsScreen({ navigation, route }) {
     // payout per win = per-hole amount * (players - 1)
     const perWin = perHoleAmount > 0 ? perHoleAmount * Math.max(0, includedCount - 1) : 0;
 
-    const isAuto = type === "deucepot" || type === "puttingcontest" || type === "nassau" || type === "skins";
+    const isAuto = type === "deucepot" || type === "puttingcontest" || type === "nassau" || type === "skins" || type === "matchplay";
 
     const isCarryDoc = (c) => {
       const s = String(c?.status || "").toLowerCase();
@@ -1491,6 +1689,35 @@ export default function FinalResultsScreen({ navigation, route }) {
                         )}
                       </>
                     ) : null}
+
+                    {type === "matchplay" ? (
+                      <>
+                        {(() => {
+                          const summary = computeMatchPlaySummary(includedIds, formatKey);
+                          const lines = Array.isArray(summary?.lines) ? summary.lines : [];
+                          const perMatchValue = Number(summary?.perMatchValue || 0);
+                          const basisLabel = String(summary?.basisLabel || "gross");
+
+                          if (!lines.length) {
+                            return <Text style={styles.modalLine}>No match results available yet.</Text>;
+                          }
+
+                          return (
+                            <>
+                              <Text style={styles.modalLine}>Who Beat Who ({basisLabel})</Text>
+                              {perMatchValue > 0 ? (
+                                <Text style={styles.modalLine}>Match value: {money(perMatchValue)} each</Text>
+                              ) : null}
+                              {lines.map((line) => (
+                                <Text key={line.key} style={styles.modalLine}>
+                                  {line.text}
+                                </Text>
+                              ))}
+                            </>
+                          );
+                        })()}
+                      </>
+                    ) : null}
                   </View>
                 ) : events > 0 ? (
                   <View style={{ width: "100%", gap: 10 }}>
@@ -1532,7 +1759,19 @@ export default function FinalResultsScreen({ navigation, route }) {
                       }
 
                       const winnerName = directName || resolvedName || "";
-                      const note = isCarry && resolvedName ? `Carry over → Hole ${resolvedHole}` : "";
+                      const isWashed = statusRaw === "unclaimed";
+                      const displayName = winnerName
+                        ? winnerName
+                        : isWashed
+                          ? "Washed"
+                          : "Unclaimed";
+
+                      const note =
+                        isCarry && resolvedName
+                          ? `Carry over → Hole ${resolvedHole}`
+                          : isCarry && !resolvedName
+                            ? "Carry over pending"
+                            : "";
 
                       return (
                         <View key={`hole-${h}`} style={styles.claimRow}>
@@ -1540,7 +1779,7 @@ export default function FinalResultsScreen({ navigation, route }) {
 
                           <View style={styles.claimMidBox}>
                             <Text style={styles.claimMidName} numberOfLines={1}>
-                              {winnerName ? winnerName : "Unclaimed"}
+                              {displayName}
                             </Text>
                             {note ? (
                               <Text style={styles.claimMidNote} numberOfLines={1}>
@@ -1560,7 +1799,11 @@ export default function FinalResultsScreen({ navigation, route }) {
                   <Text style={styles.modalLine}>No official holes selected yet.</Text>
                 )}
 
-                <Text style={styles.winnerSmall}>Claims are shown as pending until confirmation/override is added.</Text>
+                <Text style={styles.winnerSmall}>
+                  {type === "matchplay"
+                    ? "Head-to-head results are based on the completed round scores."
+                    : "Claims are shown as pending until confirmation/override is added."}
+                </Text>
               </View>
             </View>
 
@@ -1677,23 +1920,52 @@ export default function FinalResultsScreen({ navigation, route }) {
                   <Text style={styles.statK}>FIR</Text>
                   <Text style={styles.statV}>{s.fir}</Text>
                 </View>
+
                 <View style={styles.statPill}>
                   <Text style={styles.statK}>GIR</Text>
                   <Text style={styles.statV}>{s.gir}</Text>
                 </View>
+
                 <View style={styles.statPill}>
                   <Text style={styles.statK}>Putts</Text>
                   <Text style={styles.statV}>
-                    {Number(s.puttsTotal) > 0 ? String(s.puttsTotal) : "—"}
+                    {Number(s.puttsTracked) > 0 ? String(s.puttsTotal) : "—"}
                   </Text>
                 </View>
+
                 <View style={styles.statPill}>
                   <Text style={styles.statK}>U&amp;D</Text>
                   <Text style={styles.statV}>{s.updown}</Text>
                 </View>
+
                 <View style={styles.statPill}>
                   <Text style={styles.statK}>Sand</Text>
                   <Text style={styles.statV}>{s.sand}</Text>
+                </View>
+
+                <View style={styles.statPill}>
+                  <Text style={styles.statK}>Pen</Text>
+                  <Text style={styles.statV}>
+                    {Number(s.penaltiesTracked) > 0 ? String(s.penaltiesTotal) : "—"}
+                  </Text>
+                </View>
+
+                <View style={styles.statPill}>
+                  <Text style={styles.statK}>Drive Avg</Text>
+                  <Text style={styles.statV}>
+                    {Number(s.driveDistanceTracked) > 0 && Number.isFinite(Number(s.driveDistanceAvg))
+                      ? String(s.driveDistanceAvg)
+                      : "—"}
+                  </Text>
+                </View>
+
+                <View style={styles.statPill}>
+                  <Text style={styles.statK}>Drive Best</Text>
+                  <Text style={styles.statV}>
+                    {Number(s.driveDistanceTracked) > 0 && Number.isFinite(Number(s.driveDistanceBest))
+                      ? String(s.driveDistanceBest)
+                      : "—"}
+                  </Text>
                 </View>
               </View>
             </View>

@@ -21,7 +21,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, CommonActions } from "@react-navigation/native";
 import { BackHandler } from "react-native";
 import * as Location from "expo-location";
-import { doc, onSnapshot } from "firebase/firestore";
+import { collection, doc, getDocs, onSnapshot } from "firebase/firestore";
 
 import { auth, db } from "../firebase/firebase";
 
@@ -234,6 +234,192 @@ function getMissingHolesFromState(state, playersList, startHole = 1, endHole = 1
     if (!holeOk) missing.push(h);
   }
   return missing;
+}
+
+function normalizeClaimStatus(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "";
+  if (raw === "carry_over") return "carryover";
+  if (raw === "push") return "washed";
+  return raw;
+}
+
+function getFormatConfigRoot(roundRoot) {
+  if (!roundRoot || typeof roundRoot !== "object") return {};
+  return (
+    (roundRoot?.formatConfig && typeof roundRoot.formatConfig === "object" && roundRoot.formatConfig) ||
+    (roundRoot?.configByKey && typeof roundRoot.configByKey === "object" && roundRoot.configByKey) ||
+    {}
+  );
+}
+
+function getFormatClaimsRoot(roundRoot) {
+  if (!roundRoot || typeof roundRoot !== "object") return {};
+  return (
+    (roundRoot?.formatClaims && typeof roundRoot.formatClaims === "object" && roundRoot.formatClaims) ||
+    {}
+  );
+}
+
+function getConfiguredFormatHoles(node) {
+  if (!node || typeof node !== "object") return [];
+  const holes =
+    (Array.isArray(node?.holesByRound?.r1) && node.holesByRound.r1) ||
+    (Array.isArray(node?.holesSelected) && node.holesSelected) ||
+    (Array.isArray(node?.holes) && node.holes) ||
+    [];
+  return holes.map((x) => Number(x)).filter((n) => Number.isFinite(n) && n >= 1 && n <= 18);
+}
+
+function getUnclaimedFormatIssues(roundRoot) {
+  const cfgRoot = getFormatConfigRoot(roundRoot);
+  const claimsRoot = getFormatClaimsRoot(roundRoot);
+
+  const issues = [];
+
+  const aliasKeysForFormat = (rawKey) => {
+    const k = String(rawKey || "").trim().toLowerCase();
+
+    if (k === "kp") return ["kp"];
+
+    if (k === "longdrive" || k === "long_drive" || k === "ld") {
+      return ["longdrive", "long_drive", "ld"];
+    }
+
+    if (
+      k === "secondshotkp" ||
+      k === "second_shot_kp" ||
+      k === "2nd_shot_kp" ||
+      k === "second_shot_closest_to_pin"
+    ) {
+      return ["secondshotkp", "second_shot_kp", "2nd_shot_kp", "second_shot_closest_to_pin"];
+    }
+
+    return [k];
+  };
+
+  Object.keys(cfgRoot).forEach((formatKey) => {
+    const cfg = cfgRoot?.[formatKey];
+    const holes = getConfiguredFormatHoles(cfg);
+    if (!holes.length) return;
+
+    const normalizedKey = String(formatKey || "").trim().toLowerCase();
+    const aliasKeys = aliasKeysForFormat(normalizedKey);
+
+    const isClaimFormat =
+      aliasKeys.includes("kp") ||
+      aliasKeys.includes("longdrive") ||
+      aliasKeys.includes("long_drive") ||
+      aliasKeys.includes("ld") ||
+      aliasKeys.includes("secondshotkp") ||
+      aliasKeys.includes("second_shot_kp") ||
+      aliasKeys.includes("2nd_shot_kp") ||
+      aliasKeys.includes("second_shot_closest_to_pin");
+
+    if (!isClaimFormat) return;
+
+    holes.forEach((hole) => {
+      const possibleClaims = aliasKeys.map((key) => claimsRoot?.[`${key}_h${String(hole)}`]).filter(Boolean);
+      const claim = possibleClaims[0] || null;
+      const status = normalizeClaimStatus(claim?.status);
+
+      const resolved =
+        status === "claimed" ||
+        status === "washed" ||
+        status === "carryover";
+
+      if (!resolved) {
+        issues.push({
+          formatKey: normalizedKey,
+          hole: Number(hole),
+        });
+      }
+    });
+  });
+
+  return issues;
+}
+
+function prettyFormatLabel(formatKey) {
+  const k = String(formatKey || "").trim().toLowerCase();
+
+  if (k === "kp") return "KP";
+  if (k === "longdrive" || k === "long_drive") return "Long Drive";
+  if (k === "secondshotkp" || k === "second_shot_kp") return "Second Shot KP";
+
+  return String(formatKey || "Format")
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function normalizeFormatClaimStatus(v) {
+  const s = String(v || "").toLowerCase().trim();
+  if (s === "carry_over") return "carryover";
+  if (s === "push") return "washed";
+  return s;
+}
+
+function normalizeFormatKeyForDocId(v) {
+  return String(v || "").trim().toLowerCase().replace(/\s+/g, "");
+}
+
+function humanFormatName(v) {
+  const k = normalizeFormatKeyForDocId(v);
+
+  if (k === "kp") return "KP";
+  if (k === "longdrive" || k === "long_drive" || k === "ld") return "Long Drive";
+  if (k === "secondshotkp" || k === "second_shot_kp" || k === "2ndshotkp") return "Second Shot KP";
+
+  return String(v || "Format Hole");
+}
+
+function getOfficialClaimHolesFromRound(roundRoot) {
+  const cfgRoot =
+    (roundRoot?.formatConfig && typeof roundRoot.formatConfig === "object" ? roundRoot.formatConfig : null) ||
+    (roundRoot?.configByKey && typeof roundRoot.configByKey === "object" ? roundRoot.configByKey : null) ||
+    null;
+
+  if (!cfgRoot) return [];
+
+  const out = [];
+
+  Object.keys(cfgRoot).forEach((rawKey) => {
+    const node = cfgRoot?.[rawKey];
+    if (!node || typeof node !== "object") return;
+
+    const holesRaw = Array.isArray(node?.holes)
+      ? node.holes
+      : Array.isArray(node?.holesSelected)
+        ? node.holesSelected
+        : [];
+
+    const key = normalizeFormatKeyForDocId(rawKey);
+    const isClaimFormat =
+      key === "kp" ||
+      key === "longdrive" ||
+      key === "long_drive" ||
+      key === "ld" ||
+      key === "secondshotkp" ||
+      key === "second_shot_kp" ||
+      key === "2ndshotkp";
+
+    if (!isClaimFormat) return;
+
+    holesRaw.forEach((h) => {
+      const hole = Number(h);
+      if (!Number.isFinite(hole) || hole < 1 || hole > 18) return;
+
+      out.push({
+        formatKey: key,
+        formatLabel: humanFormatName(rawKey),
+        hole,
+        docId: `${key}_h${hole}`,
+      });
+    });
+  });
+
+  out.sort((a, b) => a.hole - b.hole || a.formatLabel.localeCompare(b.formatLabel));
+  return out;
 }
 
 /* -------------------------- */
@@ -635,6 +821,7 @@ export default function HoleHubScreen({ navigation, route }) {
   const [courseData, setCourseData] = useState(null);
   const [user, setUser] = useState(null);
   const [activeSnap, setActiveSnap] = useState(null);
+  const [finishValidationBusy, setFinishValidationBusy] = useState(false);
 
   const activeRoot = useMemo(() => unwrapRound(activeSnap), [activeSnap]);
   const roundId = params.roundId ?? activeRoot?.id ?? activeRoot?.roundId ?? null;
@@ -972,6 +1159,7 @@ export default function HoleHubScreen({ navigation, route }) {
   // Regular format claims (Firestore truth)
   const [claimDoc, setClaimDoc] = useState(null);
   const [prevClaimDoc, setPrevClaimDoc] = useState(null);
+  const [allFormatClaimsById, setAllFormatClaimsById] = useState({});
 
   const claimRef = useMemo(() => {
     const uid = auth?.currentUser?.uid || null;
@@ -987,6 +1175,16 @@ export default function HoleHubScreen({ navigation, route }) {
     const docId = `${sg}_h${String(h)}`;
     return doc(db, "users", String(uid), "rounds", String(rid), "formatClaims", String(docId));
   }, [roundId, computedSideGameKey, currentHole]);
+
+  const allClaimsCollectionRef = useMemo(() => {
+    const uid = auth?.currentUser?.uid || null;
+    const rid = String(roundId || "").trim();
+
+    if (!uid) return null;
+    if (!rid) return null;
+
+    return collection(db, "users", String(uid), "rounds", String(rid), "formatClaims");
+  }, [roundId]);
 
   const prevEligibleHole = useMemo(() => {
     const root = unwrapRound(activeSnap);
@@ -1038,6 +1236,27 @@ export default function HoleHubScreen({ navigation, route }) {
 
     return () => unsub();
   }, [sgVisible, claimRef]);
+
+  useEffect(() => {
+    if (!allClaimsCollectionRef) {
+      setAllFormatClaimsById({});
+      return;
+    }
+
+    const unsub = onSnapshot(
+      allClaimsCollectionRef,
+      (snap) => {
+        const next = {};
+        snap.forEach((d) => {
+          next[String(d.id)] = d.data() || null;
+        });
+        setAllFormatClaimsById(next);
+      },
+      () => setAllFormatClaimsById({})
+    );
+
+    return () => unsub();
+  }, [allClaimsCollectionRef]);
 
   useEffect(() => {
     if (!sgVisible || !prevClaimRef) {
@@ -1431,6 +1650,24 @@ export default function HoleHubScreen({ navigation, route }) {
             },
           },
         ]);
+        return;
+      }
+
+      const unresolvedFormats = getUnclaimedFormatIssues({
+        ...active,
+        formatClaims: allFormatClaimsById,
+      });
+
+      if (unresolvedFormats.length) {
+        const lines = unresolvedFormats
+          .map((x) => `- ${prettyFormatLabel(x.formatKey)} • Hole ${x.hole}`)
+          .join("\n");
+
+        Alert.alert(
+          "Unresolved format holes",
+          `The following format holes still need a result:\n\n${lines}\n\nPlease Claim, Carry Over, or Wash each one before finishing the round.`,
+          [{ text: "OK", style: "default" }]
+        );
         return;
       }
 

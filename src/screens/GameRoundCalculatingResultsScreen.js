@@ -67,7 +67,8 @@ export default function GameRoundCalculatingResultsScreen({ navigation, route })
                     playedAt: active?.playedAt || active?.startedAt || new Date().toISOString(),
                     startedAt: active?.startedAt || new Date().toISOString(),
                     status: "completed",
-                    lastHole: 18,
+                    currentHole: active?.currentHole ?? active?.holeNumber ?? active?.hole ?? active?.lastHole ?? 1,
+                    lastHole: active?.lastHole ?? active?.currentHole ?? active?.holeNumber ?? active?.hole ?? 1,
                 };
 
                 await saveRound(payload);

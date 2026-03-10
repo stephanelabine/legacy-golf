@@ -172,6 +172,7 @@ function detectFormatType(key, name) {
         s.includes("2ndshotkp") ||
         (s.includes("2nd") && s.includes("shot") && s.includes("kp"));
 
+    if (s.includes("matchplay") || (s.includes("match") && s.includes("play"))) return "matchplay";
     if (s.includes("nassau")) return "nassau";
     if (s.includes("skins")) return "skins";
     if (s.includes("stableford")) return "stableford";
@@ -650,7 +651,6 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                 const claimsMap = claimsByFormat?.[nk] || {};
 
                 let carryUnits = 0;
-                let fundedUnits = 0;
 
                 holes.forEach((h) => {
                     const c = claimsMap?.[String(h)] || null;
@@ -662,8 +662,14 @@ export default function RegularSettleUpScreen({ navigation, route }) {
 
                     if (hasWinner) {
                         const units = 1 + carryUnits;
-                        fundedUnits += units;
                         carryUnits = 0;
+
+                        includedIds.forEach((pid) => {
+                            const payerId = String(pid || "");
+                            if (!payerId || payerId === winnerId) return;
+                            addPaid(payerId, units * perHole);
+                        });
+
                         addWon(winnerId, units * perHole * Math.max(0, includedCount - 1));
                     } else if (isCarry) {
                         carryUnits += 1;
@@ -672,7 +678,6 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                     }
                 });
 
-                includedIds.forEach((pid) => addPaid(pid, fundedUnits * perHole));
                 return;
             }
 
@@ -914,13 +919,71 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                 return;
             }
 
+            // Match Play: everybody-vs-everybody and pairwise settlement.
+            // Locked product rule:
+            // - the amount entered is each player's TOTAL contribution for the entire format
+            // - it is NOT the amount per head-to-head matchup
+            // - per-match value = buy-in per player / number of opponents
+            if (type === "matchplay") {
+                const buyInPerPlayer = fee > 0 ? fee : 0;
+                if (!buyInPerPlayer) return;
+                if (includedCount < 2) return;
+
+                const opponentsCount = Math.max(1, includedCount - 1);
+                const perMatchValue = buyInPerPlayer / opponentsCount;
+
+                const basis = String(r?.matchPlay?.scoring?.basis || r?.scoringMode || r?.scoring || "gross").toLowerCase();
+                const useNet = basis.includes("net");
+
+                const { playedHoles } = getPlayedHoles(r);
+                const holes = Array.isArray(playedHoles) ? playedHoles : [];
+                if (!holes.length) return;
+
+                for (let i = 0; i < includedIds.length; i++) {
+                    for (let j = i + 1; j < includedIds.length; j++) {
+                        const aId = String(includedIds[i] || "");
+                        const bId = String(includedIds[j] || "");
+                        if (!aId || !bId || aId === bId) continue;
+
+                        let aTotal = 0;
+                        let bTotal = 0;
+                        let anyPlayed = false;
+
+                        holes.forEach((h) => {
+                            const aScore = netStrokesForHole(r, aId, h, useNet, playersById);
+                            const bScore = netStrokesForHole(r, bId, h, useNet, playersById);
+
+                            if (aScore > 0 && bScore > 0) {
+                                aTotal += aScore;
+                                bTotal += bScore;
+                                anyPlayed = true;
+                            }
+                        });
+
+                        if (!anyPlayed) continue;
+
+                        if (aTotal < bTotal) {
+                            addTransfer(bId, aId, perMatchValue);
+                            continue;
+                        }
+
+                        if (bTotal < aTotal) {
+                            addTransfer(aId, bId, perMatchValue);
+                            continue;
+                        }
+
+                        // Tie/push = no transfer
+                    }
+                }
+
+                return;
+            }
+
             // Unknown / other: washed
             return;
         });
 
-        const transfers = rawTransfers.length
-            ? collapseReciprocalTransfers(rawTransfers, playersById)
-            : (greedySettlement(netById, playersById) || []);
+        const transfers = greedySettlement(netById, playersById) || [];
 
         return { netById, paidById, wonById, transfers };
     }, [round, players, playersById, formatsSelected, claimsByFormat]);

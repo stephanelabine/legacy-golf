@@ -165,19 +165,7 @@ function formatDateAny(round) {
 function isRoundCompletedAnyShape(r) {
   const s = String(r?.status || "").trim().toLowerCase();
   if (s.includes("complete") || s.includes("finished") || s.includes("done")) return true;
-
-  const players = Array.isArray(r?.players) ? r.players : [];
-  const ids = players.map((p, idx) => String(p?.id ?? String(idx)));
-  if (!ids.length) return false;
-
-  const { startHole, endHole } = deriveHoleRangeAny(r || {});
-  for (let h = startHole; h <= endHole; h++) {
-    for (const pid of ids) {
-      const v = readStroke(r, h, pid);
-      if (toInt(v) <= 0) return false;
-    }
-  }
-  return true;
+  return false;
 }
 
 function pickHoleNumberAny(r, fallback = null) {
