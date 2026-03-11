@@ -17,12 +17,17 @@ import {
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
+  collection,
   doc,
   getDoc,
+  getDocs,
+  limit,
   onSnapshot,
+  query,
   serverTimestamp,
   setDoc,
   updateDoc,
+  where,
 } from "firebase/firestore";
 
 import theme from "../theme";
@@ -177,6 +182,14 @@ function normalizePlayersForRound(players) {
   })).filter((p) => p.id);
 }
 
+function normalizeEmailValue(v) {
+  return String(v || "").trim().toLowerCase();
+}
+
+function normalizePhoneValue(v) {
+  return String(v || "").replace(/[^\d]/g, "");
+}
+
 export default function PlayerEntryScreen({ navigation, route }) {
   const params = route?.params || {};
   const roundIdParam = params?.roundId || null;
@@ -222,6 +235,9 @@ export default function PlayerEntryScreen({ navigation, route }) {
   const [guestModal, setGuestModal] = useState(false);
   const [guestName, setGuestName] = useState("");
   const [guestHcp, setGuestHcp] = useState("");
+  const [guestEmail, setGuestEmail] = useState("");
+  const [guestPhone, setGuestPhone] = useState("");
+  const [guestMatchCandidate, setGuestMatchCandidate] = useState(null);
 
   const [inviteModal, setInviteModal] = useState(false);
   const [convertingToShared, setConvertingToShared] = useState(false);
@@ -437,15 +453,112 @@ export default function PlayerEntryScreen({ navigation, route }) {
     if (players.length >= playerCount) return;
     setGuestName("");
     setGuestHcp("");
+    setGuestEmail("");
+    setGuestPhone("");
+    setGuestMatchCandidate(null);
     setGuestModal(true);
   }
 
-  function addGuest() {
+  async function addGuest() {
     const name = (guestName || "").trim();
     if (!name) return;
     if (players.length >= playerCount) return;
 
     const h = clampHandicap(Number.parseInt((guestHcp || "").trim() || "0", 10));
+    const email = normalizeEmailValue(guestEmail);
+    const phone = String(guestPhone || "").trim();
+    const phoneDigits = normalizePhoneValue(phone);
+
+    let matchedByEmail = null;
+    let matchedByPhone = null;
+
+    try {
+      if (email) {
+        const emailSnap = await getDocs(
+          query(collection(db, "users"), where("email", "==", email), limit(1))
+        );
+        if (!emailSnap.empty) {
+          const d = emailSnap.docs[0];
+          matchedByEmail = { uid: d.id, ...(d.data() || {}) };
+        }
+      }
+
+      if (phoneDigits) {
+        const phoneDigitsSnap = await getDocs(
+          query(collection(db, "users"), where("phoneDigits", "==", phoneDigits), limit(1))
+        );
+        if (!phoneDigitsSnap.empty) {
+          const d = phoneDigitsSnap.docs[0];
+          matchedByPhone = { uid: d.id, ...(d.data() || {}) };
+        } else {
+          const phoneSnap = await getDocs(
+            query(collection(db, "users"), where("phone", "==", phoneDigits), limit(1))
+          );
+          if (!phoneSnap.empty) {
+            const d = phoneSnap.docs[0];
+            matchedByPhone = { uid: d.id, ...(d.data() || {}) };
+          }
+        }
+      }
+    } catch (e) {
+      Alert.alert(
+        "Guest match lookup failed",
+        String(e?.message || "Unknown Firestore query error")
+      );
+    }
+
+
+    const matchedUser =
+      matchedByEmail?.uid && matchedByPhone?.uid
+        ? matchedByEmail.uid === matchedByPhone.uid
+          ? matchedByEmail
+          : "__conflict__"
+        : matchedByEmail || matchedByPhone || null;
+
+    if (matchedUser === "__conflict__") {
+      Alert.alert(
+        "Match conflict",
+        "The email and phone match different Legacy Golf accounts. Please review the details or add this player as a guest."
+      );
+      return;
+    }
+
+    if (matchedUser?.uid) {
+      const linkedUid = String(matchedUser.uid);
+      const alreadyLinked = players.some(
+        (p) => String(p?.uid || "") === linkedUid || String(p?.id || "") === linkedUid
+      );
+
+      if (alreadyLinked) {
+        Alert.alert("Already added", "That Legacy Golf player is already in this round.");
+        return;
+      }
+
+      const candidate = {
+        uid: linkedUid,
+        name:
+          String(
+            matchedUser?.nickname ||
+            matchedUser?.displayName ||
+            matchedUser?.name ||
+            name
+          ).trim() || name,
+        handicap: clampHandicap(
+          Number(
+            matchedUser?.handicapIndex ??
+            matchedUser?.handicapManual ??
+            matchedUser?.handicap ??
+            h
+          ) || 0
+        ),
+        phone: String(matchedUser?.phone || phone || ""),
+        email: normalizeEmailValue(matchedUser?.email || email || ""),
+      };
+
+      setGuestMatchCandidate(candidate);
+      return;
+    }
+
     const id = `guest-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
 
     setPlayers((prev) => [
@@ -455,8 +568,8 @@ export default function PlayerEntryScreen({ navigation, route }) {
         uid: null,
         name,
         handicap: h,
-        phone: "",
-        email: "",
+        phone,
+        email,
         source: "guest",
         trackStats: false,
       },
@@ -1074,16 +1187,18 @@ export default function PlayerEntryScreen({ navigation, route }) {
           <View style={styles.actionRow}>
             <Pressable
               onPress={openBuddyModal}
-              style={({ pressed }) => [styles.actionPillPrimary, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.actionBoxPrimary, pressed && styles.pressed]}
             >
-              <Text style={styles.actionPillText}>Add from Buddy List</Text>
+              <Text style={styles.actionBoxTopText}>Add From</Text>
+              <Text style={styles.actionBoxBottomText}>Buddy List</Text>
             </Pressable>
 
             <Pressable
               onPress={openGuest}
-              style={({ pressed }) => [styles.actionPillGhost, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.actionBoxGhost, pressed && styles.pressed]}
             >
-              <Text style={styles.actionPillText}>Add a Guest</Text>
+              <Text style={styles.actionBoxTopText}>Add</Text>
+              <Text style={styles.actionBoxBottomText}>Guest</Text>
             </Pressable>
           </View>
           <View style={styles.divider} pointerEvents="none" />
@@ -1214,9 +1329,9 @@ export default function PlayerEntryScreen({ navigation, route }) {
                   const already = isAlreadyAdded(item.id);
                   const isFull = players.length >= playerCount;
 
-                  const disabled = already || isFull;
+                  const disabled = !already && isFull;
 
-                  const label = already ? "Added" : isFull ? "Full" : "Add";
+                  const label = already ? "Remove" : isFull ? "Full" : "Add";
 
                   return (
                     <View style={styles.pickRow}>
@@ -1229,7 +1344,13 @@ export default function PlayerEntryScreen({ navigation, route }) {
 
                       <Pressable
                         disabled={disabled}
-                        onPress={() => addBuddy(item)}
+                        onPress={() => {
+                          if (already) {
+                            removePlayer(item.id);
+                            return;
+                          }
+                          addBuddy(item);
+                        }}
                         style={({ pressed }) => [
                           styles.pickBtn,
                           already && styles.pickBtnAdded,
@@ -1275,7 +1396,28 @@ export default function PlayerEntryScreen({ navigation, route }) {
               placeholder="Guest name"
               placeholderTextColor="rgba(255,255,255,0.35)"
               autoCapitalize="words"
-              returnKeyType="done"
+              returnKeyType="next"
+            />
+
+            <TextInput
+              style={styles.modalInput}
+              value={guestEmail}
+              onChangeText={setGuestEmail}
+              placeholder="Email"
+              placeholderTextColor="rgba(255,255,255,0.35)"
+              autoCapitalize="none"
+              keyboardType="email-address"
+              returnKeyType="next"
+            />
+
+            <TextInput
+              style={styles.modalInput}
+              value={guestPhone}
+              onChangeText={setGuestPhone}
+              placeholder="Phone number"
+              placeholderTextColor="rgba(255,255,255,0.35)"
+              keyboardType="phone-pad"
+              returnKeyType="next"
             />
 
             <TextInput
@@ -1289,18 +1431,98 @@ export default function PlayerEntryScreen({ navigation, route }) {
               returnKeyType="done"
             />
 
-            <View style={{ flexDirection: "row", gap: 10, marginTop: 8 }}>
-              <Pressable
-                onPress={() => setGuestModal(false)}
-                style={({ pressed }) => [styles.modalGhostBtn, pressed && styles.pressed]}
-              >
-                <Text style={styles.modalGhostText}>Cancel</Text>
-              </Pressable>
+            {guestMatchCandidate ? (
+              <View style={styles.matchCard}>
+                <Text style={styles.matchKicker}>Legacy Golf Player</Text>
 
-              <Pressable onPress={addGuest} style={({ pressed }) => [styles.modalPrimaryBtn, pressed && styles.pressed]}>
-                <Text style={styles.modalPrimaryText}>Add</Text>
-              </Pressable>
-            </View>
+                <Text style={styles.matchName}>{guestMatchCandidate.name}</Text>
+                <Text style={styles.matchMeta}>
+                  HCP {guestMatchCandidate.handicap}
+                  {guestMatchCandidate.email ? ` • ${guestMatchCandidate.email}` : ""}
+                </Text>
+
+                <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
+                  <Pressable
+                    onPress={() => {
+                      const linkedUid = String(guestMatchCandidate.uid || "");
+                      if (!linkedUid) return;
+
+                      setPlayers((prev) => [
+                        ...prev,
+                        {
+                          id: linkedUid,
+                          uid: linkedUid,
+                          name: guestMatchCandidate.name,
+                          handicap: guestMatchCandidate.handicap,
+                          phone: String(guestMatchCandidate.phone || ""),
+                          email: normalizeEmailValue(guestMatchCandidate.email || ""),
+                          source: "linked_user",
+                          trackStats: true,
+                        },
+                      ]);
+
+                      setGuestMatchCandidate(null);
+                      setGuestModal(false);
+                      Keyboard.dismiss();
+                    }}
+                    style={({ pressed }) => [styles.modalPrimaryBtn, pressed && styles.pressed]}
+                  >
+                    <Text style={styles.modalPrimaryText}>Use Player</Text>
+
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => {
+                      const id = `guest-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+                      const name = (guestName || "").trim();
+                      const h = clampHandicap(Number.parseInt((guestHcp || "").trim() || "0", 10));
+                      const email = normalizeEmailValue(guestEmail);
+                      const phone = String(guestPhone || "").trim();
+
+                      setPlayers((prev) => [
+                        ...prev,
+                        {
+                          id,
+                          uid: null,
+                          name,
+                          handicap: h,
+                          phone,
+                          email,
+                          source: "guest",
+                          trackStats: false,
+                        },
+                      ]);
+
+                      setGuestMatchCandidate(null);
+                      setGuestModal(false);
+                      Keyboard.dismiss();
+                    }}
+                    style={({ pressed }) => [styles.modalGhostBtn, pressed && styles.pressed]}
+                  >
+                    <Text style={styles.modalGhostText}>Add as Guest</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : (
+              <>
+                <Text style={styles.guestHelperText}>
+                  If this email or phone matches an existing Legacy Golf account, we’ll let you confirm before linking that player.
+                </Text>
+
+                <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
+                  <Pressable
+                    onPress={() => setGuestModal(false)}
+                    style={({ pressed }) => [styles.modalGhostBtn, pressed && styles.pressed]}
+                  >
+                    <Text style={styles.modalGhostText}>Cancel</Text>
+                  </Pressable>
+
+                  <Pressable onPress={addGuest} style={({ pressed }) => [styles.modalPrimaryBtn, pressed && styles.pressed]}>
+                    <Text style={styles.modalPrimaryText}>Check / Add</Text>
+                  </Pressable>
+                </View>
+              </>
+            )}
           </Pressable>
         </Pressable>
       </Modal>
@@ -1494,33 +1716,55 @@ const styles = StyleSheet.create({
   summaryTitle: { marginTop: 10, color: "#fff", fontWeight: "900", fontSize: 16 },
   summarySub: { marginTop: 6, color: "rgba(255,255,255,0.86)", fontWeight: "900", fontSize: 13 },
 
-  actionRow: { paddingHorizontal: 16, marginTop: 12, flexDirection: "column", gap: 10 },
-  actionPillPrimary: {
-    width: "100%",
-    height: 56,
+  actionRow: {
+    paddingHorizontal: 16,
+    marginTop: 12,
+    flexDirection: "row",
+    gap: 10,
+  },
+  actionBoxPrimary: {
+    flex: 1,
+    minHeight: 74,
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(46,125,255,0.20)",
+    backgroundColor: "rgba(46,125,255,0.16)",
     borderWidth: 2,
-    borderColor: "rgba(46,125,255,0.35)",
+    borderColor: "rgba(46,125,255,0.42)",
+    paddingHorizontal: 10,
+    paddingVertical: 12,
     ...Platform.select({
       ios: { shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 14, shadowOffset: { width: 0, height: 8 } },
       android: { elevation: 3 },
     }),
   },
-  actionPillGhost: {
-    width: "100%",
-    height: 56,
+  actionBoxGhost: {
+    flex: 1,
+    minHeight: 74,
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 2,
     borderColor: "rgba(255, 210, 92, 0.22)",
     backgroundColor: "rgba(255,255,255,0.06)",
+    paddingHorizontal: 10,
+    paddingVertical: 12,
   },
 
-  actionPillText: { color: "#fff", fontWeight: "900", fontSize: 14 },
+  actionBoxTopText: {
+    color: "rgba(255,255,255,0.78)",
+    fontWeight: "900",
+    fontSize: 11,
+    letterSpacing: 0.9,
+    textTransform: "uppercase",
+  },
+  actionBoxBottomText: {
+    marginTop: 4,
+    color: "#fff",
+    fontWeight: "900",
+    fontSize: 16,
+    textAlign: "center",
+  },
 
   divider: { marginTop: 12, height: 1, backgroundColor: "rgba(255,255,255,0.08)" },
 
@@ -1641,6 +1885,41 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     marginBottom: 10,
   },
+  guestHelperText: {
+    marginTop: 2,
+    color: "rgba(255,255,255,0.58)",
+    fontWeight: "800",
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  matchCard: {
+    marginTop: 10,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(46,125,255,0.30)",
+    backgroundColor: "rgba(46,125,255,0.10)",
+    padding: 14,
+  },
+  matchKicker: {
+    color: "rgba(255,255,255,0.62)",
+    fontWeight: "900",
+    fontSize: 11,
+    letterSpacing: 1,
+    textTransform: "uppercase",
+  },
+  matchName: {
+    marginTop: 8,
+    color: "#fff",
+    fontWeight: "900",
+    fontSize: 17,
+  },
+  matchMeta: {
+    marginTop: 6,
+    color: "rgba(255,255,255,0.72)",
+    fontWeight: "800",
+    fontSize: 12,
+    lineHeight: 17,
+  },
 
   pickRow: {
     borderRadius: 16,
@@ -1675,7 +1954,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.14)",
   },
   pickBtnDisabled: { opacity: 0.55 },
-  pickBtnText: { color: "#fff", fontWeight: "900" },
+  pickBtnText: { color: "#fff", fontWeight: "900", fontSize: 12 },
 
   modalClose: {
     marginTop: 6,
