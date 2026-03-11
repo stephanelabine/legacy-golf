@@ -83,10 +83,6 @@ function readStroke(roundRoot, holeNumber, playerId) {
 }
 
 function inferHoleRangeFromScores(r) {
-  // If holesCount/holesSide are missing in older/local rounds, infer:
-  // - if we only have scores in 1..9 -> front 9
-  // - if we only have scores in 10..18 -> back 9
-  // - otherwise -> 18
   const holesObj = r?.holes && typeof r.holes === "object" ? r.holes : null;
   if (!holesObj) return { startHole: 1, endHole: 18, holesCount: 18, holesSide: null };
 
@@ -131,7 +127,6 @@ function deriveHoleRangeAny(r) {
     return { startHole: 1, endHole: 18, holesCount: 18, holesSide: null };
   }
 
-  // Fallback inference for older/local rounds that don’t store holesCount
   return inferHoleRangeFromScores(r || {});
 }
 
@@ -155,11 +150,23 @@ function sumGrossAnyShape(roundRoot, playerId) {
   return total > 0 ? total : 0;
 }
 
-function formatDateAny(round) {
+function getRoundDateAny(round) {
   const raw = round?.playedAt || round?.date || round?.createdAt || round?.startedAt || round?.timestamp;
   const d = raw ? new Date(raw) : null;
-  if (!d || Number.isNaN(d.getTime())) return "—";
+  if (!d || Number.isNaN(d.getTime())) return null;
+  return d;
+}
+
+function formatDateAny(round) {
+  const d = getRoundDateAny(round);
+  if (!d) return "—";
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+function getRoundYearAny(round) {
+  const d = getRoundDateAny(round);
+  if (!d) return null;
+  return d.getFullYear();
 }
 
 function isRoundCompletedAnyShape(r) {
@@ -172,7 +179,6 @@ function pickHoleNumberAny(r, fallback = null) {
   const holeRaw = pickFirstNumber(r?.holeNumber, r?.currentHole, r?.hole, r?.lastHole, r?.resumeHole, r?.holeIndex);
   let holeNumber = holeRaw;
 
-  // if this looks like an index (0..17), convert to 1..18
   if (holeNumber !== null && holeNumber >= 0 && holeNumber <= 17) {
     const isIndex = r?.holeIndex !== undefined || holeNumber === 0;
     if (isIndex) holeNumber = holeNumber + 1;
@@ -257,7 +263,6 @@ function hasAnyFeeForSelectedFormats(roundDoc) {
   const selected = Array.isArray(roundDoc?.formatsSelected) ? roundDoc.formatsSelected : [];
   if (!selected.length) return false;
 
-  // NEW canonical: formatPools (regular games)
   const pools = roundDoc?.formatPools && typeof roundDoc.formatPools === "object" ? roundDoc.formatPools : null;
   if (pools) {
     for (const raw of selected) {
@@ -270,7 +275,6 @@ function hasAnyFeeForSelectedFormats(roundDoc) {
     }
   }
 
-  // Legacy shapes
   const feeByKey = getFeeByKeyFromRoundDoc(roundDoc);
   for (const raw of selected) {
     const key = typeof raw === "string" ? String(raw).trim() : String(raw?.key || raw?.id || "").trim();
@@ -371,12 +375,10 @@ function buildHydrationPatchFromLocal(localRound, rid) {
     currentHole,
     startHole: localRound?.startHole ? Number(localRound.startHole) : holesCount === 9 ? (holesSide === "back" ? 10 : 1) : 1,
 
-    // keep formats if they exist locally
     formatsSelected: Array.isArray(localRound?.formatsSelected) ? localRound.formatsSelected : undefined,
     configByKey: localRound?.configByKey && typeof localRound.configByKey === "object" ? localRound.configByKey : undefined,
     feeByKey: localRound?.feeByKey && typeof localRound.feeByKey === "object" ? localRound.feeByKey : undefined,
 
-    // status normalization: setup / active / in_progress
     status: String(localRound?.status || "setup").toLowerCase().includes("active")
       ? "active"
       : String(localRound?.status || "").toLowerCase().includes("progress")
@@ -435,6 +437,47 @@ export default function HistoryScreen({ navigation }) {
     });
   }, [rounds, activeFsRound?.roundId]);
 
+  const currentYear = new Date().getFullYear();
+
+  const pendingItems = useMemo(() => {
+    return items.filter((r) => !isRoundCompletedAnyShape(r));
+  }, [items]);
+
+  const completedItems = useMemo(() => {
+    return [...items]
+      .filter((r) => isRoundCompletedAnyShape(r))
+      .sort((a, b) => {
+        const aTime = getRoundDateAny(a)?.getTime?.() ?? 0;
+        const bTime = getRoundDateAny(b)?.getTime?.() ?? 0;
+        return bTime - aTime;
+      });
+  }, [items]);
+
+  const currentYearCompletedCount = useMemo(() => {
+    return completedItems.filter((r) => getRoundYearAny(r) === currentYear).length;
+  }, [completedItems, currentYear]);
+
+  const completedSections = useMemo(() => {
+    const buckets = new Map();
+
+    completedItems.forEach((round) => {
+      const year = getRoundYearAny(round) || "Older";
+      if (!buckets.has(year)) buckets.set(year, []);
+      buckets.get(year).push(round);
+    });
+
+    return Array.from(buckets.entries())
+      .sort((a, b) => {
+        const aYear = typeof a[0] === "number" ? a[0] : -1;
+        const bYear = typeof b[0] === "number" ? b[0] : -1;
+        return bYear - aYear;
+      })
+      .map(([year, roundsForYear]) => ({
+        year,
+        rounds: roundsForYear,
+      }));
+  }, [completedItems]);
+
   const hasAny = hasActive || items.length > 0;
 
   const bottomPad = Math.max(14, (insets?.bottom || 0) + 12);
@@ -447,18 +490,15 @@ export default function HistoryScreen({ navigation }) {
       return;
     }
 
-    // point “active” at this roundId first
     try {
       await updateActiveRound({}, rid);
     } catch { }
 
-    // load Firestore doc
     let fsRound = null;
     try {
       fsRound = await loadActiveRound(rid);
     } catch { }
 
-    // if Firestore is missing core setup, hydrate from local round (AsyncStorage)
     const hasCourse = !!fsRound?.course;
     const hasTee = !!fsRound?.tee;
     const hasPlayers = Array.isArray(fsRound?.players) && fsRound.players.length > 0;
@@ -476,7 +516,6 @@ export default function HistoryScreen({ navigation }) {
       return;
     }
 
-    // IMPORTANT: completion wins over status (status may be wrong)
     if (isRoundCompletedAnyShape(fsRound)) {
       navigation.navigate({ name: ROUTES.FINAL_RESULTS, params: { roundId: rid } });
       return;
@@ -484,7 +523,6 @@ export default function HistoryScreen({ navigation }) {
 
     const status = String(fsRound?.status || "").toLowerCase();
 
-    // if active / in-progress, go straight to Hole Hub
     if (status === "active" || status.includes("in_progress") || status.includes("progress")) {
       const params = buildHoleHubParamsFromRoundDoc(fsRound, rid);
       if (params) {
@@ -496,7 +534,6 @@ export default function HistoryScreen({ navigation }) {
       return;
     }
 
-    // setup routing (HISTORY -> rebuild stack so Back behaves like normal setup flow)
     const hasGame = !!(fsRound?.gameId || fsRound?.gameTitle);
     const hasCourse2 = !!fsRound?.course;
     const hasTee2 = !!fsRound?.tee;
@@ -547,7 +584,7 @@ export default function HistoryScreen({ navigation }) {
     }
 
     if (hasFees) {
-      routes.push({ name: ROUTES.GAME_FORMAT_POOLS, params: { roundId: rid, gameId: fsRound?.gameId || localRound?.gameId || null } });
+      routes.push({ name: ROUTES.GAME_FORMAT_POOLS, params: { roundId: rid, gameId: fsRound?.gameId || null } });
 
       if (poolsReady) {
         routes.push({ name: ROUTES.GAME_ROUND_BRIEFING, params: { roundId: rid } });
@@ -667,7 +704,6 @@ export default function HistoryScreen({ navigation }) {
     );
   }
 
-  // active row display values (from Firestore active doc)
   const activeCourseName = pickFirstString(activeFsRound?.courseName, activeFsRound?.course?.name, "Current Round");
   const activeDateText = formatDateAny(activeFsRound || {});
   const activeHoleNum = pickHoleNumberForDisplay(activeFsRound || {}, null);
@@ -746,6 +782,19 @@ export default function HistoryScreen({ navigation }) {
           </View>
         ) : (
           <View style={{ gap: 12 }}>
+            <View style={styles.summaryCard}>
+              <View style={styles.summaryLeft}>
+                <Text style={styles.summaryEyebrow}>Round History</Text>
+                <Text style={styles.summaryTitle}>{`Total Number of Rounds - ${currentYear}`}</Text>
+                <Text style={styles.summarySub}>Completed rounds only</Text>
+              </View>
+
+              <View style={styles.summaryCountShell}>
+                <Text style={styles.summaryCountLabel}>Total</Text>
+                <Text style={styles.summaryCountValue}>{currentYearCompletedCount}</Text>
+              </View>
+            </View>
+
             {hasActive ? (
               <PremiumSwipeRow
                 openSwipeRef={openSwipeRef}
@@ -755,11 +804,11 @@ export default function HistoryScreen({ navigation }) {
                 borderWidth={2}
                 borderColor={(() => {
                   const completed = isRoundCompletedAnyShape(activeFsRound);
-                  if (completed) return "rgba(255, 210, 92, 0.92)"; // GOLD
+                  if (completed) return "rgba(255, 210, 92, 0.92)";
                   const s = String(activeFsRound?.status || "").trim().toLowerCase();
-                  if (String(activeFsRound?.entrySource || "").toLowerCase() === "quick_post") return "rgba(255, 168, 76, 0.92)"; // ORANGE
-                  if (s === "setup") return "rgba(46,204,113,0.92)"; // GREEN
-                  return "rgba(46,125,255,0.92)"; // BLUE
+                  if (String(activeFsRound?.entrySource || "").toLowerCase() === "quick_post") return "rgba(255, 168, 76, 0.92)";
+                  if (s === "setup") return "rgba(46,204,113,0.92)";
+                  return "rgba(46,125,255,0.92)";
                 })()}
                 backgroundColor="transparent"
                 editLabel="Enter"
@@ -786,66 +835,128 @@ export default function HistoryScreen({ navigation }) {
               </PremiumSwipeRow>
             ) : null}
 
-            {items.map((r) => {
-              const rid = String(r?.id || r?.roundId || "");
-              const courseName = String(r?.courseName || r?.course?.name || "Course").trim();
-              const dateText = formatDateAny(r);
+            {pendingItems.length > 0 ? (
+              <View style={{ gap: 12 }}>
+                <View style={styles.yearDivider}>
+                  <View style={styles.yearDividerLine} />
+                  <Text style={styles.yearDividerText}>Rounds In Progress</Text>
+                  <View style={styles.yearDividerLine} />
+                </View>
 
-              const completed = isRoundCompletedAnyShape(r);
-              const status = String(r?.status || "").trim().toLowerCase();
-              const statusText = completed ? "Complete" : status === "setup" ? "In Setup" : "In Progress";
+                {pendingItems.map((r) => {
+                  const rid = String(r?.id || r?.roundId || "");
+                  const courseName = String(r?.courseName || r?.course?.name || "Course").trim();
+                  const dateText = formatDateAny(r);
 
-              const holeNum = pickHoleNumberForDisplay(r, null);
+                  const completed = isRoundCompletedAnyShape(r);
+                  const status = String(r?.status || "").trim().toLowerCase();
+                  const statusText = completed ? "Complete" : status === "setup" ? "In Setup" : "In Progress";
 
-              const userPlayer = pickUserPlayer(r);
-              const userId = userPlayer?.id ? String(userPlayer.id) : "p1";
+                  const holeNum = pickHoleNumberForDisplay(r, null);
 
-              const grossFromHoles = sumGrossAnyShape(r, userId);
-              const grossFromTotal = Number(r?.grossTotal);
-              const gross = grossFromHoles || (Number.isFinite(grossFromTotal) && grossFromTotal > 0 ? grossFromTotal : 0);
+                  const isQuickPost = String(r?.entrySource || "").toLowerCase() === "quick_post";
 
-              const isQuickPost = String(r?.entrySource || "").toLowerCase() === "quick_post";
+                  const rightPrimary = holeNum ? `Hole ${holeNum}` : "Resume";
+                  const rightSecondary = holesLabelAny(r || {});
+                  const editLabel = "Enter";
 
-              const rightPrimary = completed ? (gross ? String(gross) : "—") : holeNum ? `Hole ${holeNum}` : "Resume";
-              const rightSecondary = holesLabelAny(r || {});
+                  return (
+                    <PremiumSwipeRow
+                      key={rid}
+                      openSwipeRef={openSwipeRef}
+                      closeAnyOpenSwipe={closeAnyOpenSwipe}
+                      radius={22}
+                      actionWidth={120}
+                      borderWidth={2}
+                      borderColor={
+                        status === "setup"
+                          ? "rgba(46,204,113,0.92)"
+                          : "rgba(46,125,255,0.92)"
+                      }
+                      backgroundColor="transparent"
+                      editLabel={editLabel}
+                      onEdit={() => openRound(r)}
+                      deleteLabel="Delete"
+                      onDelete={() => confirmDeleteOne({ id: rid, isActivePinned: false })}
+                    >
+                      {renderRowContent({
+                        courseName,
+                        dateText,
+                        statusText: completed && isQuickPost ? "Quick Post" : statusText,
+                        statusKind: completed && isQuickPost ? "quick_post" : completed ? "complete" : status === "setup" ? "setup" : "in_progress",
+                        rightPrimary,
+                        rightSecondary,
+                        onPress: () => openRound(r),
+                      })}
+                    </PremiumSwipeRow>
+                  );
+                })}
+              </View>
+            ) : null}
 
-              const editLabel = completed ? "View" : "Enter";
+            {completedSections.map((section) => (
+              <View key={String(section.year)} style={{ gap: 12 }}>
+                <View style={styles.yearDivider}>
+                  <View style={styles.yearDividerLine} />
+                  <Text style={styles.yearDividerText}>{`${section.year} Rounds`}</Text>
+                  <View style={styles.yearDividerLine} />
+                </View>
 
-              return (
-                <PremiumSwipeRow
-                  key={rid}
-                  openSwipeRef={openSwipeRef}
-                  closeAnyOpenSwipe={closeAnyOpenSwipe}
-                  radius={22}
-                  actionWidth={120}
-                  borderWidth={2}
-                  borderColor={
-                    completed && isQuickPost
-                      ? "rgba(255, 168, 76, 0.92)" // ORANGE
-                      : completed
-                        ? "rgba(255, 210, 92, 0.92)" // GOLD
-                        : status === "setup"
-                          ? "rgba(46,204,113,0.92)" // GREEN
-                          : "rgba(46,125,255,0.92)" // BLUE
-                  }
-                  backgroundColor="transparent"
-                  editLabel={editLabel}
-                  onEdit={() => openRound(r)}
-                  deleteLabel="Delete"
-                  onDelete={() => confirmDeleteOne({ id: rid, isActivePinned: false })}
-                >
-                  {renderRowContent({
-                    courseName,
-                    dateText,
-                    statusText: completed && isQuickPost ? "Quick Post" : statusText,
-                    statusKind: completed && isQuickPost ? "quick_post" : completed ? "complete" : status === "setup" ? "setup" : "in_progress",
-                    rightPrimary,
-                    rightSecondary,
-                    onPress: () => openRound(r),
-                  })}
-                </PremiumSwipeRow>
-              );
-            })}
+                {section.rounds.map((r) => {
+                  const rid = String(r?.id || r?.roundId || "");
+                  const courseName = String(r?.courseName || r?.course?.name || "Course").trim();
+                  const dateText = formatDateAny(r);
+
+                  const completed = isRoundCompletedAnyShape(r);
+                  const status = String(r?.status || "").trim().toLowerCase();
+                  const statusText = completed ? "Complete" : status === "setup" ? "In Setup" : "In Progress";
+
+                  const userPlayer = pickUserPlayer(r);
+                  const userId = userPlayer?.id ? String(userPlayer.id) : "p1";
+
+                  const grossFromHoles = sumGrossAnyShape(r, userId);
+                  const grossFromTotal = Number(r?.grossTotal);
+                  const gross = grossFromHoles || (Number.isFinite(grossFromTotal) && grossFromTotal > 0 ? grossFromTotal : 0);
+
+                  const isQuickPost = String(r?.entrySource || "").toLowerCase() === "quick_post";
+
+                  const rightPrimary = gross ? String(gross) : "—";
+                  const rightSecondary = holesLabelAny(r || {});
+                  const editLabel = "View";
+
+                  return (
+                    <PremiumSwipeRow
+                      key={rid}
+                      openSwipeRef={openSwipeRef}
+                      closeAnyOpenSwipe={closeAnyOpenSwipe}
+                      radius={22}
+                      actionWidth={120}
+                      borderWidth={2}
+                      borderColor={
+                        completed && isQuickPost
+                          ? "rgba(255, 168, 76, 0.92)"
+                          : "rgba(255, 210, 92, 0.92)"
+                      }
+                      backgroundColor="transparent"
+                      editLabel={editLabel}
+                      onEdit={() => openRound(r)}
+                      deleteLabel="Delete"
+                      onDelete={() => confirmDeleteOne({ id: rid, isActivePinned: false })}
+                    >
+                      {renderRowContent({
+                        courseName,
+                        dateText,
+                        statusText: completed && isQuickPost ? "Quick Post" : statusText,
+                        statusKind: completed && isQuickPost ? "quick_post" : "complete",
+                        rightPrimary,
+                        rightSecondary,
+                        onPress: () => openRound(r),
+                      })}
+                    </PremiumSwipeRow>
+                  );
+                })}
+              </View>
+            ))}
           </View>
         )}
       </ScrollView>
@@ -908,6 +1019,87 @@ const styles = StyleSheet.create({
   headerCenter: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 10 },
   headerTitle: { color: WHITE, fontSize: 20, fontWeight: "900", letterSpacing: 0.6 },
   headerSub: { marginTop: 4, color: "rgba(255,255,255,0.60)", fontSize: 12, fontWeight: "800" },
+
+  summaryCard: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    justifyContent: "space-between",
+    gap: 12,
+    borderRadius: 24,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(255,255,255,0.055)",
+  },
+  summaryLeft: {
+    flex: 1,
+    justifyContent: "center",
+    minWidth: 0,
+  },
+  summaryEyebrow: {
+    color: "rgba(255,255,255,0.56)",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1.1,
+    textTransform: "uppercase",
+  },
+  summaryTitle: {
+    marginTop: 6,
+    color: WHITE,
+    fontSize: 17,
+    fontWeight: "900",
+    lineHeight: 22,
+  },
+  summarySub: {
+    marginTop: 6,
+    color: "rgba(255,255,255,0.66)",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  summaryCountShell: {
+    minWidth: 96,
+    borderRadius: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    backgroundColor: INNER,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  summaryCountLabel: {
+    color: "rgba(255,255,255,0.60)",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.7,
+    textTransform: "uppercase",
+  },
+  summaryCountValue: {
+    marginTop: 4,
+    color: WHITE,
+    fontSize: 28,
+    fontWeight: "900",
+    lineHeight: 32,
+  },
+
+  yearDivider: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 4,
+    paddingHorizontal: 2,
+  },
+  yearDividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.10)",
+  },
+  yearDividerText: {
+    color: "rgba(255,255,255,0.68)",
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 0.7,
+  },
 
   emptyCard: {
     borderRadius: 24,
