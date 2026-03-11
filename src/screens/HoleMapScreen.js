@@ -415,7 +415,7 @@ function buildHtml(initialCenter) {
 
     function frameHole(teeP, greenAim, points, bearing){
       const valid = (points || []).filter(p => p && isFinite(p.lon) && isFinite(p.lat));
-      const offset = [0, 60];
+      const offset = [0, 55];
 
       if(teeP && greenAim && isFinite(teeP.lon) && isFinite(teeP.lat) && isFinite(greenAim.lon) && isFinite(greenAim.lat)){
         const midLon = (teeP.lon + greenAim.lon) / 2;
@@ -425,12 +425,12 @@ function buildHtml(initialCenter) {
         const dy = (greenAim.lat - teeP.lat) * 110540;
         const distM = Math.sqrt(dx*dx + dy*dy);
 
-        let z = 17.05;
-        if(distM > 420) z = 16.45;
-        else if(distM > 320) z = 16.65;
-        else if(distM > 220) z = 16.85;
+        let z = 16.45;
+        if(distM > 420) z = 15.85;
+        else if(distM > 320) z = 16.05;
+        else if(distM > 220) z = 16.25;
 
-        z = Math.max(16.2, Math.min(17.4, z));
+        z = Math.max(15.6, Math.min(16.8, z));
 
         const opts = { center:[midLon, midLat], zoom:z, duration:520, offset };
         if(isFinite(bearing)) opts.bearing = bearing;

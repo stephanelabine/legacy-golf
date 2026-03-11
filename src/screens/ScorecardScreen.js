@@ -117,7 +117,81 @@ function Pill({ text, active, onPress }) {
   );
 }
 
-function ScoreGrid({ title, holes, showOutInLabel, totalsLabel, players, getStroke }) {
+function ScoreMark({ value, par }) {
+  if (value == null) {
+    return <Text style={styles.cellText}>—</Text>;
+  }
+
+  const score = Number(value);
+  const holePar = Number(par);
+
+  if (!Number.isFinite(score) || score <= 0) {
+    return <Text style={styles.cellText}>—</Text>;
+  }
+
+  if (!Number.isFinite(holePar) || holePar <= 0) {
+    return <Text style={styles.cellText}>{String(score)}</Text>;
+  }
+
+  const diff = score - holePar;
+  const isHoleInOne = score === 1;
+
+  if (isHoleInOne) {
+    return (
+      <View style={[styles.markWrap, styles.markCircle, styles.markHoleInOne]}>
+        <Text style={[styles.cellText, styles.markText]}>{String(score)}</Text>
+      </View>
+    );
+  }
+
+  if (diff <= -2) {
+    return (
+      <View style={[styles.markWrap, styles.markDoubleCircleOuter]}>
+        <View style={[styles.markWrap, styles.markDoubleCircleInner]}>
+          <Text style={[styles.cellText, styles.markText]}>{String(score)}</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (diff === -1) {
+    return (
+      <View style={[styles.markWrap, styles.markCircle]}>
+        <Text style={[styles.cellText, styles.markText]}>{String(score)}</Text>
+      </View>
+    );
+  }
+
+  if (diff === 0) {
+    return <Text style={styles.cellText}>{String(score)}</Text>;
+  }
+
+  if (diff === 1) {
+    return (
+      <View style={[styles.markWrap, styles.markSquare]}>
+        <Text style={[styles.cellText, styles.markText]}>{String(score)}</Text>
+      </View>
+    );
+  }
+
+  if (diff === 2) {
+    return (
+      <View style={[styles.markWrap, styles.markDoubleSquareOuter]}>
+        <View style={[styles.markWrap, styles.markDoubleSquareInner]}>
+          <Text style={[styles.cellText, styles.markText]}>{String(score)}</Text>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={[styles.markWrap, styles.markSquare, styles.markWorseThanDouble]}>
+      <Text style={[styles.cellText, styles.markText]}>{String(score)}</Text>
+    </View>
+  );
+}
+
+function ScoreGrid({ title, holes, showOutInLabel, totalsLabel, players, getStroke, getPar }) {
   return (
     <View style={styles.sectionCard}>
       <View style={styles.sectionHeader}>
@@ -128,6 +202,10 @@ function ScoreGrid({ title, holes, showOutInLabel, totalsLabel, players, getStro
         <View style={styles.leftCol}>
           <View style={[styles.nameCell, styles.headerCell]}>
             <Text style={styles.headerText}>Player</Text>
+          </View>
+
+          <View style={[styles.nameCell, styles.parNameCell]}>
+            <Text style={styles.parNameText}>Par</Text>
           </View>
 
           {players.map((p) => (
@@ -159,6 +237,33 @@ function ScoreGrid({ title, holes, showOutInLabel, totalsLabel, players, getStro
               ) : null}
             </View>
 
+            <View style={styles.row}>
+              {holes.map((h) => {
+                const par = getPar(h);
+                return (
+                  <View key={`par-${h}`} style={[styles.cell, styles.parCell]}>
+                    <Text style={styles.parCellText}>{par == null ? "—" : String(par)}</Text>
+                  </View>
+                );
+              })}
+
+              <View style={[styles.cell, styles.totalCell, styles.parTotalCell]}>
+                <Text style={styles.parCellText}>
+                  {sumHoles((_, hole) => getPar(hole), "par", holes) == null ? "—" : String(sumHoles((_, hole) => getPar(hole), "par", holes))}
+                </Text>
+              </View>
+
+              {totalsLabel ? (
+                <View style={[styles.cell, styles.totalCell, styles.parTotalCell]}>
+                  <Text style={styles.parCellText}>
+                    {sumHoles((_, hole) => getPar(hole), "par", Array.from({ length: 18 }, (_, i) => i + 1)) == null
+                      ? "—"
+                      : String(sumHoles((_, hole) => getPar(hole), "par", Array.from({ length: 18 }, (_, i) => i + 1)))}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+
             {players.map((p) => {
               const pid = String(p._pid);
               const segmentTotal = sumHoles(getStroke, pid, holes);
@@ -168,9 +273,10 @@ function ScoreGrid({ title, holes, showOutInLabel, totalsLabel, players, getStro
                 <View key={`rw-${pid}`} style={styles.row}>
                   {holes.map((h) => {
                     const v = getStroke(pid, h);
+                    const par = getPar(h);
                     return (
                       <View key={`c-${pid}-${h}`} style={styles.cell}>
-                        <Text style={styles.cellText}>{v == null ? "—" : String(v)}</Text>
+                        <ScoreMark value={v} par={par} />
                       </View>
                     );
                   })}
@@ -521,6 +627,53 @@ export default function ScorecardScreen({ navigation, route }) {
   const front9 = useMemo(() => Array.from({ length: 9 }, (_, i) => i + 1), []);
   const back9 = useMemo(() => Array.from({ length: 9 }, (_, i) => i + 10), []);
 
+  const holeMeta = useMemo(() => {
+    if (isTournament) {
+      if (params?.holeMeta && typeof params.holeMeta === "object") return params.holeMeta;
+      if (params?.course?.holeMeta && typeof params.course.holeMeta === "object") return params.course.holeMeta;
+      return [];
+    }
+
+    if (params?.holeMeta && typeof params.holeMeta === "object") return params.holeMeta;
+    if (localRound?.meta?.holeMeta && typeof localRound.meta.holeMeta === "object") return localRound.meta.holeMeta;
+    if (localRound?.holeMeta && typeof localRound.holeMeta === "object") return localRound.holeMeta;
+    if (params?.course?.holeMeta && typeof params.course.holeMeta === "object") return params.course.holeMeta;
+
+    return [];
+  }, [isTournament, params?.holeMeta, params?.course, localRound]);
+
+  const getPar = useMemo(() => {
+    return (hole) => {
+      const holeNum = Number(hole);
+      const idx = holeNum - 1;
+      if (idx < 0) return null;
+
+      let meta = null;
+
+      if (Array.isArray(holeMeta)) {
+        meta = holeMeta[idx] ?? null;
+      } else if (holeMeta && typeof holeMeta === "object") {
+        meta =
+          holeMeta?.[String(holeNum)] ??
+          holeMeta?.[holeNum] ??
+          holeMeta?.holes?.[String(holeNum)] ??
+          holeMeta?.holes?.[holeNum] ??
+          null;
+      }
+
+      const par =
+        meta?.par ??
+        meta?.Par ??
+        meta?.PAR ??
+        meta?.parValue ??
+        meta?.par_number ??
+        meta?.pars;
+
+      const n = Number(par);
+      return Number.isFinite(n) && n > 0 ? n : null;
+    };
+  }, [holeMeta]);
+
   const headerSub = useMemo(() => {
     if (isTournament) return `ROUND ${roundNumber}`;
     const a = courseName ? courseName : "";
@@ -530,7 +683,6 @@ export default function ScorecardScreen({ navigation, route }) {
   }, [isTournament, roundNumber, courseName, teeName]);
 
   const showLoading = isTournament ? loading : localLoading;
-
   return (
     <SafeAreaView style={styles.safe}>
       <ScreenHeader navigation={navigation} title="SCORECARD" subtitle={headerSub} safeTop={false} rightLabel={null} onRightPress={null} />
@@ -563,8 +715,8 @@ export default function ScorecardScreen({ navigation, route }) {
           </View>
         ) : displayedPlayers.length ? (
           <>
-            <ScoreGrid title="Front 9" holes={front9} showOutInLabel="OUT" totalsLabel={null} players={displayedPlayers} getStroke={getStroke} />
-            <ScoreGrid title="Back 9" holes={back9} showOutInLabel="IN" totalsLabel="TOT" players={displayedPlayers} getStroke={getStroke} />
+            <ScoreGrid title="Front 9" holes={front9} showOutInLabel="OUT" totalsLabel={null} players={displayedPlayers} getStroke={getStroke} getPar={getPar} />
+            <ScoreGrid title="Back 9" holes={back9} showOutInLabel="IN" totalsLabel="TOT" players={displayedPlayers} getStroke={getStroke} getPar={getPar} />
           </>
         ) : (
           <View style={styles.loadingCard}>
@@ -629,7 +781,75 @@ const styles = StyleSheet.create({
   headerCell: { backgroundColor: "rgba(0,0,0,0.14)" },
   headerText: { color: "rgba(255,255,255,0.80)", fontWeight: "900", fontSize: 11, letterSpacing: 0.4 },
 
+  parNameCell: {
+    backgroundColor: "rgba(242,201,76,0.10)",
+  },
+  parNameText: {
+    color: "rgba(255,255,255,0.92)",
+    fontWeight: "900",
+    fontSize: 12,
+    letterSpacing: 0.2,
+  },
+  parCell: {
+    backgroundColor: "rgba(242,201,76,0.08)",
+  },
+  parCellText: {
+    color: "rgba(255,255,255,0.90)",
+    fontWeight: "900",
+    fontSize: 12,
+  },
+  parTotalCell: {
+    backgroundColor: "rgba(242,201,76,0.14)",
+  },
+
   cellText: { color: WHITE, fontWeight: "900", fontSize: 12 },
+  markWrap: {
+    minWidth: 26,
+    minHeight: 26,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  markText: {
+    textAlign: "center",
+  },
+  markCircle: {
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.92)",
+    borderRadius: 999,
+  },
+  markHoleInOne: {
+    borderColor: "#F2C94C",
+  },
+  markDoubleCircleOuter: {
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.92)",
+    borderRadius: 999,
+    padding: 2,
+  },
+  markDoubleCircleInner: {
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.92)",
+    borderRadius: 999,
+  },
+  markSquare: {
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.92)",
+    borderRadius: 2,
+  },
+  markDoubleSquareOuter: {
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.92)",
+    borderRadius: 2,
+    padding: 2,
+  },
+  markDoubleSquareInner: {
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.92)",
+    borderRadius: 2,
+  },
+  markWorseThanDouble: {
+    borderColor: "#FF4D4F",
+  },
   totalCell: { width: 54, backgroundColor: "rgba(242,201,76,0.10)", borderRightColor: "rgba(242,201,76,0.20)" },
   totalText: { color: WHITE },
 
