@@ -102,6 +102,7 @@ function buildHtml(initialCenter) {
     html,body,#map{margin:0;padding:0;height:100%;background:#000}
 
     .dot{width:12px;height:12px;border-radius:999px;background:#2E86FF;border:2px solid #fff;box-shadow:0 8px 20px rgba(0,0,0,.35)}
+    .teeDot{width:12px;height:12px;border-radius:999px;background:#F2C94C;border:2px solid #fff;box-shadow:0 8px 20px rgba(0,0,0,.35)}
 
     /* Planner target */
     .tgtWrap{width:30px;height:30px;display:flex;align-items:center;justify-content:center}
@@ -151,6 +152,10 @@ function buildHtml(initialCenter) {
     let userPt = null;       // {lon,lat}
     let tgtMarker = null;
 
+    // Drive measurement state
+    let teeOrigin = null;    // {lon,lat}
+    let teeMarker = null;
+
     const lbl1 = document.getElementById("lbl1");
     const lbl2 = document.getElementById("lbl2");
 
@@ -172,34 +177,63 @@ function buildHtml(initialCenter) {
     }
 
     function ensurePlannerLayers(){
-      if(map.getSource("lg_planner_line")) return;
+      if(!map.getSource("lg_planner_line")){
+        map.addSource("lg_planner_line", {
+          type: "geojson",
+          data: { type:"FeatureCollection", features: [] }
+        });
 
-      map.addSource("lg_planner_line", {
-        type: "geojson",
-        data: { type:"FeatureCollection", features: [] }
-      });
+        map.addLayer({
+          id: "lg_planner_line_layer",
+          type: "line",
+          source: "lg_planner_line",
+          paint: {
+            "line-color": "#FFFFFF",
+            "line-width": 3.0,
+            "line-opacity": 0.95
+          }
+        });
 
-      map.addLayer({
-        id: "lg_planner_line_layer",
-        type: "line",
-        source: "lg_planner_line",
-        paint: {
-          "line-color": "#FFFFFF",
-          "line-width": 3.0,
-          "line-opacity": 0.95
-        }
-      });
+        map.addLayer({
+          id: "lg_planner_line_layer_glow",
+          type: "line",
+          source: "lg_planner_line",
+          paint: {
+            "line-color": "#000000",
+            "line-width": 5.5,
+            "line-opacity": 0.35
+          }
+        }, "lg_planner_line_layer");
+      }
 
-      map.addLayer({
-        id: "lg_planner_line_layer_glow",
-        type: "line",
-        source: "lg_planner_line",
-        paint: {
-          "line-color": "#000000",
-          "line-width": 5.5,
-          "line-opacity": 0.35
-        }
-      }, "lg_planner_line_layer");
+      if(!map.getSource("lg_drive_line")){
+        map.addSource("lg_drive_line", {
+          type: "geojson",
+          data: { type:"FeatureCollection", features: [] }
+        });
+
+        map.addLayer({
+          id: "lg_drive_line_layer",
+          type: "line",
+          source: "lg_drive_line",
+          paint: {
+            "line-color": "#FFFFFF",
+            "line-width": 3.0,
+            "line-opacity": 0.95
+          }
+        });
+
+        map.addLayer({
+          id: "lg_drive_line_layer_glow",
+          type: "line",
+          source: "lg_drive_line",
+          paint: {
+            "line-color": "#000000",
+            "line-width": 5.5,
+            "line-opacity": 0.35
+          }
+        }, "lg_drive_line_layer");
+      }
     }
 
     function setPlannerLine(a,b,c){
@@ -227,6 +261,36 @@ function buildHtml(initialCenter) {
       });
     }
 
+    function setDriveLine(a,b){
+      if(!map.getSource("lg_drive_line")) return;
+
+      const feats = [];
+      if(a && b){
+        feats.push({
+          type:"Feature",
+          geometry:{ type:"LineString", coordinates:[[a.lon,a.lat],[b.lon,b.lat]] },
+          properties:{ seg:"drive" }
+        });
+      }
+
+      map.getSource("lg_drive_line").setData({
+        type:"FeatureCollection",
+        features: feats
+      });
+    }
+
+    function ensureTeeMarker(){
+      if(!teeOrigin) return;
+      if(teeMarker){
+        teeMarker.setLngLat([teeOrigin.lon, teeOrigin.lat]);
+        return;
+      }
+
+      teeMarker = new mapboxgl.Marker({ element: mk("teeDot") })
+        .setLngLat([teeOrigin.lon, teeOrigin.lat])
+        .addTo(map);
+    }
+
     function showLabels(show){
       lbl1.style.display = show ? "block" : "none";
       lbl2.style.display = show ? "block" : "none";
@@ -241,23 +305,32 @@ function buildHtml(initialCenter) {
     }
 
     function updatePlannerUI(){
-      const ok = plannerOn && userPt && tgt && greenMid;
-      showLabels(!!ok);
-      if(!ok){
+      const plannerOk = plannerOn && userPt && tgt && greenMid;
+      const driveOk = teeOrigin && userPt;
+
+      lbl1.style.display = plannerOk ? "block" : "none";
+      lbl2.style.display = driveOk ? "block" : "none";
+
+      if(!plannerOk){
         setPlannerLine(null,null,null);
-        return;
+      } else {
+        setPlannerLine(userPt, tgt, greenMid);
+
+        const d1 = haversineM(userPt, tgt);
+        lbl1.textContent = yds(d1) + " YDS";
+        posLabel(lbl1, userPt, tgt);
       }
 
-      setPlannerLine(userPt, tgt, greenMid);
+      if(!driveOk){
+        setDriveLine(null,null);
+      } else {
+        ensureTeeMarker();
+        setDriveLine(teeOrigin, userPt);
 
-      const d1 = haversineM(userPt, tgt);
-      const d2 = haversineM(tgt, greenMid);
-
-      lbl1.textContent = yds(d1) + " YDS";
-      lbl2.textContent = yds(d2) + " YDS";
-
-      posLabel(lbl1, userPt, tgt);
-      posLabel(lbl2, tgt, greenMid);
+        const d2 = haversineM(teeOrigin, userPt);
+        lbl2.textContent = yds(d2) + " YDS";
+        posLabel(lbl2, teeOrigin, userPt);
+      }
     }
 
     function ensureTargetMarker(){
@@ -478,6 +551,15 @@ function buildHtml(initialCenter) {
       // Green MID endpoint for planner
       if(d.green && d.green.middle && isFinite(d.green.middle.lon) && isFinite(d.green.middle.lat)){
         greenMid = { lon:d.green.middle.lon, lat:d.green.middle.lat };
+      }
+
+      // Tee origin for drive measurement
+      if(d.teeOrigin && isFinite(d.teeOrigin.lon) && isFinite(d.teeOrigin.lat)){
+        teeOrigin = { lon:d.teeOrigin.lon, lat:d.teeOrigin.lat };
+        ensureTeeMarker();
+      } else {
+        teeOrigin = null;
+        if(teeMarker){ try{ teeMarker.remove(); }catch(_){ } teeMarker=null; }
       }
 
       // Initialize planner target from fairway dot (only when provided)
@@ -993,6 +1075,10 @@ export default function HoleMapScreen({ navigation, route }) {
           ? { lon: fairwayMid.lon, lat: fairwayMid.lat }
           : null,
       },
+      teeOrigin:
+        par && Number(par) > 3 && teePoint && Number.isFinite(teePoint?.lon) && Number.isFinite(teePoint?.lat)
+          ? { lon: teePoint.lon, lat: teePoint.lat }
+          : null,
       fit,
     };
 
