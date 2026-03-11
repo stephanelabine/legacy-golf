@@ -508,6 +508,8 @@ export default function GameSetupScreen({ navigation, route }) {
                 <Text style={holesSide === "front" ? styles.modalBtnTextPrimary : styles.modalBtnText}>Front 9</Text>
               </Pressable>
 
+
+
               <Pressable
                 onPress={chooseBackNine}
                 style={({ pressed }) => [
@@ -518,6 +520,8 @@ export default function GameSetupScreen({ navigation, route }) {
               >
                 <Text style={holesSide === "back" ? styles.modalBtnTextPrimary : styles.modalBtnText}>Back 9</Text>
               </Pressable>
+
+
             </View>
 
             <View style={styles.modalFooterCol}>
@@ -642,17 +646,17 @@ const styles = StyleSheet.create({
 
   goldHero: {
     borderRadius: 20,
-    borderWidth: 3,
-    borderColor: "rgba(255, 210, 92, 0.92)",
+    borderWidth: 2,
+    borderColor: "rgba(255, 210, 92, 0.82)",
     backgroundColor: "rgba(255,255,255,0.04)",
     overflow: "hidden",
-    marginBottom: 10,
+    marginBottom: 14,
   },
   goldHeroInner: {
-    margin: 7,
+    margin: 6,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(255, 210, 92, 0.22)",
+    borderColor: "rgba(255, 210, 92, 0.18)",
     backgroundColor: "rgba(0,0,0,0.12)",
     padding: 10,
     alignItems: "center",
@@ -798,11 +802,12 @@ const styles = StyleSheet.create({
   },
   modalCard: {
     width: "100%",
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "rgba(255, 210, 92, 0.28)",
-    backgroundColor: "rgba(10,14,22,0.96)",
+    borderRadius: 22,
+    borderWidth: 2,
+    borderColor: "rgba(255, 210, 92, 0.72)",
+    backgroundColor: "rgba(10,14,22,0.985)",
     padding: 16,
+    overflow: "hidden",
   },
   modalKicker: {
     color: "rgba(255,255,255,0.70)",
@@ -833,32 +838,38 @@ const styles = StyleSheet.create({
   },
   modalBtn: {
     flex: 1,
-    height: 54,
-    borderRadius: 16,
+    height: 92,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "rgba(46,204,113,0.55)",
-    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(46,125,255,0.32)",
+    backgroundColor: "rgba(46,125,255,0.10)",
+    paddingHorizontal: 10,
   },
+
   modalBtnPrimary: {
     borderColor: "rgba(255, 210, 92, 0.90)",
     backgroundColor: "rgba(255, 210, 92, 0.18)",
   },
+
   modalBtnText: {
     color: "rgba(255,255,255,0.92)",
     fontSize: 15,
     fontWeight: "900",
+    textAlign: "center",
   },
   modalBtnTextPrimary: {
-    color: "rgba(255, 210, 92, 0.95)",
+    color: "#FFFFFF",
     fontSize: 15,
     fontWeight: "900",
+    textAlign: "center",
   },
   modalFooterCol: {
     marginTop: 12,
     gap: 12,
   },
+
 
   modalCloseFull: {
     width: "100%",
@@ -878,8 +889,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "rgba(255, 210, 92, 0.70)",
-    backgroundColor: "rgba(255, 210, 92, 0.18)",
+    borderColor: "rgba(15,122,74,0.72)",
+    backgroundColor: "rgba(15,122,74,0.28)",
   },
 
   modalCloseText: {
@@ -890,7 +901,7 @@ const styles = StyleSheet.create({
   },
 
   modalContinueText: {
-    color: "rgba(255, 210, 92, 0.95)",
+    color: "rgba(255,255,255,0.95)",
     fontSize: 13,
     fontWeight: "900",
     letterSpacing: 0.3,
