@@ -35,6 +35,8 @@ const EQUIPMENT_CATEGORIES = [
   "Gloves",
 ];
 
+const WOODS_OPTIONS = ["3W", "5W", "7W", "9W"];
+const HYBRID_OPTIONS = ["2H", "3H", "4H", "5H"];
 const DRIVING_IRON_OPTIONS = ["1i", "2i", "3i", "4i"];
 const IRON_OPTIONS = ["2i", "3i", "4i", "5i", "6i", "7i", "8i", "9i"];
 const WEDGE_OPTIONS = ["PW", "AW", "GW", "SW", "LW", "46°", "48°", "50°", "52°", "54°", "56°", "58°", "60°"];
@@ -204,6 +206,8 @@ export default function EquipmentScreen({ navigation }) {
 
   function getCategoryOptions(category) {
     const c = String(category || "").trim();
+    if (c === "Woods") return WOODS_OPTIONS;
+    if (c === "Hybrids") return HYBRID_OPTIONS;
     if (c === "Driving Iron") return DRIVING_IRON_OPTIONS;
     if (c === "Irons") return IRON_OPTIONS;
     if (c === "Wedges") return WEDGE_OPTIONS;

@@ -20,8 +20,9 @@ import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect } from "@react-navigation/native";
 import { signOut } from "firebase/auth";
 import { doc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 
-import { auth, db } from "../firebase/firebase";
+import { auth, db, storage } from "../firebase/firebase";
 import ROUTES from "../navigation/routes";
 import { getRounds } from "../storage/rounds";
 
@@ -202,7 +203,42 @@ export default function ProfileScreen({ navigation }) {
     const uri = res?.assets?.[0]?.uri;
     if (!uri) return;
 
-    setProfile((p) => ({ ...p, photoUri: uri }));
+    try {
+      if (!uid) {
+        Alert.alert("Not signed in", "Please sign in to save your profile photo.");
+        return;
+      }
+
+      const response = await fetch(uri);
+      const blob = await response.blob();
+
+      const photoRef = ref(storage, `users/${uid}/profile/profile.jpg`);
+      await uploadBytes(photoRef, blob, { contentType: "image/jpeg" });
+      const downloadURL = await getDownloadURL(photoRef);
+
+      setProfile((p) => ({ ...p, photoUri: downloadURL }));
+
+      await setDoc(
+        doc(db, "users", uid),
+        {
+          photoUri: downloadURL,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } catch (e) {
+      console.log("PROFILE PHOTO SAVE ERROR", {
+        message: e?.message,
+        code: e?.code,
+        name: e?.name,
+        serverResponse: e?.serverResponse,
+        customData: e?.customData,
+      });
+      Alert.alert(
+        "Photo save failed",
+        `${String(e?.code || "unknown")} | ${String(e?.message || "Could not save profile photo.")}`
+      );
+    }
   }
 
   async function pickFromCamera() {
@@ -219,9 +255,43 @@ export default function ProfileScreen({ navigation }) {
     const uri = res?.assets?.[0]?.uri;
     if (!uri) return;
 
-    setProfile((p) => ({ ...p, photoUri: uri }));
-  }
+    try {
+      if (!uid) {
+        Alert.alert("Not signed in", "Please sign in to save your profile photo.");
+        return;
+      }
 
+      const response = await fetch(uri);
+      const blob = await response.blob();
+
+      const photoRef = ref(storage, `users/${uid}/profile/profile.jpg`);
+      await uploadBytes(photoRef, blob, { contentType: "image/jpeg" });
+      const downloadURL = await getDownloadURL(photoRef);
+
+      setProfile((p) => ({ ...p, photoUri: downloadURL }));
+
+      await setDoc(
+        doc(db, "users", uid),
+        {
+          photoUri: downloadURL,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } catch (e) {
+      console.log("PROFILE PHOTO SAVE ERROR", {
+        message: e?.message,
+        code: e?.code,
+        name: e?.name,
+        serverResponse: e?.serverResponse,
+        customData: e?.customData,
+      });
+      Alert.alert(
+        "Photo save failed",
+        `${String(e?.code || "unknown")} | ${String(e?.message || "Could not save profile photo.")}`
+      );
+    }
+  }
   function onPressAvatar() {
     if (!editing) return;
     Alert.alert("Profile Photo", "Choose a source", [

@@ -3,16 +3,15 @@ import React, { useCallback, useMemo, useState } from "react";
 import { SafeAreaView, View, Text, StyleSheet, ScrollView, Pressable, Keyboard } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { doc, getDoc } from "firebase/firestore";
 
-import { auth } from "../firebase/firebase";
+import { auth, db } from "../firebase/firebase";
 import { getRounds } from "../storage/rounds";
 
 const BG = "#0B1220";
 const CARD = "rgba(255,255,255,0.05)";
-const BORDER = "rgba(255,255,255,0.14)";
 const MUTED = "rgba(255,255,255,0.65)";
 const WHITE = "#FFFFFF";
-const INNER = "rgba(0,0,0,0.18)";
 
 const GOLD = "rgba(242,201,76,0.85)";
 const GREEN = "rgba(15,122,74,0.70)";
@@ -20,6 +19,242 @@ const GREEN = "rgba(15,122,74,0.70)";
 function toInt(v) {
     const n = parseInt(String(v ?? "").replace(/[^\d]/g, ""), 10);
     return Number.isFinite(n) ? n : 0;
+}
+
+function safeTrim(v) {
+    return String(v ?? "").trim();
+}
+
+function titleCaseWords(value) {
+    return safeTrim(value)
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ");
+}
+
+function normalizeBag(bag) {
+    const arr = Array.isArray(bag) ? bag : [];
+    return arr
+        .filter((x) => x && typeof x === "object")
+        .map((x) => ({
+            category: safeTrim(x.category),
+            model: safeTrim(x.model),
+            selectedOptions: Array.isArray(x.selectedOptions)
+                ? x.selectedOptions.map((v) => safeTrim(v)).filter(Boolean)
+                : [],
+        }))
+        .filter((x) => x.category.length > 0);
+}
+
+const CLUB_DISTANCE_ALLOWED_CATEGORIES = new Set([
+    "driver",
+    "woods",
+    "hybrids",
+    "driving iron",
+    "irons",
+    "wedges",
+    "2 wood",
+    "3 wood",
+    "4 wood",
+    "5 wood",
+    "7 wood",
+    "9 wood",
+    "hybrid",
+    "2 hybrid",
+    "3 hybrid",
+    "4 hybrid",
+    "5 hybrid",
+    "6 hybrid",
+    "7 hybrid",
+]);
+
+function clubDistanceLabelRank(label) {
+    const key = safeTrim(label).toLowerCase();
+    const order = {
+        driver: 1,
+        "2 wood": 2,
+        "3 wood": 3,
+        "4 wood": 4,
+        "5 wood": 5,
+        "7 wood": 6,
+        "9 wood": 7,
+        hybrid: 20,
+        "2 hybrid": 21,
+        "3 hybrid": 22,
+        "4 hybrid": 23,
+        "5 hybrid": 24,
+        "6 hybrid": 25,
+        "7 hybrid": 26,
+        "driving iron": 30,
+        "1i": 31,
+        "2i": 32,
+        "3i": 33,
+        "4i": 34,
+        "5i": 35,
+        "6i": 36,
+        "7i": 37,
+        "8i": 38,
+        "9i": 39,
+        pw: 50,
+        aw: 51,
+        gw: 52,
+        sw: 53,
+        lw: 54,
+        "46°": 60,
+        "48°": 61,
+        "50°": 62,
+        "52°": 63,
+        "54°": 64,
+        "56°": 65,
+        "58°": 66,
+        "60°": 67,
+    };
+    return order[key] ?? 999;
+}
+
+function formatWoodLabel(option) {
+    const raw = safeTrim(option);
+    const compact = raw.toLowerCase().replace(/\s+/g, "");
+    const m = compact.match(/^(\d+)w$/);
+    if (m) return `${m[1]} Wood`;
+    if (/^\d+\s*wood$/i.test(raw)) return titleCaseWords(raw);
+    return titleCaseWords(raw || "Wood");
+}
+
+function formatHybridLabel(option) {
+    const raw = safeTrim(option);
+    const compact = raw.toLowerCase().replace(/\s+/g, "");
+    const m = compact.match(/^(\d+)h$/);
+    if (m) return `${m[1]} Hybrid`;
+    if (/^\d+\s*hybrid$/i.test(raw)) return titleCaseWords(raw);
+    return "Hybrid";
+}
+
+function buildClubDistanceRows(bag) {
+    const rows = [];
+
+    for (const item of normalizeBag(bag)) {
+        const category = safeTrim(item.category);
+        const categoryKey = category.toLowerCase();
+        const model = safeTrim(item.model);
+        const selected = Array.isArray(item.selectedOptions)
+            ? [...item.selectedOptions].map((v) => safeTrim(v)).filter(Boolean)
+            : [];
+
+        if (!CLUB_DISTANCE_ALLOWED_CATEGORIES.has(categoryKey)) {
+            continue;
+        }
+
+        if (categoryKey === "driver") {
+            rows.push({
+                key: `driver-${category}`,
+                label: "Driver",
+                value: "—",
+                meta: model || "No distances yet",
+            });
+            continue;
+        }
+
+        if (/^\d+\s*wood$/i.test(category) || categoryKey === "2 wood" || categoryKey === "3 wood" || categoryKey === "4 wood" || categoryKey === "5 wood" || categoryKey === "7 wood" || categoryKey === "9 wood") {
+            rows.push({
+                key: `single-wood-${category}`,
+                label: formatWoodLabel(category),
+                value: "—",
+                meta: model || "No distances yet",
+            });
+            continue;
+        }
+
+        if (categoryKey === "woods") {
+            if (selected.length) {
+                selected.forEach((option, idx) => {
+                    rows.push({
+                        key: `woods-${option}-${idx}`,
+                        label: formatWoodLabel(option),
+                        value: "—",
+                        meta: model || "No distances yet",
+                    });
+                });
+            } else {
+                rows.push({
+                    key: `woods-${category}`,
+                    label: "Wood",
+                    value: "—",
+                    meta: model || "No distances yet",
+                });
+            }
+            continue;
+        }
+
+        if (/^\d+\s*hybrid$/i.test(category) || categoryKey === "hybrid") {
+            rows.push({
+                key: `single-hybrid-${category}`,
+                label: formatHybridLabel(category),
+                value: "—",
+                meta: model || "No distances yet",
+            });
+            continue;
+        }
+
+        if (categoryKey === "hybrids") {
+            if (selected.length) {
+                selected.forEach((option, idx) => {
+                    rows.push({
+                        key: `hybrids-${option}-${idx}`,
+                        label: formatHybridLabel(option),
+                        value: "—",
+                        meta: model || "No distances yet",
+                    });
+                });
+            } else {
+                rows.push({
+                    key: `hybrids-${category}`,
+                    label: "Hybrid",
+                    value: "—",
+                    meta: model || "No distances yet",
+                });
+            }
+            continue;
+        }
+
+        if (categoryKey === "driving iron") {
+            rows.push({
+                key: `driving-iron-${category}`,
+                label: "Driving Iron",
+                value: "—",
+                meta: model || "No distances yet",
+            });
+            continue;
+        }
+
+        if (categoryKey === "irons" || categoryKey === "wedges") {
+            if (selected.length) {
+                selected.forEach((option, idx) => {
+                    rows.push({
+                        key: `${categoryKey}-${option}-${idx}`,
+                        label: option.toUpperCase(),
+                        value: "—",
+                        meta: model || "No distances yet",
+                    });
+                });
+            } else {
+                rows.push({
+                    key: `${categoryKey}-${category}`,
+                    label: category,
+                    value: "—",
+                    meta: model || "No distances yet",
+                });
+            }
+        }
+    }
+
+    return rows.sort((a, b) => {
+        const rankA = clubDistanceLabelRank(a.label);
+        const rankB = clubDistanceLabelRank(b.label);
+        if (rankA !== rankB) return rankA - rankB;
+        return a.label.localeCompare(b.label);
+    });
 }
 
 function readStroke(roundRoot, holeNumber, playerId) {
@@ -68,7 +303,6 @@ function fmtPct(a, b) {
 function toMs(x) {
     if (!x) return 0;
     try {
-        // Firestore Timestamp support
         if (typeof x?.toDate === "function") return x.toDate().getTime();
         if (typeof x?.seconds === "number") return x.seconds * 1000;
     } catch { }
@@ -80,7 +314,6 @@ function toMs(x) {
 function findMyPlayerId(rounds) {
     const uid = String(auth?.currentUser?.uid || "").trim();
 
-    // Prefer explicit "source: me"
     for (const r of (Array.isArray(rounds) ? rounds : [])) {
         const ps = Array.isArray(r?.players) ? r.players : [];
         const hit = ps.find((p) => String(p?.source || "").toLowerCase() === "me");
@@ -88,7 +321,6 @@ function findMyPlayerId(rounds) {
         if (uid && String(hit?.uid || "") === uid) return String(hit.id || hit.uid);
     }
 
-    // Prefer matching uid
     if (uid) {
         for (const r of (Array.isArray(rounds) ? rounds : [])) {
             const ps = Array.isArray(r?.players) ? r.players : [];
@@ -97,14 +329,12 @@ function findMyPlayerId(rounds) {
         }
     }
 
-    // Prefer id === "me"
     for (const r of (Array.isArray(rounds) ? rounds : [])) {
         const ps = Array.isArray(r?.players) ? r.players : [];
         const hit = ps.find((p) => String(p?.id || "").toLowerCase() === "me");
         if (hit?.id) return String(hit.id);
     }
 
-    // Fallback: first player of first round
     const first = (Array.isArray(rounds) ? rounds : [])[0];
     const p0 = Array.isArray(first?.players) ? first.players[0] : null;
     return String(p0?.id || "me");
@@ -112,17 +342,31 @@ function findMyPlayerId(rounds) {
 
 export default function PlayerStatsScreen({ navigation }) {
     const [rounds, setRounds] = useState([]);
+    const [equipmentBag, setEquipmentBag] = useState([]);
     const [activeTab, setActiveTab] = useState("stats");
     const [clubRange, setClubRange] = useState("10");
 
     useFocusEffect(
         useCallback(() => {
             let live = true;
+
             (async () => {
-                const list = await getRounds();
+                const uid = safeTrim(auth?.currentUser?.uid);
+                const [list, userSnap] = await Promise.all([
+                    getRounds(),
+                    uid ? getDoc(doc(db, "users", uid)).catch(() => null) : Promise.resolve(null),
+                ]);
+
                 if (!live) return;
+
                 setRounds(Array.isArray(list) ? list : []);
+
+                const bagFromCloud = userSnap?.exists?.()
+                    ? normalizeBag(userSnap.data()?.equipmentBag)
+                    : [];
+                setEquipmentBag(bagFromCloud);
             })();
+
             return () => {
                 live = false;
             };
@@ -180,7 +424,6 @@ export default function PlayerStatsScreen({ navigation }) {
             }
 
             for (let h = 1; h <= 18; h++) {
-                // Putts: count only if the field exists and is numeric (supports "0" if saved)
                 const rawPutts = readField(r, h, myPlayerId, "putts");
                 const hasPutts = rawPutts !== null && rawPutts !== undefined && String(rawPutts).length > 0;
                 const putts = toInt(rawPutts);
@@ -247,6 +490,8 @@ export default function PlayerStatsScreen({ navigation }) {
         });
         return list;
     }, [completedRounds, myPlayerId]);
+
+    const clubRows = useMemo(() => buildClubDistanceRows(equipmentBag), [equipmentBag]);
 
     const empty = completedRounds.length === 0;
 
@@ -494,38 +739,41 @@ export default function PlayerStatsScreen({ navigation }) {
                                 </View>
                             </View>
 
-                            <Text style={styles.cardSub}>This view will populate as saved shot distances begin to build over time.</Text>
+                            <Text style={styles.cardSub}>
+                                {clubRows.length
+                                    ? "Your rows now come from your saved equipment bag. Distance values will populate as shot-distance data is added."
+                                    : "No saved equipment found yet. Add clubs on the Equipment screen to build this list."}
+                            </Text>
 
                             <View style={{ marginTop: 14, gap: 10 }}>
-                                {[
-                                    ["Driver", "—"],
-                                    ["3 Wood", "—"],
-                                    ["Hybrid", "—"],
-                                    ["Driving Iron", "—"],
-                                    ["4 Iron", "—"],
-                                    ["5 Iron", "—"],
-                                    ["6 Iron", "—"],
-                                    ["7 Iron", "—"],
-                                    ["8 Iron", "—"],
-                                    ["9 Iron", "—"],
-                                    ["PW", "—"],
-                                    ["56°", "—"],
-                                ].map(([club, value], idx) => (
-                                    <View
-                                        key={club}
-                                        style={[
-                                            styles.clubRow,
-                                            idx % 3 === 0
-                                                ? styles.clubRowToneA
-                                                : idx % 3 === 1
-                                                    ? styles.clubRowToneB
-                                                    : styles.clubRowToneC,
-                                        ]}
-                                    >
-                                        <Text style={styles.clubRowLabel}>{club}</Text>
-                                        <Text style={styles.clubRowValue}>{value}</Text>
+                                {clubRows.length ? (
+                                    clubRows.map((row, idx) => (
+                                        <View
+                                            key={row.key}
+                                            style={[
+                                                styles.clubRow,
+                                                idx % 2 === 0 ? styles.clubRowToneA : styles.clubRowToneB,
+                                            ]}
+                                        >
+                                            <View style={{ flex: 1, minWidth: 0, paddingRight: 12 }}>
+                                                <Text style={styles.clubRowLabel} numberOfLines={1}>
+                                                    {row.label}
+                                                </Text>
+                                                <Text style={styles.clubRowMeta} numberOfLines={1}>
+                                                    {row.meta}
+                                                </Text>
+                                            </View>
+
+                                            <Text style={styles.clubRowValue}>{row.value}</Text>
+                                        </View>
+                                    ))
+                                ) : (
+                                    <View style={styles.emptyClubCard}>
+                                        <MaterialCommunityIcons name="golf" size={22} color="rgba(255,255,255,0.65)" />
+                                        <Text style={styles.emptyClubTitle}>No clubs to show yet</Text>
+                                        <Text style={styles.emptyClubText}>Save your bag first, then this screen will list your actual clubs.</Text>
                                     </View>
-                                ))}
+                                )}
                             </View>
                         </View>
                     </View>
@@ -643,20 +891,6 @@ const styles = StyleSheet.create({
 
     cardTitle: { color: WHITE, fontSize: 15, fontWeight: "900" },
     cardSub: { marginTop: 6, color: MUTED, fontSize: 12, fontWeight: "800", lineHeight: 17 },
-
-    row: {
-        borderRadius: 18,
-        borderWidth: 1.5,
-        borderColor: GREEN,
-        backgroundColor: "rgba(0,0,0,0.18)",
-        padding: 12,
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 10,
-    },
-    k: { color: MUTED, fontWeight: "900" },
-    v: { color: WHITE, fontWeight: "900" },
 
     statGrid3: {
         marginTop: 12,
@@ -802,10 +1036,42 @@ const styles = StyleSheet.create({
         fontWeight: "900",
         fontSize: 14,
     },
+    clubRowMeta: {
+        marginTop: 4,
+        color: MUTED,
+        fontWeight: "800",
+        fontSize: 11,
+    },
     clubRowValue: {
         color: WHITE,
         fontWeight: "900",
         fontSize: 20,
+    },
+
+    emptyClubCard: {
+        borderRadius: 18,
+        borderWidth: 1.5,
+        borderColor: GREEN,
+        backgroundColor: "rgba(0,0,0,0.18)",
+        paddingVertical: 20,
+        paddingHorizontal: 16,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    emptyClubTitle: {
+        marginTop: 10,
+        color: WHITE,
+        fontWeight: "900",
+        fontSize: 14,
+        textAlign: "center",
+    },
+    emptyClubText: {
+        marginTop: 6,
+        color: MUTED,
+        fontWeight: "800",
+        fontSize: 12,
+        lineHeight: 17,
+        textAlign: "center",
     },
 
     recentRow: {
