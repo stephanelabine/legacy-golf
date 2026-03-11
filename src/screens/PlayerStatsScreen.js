@@ -2,6 +2,7 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { SafeAreaView, View, Text, StyleSheet, ScrollView, Pressable, Keyboard } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 import { auth } from "../firebase/firebase";
 import { getRounds } from "../storage/rounds";
@@ -111,6 +112,8 @@ function findMyPlayerId(rounds) {
 
 export default function PlayerStatsScreen({ navigation }) {
     const [rounds, setRounds] = useState([]);
+    const [activeTab, setActiveTab] = useState("stats");
+    const [clubRange, setClubRange] = useState("10");
 
     useFocusEffect(
         useCallback(() => {
@@ -267,19 +270,169 @@ export default function PlayerStatsScreen({ navigation }) {
                 </View>
             </View>
 
-            {empty ? (
-                <View style={styles.emptyWrap}>
-                    <View style={styles.goldRing}>
-                        <View style={styles.card}>
-                            <Text style={styles.cardTitle}>No completed rounds yet</Text>
-                            <Text style={styles.cardSub}>Finish a round to start building your stats. This first version reads from Round History on this device.</Text>
+            <View style={styles.tabRow}>
+                <Pressable
+                    onPress={() => setActiveTab("stats")}
+                    style={({ pressed }) => [
+                        styles.tabBtn,
+                        activeTab === "stats" && styles.tabBtnActive,
+                        pressed && styles.pressed,
+                    ]}
+                >
+                    <MaterialCommunityIcons
+                        name="chart-box-outline"
+                        size={16}
+                        color={activeTab === "stats" ? WHITE : MUTED}
+                    />
+                    <Text style={[styles.tabBtnText, activeTab === "stats" && styles.tabBtnTextActive]}>Player Stats</Text>
+                </Pressable>
 
-                            <Pressable onPress={() => navigation.goBack()} style={({ pressed }) => [styles.cta, pressed && styles.pressed]}>
-                                <Text style={styles.ctaText}>Back</Text>
-                            </Pressable>
+                <Pressable
+                    onPress={() => setActiveTab("clubs")}
+                    style={({ pressed }) => [
+                        styles.tabBtn,
+                        activeTab === "clubs" && styles.tabBtnActive,
+                        pressed && styles.pressed,
+                    ]}
+                >
+                    <MaterialCommunityIcons
+                        name="golf"
+                        size={16}
+                        color={activeTab === "clubs" ? WHITE : MUTED}
+                    />
+                    <Text style={[styles.tabBtnText, activeTab === "clubs" && styles.tabBtnTextActive]}>Club Distances</Text>
+                </Pressable>
+            </View>
+
+            {activeTab === "stats" ? (
+                empty ? (
+                    <View style={styles.emptyWrap}>
+                        <View style={styles.goldRing}>
+                            <View style={styles.card}>
+                                <Text style={styles.cardTitle}>No completed rounds yet</Text>
+                                <Text style={styles.cardSub}>Finish a round to start building your stats. This first version reads from Round History on this device.</Text>
+
+                                <Pressable onPress={() => navigation.goBack()} style={({ pressed }) => [styles.cta, pressed && styles.pressed]}>
+                                    <Text style={styles.ctaText}>Back</Text>
+                                </Pressable>
+                            </View>
                         </View>
                     </View>
-                </View>
+                ) : (
+                    <ScrollView
+                        style={{ flex: 1 }}
+                        contentContainerStyle={{ padding: 16, paddingBottom: 28 }}
+                        showsVerticalScrollIndicator={false}
+                        keyboardShouldPersistTaps="handled"
+                        keyboardDismissMode="on-drag"
+                        onScrollBeginDrag={() => Keyboard.dismiss()}
+                    >
+                        <View style={styles.goldRing}>
+                            <View style={styles.card}>
+                                <Text style={styles.cardTitle}>Overview</Text>
+                                <Text style={styles.cardSub}>Based on completed rounds only.</Text>
+
+                                <View style={styles.statGrid3}>
+                                    <View style={styles.statBox}>
+                                        <Text style={styles.statBoxLabel}>Rounds</Text>
+                                        <Text style={styles.statBoxValue}>{String(aggregates.roundsCount || 0)}</Text>
+                                    </View>
+
+                                    <View style={styles.statBox}>
+                                        <Text style={styles.statBoxLabel}>Average Gross</Text>
+                                        <Text style={styles.statBoxValue}>{aggregates.avgGross !== null ? String(aggregates.avgGross) : "—"}</Text>
+                                    </View>
+
+                                    <View style={styles.statBox}>
+                                        <Text style={styles.statBoxLabel}>Best Round</Text>
+                                        <Text style={styles.statBoxValue}>{aggregates.bestGross !== null ? String(aggregates.bestGross) : "—"}</Text>
+                                    </View>
+                                </View>
+                            </View>
+                        </View>
+
+                        <View style={styles.goldRing}>
+                            <View style={styles.card}>
+                                <Text style={styles.cardTitle}>Stats snapshot</Text>
+                                <Text style={styles.cardSub}>Only counts holes where stats were tracked (Stats ON).</Text>
+
+                                <View style={styles.statGrid3}>
+                                    <View style={styles.statBox}>
+                                        <Text style={styles.statBoxLabel}>FIR</Text>
+                                        <Text style={styles.statBoxValueSmall}>{aggregates.fir}</Text>
+                                    </View>
+
+                                    <View style={styles.statBox}>
+                                        <Text style={styles.statBoxLabel}>GIR</Text>
+                                        <Text style={styles.statBoxValueSmall}>{aggregates.gir}</Text>
+                                    </View>
+
+                                    <View style={styles.statBox}>
+                                        <Text style={styles.statBoxLabel}>Putts</Text>
+                                        <Text style={styles.statBoxValueSmall}>{aggregates.avgPutts !== null ? String(aggregates.avgPutts) : "—"}</Text>
+                                    </View>
+
+                                    <View style={styles.statBox}>
+                                        <Text style={styles.statBoxLabel}>Up & Down</Text>
+                                        <Text style={styles.statBoxValueSmall}>{aggregates.updown}</Text>
+                                    </View>
+
+                                    <View style={styles.statBox}>
+                                        <Text style={styles.statBoxLabel}>Sand</Text>
+                                        <Text style={styles.statBoxValueSmall}>{aggregates.sand}</Text>
+                                    </View>
+
+                                    <View style={styles.statBox}>
+                                        <Text style={styles.statBoxLabel}>Rounds</Text>
+                                        <Text style={styles.statBoxValueSmall}>{String(aggregates.roundsCount || 0)}</Text>
+                                    </View>
+                                </View>
+
+                                <Text style={styles.foot}>Scorecard stays strokes-only. These live in the per-player stats layer.</Text>
+                            </View>
+                        </View>
+
+                        <View style={styles.goldRing}>
+                            <View style={styles.card}>
+                                <View style={styles.recentHeaderRow}>
+                                    <View style={styles.recentHeaderTextWrap}>
+                                        <Text style={styles.cardTitle}>Recent completed rounds list</Text>
+                                        <Text style={styles.cardSub}>Tap a row later to open round details (future).</Text>
+                                    </View>
+
+                                    <View style={styles.compactRoundsBox}>
+                                        <Text style={styles.compactRoundsLabel}>Total completed rounds</Text>
+                                        <Text style={styles.compactRoundsValue}>{String(aggregates.roundsCount || 0)}</Text>
+                                    </View>
+                                </View>
+
+                                <View style={{ marginTop: 12, gap: 10 }}>
+                                    {recent.map((r) => (
+                                        <View key={r.id} style={styles.recentRow}>
+                                            <View style={{ flex: 1, minWidth: 0 }}>
+                                                <Text style={styles.recentTop} numberOfLines={1}>
+                                                    {r.courseName} • {r.teeName}
+                                                </Text>
+                                                <Text style={styles.recentSub} numberOfLines={1}>
+                                                    {r.dateLabel || "—"}
+                                                </Text>
+                                            </View>
+
+                                            <View style={styles.totalBox}>
+                                                <Text style={styles.totalVal}>{r.total > 0 ? String(r.total) : "—"}</Text>
+                                                <Text style={styles.totalFoot}>gross</Text>
+                                            </View>
+                                        </View>
+                                    ))}
+                                </View>
+                            </View>
+                        </View>
+
+                        <Pressable onPress={() => navigation.goBack()} style={({ pressed }) => [styles.cta, pressed && styles.pressed]}>
+                            <Text style={styles.ctaText}>Back</Text>
+                        </Pressable>
+                    </ScrollView>
+                )
             ) : (
                 <ScrollView
                     style={{ flex: 1 }}
@@ -291,81 +444,86 @@ export default function PlayerStatsScreen({ navigation }) {
                 >
                     <View style={styles.goldRing}>
                         <View style={styles.card}>
-                            <Text style={styles.cardTitle}>Overview</Text>
-                            <Text style={styles.cardSub}>Based on completed rounds only.</Text>
+                            <View style={styles.clubHeaderBlock}>
+                                <Text style={styles.clubHeaderTitle}>Club Distances</Text>
 
-                            <View style={{ marginTop: 12, gap: 10 }}>
-                                <View style={styles.row}>
-                                    <Text style={styles.k}>Rounds</Text>
-                                    <Text style={styles.v}>{String(aggregates.roundsCount || 0)}</Text>
-                                </View>
+                                <View style={styles.rangePillsCentered}>
+                                    <Pressable
+                                        onPress={() => setClubRange("10")}
+                                        style={({ pressed }) => [
+                                            styles.rangePill,
+                                            clubRange === "10" && styles.rangePillActive,
+                                            pressed && styles.pressed,
+                                        ]}
+                                    >
+                                        <Text style={[styles.rangePillText, clubRange === "10" && styles.rangePillTextActive]}>Last 10</Text>
+                                    </Pressable>
 
-                                <View style={styles.row}>
-                                    <Text style={styles.k}>Average gross</Text>
-                                    <Text style={styles.v}>{aggregates.avgGross !== null ? String(aggregates.avgGross) : "—"}</Text>
-                                </View>
+                                    <Pressable
+                                        onPress={() => setClubRange("20")}
+                                        style={({ pressed }) => [
+                                            styles.rangePill,
+                                            clubRange === "20" && styles.rangePillActive,
+                                            pressed && styles.pressed,
+                                        ]}
+                                    >
+                                        <Text style={[styles.rangePillText, clubRange === "20" && styles.rangePillTextActive]}>Last 20</Text>
+                                    </Pressable>
 
-                                <View style={styles.row}>
-                                    <Text style={styles.k}>Best gross</Text>
-                                    <Text style={styles.v}>{aggregates.bestGross !== null ? String(aggregates.bestGross) : "—"}</Text>
+                                    <Pressable
+                                        onPress={() => setClubRange("50")}
+                                        style={({ pressed }) => [
+                                            styles.rangePill,
+                                            clubRange === "50" && styles.rangePillActive,
+                                            pressed && styles.pressed,
+                                        ]}
+                                    >
+                                        <Text style={[styles.rangePillText, clubRange === "50" && styles.rangePillTextActive]}>Last 50</Text>
+                                    </Pressable>
+
+                                    <Pressable
+                                        onPress={() => setClubRange("100")}
+                                        style={({ pressed }) => [
+                                            styles.rangePill,
+                                            clubRange === "100" && styles.rangePillActive,
+                                            pressed && styles.pressed,
+                                        ]}
+                                    >
+                                        <Text style={[styles.rangePillText, clubRange === "100" && styles.rangePillTextActive]}>Last 100</Text>
+                                    </Pressable>
                                 </View>
                             </View>
-                        </View>
-                    </View>
 
-                    <View style={styles.goldRing}>
-                        <View style={styles.card}>
-                            <Text style={styles.cardTitle}>Stats snapshot</Text>
-                            <Text style={styles.cardSub}>Only counts holes where stats were tracked (Stats ON).</Text>
+                            <Text style={styles.cardSub}>This view will populate as saved shot distances begin to build over time.</Text>
 
-                            <View style={styles.pills}>
-                                <View style={styles.pill}>
-                                    <Text style={styles.pillK}>FIR</Text>
-                                    <Text style={styles.pillV}>{aggregates.fir}</Text>
-                                </View>
-                                <View style={styles.pill}>
-                                    <Text style={styles.pillK}>GIR</Text>
-                                    <Text style={styles.pillV}>{aggregates.gir}</Text>
-                                </View>
-                                <View style={styles.pill}>
-                                    <Text style={styles.pillK}>Putts</Text>
-                                    <Text style={styles.pillV}>{aggregates.avgPutts !== null ? String(aggregates.avgPutts) : "—"}</Text>
-                                </View>
-                                <View style={styles.pill}>
-                                    <Text style={styles.pillK}>U&D</Text>
-                                    <Text style={styles.pillV}>{aggregates.updown}</Text>
-                                </View>
-                                <View style={styles.pill}>
-                                    <Text style={styles.pillK}>Sand</Text>
-                                    <Text style={styles.pillV}>{aggregates.sand}</Text>
-                                </View>
-                            </View>
-
-                            <Text style={styles.foot}>Scorecard stays strokes-only. These live in the per-player stats layer.</Text>
-                        </View>
-                    </View>
-
-                    <View style={styles.goldRing}>
-                        <View style={styles.card}>
-                            <Text style={styles.cardTitle}>Recent completed rounds</Text>
-                            <Text style={styles.cardSub}>Tap a row later to open round details (future).</Text>
-
-                            <View style={{ marginTop: 12, gap: 10 }}>
-                                {recent.map((r) => (
-                                    <View key={r.id} style={styles.recentRow}>
-                                        <View style={{ flex: 1, minWidth: 0 }}>
-                                            <Text style={styles.recentTop} numberOfLines={1}>
-                                                {r.courseName} • {r.teeName}
-                                            </Text>
-                                            <Text style={styles.recentSub} numberOfLines={1}>
-                                                {r.dateLabel || "—"}
-                                            </Text>
-                                        </View>
-
-                                        <View style={styles.totalBox}>
-                                            <Text style={styles.totalVal}>{r.total > 0 ? String(r.total) : "—"}</Text>
-                                            <Text style={styles.totalFoot}>gross</Text>
-                                        </View>
+                            <View style={{ marginTop: 14, gap: 10 }}>
+                                {[
+                                    ["Driver", "—"],
+                                    ["3 Wood", "—"],
+                                    ["Hybrid", "—"],
+                                    ["Driving Iron", "—"],
+                                    ["4 Iron", "—"],
+                                    ["5 Iron", "—"],
+                                    ["6 Iron", "—"],
+                                    ["7 Iron", "—"],
+                                    ["8 Iron", "—"],
+                                    ["9 Iron", "—"],
+                                    ["PW", "—"],
+                                    ["56°", "—"],
+                                ].map(([club, value], idx) => (
+                                    <View
+                                        key={club}
+                                        style={[
+                                            styles.clubRow,
+                                            idx % 3 === 0
+                                                ? styles.clubRowToneA
+                                                : idx % 3 === 1
+                                                    ? styles.clubRowToneB
+                                                    : styles.clubRowToneC,
+                                        ]}
+                                    >
+                                        <Text style={styles.clubRowLabel}>{club}</Text>
+                                        <Text style={styles.clubRowValue}>{value}</Text>
                                     </View>
                                 ))}
                             </View>
@@ -434,6 +592,38 @@ const styles = StyleSheet.create({
 
     emptyWrap: { flex: 1, padding: 16, justifyContent: "center" },
 
+    tabRow: {
+        flexDirection: "row",
+        gap: 12,
+        paddingHorizontal: 16,
+        paddingTop: 14,
+        paddingBottom: 10,
+    },
+    tabBtn: {
+        flex: 1,
+        height: 46,
+        borderRadius: 16,
+        borderWidth: 1.5,
+        borderColor: "rgba(255,255,255,0.14)",
+        backgroundColor: "rgba(255,255,255,0.05)",
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+    },
+    tabBtnActive: {
+        borderColor: GOLD,
+        backgroundColor: "rgba(242,201,76,0.12)",
+    },
+    tabBtnText: {
+        color: MUTED,
+        fontWeight: "900",
+        fontSize: 13,
+    },
+    tabBtnTextActive: {
+        color: WHITE,
+    },
+
     goldRing: {
         borderRadius: 24,
         padding: 2,
@@ -468,23 +658,155 @@ const styles = StyleSheet.create({
     k: { color: MUTED, fontWeight: "900" },
     v: { color: WHITE, fontWeight: "900" },
 
-    pills: { marginTop: 12, flexDirection: "row", flexWrap: "wrap", gap: 8 },
-    pill: {
-        height: 34,
-        paddingHorizontal: 10,
-        borderRadius: 14,
+    statGrid3: {
+        marginTop: 12,
+        flexDirection: "row",
+        flexWrap: "wrap",
+        gap: 10,
+    },
+    statBox: {
+        width: "31.5%",
+        minHeight: 88,
+        borderRadius: 18,
         borderWidth: 1.5,
         borderColor: GREEN,
-        backgroundColor: INNER,
+        backgroundColor: "rgba(0,0,0,0.18)",
+        paddingVertical: 12,
+        paddingHorizontal: 10,
         alignItems: "center",
         justifyContent: "center",
-        flexDirection: "row",
-        gap: 8,
     },
-    pillK: { color: MUTED, fontWeight: "900", fontSize: 11, letterSpacing: 0.3 },
-    pillV: { color: WHITE, fontWeight: "900", fontSize: 12 },
+    statBoxLabel: {
+        color: MUTED,
+        fontWeight: "900",
+        fontSize: 11,
+        lineHeight: 14,
+        textAlign: "center",
+    },
+    statBoxValue: {
+        marginTop: 8,
+        color: WHITE,
+        fontWeight: "900",
+        fontSize: 28,
+        lineHeight: 30,
+        textAlign: "center",
+    },
+    statBoxValueSmall: {
+        marginTop: 8,
+        color: WHITE,
+        fontWeight: "900",
+        fontSize: 20,
+        lineHeight: 22,
+        textAlign: "center",
+    },
 
     foot: { marginTop: 12, color: "rgba(255,255,255,0.60)", fontSize: 12, fontWeight: "800", lineHeight: 17 },
+
+    recentHeaderRow: {
+        flexDirection: "row",
+        alignItems: "flex-start",
+        justifyContent: "space-between",
+        gap: 12,
+    },
+    recentHeaderTextWrap: {
+        flex: 1,
+        minWidth: 0,
+        paddingRight: 4,
+    },
+    compactRoundsBox: {
+        width: 118,
+        borderRadius: 16,
+        borderWidth: 1.5,
+        borderColor: GREEN,
+        backgroundColor: "rgba(0,0,0,0.18)",
+        paddingVertical: 10,
+        paddingHorizontal: 10,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    compactRoundsLabel: {
+        color: MUTED,
+        fontWeight: "900",
+        fontSize: 10,
+        lineHeight: 13,
+        textAlign: "center",
+    },
+    compactRoundsValue: {
+        marginTop: 6,
+        color: WHITE,
+        fontWeight: "900",
+        fontSize: 28,
+        lineHeight: 30,
+    },
+
+    clubHeaderBlock: {
+        alignItems: "center",
+    },
+    clubHeaderTitle: {
+        color: WHITE,
+        fontSize: 15,
+        fontWeight: "900",
+        textAlign: "center",
+    },
+    rangePillsCentered: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        gap: 8,
+        justifyContent: "center",
+        marginTop: 12,
+    },
+    rangePill: {
+        minHeight: 30,
+        paddingHorizontal: 10,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.14)",
+        backgroundColor: "rgba(255,255,255,0.05)",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    rangePillActive: {
+        borderColor: GOLD,
+        backgroundColor: "rgba(242,201,76,0.14)",
+    },
+    rangePillText: {
+        color: MUTED,
+        fontWeight: "900",
+        fontSize: 11,
+    },
+    rangePillTextActive: {
+        color: WHITE,
+    },
+    clubRow: {
+        borderRadius: 18,
+        borderWidth: 1.5,
+        borderColor: GREEN,
+        paddingVertical: 14,
+        paddingHorizontal: 14,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+    },
+    clubRowToneA: {
+        backgroundColor: "rgba(20,36,64,0.70)",
+    },
+    clubRowToneB: {
+        backgroundColor: "rgba(15,26,46,0.70)",
+    },
+    clubRowToneC: {
+        backgroundColor: "rgba(28,44,74,0.70)",
+    },
+    clubRowLabel: {
+        color: WHITE,
+        fontWeight: "900",
+        fontSize: 14,
+    },
+    clubRowValue: {
+        color: WHITE,
+        fontWeight: "900",
+        fontSize: 20,
+    },
 
     recentRow: {
         borderRadius: 18,

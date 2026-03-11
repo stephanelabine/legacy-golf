@@ -1,5 +1,5 @@
 // src/screens/HomeScreen.js
-import React, { useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState, useCallback } from "react";
 import {
   SafeAreaView,
   View,
@@ -17,6 +17,7 @@ import {
   Keyboard,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import Svg, { Path } from "react-native-svg";
 
@@ -58,6 +59,14 @@ export default function HomeScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const { scheme, theme } = useTheme();
   const isDark = scheme === "dark";
+
+  const [heroNonce, setHeroNonce] = useState(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      setHeroNonce((n) => n + 1);
+    }, [])
+  );
 
   const bottomPad = useMemo(() => Math.max(18, (insets?.bottom || 0) + 14), [insets?.bottom]);
   const overlayColor = useMemo(() => safeOverlayColor(theme?.heroOverlay, isDark), [theme?.heroOverlay, isDark]);
@@ -150,7 +159,7 @@ export default function HomeScreen({ navigation }) {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.bg }]}>
-      <ImageBackground source={HERO_BG} defaultSource={HERO_BG} style={styles.bg} resizeMode="cover">
+      <ImageBackground key={`hero-${heroNonce}`} source={HERO_BG} defaultSource={HERO_BG} style={styles.bg} resizeMode="cover">
         <View style={[styles.overlay, { backgroundColor: overlayColor }]} />
 
         <Image

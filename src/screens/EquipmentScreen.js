@@ -22,15 +22,22 @@ const PROFILE_KEY = "LEGACY_GOLF_PROFILE_V1";
 
 const EQUIPMENT_CATEGORIES = [
   "Driver",
-  "3 Wood",
-  "5 Wood",
+  "Woods",
   "Hybrids",
   "Driving Iron",
   "Irons",
   "Wedges",
   "Putter",
   "Ball",
+  "Grips",
+  "Shoes",
+  "Bag",
+  "Gloves",
 ];
+
+const DRIVING_IRON_OPTIONS = ["1i", "2i", "3i", "4i"];
+const IRON_OPTIONS = ["2i", "3i", "4i", "5i", "6i", "7i", "8i", "9i"];
+const WEDGE_OPTIONS = ["PW", "AW", "GW", "SW", "LW", "46°", "48°", "50°", "52°", "54°", "56°", "58°", "60°"];
 
 function safeParse(raw) {
   try {
@@ -48,6 +55,9 @@ function normalizeBag(bag) {
     .map((x) => ({
       category: String(x.category || "").trim(),
       model: String(x.model || "").trim(),
+      selectedOptions: Array.isArray(x.selectedOptions)
+        ? x.selectedOptions.map((v) => String(v || "").trim()).filter(Boolean)
+        : [],
     }))
     .filter((x) => x.category.length > 0);
 }
@@ -61,6 +71,7 @@ export default function EquipmentScreen({ navigation }) {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [editingIndex, setEditingIndex] = useState(null);
   const [model, setModel] = useState("");
+  const [selectedOptions, setSelectedOptions] = useState([]);
 
   const [keyboardOpen, setKeyboardOpen] = useState(false);
 
@@ -169,15 +180,18 @@ export default function EquipmentScreen({ navigation }) {
     if (existingIdx >= 0) {
       setEditingIndex(existingIdx);
       setModel(bag[existingIdx]?.model || "");
+      setSelectedOptions(Array.isArray(bag[existingIdx]?.selectedOptions) ? bag[existingIdx].selectedOptions : []);
     } else {
       setEditingIndex(null);
       setModel("");
+      setSelectedOptions([]);
     }
     setSelectedCategory(c);
   }
 
   function onClear() {
     setModel("");
+    setSelectedOptions([]);
   }
 
   function onRemoveSelection() {
@@ -185,13 +199,35 @@ export default function EquipmentScreen({ navigation }) {
     setSelectedCategory(null);
     setEditingIndex(null);
     setModel("");
+    setSelectedOptions([]);
+  }
+
+  function getCategoryOptions(category) {
+    const c = String(category || "").trim();
+    if (c === "Driving Iron") return DRIVING_IRON_OPTIONS;
+    if (c === "Irons") return IRON_OPTIONS;
+    if (c === "Wedges") return WEDGE_OPTIONS;
+    return [];
+  }
+
+  function toggleSelectedOption(option) {
+    const v = String(option || "").trim();
+    if (!v) return;
+
+    setSelectedOptions((prev) =>
+      prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]
+    );
   }
 
   async function onSave() {
     const cat = String(selectedCategory || "").trim();
     if (!cat) return;
 
-    const nextItem = { category: cat, model: String(model || "").trim() };
+    const nextItem = {
+      category: cat,
+      model: String(model || "").trim(),
+      selectedOptions,
+    };
     const nextBag = [...bag];
 
     const existingIdx = nextBag.findIndex((x) => x.category === cat);
@@ -264,20 +300,28 @@ export default function EquipmentScreen({ navigation }) {
             <Text style={styles.editorTitle}>{editorTitle}</Text>
 
             <Text style={styles.sectionLabel}>Category</Text>
-            <View style={styles.grid}>
-              {EQUIPMENT_CATEGORIES.map((cat) => {
+            <View style={styles.tileGrid}>
+              {EQUIPMENT_CATEGORIES.map((cat, idx) => {
                 const active = cat === selectedCategory;
+                const toneStyle =
+                  idx % 3 === 0
+                    ? styles.tileToneA
+                    : idx % 3 === 1
+                      ? styles.tileToneB
+                      : styles.tileToneC;
+
                 return (
                   <Pressable
                     key={cat}
                     onPress={() => enterCategory(cat)}
                     style={({ pressed }) => [
-                      styles.catPill,
-                      active && styles.catPillActive,
+                      styles.catTile,
+                      toneStyle,
+                      active && styles.catTileActive,
                       pressed && styles.pressed,
                     ]}
                   >
-                    <Text style={[styles.catText, active && styles.catTextActive]}>{cat}</Text>
+                    <Text style={[styles.catTileText, active && styles.catTileTextActive]}>{cat}</Text>
                   </Pressable>
                 );
               })}
@@ -285,6 +329,30 @@ export default function EquipmentScreen({ navigation }) {
 
             {selectedCategory ? (
               <>
+                {getCategoryOptions(selectedCategory).length ? (
+                  <>
+                    <Text style={[styles.sectionLabel, { marginTop: 14 }]}>Select clubs</Text>
+                    <View style={styles.optionGrid}>
+                      {getCategoryOptions(selectedCategory).map((option) => {
+                        const active = selectedOptions.includes(option);
+                        return (
+                          <Pressable
+                            key={option}
+                            onPress={() => toggleSelectedOption(option)}
+                            style={({ pressed }) => [
+                              styles.optionTile,
+                              active && styles.optionTileActive,
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            <Text style={[styles.optionTileText, active && styles.optionTileTextActive]}>{option}</Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </>
+                ) : null}
+
                 <Text style={[styles.sectionLabel, { marginTop: 14 }]}>Model</Text>
                 <View style={styles.modelShell}>
                   <TextInput
@@ -428,28 +496,82 @@ const styles = StyleSheet.create({
   editorCard: {
     borderRadius: 24,
     padding: 16,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
+    borderWidth: 1.25,
+    borderColor: "rgba(242,201,76,0.85)",
     backgroundColor: "rgba(255,255,255,0.04)",
   },
   editorTitle: { color: "#fff", fontSize: 16, fontWeight: "900" },
   sectionLabel: { marginTop: 12, color: "rgba(255,255,255,0.75)", fontSize: 12, fontWeight: "900" },
 
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 10 },
-  catPill: {
-    paddingHorizontal: 12,
+  tileGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 10,
+  },
+  catTile: {
+    width: "31.5%",
+    minHeight: 64,
+    borderRadius: 16,
+    borderWidth: 1.25,
+    borderColor: "rgba(15,122,74,0.78)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 8,
     paddingVertical: 10,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.06)",
   },
-  catPillActive: {
-    borderColor: "rgba(46,125,255,0.40)",
-    backgroundColor: "rgba(46,125,255,0.14)",
+  catTileActive: {
+    borderColor: "rgba(242,201,76,0.85)",
+    backgroundColor: "rgba(242,201,76,0.16)",
   },
-  catText: { color: "rgba(255,255,255,0.78)", fontSize: 12, fontWeight: "900" },
-  catTextActive: { color: "#fff" },
+  tileToneA: {
+    backgroundColor: "rgba(20,36,64,0.70)",
+  },
+  tileToneB: {
+    backgroundColor: "rgba(20,36,64,0.70)",
+  },
+  tileToneC: {
+    backgroundColor: "rgba(20,36,64,0.70)",
+  },
+  catTileText: {
+    color: "rgba(255,255,255,0.88)",
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "center",
+    lineHeight: 15,
+  },
+  catTileTextActive: { color: "#fff" },
+
+  optionGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 10,
+  },
+  optionTile: {
+    minWidth: 62,
+    height: 42,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    borderWidth: 1.25,
+    borderColor: "rgba(15,122,74,0.78)",
+    backgroundColor: "rgba(20,36,64,0.70)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  optionTileActive: {
+    borderColor: "rgba(242,201,76,0.85)",
+    backgroundColor: "rgba(242,201,76,0.16)",
+  },
+  optionTileText: {
+    color: "rgba(255,255,255,0.88)",
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  optionTileTextActive: {
+    color: "#fff",
+  },
 
   modelShell: {
     marginTop: 10,
@@ -523,8 +645,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderRadius: 18,
     padding: 12,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
+    borderWidth: 0.8,
+    borderColor: "rgba(242,201,76,0.62)",
     backgroundColor: "rgba(255,255,255,0.04)",
   },
   rowTitle: { color: "#fff", fontSize: 14, fontWeight: "900" },
