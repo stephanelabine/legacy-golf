@@ -97,7 +97,7 @@ export default function HomeScreen({ navigation }) {
   const [joinCode, setJoinCode] = useState("");
   const sheetAnim = useRef(new Animated.Value(0)).current; // 0 closed, 1 open
 
-  const SHEET_H = 340;
+  const SHEET_H = 390;
 
   function openRoundSheet() {
     setJoinCode("");
@@ -155,7 +155,7 @@ export default function HomeScreen({ navigation }) {
     outputRange: [0, 1],
   });
 
-  const joinDisabled = (joinCode || "").trim().length < 4;
+  const joinDisabled = (joinCode || "").trim().length < 6;
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.bg }]}>
@@ -562,8 +562,16 @@ export default function HomeScreen({ navigation }) {
                             ? isDark
                               ? "rgba(255,255,255,0.18)"
                               : "rgba(10,15,26,0.18)"
-                            : "rgba(242,201,76,0.22)",
-                          borderColor: isDark ? "rgba(255,255,255,0.16)" : "rgba(0,0,0,0.12)",
+                            : isDark
+                              ? "rgba(242,201,76,0.30)"
+                              : "rgba(242,201,76,0.24)",
+                          borderColor: joinDisabled
+                            ? isDark
+                              ? "rgba(255,255,255,0.16)"
+                              : "rgba(0,0,0,0.12)"
+                            : isDark
+                              ? "rgba(242,201,76,0.55)"
+                              : "rgba(242,201,76,0.42)",
                           opacity: joinDisabled ? 0.6 : 1,
                         },
                         pressed && !joinDisabled && styles.pressedRow,
@@ -778,17 +786,17 @@ const styles = StyleSheet.create({
     opacity: 0.85,
   },
   sheetBigBtn: {
-    height: 72,
+    height: 90,
     borderRadius: 18,
     borderWidth: 1,
     paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 10,
+    marginBottom: 12,
   },
   sheetBigLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
-  sheetIconPill: { width: 38, height: 38, borderRadius: 14, alignItems: "center", justifyContent: "center", borderWidth: 1 },
+  sheetIconPill: { width: 42, height: 42, borderRadius: 15, alignItems: "center", justifyContent: "center", borderWidth: 1 },
   sheetBigText: { fontFamily: "Cinzel", fontSize: 14, fontWeight: "700", letterSpacing: 0.4 },
   sheetBigHelp: { fontFamily: "Cinzel", fontSize: 11, fontWeight: "600", letterSpacing: 0.4, opacity: 0.85 },
   sheetCancel: { height: 44, alignItems: "center", justifyContent: "center", marginTop: 2, marginBottom: 8 },

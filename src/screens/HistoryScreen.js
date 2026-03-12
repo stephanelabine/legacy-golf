@@ -439,28 +439,64 @@ export default function HistoryScreen({ navigation }) {
 
   const currentYear = new Date().getFullYear();
 
-  const pendingItems = useMemo(() => {
-    return items.filter((r) => !isRoundCompletedAnyShape(r));
-  }, [items]);
+  const visibleCompletedItems = useMemo(() => {
+    const merged = [];
 
-  const completedItems = useMemo(() => {
-    return [...items]
-      .filter((r) => isRoundCompletedAnyShape(r))
+    if (activeFsRound?.roundId && isRoundCompletedAnyShape(activeFsRound)) {
+      merged.push(activeFsRound);
+    }
+
+    merged.push(
+      ...items.filter((r) => isRoundCompletedAnyShape(r))
+    );
+
+    const seen = new Set();
+    return merged
+      .filter((r) => {
+        const rid = String(r?.id || r?.roundId || "").trim();
+        if (!rid) return false;
+        if (seen.has(rid)) return false;
+        seen.add(rid);
+        return true;
+      })
       .sort((a, b) => {
         const aTime = getRoundDateAny(a)?.getTime?.() ?? 0;
         const bTime = getRoundDateAny(b)?.getTime?.() ?? 0;
         return bTime - aTime;
       });
-  }, [items]);
+  }, [items, activeFsRound]);
+
+  const pendingItems = useMemo(() => {
+    const merged = [];
+
+    if (activeFsRound?.roundId && !isRoundCompletedAnyShape(activeFsRound)) {
+      merged.push(activeFsRound);
+    }
+
+    merged.push(
+      ...items.filter((r) => !isRoundCompletedAnyShape(r))
+    );
+
+    const seen = new Set();
+    return merged.filter((r) => {
+      const rid = String(r?.id || r?.roundId || "").trim();
+      if (!rid) return false;
+      if (seen.has(rid)) return false;
+      seen.add(rid);
+      return true;
+    });
+  }, [items, activeFsRound]);
+
+  const completedItems = visibleCompletedItems;
 
   const currentYearCompletedCount = useMemo(() => {
-    return completedItems.filter((r) => getRoundYearAny(r) === currentYear).length;
-  }, [completedItems, currentYear]);
+    return visibleCompletedItems.filter((r) => getRoundYearAny(r) === currentYear).length;
+  }, [visibleCompletedItems, currentYear]);
 
   const completedSections = useMemo(() => {
     const buckets = new Map();
 
-    completedItems.forEach((round) => {
+    visibleCompletedItems.forEach((round) => {
       const year = getRoundYearAny(round) || "Older";
       if (!buckets.has(year)) buckets.set(year, []);
       buckets.get(year).push(round);
@@ -476,7 +512,7 @@ export default function HistoryScreen({ navigation }) {
         year,
         rounds: roundsForYear,
       }));
-  }, [completedItems]);
+  }, [visibleCompletedItems]);
 
   const hasAny = hasActive || items.length > 0;
 
@@ -795,45 +831,7 @@ export default function HistoryScreen({ navigation }) {
               </View>
             </View>
 
-            {hasActive ? (
-              <PremiumSwipeRow
-                openSwipeRef={openSwipeRef}
-                closeAnyOpenSwipe={closeAnyOpenSwipe}
-                radius={22}
-                actionWidth={120}
-                borderWidth={2}
-                borderColor={(() => {
-                  const completed = isRoundCompletedAnyShape(activeFsRound);
-                  if (completed) return "rgba(255, 210, 92, 0.92)";
-                  const s = String(activeFsRound?.status || "").trim().toLowerCase();
-                  if (String(activeFsRound?.entrySource || "").toLowerCase() === "quick_post") return "rgba(255, 168, 76, 0.92)";
-                  if (s === "setup") return "rgba(46,204,113,0.92)";
-                  return "rgba(46,125,255,0.92)";
-                })()}
-                backgroundColor="transparent"
-                editLabel="Enter"
-                onEdit={openActivePinned}
-                deleteLabel="Delete"
-                onDelete={() => confirmDeleteOne({ id: activePinnedId, isActivePinned: true })}
-              >
-                {renderRowContent({
-                  courseName: activeCourseName,
-                  dateText: activeDateText,
-                  statusText: activeStatusText,
-                  statusKind: (() => {
-                    const completed = isRoundCompletedAnyShape(activeFsRound);
-                    if (completed) return "complete";
-                    const s = String(activeFsRound?.status || "").trim().toLowerCase();
-                    if (s === "setup") return "setup";
-                    if (s === "in_progress" || s.includes("progress") || s === "active") return "in_progress";
-                    return "setup";
-                  })(),
-                  rightPrimary: activeRightPrimary,
-                  rightSecondary: activeRightSecondary,
-                  onPress: openActivePinned,
-                })}
-              </PremiumSwipeRow>
-            ) : null}
+            {null}
 
             {pendingItems.length > 0 ? (
               <View style={{ gap: 12 }}>

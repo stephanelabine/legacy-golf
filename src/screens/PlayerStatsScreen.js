@@ -400,6 +400,7 @@ export default function PlayerStatsScreen({ navigation }) {
 
         let puttsHoles = 0;
         let puttsTotal = 0;
+        let threePuttTotal = 0;
 
         let firYes = 0;
         let firOpp = 0;
@@ -430,6 +431,9 @@ export default function PlayerStatsScreen({ navigation }) {
                 if (hasPutts && putts >= 0) {
                     puttsHoles += 1;
                     puttsTotal += putts;
+                    if (putts >= 3) {
+                        threePuttTotal += 1;
+                    }
                 }
 
                 const fairway = String(readField(r, h, myPlayerId, "fairway") ?? "na");
@@ -466,6 +470,7 @@ export default function PlayerStatsScreen({ navigation }) {
             avgGross,
             bestGross,
             avgPutts,
+            threePuttTotal,
             fir: fmtPct(firYes, firOpp),
             gir: fmtPct(girYes, girOpp),
             updown: fmtPct(upYes, upOpp),
@@ -628,8 +633,8 @@ export default function PlayerStatsScreen({ navigation }) {
                                     </View>
 
                                     <View style={styles.statBox}>
-                                        <Text style={styles.statBoxLabel}>Rounds</Text>
-                                        <Text style={styles.statBoxValueSmall}>{String(aggregates.roundsCount || 0)}</Text>
+                                        <Text style={styles.statBoxLabel}>3 Putts</Text>
+                                        <Text style={styles.statBoxValueSmall}>{String(aggregates.threePuttTotal || 0)}</Text>
                                     </View>
                                 </View>
 
