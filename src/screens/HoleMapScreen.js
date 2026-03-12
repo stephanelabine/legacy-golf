@@ -1,5 +1,6 @@
 // src/screens/HoleMapScreen.js
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   SafeAreaView,
   View,
@@ -306,14 +307,30 @@ function buildHtml(initialCenter) {
 
     function updatePlannerUI(){
       const plannerOk = plannerOn && userPt && tgt && greenMid;
-      const driveOk = teeOrigin && userPt;
+      const driveOk = plannerOn && teeOrigin && userPt;
 
       lbl1.style.display = plannerOk ? "block" : "none";
       lbl2.style.display = driveOk ? "block" : "none";
 
+      if(!plannerOn){
+        if(tgtMarker){ try{ tgtMarker.remove(); }catch(_){ } tgtMarker=null; }
+        if(teeMarker){ try{ teeMarker.remove(); }catch(_){ } teeMarker=null; }
+        setPlannerLine(null,null,null);
+        setDriveLine(null,null);
+        showLabels(false);
+        return;
+      }
+
       if(!plannerOk){
         setPlannerLine(null,null,null);
       } else {
+        if(tgt && !tgtMarker){
+          ensureTargetMarker();
+        }
+        if(tgtMarker && tgt){
+          tgtMarker.setLngLat([tgt.lon,tgt.lat]);
+        }
+
         setPlannerLine(userPt, tgt, greenMid);
 
         const d1 = haversineM(userPt, tgt);
@@ -322,6 +339,7 @@ function buildHtml(initialCenter) {
       }
 
       if(!driveOk){
+        if(teeMarker){ try{ teeMarker.remove(); }catch(_){ } teeMarker=null; }
         setDriveLine(null,null);
       } else {
         ensureTeeMarker();
@@ -332,6 +350,29 @@ function buildHtml(initialCenter) {
         posLabel(lbl2, teeOrigin, userPt);
       }
     }
+
+    function setPlannerImmediate(nextOn){
+      plannerOn = nextOn !== false;
+
+      if(plannerOn){
+        if(!tgt && userPt && greenMid){
+          tgt = {
+            lon:(userPt.lon + greenMid.lon)/2,
+            lat:(userPt.lat + greenMid.lat)/2
+          };
+        }
+        if(tgt && !tgtMarker){
+          ensureTargetMarker();
+        }
+        if(tgtMarker && tgt){
+          tgtMarker.setLngLat([tgt.lon, tgt.lat]);
+        }
+      }
+
+      updatePlannerUI();
+    }
+
+    window.__lgSetPlanner = setPlannerImmediate;
 
     function ensureTargetMarker(){
       if(tgtMarker) return;
@@ -574,9 +615,11 @@ function buildHtml(initialCenter) {
 
       if(!plannerOn){
         if(tgtMarker){ try{ tgtMarker.remove(); }catch(_){ } tgtMarker=null; }
+        if(teeMarker){ try{ teeMarker.remove(); }catch(_){ } teeMarker=null; }
         tgt = tgt || null;
         showLabels(false);
         setPlannerLine(null,null,null);
+        setDriveLine(null,null);
       } else {
         if(tgt && !tgtMarker){
           ensureTargetMarker();
@@ -646,6 +689,8 @@ function buildHtml(initialCenter) {
     });
   </script></body></html>`;
 }
+
+const PLANNER_PREF_KEY = "LEGACY_GOLF_PLANNER_ON";
 
 function hasAllGreenPoints(holeObj) {
   const g = holeObj?.green;
@@ -1035,11 +1080,17 @@ export default function HoleMapScreen({ navigation, route }) {
     });
   }, [yardPos, screenW]);
 
-  const postPayload = (fit = false) => {
+  const postPayload = (fit = false, forceInitTarget = false, plannerOverride = null) => {
     if (!web.current || !webReady) return;
 
+    const plannerValue =
+      typeof plannerOverride === "boolean"
+        ? plannerOverride
+        : plannerOn;
+
     const shouldSendInitTarget =
-      !didInitPlannerTargetRef.current &&
+      plannerValue &&
+      (forceInitTarget || !didInitPlannerTargetRef.current) &&
       fairwayMid &&
       Number.isFinite(fairwayMid?.lon) &&
       Number.isFinite(fairwayMid?.lat);
@@ -1068,9 +1119,8 @@ export default function HoleMapScreen({ navigation, route }) {
         })
         .filter(Boolean),
 
-      // Planner defaults ON. Only send the initial target once per hole load.
       planner: {
-        on: plannerOn,
+        on: plannerValue,
         initTarget: shouldSendInitTarget
           ? { lon: fairwayMid.lon, lat: fairwayMid.lat }
           : null,
@@ -1120,9 +1170,17 @@ export default function HoleMapScreen({ navigation, route }) {
 
   // User updates: update blue dot only, do not reframe camera
   useEffect(() => {
+    if (!plannerReady) return;
     postPayload(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  }, [user, plannerReady]);
+
+  // Planner toggle must push immediately into WebView
+  useEffect(() => {
+    if (!plannerReady) return;
+    postPayload(false, plannerOn === true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plannerOn, plannerReady]);
   function recenter() {
     if (!web.current || !webReady) return;
 
@@ -1149,12 +1207,45 @@ export default function HoleMapScreen({ navigation, route }) {
   const [setupOpen, setSetupOpen] = useState(false);
   const [savingSetup, setSavingSetup] = useState(false);
 
-  // Planner: target line + draggable target (default ON)
+  // Planner: target line + draggable target
   const [plannerOn, setPlannerOn] = useState(true);
+  const [plannerReady, setPlannerReady] = useState(false);
 
   const canSet = useMemo(() => {
     return admin && !!user && Number.isFinite(user?.lat) && Number.isFinite(user?.lon);
   }, [admin, user]);
+
+  useEffect(() => {
+    let live = true;
+
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(PLANNER_PREF_KEY);
+        if (!live) return;
+
+        if (raw === "false") {
+          setPlannerOn(false);
+        } else {
+          setPlannerOn(true);
+        }
+      } catch {
+        if (!live) return;
+        setPlannerOn(true);
+      } finally {
+        if (live) setPlannerReady(true);
+      }
+    })();
+
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!plannerReady) return;
+
+    AsyncStorage.setItem(PLANNER_PREF_KEY, plannerOn ? "true" : "false").catch(() => { });
+  }, [plannerOn, plannerReady]);
 
   const currentAccuracyText = useMemo(() => {
     if (!user) return "Waiting for GPS…";
@@ -1517,11 +1608,29 @@ export default function HoleMapScreen({ navigation, route }) {
           </Pressable>
 
           <Pressable
-            onPress={() => setPlannerOn((v) => !v)}
+            onPress={() => {
+              if (!plannerReady) return;
+              const next = !plannerOn;
+              setPlannerOn(next);
+
+              try {
+                web.current?.injectJavaScript(`
+                  try {
+                    if (window.__lgSetPlanner) {
+                      window.__lgSetPlanner(${next ? "true" : "false"});
+                    }
+                  } catch (e) {}
+                  true;
+                `);
+              } catch { }
+
+              postPayload(false, next === true, next);
+            }}
             style={({ pressed }) => [
               styles.plannerChipTop,
               pressed && styles.pressed,
               !plannerOn && styles.plannerChipTopOff,
+              !plannerReady && { opacity: 0.6 },
             ]}
           >
             <Text style={styles.plannerChipT}>

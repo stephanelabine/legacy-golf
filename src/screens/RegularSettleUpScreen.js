@@ -2,12 +2,14 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { SafeAreaView, View, Text, StyleSheet, ScrollView, Pressable, Alert, ActivityIndicator } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
-import { collection, doc, onSnapshot } from "firebase/firestore";
+import { collection, doc, onSnapshot, updateDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 import ScreenHeader from "../components/ScreenHeader";
 import ROUTES from "../navigation/routes";
 import { auth, db } from "../firebase/firebase";
+import { saveRound, deleteRound } from "../storage/rounds";
+import { clearActiveRound } from "../storage/roundState";
 
 const BG = "#06150F";
 const CARD = "rgba(18,22,30,0.92)";
@@ -413,13 +415,108 @@ export default function RegularSettleUpScreen({ navigation, route }) {
         navigation.goBack();
     }
 
+    async function wipeRoundNoSave() {
+        const rid = String(roundId || "").trim();
+        const uid = auth?.currentUser?.uid;
+
+        try {
+            await clearActiveRound();
+        } catch { }
+
+        try {
+            if (rid) {
+                await deleteRound(rid);
+            }
+        } catch { }
+
+        try {
+            if (rid) {
+                const isShared = String(rid).startsWith("sr_");
+                if (isShared) {
+                    await deleteDoc(doc(db, "sharedRounds", String(rid)));
+                } else if (uid) {
+                    await deleteDoc(doc(db, "users", String(uid), "rounds", String(rid)));
+                }
+            }
+        } catch { }
+
+        navigation.navigate(ROUTES.HOME);
+    }
+
+    async function saveAndExit() {
+        const rid = String(roundId || "").trim();
+        const uid = auth?.currentUser?.uid;
+
+        const hcRaw = Number(round?.holesCount ?? round?.meta?.holesCount);
+        const holesCount = hcRaw === 9 || hcRaw === 18 ? hcRaw : 18;
+
+        const sideRaw = String(round?.holesSide ?? round?.meta?.holesSide ?? "").toLowerCase().trim();
+        const holesSide = sideRaw === "back" ? "back" : sideRaw === "front" ? "front" : null;
+
+        const endHole = holesCount === 9 ? (holesSide === "back" ? 18 : 9) : 18;
+
+        try {
+            if (rid) {
+                const isShared = String(rid).startsWith("sr_");
+                const ref = isShared
+                    ? doc(db, "sharedRounds", String(rid))
+                    : (uid ? doc(db, "users", String(uid), "rounds", String(rid)) : null);
+
+                if (ref) {
+                    await updateDoc(ref, {
+                        status: "completed",
+                        inProgress: false,
+                        isActive: false,
+                        currentHole: endHole,
+                        lastHole: endHole,
+                        holeNumber: endHole,
+                        hole: endHole,
+                        holeIndex: endHole - 1,
+                        completedAt: serverTimestamp(),
+                        updatedAt: serverTimestamp(),
+                    });
+                }
+            }
+        } catch { }
+
+        try {
+            if (rid) {
+                await saveRound({
+                    ...(round || {}),
+                    id: rid,
+                    roundId: rid,
+                    status: "completed",
+                    inProgress: false,
+                    isActive: false,
+                    currentHole: endHole,
+                    lastHole: endHole,
+                    holeNumber: endHole,
+                    hole: endHole,
+                    holeIndex: endHole - 1,
+                    completedAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                });
+            }
+        } catch { }
+
+        try {
+            await clearActiveRound();
+        } catch { }
+
+        navigation.navigate(ROUTES.HOME);
+    }
+
     function onExit() {
-        Alert.alert("Exit settle up?", "Return to Home?", [
+        Alert.alert("Exit settle up?", "What would you like to do?", [
             { text: "Cancel", style: "cancel" },
             {
-                text: "Exit",
+                text: "Exit (no save)",
                 style: "destructive",
-                onPress: () => navigation.navigate(ROUTES.HOME),
+                onPress: wipeRoundNoSave,
+            },
+            {
+                text: "Exit & Save",
+                onPress: saveAndExit,
             },
         ]);
     }

@@ -21,7 +21,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, CommonActions } from "@react-navigation/native";
 import { BackHandler } from "react-native";
 import * as Location from "expo-location";
-import { collection, doc, getDocs, onSnapshot } from "firebase/firestore";
+import { collection, doc, getDocs, onSnapshot, deleteDoc } from "firebase/firestore";
 
 import { auth, db } from "../firebase/firebase";
 
@@ -29,7 +29,7 @@ import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import { loadCourseData } from "../storage/courseData";
 import * as RoundState from "../storage/roundState";
-import { saveRound } from "../storage/rounds";
+import { saveRound, deleteRound } from "../storage/rounds";
 
 const BG = "#0B1220";
 const CARD = "#1D3557";
@@ -1692,32 +1692,65 @@ export default function HoleHubScreen({ navigation, route }) {
     }
   }
 
+  async function wipeRoundNoSave() {
+    const rid = String(activeRoot?.id || activeRoot?.roundId || roundId || "").trim();
+    const uid = auth?.currentUser?.uid;
+
+    try {
+      await RoundState.clearActiveRound();
+    } catch { }
+
+    try {
+      if (rid) {
+        await deleteRound(rid);
+      }
+    } catch { }
+
+    try {
+      if (rid) {
+        const isShared = String(rid).startsWith("sr_");
+        if (isShared) {
+          await deleteDoc(doc(db, "sharedRounds", String(rid)));
+        } else if (uid) {
+          await deleteDoc(doc(db, "users", String(uid), "rounds", String(rid)));
+        }
+      }
+    } catch { }
+
+    skipBeforeRemoveRef.current = true;
+    navigation.navigate(ROUTES.HOME);
+    setTimeout(() => {
+      skipBeforeRemoveRef.current = false;
+    }, 600);
+  }
+
+  async function saveAndExitRound() {
+    if (savingRound) return;
+
+    await doSaveRoundNow({ status: "in_progress" });
+
+    try {
+      await RoundState.clearActiveRound();
+    } catch { }
+
+    skipBeforeRemoveRef.current = true;
+    navigation.navigate(ROUTES.HOME);
+    setTimeout(() => {
+      skipBeforeRemoveRef.current = false;
+    }, 600);
+  }
+
   function onPressHome() {
-    Alert.alert("Exit round?", "Are you sure you want to exit the round and return Home?", [
+    Alert.alert("Exit round?", "What would you like to do?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Exit (no save)",
         style: "destructive",
-        onPress: () => {
-          skipBeforeRemoveRef.current = true;
-          navigation.navigate(ROUTES.HOME);
-          setTimeout(() => {
-            skipBeforeRemoveRef.current = false;
-          }, 600);
-        },
+        onPress: wipeRoundNoSave,
       },
       {
-        text: savingRound ? "Saving…" : "Save & Exit",
-        onPress: async () => {
-          if (savingRound) return;
-          await doSaveRoundNow({ status: "in_progress" });
-
-          skipBeforeRemoveRef.current = true;
-          navigation.navigate(ROUTES.HOME);
-          setTimeout(() => {
-            skipBeforeRemoveRef.current = false;
-          }, 600);
-        },
+        text: savingRound ? "Saving…" : "Exit & Save",
+        onPress: saveAndExitRound,
       },
     ]);
   }
