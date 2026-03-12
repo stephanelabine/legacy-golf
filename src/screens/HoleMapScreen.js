@@ -23,8 +23,10 @@ import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CommonActions } from "@react-navigation/native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { doc, getDoc } from "firebase/firestore";
 
 import ROUTES from "../navigation/routes";
+import { auth, db } from "../firebase/firebase";
 import { MAPBOX_TOKEN } from "../config/mapbox";
 import { loadCourseData, saveCourseData } from "../storage/courseData";
 import { isAdmin as isAdminUser } from "../storage/courseDataRemote";
@@ -83,6 +85,144 @@ function pickCourseCenterAny(stateOrParams) {
   if (!stateOrParams || typeof stateOrParams !== "object") return null;
   const c = stateOrParams?.course;
   return stateOrParams?.courseCenter ?? c?.center ?? c?.courseCenter ?? null;
+}
+
+function safeTrim(v) {
+  return String(v ?? "").trim();
+}
+
+function safePlayerId(p, fallback = "") {
+  return String(p?.id ?? p?.uid ?? p?.playerId ?? fallback ?? "");
+}
+
+function normalizeBag(bag) {
+  const arr = Array.isArray(bag) ? bag : [];
+  return arr
+    .filter((x) => x && typeof x === "object")
+    .map((x) => ({
+      category: safeTrim(x.category),
+      model: safeTrim(x.model),
+      selectedOptions: Array.isArray(x.selectedOptions)
+        ? x.selectedOptions.map((v) => safeTrim(v)).filter(Boolean)
+        : [],
+    }))
+    .filter((x) => x.category.length > 0);
+}
+
+function formatWoodLabel(option) {
+  const raw = safeTrim(option);
+  const compact = raw.toLowerCase().replace(/\s+/g, "");
+  const m = compact.match(/^(\d+)w$/);
+  if (m) return `${m[1]} Wood`;
+  if (/^\d+\s*wood$/i.test(raw)) return raw.replace(/\b\w/g, (c) => c.toUpperCase());
+  return raw ? raw.replace(/\b\w/g, (c) => c.toUpperCase()) : "Wood";
+}
+
+function formatHybridLabel(option) {
+  const raw = safeTrim(option);
+  const compact = raw.toLowerCase().replace(/\s+/g, "");
+  const m = compact.match(/^(\d+)h$/);
+  if (m) return `${m[1]} Hybrid`;
+  if (/^\d+\s*hybrid$/i.test(raw)) return raw.replace(/\b\w/g, (c) => c.toUpperCase());
+  return "Hybrid";
+}
+
+function buildClubOptionsFromBag(bag) {
+  const out = [];
+
+  for (const item of normalizeBag(bag)) {
+    const category = safeTrim(item.category);
+    const categoryKey = category.toLowerCase();
+    const selected = Array.isArray(item.selectedOptions)
+      ? item.selectedOptions.map((v) => safeTrim(v)).filter(Boolean)
+      : [];
+
+    if (categoryKey === "driver") {
+      out.push("Driver");
+      continue;
+    }
+
+    if (categoryKey === "woods") {
+      if (selected.length) {
+        selected.forEach((option) => out.push(formatWoodLabel(option)));
+      } else {
+        out.push("Wood");
+      }
+      continue;
+    }
+
+    if (categoryKey === "hybrids") {
+      if (selected.length) {
+        selected.forEach((option) => out.push(formatHybridLabel(option)));
+      } else {
+        out.push("Hybrid");
+      }
+      continue;
+    }
+
+    if (categoryKey === "driving iron") {
+      if (selected.length) {
+        selected.forEach((option) => out.push(option.toUpperCase()));
+      } else {
+        out.push("Driving Iron");
+      }
+      continue;
+    }
+
+    if (categoryKey === "irons" || categoryKey === "wedges") {
+      if (selected.length) {
+        selected.forEach((option) => out.push(option.toUpperCase()));
+      } else {
+        out.push(category);
+      }
+      continue;
+    }
+
+    if (/^\d+\s*wood$/i.test(category)) {
+      out.push(formatWoodLabel(category));
+      continue;
+    }
+
+    if (/^\d+\s*hybrid$/i.test(category) || categoryKey === "hybrid") {
+      out.push(formatHybridLabel(category));
+      continue;
+    }
+  }
+
+  return Array.from(new Set(out.filter(Boolean)));
+}
+
+function resolveMyPlayerFromRoster(roster) {
+  const list = Array.isArray(roster) ? roster : [];
+  const meUid = safeTrim(auth?.currentUser?.uid);
+
+  const bySource = list.find((p) => safeTrim(p?.source).toLowerCase() === "me");
+  if (bySource) {
+    return {
+      playerId: safePlayerId(bySource),
+      playerName: safeTrim(bySource?.name || bySource?.displayName || bySource?.fullName || "Player"),
+    };
+  }
+
+  if (meUid) {
+    const byUid = list.find((p) => safeTrim(p?.uid || p?.userId) === meUid);
+    if (byUid) {
+      return {
+        playerId: safePlayerId(byUid),
+        playerName: safeTrim(byUid?.name || byUid?.displayName || byUid?.fullName || "Player"),
+      };
+    }
+  }
+
+  const byMeId = list.find((p) => safeTrim(p?.id).toLowerCase() === "me");
+  if (byMeId) {
+    return {
+      playerId: safePlayerId(byMeId),
+      playerName: safeTrim(byMeId?.name || byMeId?.displayName || byMeId?.fullName || "Player"),
+    };
+  }
+
+  return { playerId: "", playerName: "" };
 }
 
 function teeKeyFromParams(teeObj) {
@@ -1215,6 +1355,9 @@ export default function HoleMapScreen({ navigation, route }) {
 
   const [setupOpen, setSetupOpen] = useState(false);
   const [savingSetup, setSavingSetup] = useState(false);
+  const [clubPickerOpen, setClubPickerOpen] = useState(false);
+  const [equipmentBag, setEquipmentBag] = useState([]);
+  const [pendingClubLabel, setPendingClubLabel] = useState("");
 
   // Planner: target line + draggable target
   const [plannerOn, setPlannerOn] = useState(true);
@@ -1255,6 +1398,41 @@ export default function HoleMapScreen({ navigation, route }) {
 
     AsyncStorage.setItem(PLANNER_PREF_KEY, plannerOn ? "true" : "false").catch(() => { });
   }, [plannerOn, plannerReady]);
+
+  useEffect(() => {
+    let live = true;
+
+    (async () => {
+      const uid = safeTrim(auth?.currentUser?.uid);
+      if (!uid) {
+        if (live) setEquipmentBag([]);
+        return;
+      }
+
+      try {
+        const snap = await getDoc(doc(db, "users", uid));
+        if (!live) return;
+
+        const nextBag = snap?.exists?.() ? normalizeBag(snap.data()?.equipmentBag) : [];
+        setEquipmentBag(nextBag);
+      } catch {
+        if (!live) return;
+        setEquipmentBag([]);
+      }
+    })();
+
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const clubOptions = useMemo(() => {
+    return buildClubOptionsFromBag(equipmentBag);
+  }, [equipmentBag]);
+
+  const myPlayer = useMemo(() => {
+    return resolveMyPlayerFromRoster(params.players || []);
+  }, [params.players]);
 
   const currentAccuracyText = useMemo(() => {
     if (!user) return "Waiting for GPS…";
@@ -1664,7 +1842,19 @@ export default function HoleMapScreen({ navigation, route }) {
             <View style={styles.yardActionRail}>
               <Pressable
                 pointerEvents="auto"
-                onPress={() => Alert.alert("Club selector", "Next step: open club selector here.")}
+                onPress={() => {
+                  if (!clubOptions.length) {
+                    Alert.alert("No clubs found", "Add clubs in Equipment first.");
+                    return;
+                  }
+
+                  if (!myPlayer?.playerId) {
+                    Alert.alert("Player not found", "Could not resolve your player for this round.");
+                    return;
+                  }
+
+                  setClubPickerOpen(true);
+                }}
                 style={({ pressed }) => [styles.yardActionBtn, pressed && styles.pressed]}
               >
                 <Image source={CLUB_ICON} style={styles.yardActionIconImg} resizeMode="contain" />
@@ -1742,6 +1932,69 @@ export default function HoleMapScreen({ navigation, route }) {
           <Text style={styles.backHubBtnT}>Back to Hole Hub</Text>
         </Pressable>
       </View>
+
+      <Modal visible={clubPickerOpen} transparent animationType="fade" onRequestClose={() => setClubPickerOpen(false)}>
+        <View style={styles.modalBg}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setClubPickerOpen(false)} />
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={styles.modalCard}
+          >
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select Club</Text>
+              <Pressable onPress={() => setClubPickerOpen(false)} style={styles.modalClose}>
+                <Text style={styles.modalCloseT}>Done</Text>
+              </Pressable>
+            </View>
+
+            <Text style={styles.modalSub}>
+              {myPlayer?.playerName
+                ? `Saving for ${myPlayer.playerName}`
+                : "Choose the club for your next shot."}
+            </Text>
+
+            <ScrollView
+              style={styles.modalBody}
+              contentContainerStyle={styles.modalBodyContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {clubOptions.length ? (
+                <View style={styles.clubOptionGrid}>
+                  {clubOptions.map((label) => {
+                    const active = pendingClubLabel === label;
+                    return (
+                      <Pressable
+                        key={label}
+                        onPress={() => {
+                          setPendingClubLabel(label);
+                          setClubPickerOpen(false);
+                        }}
+                        style={({ pressed }) => [
+                          styles.clubOptionTile,
+                          active && styles.clubOptionTileActive,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <Text style={[styles.clubOptionTileText, active && styles.clubOptionTileTextActive]}>
+                          {label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : (
+                <View style={styles.modalLoading}>
+                  <Text style={styles.modalLoadingT}>No clubs found in your bag yet.</Text>
+                </View>
+              )}
+
+              <Text style={styles.modalHint}>
+                Selecting a club prepares the pending shot only. Nothing is saved until you tap the bullseye.
+              </Text>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
 
       <Modal visible={setupOpen} transparent animationType="fade" onRequestClose={() => setSetupOpen(false)}>
         <View style={styles.modalBg}>
@@ -2233,6 +2486,37 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.65)",
     fontWeight: "800",
     fontSize: 11,
+  },
+
+  clubOptionGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 10,
+  },
+  clubOptionTile: {
+    minWidth: 78,
+    height: 44,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1.25,
+    borderColor: "rgba(15,122,74,0.78)",
+    backgroundColor: "rgba(20,36,64,0.70)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  clubOptionTileActive: {
+    borderColor: "rgba(242,201,76,0.85)",
+    backgroundColor: "rgba(242,201,76,0.16)",
+  },
+  clubOptionTileText: {
+    color: "rgba(255,255,255,0.88)",
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  clubOptionTileTextActive: {
+    color: "#fff",
   },
 
   gpsChipWrap: { position: "absolute", left: 14, right: 14, alignItems: "center" },
