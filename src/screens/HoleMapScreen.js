@@ -113,18 +113,55 @@ function formatWoodLabel(option) {
   const raw = safeTrim(option);
   const compact = raw.toLowerCase().replace(/\s+/g, "");
   const m = compact.match(/^(\d+)w$/);
-  if (m) return `${m[1]} Wood`;
-  if (/^\d+\s*wood$/i.test(raw)) return raw.replace(/\b\w/g, (c) => c.toUpperCase());
-  return raw ? raw.replace(/\b\w/g, (c) => c.toUpperCase()) : "Wood";
+  if (m) return `${m[1]}W`;
+  if (/^\d+\s*wood$/i.test(raw)) {
+    const n = raw.match(/(\d+)/)?.[1];
+    return n ? `${n}W` : "W";
+  }
+  return "W";
 }
 
 function formatHybridLabel(option) {
   const raw = safeTrim(option);
   const compact = raw.toLowerCase().replace(/\s+/g, "");
   const m = compact.match(/^(\d+)h$/);
-  if (m) return `${m[1]} Hybrid`;
-  if (/^\d+\s*hybrid$/i.test(raw)) return raw.replace(/\b\w/g, (c) => c.toUpperCase());
-  return "Hybrid";
+  if (m) return `${m[1]}HY`;
+  if (/^\d+\s*hybrid$/i.test(raw)) {
+    const n = raw.match(/(\d+)/)?.[1];
+    return n ? `${n}HY` : "HY";
+  }
+  return "HY";
+}
+
+function clubOrderRank(label) {
+  const raw = safeTrim(label).toUpperCase();
+
+  if (raw === "DR") return 0;
+
+  const woodMatch = raw.match(/^(\d+)W$/);
+  if (woodMatch) return 10 + Number(woodMatch[1]);
+
+  if (raw === "W") return 19;
+  if (raw === "U") return 20;
+
+  const hybridMatch = raw.match(/^(\d+)HY$/);
+  if (hybridMatch) return 30 + Number(hybridMatch[1]);
+
+  if (raw === "HY") return 39;
+
+  const ironMatch = raw.match(/^([1-9])I$/);
+  if (ironMatch) return 40 + Number(ironMatch[1]);
+
+  if (raw === "PW") return 50;
+  if (raw === "AW") return 51;
+  if (raw === "GW") return 52;
+  if (raw === "SW") return 53;
+  if (raw === "LW") return 54;
+
+  const loftMatch = raw.match(/^(\d{2})$/);
+  if (loftMatch) return 60 + Number(loftMatch[1]);
+
+  return 999;
 }
 
 function buildClubOptionsFromBag(bag) {
@@ -138,7 +175,7 @@ function buildClubOptionsFromBag(bag) {
       : [];
 
     if (categoryKey === "driver") {
-      out.push("Driver");
+      out.push("DR");
       continue;
     }
 
@@ -146,7 +183,7 @@ function buildClubOptionsFromBag(bag) {
       if (selected.length) {
         selected.forEach((option) => out.push(formatWoodLabel(option)));
       } else {
-        out.push("Wood");
+        out.push("W");
       }
       continue;
     }
@@ -155,25 +192,31 @@ function buildClubOptionsFromBag(bag) {
       if (selected.length) {
         selected.forEach((option) => out.push(formatHybridLabel(option)));
       } else {
-        out.push("Hybrid");
+        out.push("HY");
       }
       continue;
     }
 
     if (categoryKey === "driving iron") {
       if (selected.length) {
-        selected.forEach((option) => out.push(option.toUpperCase()));
+        selected.forEach((option) => out.push(String(option).toUpperCase()));
       } else {
-        out.push("Driving Iron");
+        out.push("U");
       }
       continue;
     }
 
     if (categoryKey === "irons" || categoryKey === "wedges") {
       if (selected.length) {
-        selected.forEach((option) => out.push(option.toUpperCase()));
-      } else {
-        out.push(category);
+        selected.forEach((option) => {
+          const raw = safeTrim(option).toUpperCase();
+          const degreeMatch = raw.match(/^(\d{2})°$/);
+          if (degreeMatch) {
+            out.push(degreeMatch[1]);
+            return;
+          }
+          out.push(raw);
+        });
       }
       continue;
     }
@@ -189,7 +232,11 @@ function buildClubOptionsFromBag(bag) {
     }
   }
 
-  return Array.from(new Set(out.filter(Boolean)));
+  return Array.from(new Set(out.filter(Boolean))).sort((a, b) => {
+    const rankDiff = clubOrderRank(a) - clubOrderRank(b);
+    if (rankDiff !== 0) return rankDiff;
+    return String(a).localeCompare(String(b));
+  });
 }
 
 function resolveMyPlayerFromRoster(roster) {
@@ -684,10 +731,10 @@ function buildHtml(initialCenter) {
         const dy = (greenAim.lat - teeP.lat) * 110540;
         const distM = Math.sqrt(dx*dx + dy*dy);
 
-        let z = 16.45;
-        if(distM > 420) z = 15.85;
-        else if(distM > 320) z = 16.05;
-        else if(distM > 220) z = 16.25;
+        let z = 16.2;
+        if(distM > 420) z = 15.6;
+        else if(distM > 320) z = 15.8;
+        else if(distM > 220) z = 16.0;
 
         z = Math.max(15.6, Math.min(16.8, z));
 
@@ -882,9 +929,8 @@ export default function HoleMapScreen({ navigation, route }) {
   const yardDockRef = useRef("right"); // "left" | "center" | "right"
 
   const [yardStacked, setYardStacked] = useState(true);
-  const [yardActionsBelow, setYardActionsBelow] = useState(false);
 
-  // Default position: right-docked + stacked, but still draggable
+  // Default position: right-side resting slot for yardages
   useEffect(() => {
     const panelHalfW = 60; // stacked width 120
     const edgePad = 8;
@@ -892,10 +938,34 @@ export default function HoleMapScreen({ navigation, route }) {
 
     yardDockRef.current = "right";
     setYardStacked(true);
-    setYardActionsBelow(false);
-    yardPos.setValue({ x: maxX, y: -120 });
+    yardPos.setValue({ x: maxX, y: 117 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screenW]);
+
+  useEffect(() => {
+    const panelHalfW = 60; // stacked width 120
+    const edgePad = 8;
+    const maxX = (screenW / 2) - panelHalfW - edgePad;
+
+    if (clubPickerOpen) {
+      yardDockRef.current = "right";
+      setYardStacked(true);
+      Animated.spring(yardPos, {
+        toValue: { x: maxX, y: 117 },
+        useNativeDriver: false,
+        speed: 18,
+        bounciness: 6,
+      }).start();
+      return;
+    }
+
+    Animated.spring(yardPos, {
+      toValue: { x: maxX, y: 117 },
+      useNativeDriver: false,
+      speed: 18,
+      bounciness: 6,
+    }).start();
+  }, [clubPickerOpen, screenW, yardPos]);
 
   const didAutoCenterRef = useRef(false);
   const autoCenterWindowStartRef = useRef(0);
@@ -1216,9 +1286,6 @@ export default function HoleMapScreen({ navigation, route }) {
         const maxUp = -520;
         const maxDown = 40;
         const snapY = Math.max(maxUp, Math.min(maxDown, yardPos.y.__getValue()));
-        const panelCenterY = screenH / 2 + snapY;
-        setYardActionsBelow(panelCenterY < screenH * 0.5);
-
         Animated.spring(yardPos, {
           toValue: { x: snapX, y: snapY },
           useNativeDriver: false,
@@ -1838,128 +1905,16 @@ export default function HoleMapScreen({ navigation, route }) {
             { transform: [{ translateX: yardPos.x }, { translateY: yardPos.y }] },
           ]}
         >
-          {!yardActionsBelow ? (
-            <View style={styles.yardActionRail}>
-              <Pressable
+          <View style={styles.yardClusterRow}>
+            {clubPickerOpen ? (
+              <View
                 pointerEvents="auto"
-                onPress={() => {
-                  if (!clubOptions.length) {
-                    Alert.alert("No clubs found", "Add clubs in Equipment first.");
-                    return;
-                  }
-
-                  if (!myPlayer?.playerId) {
-                    Alert.alert("Player not found", "Could not resolve your player for this round.");
-                    return;
-                  }
-
-                  setClubPickerOpen(true);
-                }}
-                style={({ pressed }) => [styles.yardActionBtn, pressed && styles.pressed]}
+                style={[
+                  styles.inlineClubPanel,
+                  yardStacked ? styles.inlineClubPanelStacked : styles.inlineClubPanelWide,
+                ]}
               >
-                <Image source={CLUB_ICON} style={styles.yardActionIconImg} resizeMode="contain" />
-              </Pressable>
-
-              <Pressable
-                pointerEvents="auto"
-                onPress={() => Alert.alert("Save shot", "Next step: save last shot from here.")}
-                style={({ pressed }) => [styles.yardActionBtn, styles.yardActionBtnAccent, pressed && styles.pressed]}
-              >
-                <Image source={BULLSEYE_ICON} style={styles.yardActionIconImg} resizeMode="contain" />
-              </Pressable>
-            </View>
-          ) : null}
-
-          <View
-            style={[
-              styles.yardPanel,
-              yardStacked ? styles.yardPanelStacked : styles.yardPanelWide,
-            ]}
-          >
-            <View style={yardStacked ? styles.yColStackWrap : styles.yRow3}>
-              <View style={[styles.yCol, yardStacked && styles.yColStack]}>
-                <Text style={styles.yLabelCol}>BACK</Text>
-                <Text style={styles.yValCol}>{distVals.back}</Text>
-                <Text style={styles.yUnitCol}>YDS</Text>
-              </View>
-
-              <View style={[styles.yCol, yardStacked && styles.yColStack]}>
-                <Text style={styles.yLabelCol}>MID</Text>
-                <Text style={styles.yValCol}>{distVals.middle}</Text>
-                <Text style={styles.yUnitCol}>YDS</Text>
-              </View>
-
-              <View style={[styles.yCol, yardStacked && styles.yColStack]}>
-                <Text style={styles.yLabelCol}>FRONT</Text>
-                <Text style={styles.yValCol}>{distVals.front}</Text>
-                <Text style={styles.yUnitCol}>YDS</Text>
-              </View>
-            </View>
-
-            {!green?.front && !green?.middle && !green?.back ? (
-              <Text style={styles.yHint}>No green points loaded for this course.</Text>
-            ) : null}
-          </View>
-
-          {yardActionsBelow ? (
-            <View style={styles.yardActionRail}>
-              <Pressable
-                pointerEvents="auto"
-                onPress={() => Alert.alert("Club selector", "Next step: open club selector here.")}
-                style={({ pressed }) => [styles.yardActionBtn, pressed && styles.pressed]}
-              >
-                <Image source={CLUB_ICON} style={styles.yardActionIconImg} resizeMode="contain" />
-              </Pressable>
-
-              <Pressable
-                pointerEvents="auto"
-                onPress={() => Alert.alert("Save shot", "Next step: save last shot from here.")}
-                style={({ pressed }) => [styles.yardActionBtn, styles.yardActionBtnAccent, pressed && styles.pressed]}
-              >
-                <Image source={BULLSEYE_ICON} style={styles.yardActionIconImg} resizeMode="contain" />
-              </Pressable>
-            </View>
-          ) : null}
-        </Animated.View>
-
-        {/* bottom GPS chip removed (now in top chip row) */}
-
-        <Pressable
-          pointerEvents="auto"
-          onPress={goToHoleHub}
-          style={({ pressed }) => [styles.backHubBtn, pressed && styles.pressed]}
-        >
-          <Text style={styles.backHubBtnT}>Back to Hole Hub</Text>
-        </Pressable>
-      </View>
-
-      <Modal visible={clubPickerOpen} transparent animationType="fade" onRequestClose={() => setClubPickerOpen(false)}>
-        <View style={styles.modalBg}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setClubPickerOpen(false)} />
-          <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
-            style={styles.modalCard}
-          >
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Club</Text>
-              <Pressable onPress={() => setClubPickerOpen(false)} style={styles.modalClose}>
-                <Text style={styles.modalCloseT}>Done</Text>
-              </Pressable>
-            </View>
-
-            <Text style={styles.modalSub}>
-              {myPlayer?.playerName
-                ? `Saving for ${myPlayer.playerName}`
-                : "Choose the club for your next shot."}
-            </Text>
-
-            <ScrollView
-              style={styles.modalBody}
-              contentContainerStyle={styles.modalBodyContent}
-              showsVerticalScrollIndicator={false}
-            >
-              {clubOptions.length ? (
-                <View style={styles.clubOptionGrid}>
+                <View style={[styles.inlineClubGrid, !yardStacked && styles.inlineClubGridWide]}>
                   {clubOptions.map((label) => {
                     const active = pendingClubLabel === label;
                     return (
@@ -1970,31 +1925,92 @@ export default function HoleMapScreen({ navigation, route }) {
                           setClubPickerOpen(false);
                         }}
                         style={({ pressed }) => [
-                          styles.clubOptionTile,
-                          active && styles.clubOptionTileActive,
+                          styles.inlineClubPill,
+                          active && styles.inlineClubPillActive,
                           pressed && styles.pressed,
                         ]}
                       >
-                        <Text style={[styles.clubOptionTileText, active && styles.clubOptionTileTextActive]}>
+                        <Text style={[styles.inlineClubPillText, active && styles.inlineClubPillTextActive]}>
                           {label}
                         </Text>
                       </Pressable>
                     );
                   })}
                 </View>
-              ) : (
-                <View style={styles.modalLoading}>
-                  <Text style={styles.modalLoadingT}>No clubs found in your bag yet.</Text>
-                </View>
-              )}
+              </View>
+            ) : (
+              <View
+                style={[
+                  styles.yardPanel,
+                  yardStacked ? styles.yardPanelStacked : styles.yardPanelWide,
+                ]}
+              >
+                <View style={yardStacked ? styles.yColStackWrap : styles.yRow3}>
+                  <View style={[styles.yCol, yardStacked && styles.yColStack]}>
+                    <Text style={styles.yLabelCol}>BACK</Text>
+                    <Text style={styles.yValCol}>{distVals.back}</Text>
+                    <Text style={styles.yUnitCol}>YDS</Text>
+                  </View>
 
-              <Text style={styles.modalHint}>
-                Selecting a club prepares the pending shot only. Nothing is saved until you tap the bullseye.
-              </Text>
-            </ScrollView>
-          </KeyboardAvoidingView>
+                  <View style={[styles.yCol, yardStacked && styles.yColStack]}>
+                    <Text style={styles.yLabelCol}>MID</Text>
+                    <Text style={styles.yValCol}>{distVals.middle}</Text>
+                    <Text style={styles.yUnitCol}>YDS</Text>
+                  </View>
+
+                  <View style={[styles.yCol, yardStacked && styles.yColStack]}>
+                    <Text style={styles.yLabelCol}>FRONT</Text>
+                    <Text style={styles.yValCol}>{distVals.front}</Text>
+                    <Text style={styles.yUnitCol}>YDS</Text>
+                  </View>
+                </View>
+
+                {!green?.front && !green?.middle && !green?.back ? (
+                  <Text style={styles.yHint}>No green points loaded for this course.</Text>
+                ) : null}
+              </View>
+            )}
+          </View>
+        </Animated.View>
+
+        <View style={styles.bottomActionRow}>
+          <Pressable
+            pointerEvents="auto"
+            onPress={() => {
+              if (!clubOptions.length) {
+                Alert.alert("No clubs found", "Add clubs in Equipment first.");
+                return;
+              }
+
+              if (!myPlayer?.playerId) {
+                Alert.alert("Player not found", "Could not resolve your player for this round.");
+                return;
+              }
+
+              setClubPickerOpen((prev) => !prev);
+            }}
+            style={({ pressed }) => [styles.yardActionBtn, pendingClubLabel && styles.yardActionBtnActive, pressed && styles.pressed]}
+          >
+            <Image source={CLUB_ICON} style={styles.yardActionIconImg} resizeMode="contain" />
+          </Pressable>
+
+          <Pressable
+            pointerEvents="auto"
+            onPress={() => Alert.alert("Save shot", "Next step: save last shot from here.")}
+            style={({ pressed }) => [styles.yardActionBtn, styles.yardActionBtnAccent, pressed && styles.pressed]}
+          >
+            <Image source={BULLSEYE_ICON} style={styles.yardActionIconImg} resizeMode="contain" />
+          </Pressable>
         </View>
-      </Modal>
+
+        <Pressable
+          pointerEvents="auto"
+          onPress={goToHoleHub}
+          style={({ pressed }) => [styles.backHubBtn, pressed && styles.pressed]}
+        >
+          <Text style={styles.backHubBtnT}>Back to Hole Hub</Text>
+        </Pressable>
+      </View>
 
       <Modal visible={setupOpen} transparent animationType="fade" onRequestClose={() => setSetupOpen(false)}>
         <View style={styles.modalBg}>
@@ -2397,7 +2413,6 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     alignItems: "center",
   },
-
   yardPanel: {
     alignSelf: "center",
     borderRadius: 18,
@@ -2435,6 +2450,11 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.22)",
   },
 
+  yardActionBtnActive: {
+    borderColor: "rgba(242,201,76,0.85)",
+    backgroundColor: "rgba(242,201,76,0.16)",
+  },
+
   yardActionBtnAccent: {
     backgroundColor: "rgba(20,26,36,0.96)",
     borderColor: "rgba(255,255,255,0.24)",
@@ -2445,6 +2465,64 @@ const styles = StyleSheet.create({
     height: 30,
   },
 
+  yardClusterRow: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  inlineClubPanel: {
+    borderRadius: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+
+  inlineClubPanelStacked: {
+    width: 78,
+  },
+
+  inlineClubPanelWide: {
+    width: "88%",
+  },
+
+  inlineClubGrid: {
+    gap: 6,
+  },
+
+  inlineClubGridWide: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+  },
+
+  inlineClubPill: {
+    minHeight: 36,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(20,36,64,0.70)",
+    borderWidth: 1.25,
+    borderColor: "rgba(15,122,74,0.78)",
+  },
+
+  inlineClubPillActive: {
+    borderColor: "rgba(242,201,76,0.85)",
+    backgroundColor: "rgba(242,201,76,0.16)",
+  },
+
+  inlineClubPillText: {
+    color: "rgba(255,255,255,0.88)",
+    fontSize: 10,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+
+  inlineClubPillTextActive: {
+    color: "#fff",
+  },
   yColStackWrap: {
     gap: 8,
   },
@@ -2460,6 +2538,7 @@ const styles = StyleSheet.create({
 
   yCol: {
     flex: 1,
+    minHeight: 92,
     borderRadius: 16,
     backgroundColor: "#2E7DFF",
     borderWidth: 1,
@@ -2486,37 +2565,6 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.65)",
     fontWeight: "800",
     fontSize: 11,
-  },
-
-  clubOptionGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    marginTop: 10,
-  },
-  clubOptionTile: {
-    minWidth: 78,
-    height: 44,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    borderWidth: 1.25,
-    borderColor: "rgba(15,122,74,0.78)",
-    backgroundColor: "rgba(20,36,64,0.70)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  clubOptionTileActive: {
-    borderColor: "rgba(242,201,76,0.85)",
-    backgroundColor: "rgba(242,201,76,0.16)",
-  },
-  clubOptionTileText: {
-    color: "rgba(255,255,255,0.88)",
-    fontSize: 12,
-    fontWeight: "900",
-    textAlign: "center",
-  },
-  clubOptionTileTextActive: {
-    color: "#fff",
   },
 
   gpsChipWrap: { position: "absolute", left: 14, right: 14, alignItems: "center" },
