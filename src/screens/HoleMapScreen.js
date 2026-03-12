@@ -16,17 +16,22 @@ import {
   Animated,
   PanResponder,
   Dimensions,
+  Image,
 } from "react-native";
 import { WebView } from "react-native-webview";
 import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CommonActions } from "@react-navigation/native";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 import ROUTES from "../navigation/routes";
 import { MAPBOX_TOKEN } from "../config/mapbox";
 import { loadCourseData, saveCourseData } from "../storage/courseData";
 import { isAdmin as isAdminUser } from "../storage/courseDataRemote";
 import * as RoundState from "../storage/roundState";
+
+const CLUB_ICON = require("../../assets/club-icon.jpg");
+const BULLSEYE_ICON = require("../../assets/bullseye-icon.png");
 
 function toRad(v) {
   return (v * Math.PI) / 180;
@@ -731,12 +736,13 @@ export default function HoleMapScreen({ navigation, route }) {
     });
   }, [navigation]);
 
-  const screenW = Dimensions.get("window").width;
+  const { width: screenW, height: screenH } = Dimensions.get("window");
 
   const yardPos = useRef(new Animated.ValueXY({ x: 0, y: -120 })).current;
   const yardDockRef = useRef("right"); // "left" | "center" | "right"
 
   const [yardStacked, setYardStacked] = useState(true);
+  const [yardActionsBelow, setYardActionsBelow] = useState(false);
 
   // Default position: right-docked + stacked, but still draggable
   useEffect(() => {
@@ -746,6 +752,7 @@ export default function HoleMapScreen({ navigation, route }) {
 
     yardDockRef.current = "right";
     setYardStacked(true);
+    setYardActionsBelow(false);
     yardPos.setValue({ x: maxX, y: -120 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screenW]);
@@ -1069,6 +1076,8 @@ export default function HoleMapScreen({ navigation, route }) {
         const maxUp = -520;
         const maxDown = 40;
         const snapY = Math.max(maxUp, Math.min(maxDown, yardPos.y.__getValue()));
+        const panelCenterY = screenH / 2 + snapY;
+        setYardActionsBelow(panelCenterY < screenH * 0.5);
 
         Animated.spring(yardPos, {
           toValue: { x: snapX, y: snapY },
@@ -1647,33 +1656,79 @@ export default function HoleMapScreen({ navigation, route }) {
           pointerEvents="box-none"
           {...yardPan.panHandlers}
           style={[
-            styles.yardPanel,
+            styles.yardPanelWrap,
             { transform: [{ translateX: yardPos.x }, { translateY: yardPos.y }] },
-            yardStacked ? styles.yardPanelStacked : styles.yardPanelWide,
           ]}
         >
-          <View style={yardStacked ? styles.yColStackWrap : styles.yRow3}>
-            <View style={[styles.yCol, yardStacked && styles.yColStack]}>
-              <Text style={styles.yLabelCol}>BACK</Text>
-              <Text style={styles.yValCol}>{distVals.back}</Text>
-              <Text style={styles.yUnitCol}>YDS</Text>
+          {!yardActionsBelow ? (
+            <View style={styles.yardActionRail}>
+              <Pressable
+                pointerEvents="auto"
+                onPress={() => Alert.alert("Club selector", "Next step: open club selector here.")}
+                style={({ pressed }) => [styles.yardActionBtn, pressed && styles.pressed]}
+              >
+                <Image source={CLUB_ICON} style={styles.yardActionIconImg} resizeMode="contain" />
+              </Pressable>
+
+              <Pressable
+                pointerEvents="auto"
+                onPress={() => Alert.alert("Save shot", "Next step: save last shot from here.")}
+                style={({ pressed }) => [styles.yardActionBtn, styles.yardActionBtnAccent, pressed && styles.pressed]}
+              >
+                <Image source={BULLSEYE_ICON} style={styles.yardActionIconImg} resizeMode="contain" />
+              </Pressable>
+            </View>
+          ) : null}
+
+          <View
+            style={[
+              styles.yardPanel,
+              yardStacked ? styles.yardPanelStacked : styles.yardPanelWide,
+            ]}
+          >
+            <View style={yardStacked ? styles.yColStackWrap : styles.yRow3}>
+              <View style={[styles.yCol, yardStacked && styles.yColStack]}>
+                <Text style={styles.yLabelCol}>BACK</Text>
+                <Text style={styles.yValCol}>{distVals.back}</Text>
+                <Text style={styles.yUnitCol}>YDS</Text>
+              </View>
+
+              <View style={[styles.yCol, yardStacked && styles.yColStack]}>
+                <Text style={styles.yLabelCol}>MID</Text>
+                <Text style={styles.yValCol}>{distVals.middle}</Text>
+                <Text style={styles.yUnitCol}>YDS</Text>
+              </View>
+
+              <View style={[styles.yCol, yardStacked && styles.yColStack]}>
+                <Text style={styles.yLabelCol}>FRONT</Text>
+                <Text style={styles.yValCol}>{distVals.front}</Text>
+                <Text style={styles.yUnitCol}>YDS</Text>
+              </View>
             </View>
 
-            <View style={[styles.yCol, yardStacked && styles.yColStack]}>
-              <Text style={styles.yLabelCol}>MID</Text>
-              <Text style={styles.yValCol}>{distVals.middle}</Text>
-              <Text style={styles.yUnitCol}>YDS</Text>
-            </View>
-
-            <View style={[styles.yCol, yardStacked && styles.yColStack]}>
-              <Text style={styles.yLabelCol}>FRONT</Text>
-              <Text style={styles.yValCol}>{distVals.front}</Text>
-              <Text style={styles.yUnitCol}>YDS</Text>
-            </View>
+            {!green?.front && !green?.middle && !green?.back ? (
+              <Text style={styles.yHint}>No green points loaded for this course.</Text>
+            ) : null}
           </View>
 
-          {!green?.front && !green?.middle && !green?.back ? (
-            <Text style={styles.yHint}>No green points loaded for this course.</Text>
+          {yardActionsBelow ? (
+            <View style={styles.yardActionRail}>
+              <Pressable
+                pointerEvents="auto"
+                onPress={() => Alert.alert("Club selector", "Next step: open club selector here.")}
+                style={({ pressed }) => [styles.yardActionBtn, pressed && styles.pressed]}
+              >
+                <Image source={CLUB_ICON} style={styles.yardActionIconImg} resizeMode="contain" />
+              </Pressable>
+
+              <Pressable
+                pointerEvents="auto"
+                onPress={() => Alert.alert("Save shot", "Next step: save last shot from here.")}
+                style={({ pressed }) => [styles.yardActionBtn, styles.yardActionBtnAccent, pressed && styles.pressed]}
+              >
+                <Image source={BULLSEYE_ICON} style={styles.yardActionIconImg} resizeMode="contain" />
+              </Pressable>
+            </View>
           ) : null}
         </Animated.View>
 
@@ -2085,6 +2140,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
 
+  yardPanelWrap: {
+    alignSelf: "center",
+    alignItems: "center",
+  },
+
   yardPanel: {
     alignSelf: "center",
     borderRadius: 18,
@@ -2101,6 +2161,35 @@ const styles = StyleSheet.create({
 
   yardPanelStacked: {
     width: 120,
+  },
+
+  yardActionRail: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 22,
+    marginVertical: 8,
+  },
+
+  yardActionBtn: {
+    width: 50,
+    height: 50,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(12,18,28,0.92)",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.22)",
+  },
+
+  yardActionBtnAccent: {
+    backgroundColor: "rgba(20,26,36,0.96)",
+    borderColor: "rgba(255,255,255,0.24)",
+  },
+
+  yardActionIconImg: {
+    width: 30,
+    height: 30,
   },
 
   yColStackWrap: {
