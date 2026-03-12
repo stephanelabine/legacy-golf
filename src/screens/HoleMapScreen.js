@@ -232,11 +232,60 @@ function buildClubOptionsFromBag(bag) {
     }
   }
 
-  return Array.from(new Set(out.filter(Boolean))).sort((a, b) => {
+  const uniqueSorted = Array.from(new Set(out.filter(Boolean))).sort((a, b) => {
     const rankDiff = clubOrderRank(a) - clubOrderRank(b);
     if (rankDiff !== 0) return rankDiff;
     return String(a).localeCompare(String(b));
   });
+
+  if (uniqueSorted.length <= 14) {
+    return uniqueSorted;
+  }
+
+  const next = [...uniqueSorted];
+
+  const findHighestIndex = (matcher) => {
+    for (let i = next.length - 1; i >= 0; i -= 1) {
+      if (matcher(next[i])) return i;
+    }
+    return -1;
+  };
+
+  const removeUtility = () => {
+    const idx = findHighestIndex((label) => String(label).toUpperCase() === "U");
+    if (idx >= 0) {
+      next.splice(idx, 1);
+      return true;
+    }
+    return false;
+  };
+
+  const removeHighestHybrid = () => {
+    const idx = findHighestIndex((label) => /^\d+HY$/i.test(label) || String(label).toUpperCase() === "HY");
+    if (idx >= 0) {
+      next.splice(idx, 1);
+      return true;
+    }
+    return false;
+  };
+
+  const removeHighestWood = () => {
+    const idx = findHighestIndex((label) => /^\d+W$/i.test(label) || String(label).toUpperCase() === "W");
+    if (idx >= 0) {
+      next.splice(idx, 1);
+      return true;
+    }
+    return false;
+  };
+
+  while (next.length > 14) {
+    if (removeUtility()) continue;
+    if (removeHighestHybrid()) continue;
+    if (removeHighestWood()) continue;
+    next.pop();
+  }
+
+  return next;
 }
 
 function resolveMyPlayerFromRoster(roster) {
@@ -719,9 +768,9 @@ function buildHtml(initialCenter) {
       return θ;
     }
 
-    function frameHole(teeP, greenAim, points, bearing){
+   function frameHole(teeP, greenAim, points, bearing){
       const valid = (points || []).filter(p => p && isFinite(p.lon) && isFinite(p.lat));
-      const offset = [0, 55];
+      const offset = [-24, -24];
 
       if(teeP && greenAim && isFinite(teeP.lon) && isFinite(teeP.lat) && isFinite(greenAim.lon) && isFinite(greenAim.lat)){
         const midLon = (teeP.lon + greenAim.lon) / 2;
@@ -731,12 +780,12 @@ function buildHtml(initialCenter) {
         const dy = (greenAim.lat - teeP.lat) * 110540;
         const distM = Math.sqrt(dx*dx + dy*dy);
 
-        let z = 16.2;
-        if(distM > 420) z = 15.6;
-        else if(distM > 320) z = 15.8;
-        else if(distM > 220) z = 16.0;
+        let z = 16.5;
+        if(distM > 420) z = 15.9;
+        else if(distM > 320) z = 16.1;
+        else if(distM > 220) z = 16.3;
 
-        z = Math.max(15.6, Math.min(16.8, z));
+        z = Math.max(15.9, Math.min(17.1, z));
 
         const opts = { center:[midLon, midLat], zoom:z, duration:520, offset };
         if(isFinite(bearing)) opts.bearing = bearing;
@@ -745,7 +794,7 @@ function buildHtml(initialCenter) {
       }
 
       if(valid.length === 1){
-        const opts = { center:[valid[0].lon, valid[0].lat], zoom:16.6, duration:450, offset };
+        const opts = { center:[valid[0].lon, valid[0].lat], zoom:16.9, duration:450, offset };
         if(isFinite(bearing)) opts.bearing = bearing;
         map.easeTo(opts);
         return;
@@ -938,7 +987,7 @@ export default function HoleMapScreen({ navigation, route }) {
 
     yardDockRef.current = "right";
     setYardStacked(true);
-    yardPos.setValue({ x: maxX, y: 117 });
+    yardPos.setValue({ x: maxX, y: 95 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screenW]);
 
@@ -951,7 +1000,7 @@ export default function HoleMapScreen({ navigation, route }) {
       yardDockRef.current = "right";
       setYardStacked(true);
       Animated.spring(yardPos, {
-        toValue: { x: maxX, y: 117 },
+        toValue: { x: maxX, y: 95 },
         useNativeDriver: false,
         speed: 18,
         bounciness: 6,
@@ -960,7 +1009,7 @@ export default function HoleMapScreen({ navigation, route }) {
     }
 
     Animated.spring(yardPos, {
-      toValue: { x: maxX, y: 117 },
+      toValue: { x: maxX, y: 95 },
       useNativeDriver: false,
       speed: 18,
       bounciness: 6,
