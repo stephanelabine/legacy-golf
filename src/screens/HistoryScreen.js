@@ -694,9 +694,25 @@ export default function HistoryScreen({ navigation }) {
     ]);
   }
 
-  function renderRowContent({ courseName, dateText, statusText, statusKind, rightPrimary, rightSecondary, onPress }) {
+  function renderRowContent({
+    courseName,
+    dateText,
+    statusText,
+    statusKind,
+    rightPrimary,
+    rightSecondary,
+    onPress,
+    pressEnabled = true,
+  }) {
     return (
-      <Pressable onPress={onPress} style={({ pressed }) => [styles.rowCard, pressed && styles.pressed]}>
+      <Pressable
+        disabled={!pressEnabled}
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.rowCard,
+          pressed && pressEnabled && styles.pressed,
+        ]}
+      >
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={styles.course} numberOfLines={2}>
             {shortCourseTitle(courseName)}
@@ -876,17 +892,19 @@ export default function HistoryScreen({ navigation }) {
                       onEdit={() => openRound(r)}
                       deleteLabel="Delete"
                       onDelete={() => confirmDeleteOne({ id: rid, isActivePinned: false })}
-                    >
-                      {renderRowContent({
-                        courseName,
-                        dateText,
-                        statusText: completed && isQuickPost ? "Quick Post" : statusText,
-                        statusKind: completed && isQuickPost ? "quick_post" : completed ? "complete" : status === "setup" ? "setup" : "in_progress",
-                        rightPrimary,
-                        rightSecondary,
-                        onPress: () => openRound(r),
-                      })}
-                    </PremiumSwipeRow>
+                      renderContent={({ pressEnabled }) =>
+                        renderRowContent({
+                          courseName,
+                          dateText,
+                          statusText: completed && isQuickPost ? "Quick Post" : statusText,
+                          statusKind: completed && isQuickPost ? "quick_post" : completed ? "complete" : status === "setup" ? "setup" : "in_progress",
+                          rightPrimary,
+                          rightSecondary,
+                          onPress: () => openRound(r),
+                          pressEnabled,
+                        })
+                      }
+                    />
                   );
                 })}
               </View>
@@ -940,17 +958,19 @@ export default function HistoryScreen({ navigation }) {
                       onEdit={() => openRound(r)}
                       deleteLabel="Delete"
                       onDelete={() => confirmDeleteOne({ id: rid, isActivePinned: false })}
-                    >
-                      {renderRowContent({
-                        courseName,
-                        dateText,
-                        statusText: completed && isQuickPost ? "Quick Post" : statusText,
-                        statusKind: completed && isQuickPost ? "quick_post" : "complete",
-                        rightPrimary,
-                        rightSecondary,
-                        onPress: () => openRound(r),
-                      })}
-                    </PremiumSwipeRow>
+                      renderContent={({ pressEnabled }) =>
+                        renderRowContent({
+                          courseName,
+                          dateText,
+                          statusText: completed && isQuickPost ? "Quick Post" : statusText,
+                          statusKind: completed && isQuickPost ? "quick_post" : "complete",
+                          rightPrimary,
+                          rightSecondary,
+                          onPress: () => openRound(r),
+                          pressEnabled,
+                        })
+                      }
+                    />
                   );
                 })}
               </View>

@@ -959,6 +959,41 @@ export default function FinalResultsScreen({ navigation, route }) {
       };
     }
 
+    if (type === "birdiebuckets") {
+      const bb = round?.wagers?.birdieBuckets && typeof round.wagers.birdieBuckets === "object"
+        ? round.wagers.birdieBuckets
+        : {};
+
+      const holesObj = bb?.holes && typeof bb.holes === "object" ? bb.holes : {};
+      const holeEntries = Object.values(holesObj)
+        .filter((x) => x && typeof x === "object")
+        .sort((a, b) => Number(a?.hole || 0) - Number(b?.hole || 0));
+
+      const totalWon = holeEntries.reduce((sum, h) => sum + (Number(h?.win?.amount || 0) || 0), 0);
+      const resolvedWins = holeEntries.filter((h) => Number(h?.win?.amount || 0) > 0);
+      const perEvent = Number(bb?.perEvent || getEntryFee(round || {}, formatKey) || 0);
+      const modeRaw = String(bb?.mode || "hits_pay_all").trim();
+      const modeLabel = modeRaw === "misses_pay" ? "Misses pay" : "Hits add";
+
+      const winLines = resolvedWins.map((h) => {
+        const winnerName = String(h?.win?.winnerName || "").trim() || "Player";
+        const holeNum = Number(h?.hole || h?.win?.hole || 0);
+        return `${winnerName} won with a birdie on hole ${holeNum}`;
+      });
+
+      return {
+        headline: totalWon > 0 ? `${money(totalWon)} won` : "No bucket wins yet",
+        lines: [
+          `Mode: ${modeLabel}`,
+          `Per event: ${perEvent > 0 ? money(perEvent) : "—"}`,
+          `Birdie Buckets won: ${String(resolvedWins.length)}`,
+          `Total paid out: ${money(totalWon) || "$0"}`,
+          ...winLines,
+        ],
+      };
+    }
+
+
     // For hole-based formats, this value means "$ per hole (per event) per player"
     // For round-total formats, it means "$ buy-in per player"
     const baseAmount = getEntryFee(round || {}, formatKey);
@@ -1164,11 +1199,26 @@ export default function FinalResultsScreen({ navigation, route }) {
       : 0;
 
     const statusPill =
-      isAuto
-        ? "AUTO"
-        : events === 0
-          ? "NO HOLES SET"
-          : `${resolvedCount}/${events} RESOLVED`;
+      type === "birdiebuckets"
+        ? (() => {
+          const bb =
+            round?.wagers?.birdieBuckets && typeof round.wagers.birdieBuckets === "object"
+              ? round.wagers.birdieBuckets
+              : {};
+
+          const holesObj = bb?.holes && typeof bb.holes === "object" ? bb.holes : {};
+          const winCount = Object.values(holesObj).filter(
+            (x) => x && typeof x === "object" && Number(x?.win?.amount || 0) > 0
+          ).length;
+
+          return `${winCount} ${winCount === 1 ? "WIN" : "WINS"}`;
+        })()
+        : isAuto
+          ? "AUTO"
+          : events === 0
+            ? "NO HOLES SET"
+            : `${resolvedCount}/${events} RESOLVED`;
+
 
     const payout = renderFormatPayout(formatKey, type, officialHoles);
 
@@ -1521,6 +1571,49 @@ export default function FinalResultsScreen({ navigation, route }) {
                       </>
                     ) : null}
                   </View>
+                ) : type === "birdiebuckets" ? (
+                  <View style={{ width: "100%", gap: 10 }}>
+                    {(() => {
+                      const bb =
+                        round?.wagers?.birdieBuckets && typeof round.wagers.birdieBuckets === "object"
+                          ? round.wagers.birdieBuckets
+                          : {};
+
+                      const holesObj = bb?.holes && typeof bb.holes === "object" ? bb.holes : {};
+                      const resolvedWins = Object.values(holesObj)
+                        .filter((x) => x && typeof x === "object" && Number(x?.win?.amount || 0) > 0)
+                        .sort((a, b) => Number(a?.hole || 0) - Number(b?.hole || 0));
+
+                      if (!resolvedWins.length) {
+                        return <Text style={styles.modalLine}>No Birdie Buckets wins recorded yet.</Text>;
+                      }
+
+                      return resolvedWins.map((entry, idx) => {
+                        const holeNum = Number(entry?.hole || entry?.win?.hole || 0);
+                        const winnerName = String(entry?.win?.winnerName || "").trim() || "Player";
+                        const amount = Number(entry?.win?.amount || 0);
+
+                        return (
+                          <View key={`bb-win-${idx}-${holeNum}`} style={styles.claimRow}>
+                            <Text style={styles.claimLeft}>Hole {holeNum}</Text>
+
+                            <View style={styles.claimMidBox}>
+                              <Text style={styles.claimMidName} numberOfLines={1}>
+                                {winnerName}
+                              </Text>
+                              <Text style={styles.claimMidNote} numberOfLines={1}>
+                                Won with a birdie
+                              </Text>
+                            </View>
+
+                            <View style={styles.matchPill}>
+                              <Text style={styles.matchPillText}>{money(amount) || "$0"}</Text>
+                            </View>
+                          </View>
+                        );
+                      });
+                    })()}
+                  </View>
                 ) : events > 0 ? (
                   <View style={{ width: "100%", gap: 10 }}>
                     {officialHoles.map((h, i) => {
@@ -1589,7 +1682,10 @@ export default function FinalResultsScreen({ navigation, route }) {
                   <Text style={styles.modalLine}>No official holes selected yet.</Text>
                 )}
 
-                <Text style={styles.winnerSmall}>Claims are shown as pending until confirmation/override is added.</Text>
+                {type === "birdiebuckets" ? null : (
+                  <Text style={styles.winnerSmall}>Claims are shown as pending until confirmation/override is added.</Text>
+                )}
+
               </View>
             </View>
 

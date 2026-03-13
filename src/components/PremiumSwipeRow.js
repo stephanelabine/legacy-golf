@@ -1,5 +1,5 @@
 // src/components/PremiumSwipeRow.js
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Platform, Animated } from "react-native";
 import { Swipeable } from "react-native-gesture-handler";
 
@@ -18,6 +18,7 @@ export default function PremiumSwipeRow({
   closeAnyOpenSwipe,
 
   children,
+  renderContent,
 
   onEdit,
   onDelete,
@@ -44,10 +45,18 @@ export default function PremiumSwipeRow({
 }) {
   const swipeRef = useRef(null);
   const [openSide, setOpenSide] = useState(null); // "left" | "right" | null
+  const [pressEnabled, setPressEnabled] = useState(true);
 
   const isEnabled = enabled === true;
 
+  useEffect(() => {
+    if (!openSide) {
+      setPressEnabled(true);
+    }
+  }, [openSide]);
+
   function onWillOpen(direction) {
+    setPressEnabled(false);
     if (!openSwipeRef) return;
     if (openSwipeRef.current && openSwipeRef.current !== swipeRef.current) {
       if (closeAnyOpenSwipe) closeAnyOpenSwipe();
@@ -56,6 +65,7 @@ export default function PremiumSwipeRow({
   }
 
   function onOpen(direction) {
+    setPressEnabled(false);
     if (!openSwipeRef) return;
     openSwipeRef.current = swipeRef.current;
     if (direction === "left" || direction === "right") setOpenSide(direction);
@@ -201,10 +211,15 @@ export default function PremiumSwipeRow({
     );
   }
 
+  const renderedContent =
+    typeof renderContent === "function"
+      ? renderContent({ pressEnabled, openSide, closeSwipe: () => swipeRef.current?.close?.() })
+      : children;
+
   if (!isEnabled) {
     return (
       <View style={[styles.swipeShell, shellStyle]}>
-        <View style={styles.contentShell}>{children}</View>
+        <View style={styles.contentShell}>{renderedContent}</View>
       </View>
     );
   }
@@ -232,7 +247,7 @@ export default function PremiumSwipeRow({
             openSide === "left" && styles.contentShellOpenLeft,
           ]}
         >
-          {children}
+          {renderedContent}
         </View>
       </Swipeable>
     </View>

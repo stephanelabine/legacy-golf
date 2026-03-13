@@ -226,11 +226,13 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
                     type === "match_play" ||
                     type === "deuce_pot" ||
                     type === "putting_contest" ||
-                    type === "birdie_buckets" ||
                     type === "stableford"
                 ) {
                     const fee = Number(pool?.entryFee);
                     if (Number.isFinite(fee) && fee > 0) owes[pid] += fee;
+                } else if (type === "birdie_buckets") {
+                    // Birdie Buckets is event-driven and should not count
+                    // as an upfront buy-in on the round briefing screen.
                 } else if (type === "skins") {
                     // Skins: estimate max exposure (value-per-skin * holes played) for this player if included.
                     const perSkin = Number(pool?.amountPerSkin);

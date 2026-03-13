@@ -1774,11 +1774,34 @@ export default function HoleHubScreen({ navigation, route }) {
     });
   }, [activeRoot, currentHole, players]);
 
-  // Show Finish only after scores exist for the last hole.
-  // (If earlier holes are missing, Finish still works but will trigger the "Missing scores" fix flow.)
-  const showFinish = currentHole === endHole && currentHoleHasScores;
+  const isFinalHole = currentHole === endHole;
+
+  const missingHolesNow = useMemo(() => {
+    return getMissingHolesFromState(activeRoot || {}, players, startHole, endHole);
+  }, [activeRoot, players, startHole, endHole]);
+
+  const unresolvedFormatsNow = useMemo(() => {
+    return getUnclaimedFormatIssues({
+      ...(activeRoot || {}),
+      formatClaims: allFormatClaimsById,
+    });
+  }, [activeRoot, allFormatClaimsById]);
+
+  const roundComplete =
+    isFinalHole &&
+    currentHoleHasScores &&
+    missingHolesNow.length === 0 &&
+    unresolvedFormatsNow.length === 0;
+
+  const footerButtonLabel =
+    isFinalHole && currentHoleHasScores
+      ? (roundComplete ? "Finish Round" : "Check scores and formats")
+      : "Input Scores";
+
+  const footerButtonIsFinishReady = roundComplete;
 
   const holeListRef = useRef(null);
+
   const skipBeforeRemoveRef = useRef(false);
   const [holeBarWidth, setHoleBarWidth] = useState(0);
 
@@ -1982,23 +2005,28 @@ export default function HoleHubScreen({ navigation, route }) {
         <Pressable
           style={[
             styles.greenBtn,
-            showFinish && styles.greenBtnFinish,
-            savingRound && showFinish && { opacity: 0.7 },
+            footerButtonIsFinishReady && styles.greenBtnFinish,
+            savingRound && { opacity: 0.7 },
           ]}
           onPress={() => {
-            if (showFinish) {
-              onPressFinishRound();
+            if (footerButtonLabel === "Input Scores") {
+              openScoreEntry();
               return;
             }
-            openScoreEntry();
+
+            onPressFinishRound();
           }}
-          disabled={savingRound && showFinish}
+          disabled={savingRound}
         >
-          <Text style={[styles.greenText, showFinish && styles.greenTextFinish]}>
-            {showFinish ? (savingRound ? "Saving…" : "Finish Round") : "Input Scores"}
+          <Text style={[
+            styles.greenText,
+            footerButtonIsFinishReady && styles.greenTextFinish,
+          ]}>
+            {savingRound ? "Saving…" : footerButtonLabel}
           </Text>
         </Pressable>
       </View>
+
 
       <Modal visible={yardageOpen} transparent animationType="fade" onRequestClose={() => setYardageOpen(false)}>
         <Pressable style={styles.modalBg} onPress={() => setYardageOpen(false)}>

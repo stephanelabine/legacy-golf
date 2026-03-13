@@ -737,6 +737,52 @@ export default function RegularSettleUpScreen({ navigation, route }) {
 
             const fee = getEntryFee(r, formatKey);
 
+            if (type === "birdiebuckets") {
+                const bb =
+                    r?.wagers?.birdieBuckets && typeof r.wagers.birdieBuckets === "object"
+                        ? r.wagers.birdieBuckets
+                        : {};
+
+                const holesObj = bb?.holes && typeof bb.holes === "object" ? bb.holes : {};
+
+                const holeEntries = Object.values(holesObj)
+                    .filter((x) => x && typeof x === "object")
+                    .sort((a, b) => Number(a?.hole || 0) - Number(b?.hole || 0));
+
+                const carryCharges = [];
+
+                holeEntries.forEach((entry) => {
+                    const charges = Array.isArray(entry?.charges) ? entry.charges : [];
+                    const win = entry?.win && typeof entry.win === "object" ? entry.win : null;
+                    const winnerId = String(win?.winnerPid || "").trim();
+
+                    charges.forEach((chg) => {
+                        const payerId = String(chg?.payerPid || "").trim();
+                        const amt = Number(chg?.amount || 0);
+
+                        if (!payerId) return;
+                        if (!Number.isFinite(amt) || amt <= 0) return;
+
+                        carryCharges.push({
+                            payerId,
+                            amount: amt,
+                        });
+                    });
+
+                    if (!winnerId) return;
+
+                    carryCharges.forEach((chg) => {
+                        if (!chg?.payerId || chg.payerId === winnerId) return;
+                        addTransfer(chg.payerId, winnerId, chg.amount);
+                    });
+
+                    carryCharges.length = 0;
+                });
+
+                return;
+            }
+
+
             // Hole formats: winner never pays themselves
             if (type === "kp" || type === "longdrive" || type === "secondshotkp") {
                 const holes = getOfficialHolesForFormat(r, formatKey);
