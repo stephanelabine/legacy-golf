@@ -171,8 +171,8 @@ const FORMAT_META = {
     },
     stableford: {
         title: "Stableford",
-        blurb: "Enter the amount contributed per Stableford point (or per point difference, depending on game rules). Payouts are calculated from Stableford results.",
-        hint: "per point",
+        blurb: "Choose Total Entry or Dollar Per Point. Stableford payouts are calculated from final Stableford points totals.",
+        hint: "entry or per point",
     },
     nassau: {
         title: "Nassau",
@@ -229,6 +229,9 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
     // Birdie Buckets mode (stored in roundDoc.wagers.birdieBuckets.mode)
     // Default stays the current model: "hits_pay_all"
     const [bbMode, setBbMode] = useState("hits_pay_all"); // "hits_pay_all" | "misses_pay"
+
+    // Stableford wager mode
+    const [stablefordModeByKey, setStablefordModeByKey] = useState({});
 
     // putting contest payout places keyed by formatKey (1 | 2 | 3)
     const [payoutPlacesByKey, setPayoutPlacesByKey] = useState({});
@@ -412,21 +415,27 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
                 paddingTop: 10,
                 borderTopWidth: 1,
                 borderTopColor: "rgba(255,255,255,0.10)",
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
                 gap: 10,
             },
             payoutPlacesLabel: { color: "rgba(255,255,255,0.72)", fontWeight: "900", fontSize: 12 },
-            payoutPlacesPills: { flexDirection: "row", gap: 8 },
+            payoutPlacesPills: {
+                flexDirection: "row",
+                gap: 8,
+                flexShrink: 1,
+                minWidth: 0,
+                alignSelf: "center",
+                justifyContent: "center",
+            },
             payoutPill: {
                 height: 32,
                 minWidth: 36,
+                maxWidth: "100%",
                 paddingHorizontal: 12,
                 borderRadius: 999,
                 alignItems: "center",
                 justifyContent: "center",
                 borderWidth: 1,
+                flexShrink: 1,
             },
             payoutPillIdle: {
                 backgroundColor: "rgba(255,255,255,0.06)",
@@ -436,8 +445,8 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
                 backgroundColor: "rgba(242,201,76,0.18)",
                 borderColor: "rgba(242,201,76,0.55)",
             },
-            payoutPillTextIdle: { color: "#FFFFFF", fontWeight: "900", fontSize: 12 },
-            payoutPillTextActive: { color: "rgba(242,201,76,0.98)", fontWeight: "900", fontSize: 12 },
+            payoutPillTextIdle: { color: "#FFFFFF", fontWeight: "900", fontSize: 12, flexShrink: 1 },
+            payoutPillTextActive: { color: "rgba(242,201,76,0.98)", fontWeight: "900", fontSize: 12, flexShrink: 1 },
 
             empty: {
                 borderRadius: 18,
@@ -502,6 +511,7 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
                 const nextFeeByKey = {};
                 const nextPayoutPlacesByKey = {};
                 const nextExcludedByKey = {};
+                const nextStablefordModeByKey = {};
 
                 fsFormats.forEach((f) => {
                     const fk = getKey(f);
@@ -524,8 +534,17 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
                             type === "birdie_buckets" ||
                             type === "stableford"
                         ) {
-                            const v = Number(p?.entryFee);
-                            nextFeeByKey[fk] = Number.isFinite(v) && v > 0 ? String(v) : "";
+                            if (type === "stableford") {
+                                const mode = String(p?.wagerMode || "").trim();
+                                const isPerPoint = mode === "per_point";
+                                const v = isPerPoint ? Number(p?.amountPerPoint) : Number(p?.entryFee);
+
+                                nextStablefordModeByKey[fk] = isPerPoint ? "per_point" : "total_entry";
+                                nextFeeByKey[fk] = Number.isFinite(v) && v > 0 ? String(v) : "";
+                            } else {
+                                const v = Number(p?.entryFee);
+                                nextFeeByKey[fk] = Number.isFinite(v) && v > 0 ? String(v) : "";
+                            }
 
                             // putting contest payout places (default 1)
                             if (type === "putting_contest") {
@@ -731,8 +750,18 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
                     nextPools[fk] = { amountPerSkin: parsed === null ? null : parsed, excludedIds };
                     return;
                 }
-                if (type === "match_play" || type === "deuce_pot" || type === "birdie_buckets" || type === "stableford") {
+                if (type === "match_play" || type === "deuce_pot" || type === "birdie_buckets") {
                     nextPools[fk] = { entryFee: parsed === null ? null : parsed, excludedIds };
+                    return;
+                }
+
+                if (type === "stableford") {
+                    const wagerMode = String(stablefordModeByKey?.[fk]) === "per_point" ? "per_point" : "total_entry";
+
+                    nextPools[fk] = wagerMode === "per_point"
+                        ? { wagerMode, amountPerPoint: parsed === null ? null : parsed, excludedIds }
+                        : { wagerMode, entryFee: parsed === null ? null : parsed, excludedIds };
+
                     return;
                 }
 
@@ -828,6 +857,7 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
         const hint = String(meta.hint || "").trim();
 
         const feeStr = String(feeByKey?.[fk] ?? "");
+        const stablefordMode = String(stablefordModeByKey?.[fk] || "total_entry");
 
         const isNassau = type === "nassau";
 
@@ -852,6 +882,14 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
         } else if (type === "match_play") {
             previewRight =
                 included > 0 && Number.isFinite(feeNum) && feeNum > 0 ? `Match pot: ${money(feeNum)}` : "Match amount";
+        } else if (type === "stableford") {
+            if (stablefordMode === "per_point") {
+                previewRight =
+                    Number.isFinite(feeNum) && feeNum > 0 ? `${money(feeNum)} per point` : "Dollar per point";
+            } else {
+                previewRight =
+                    included > 0 && Number.isFinite(feeNum) && feeNum > 0 ? `Pool: ${money(feeNum * included)}` : "Total entry";
+            }
         } else if (type === "deuce_pot" || type === "putting_contest") {
             previewRight =
                 included > 0 && Number.isFinite(feeNum) && feeNum > 0 ? `Pool: ${money(feeNum * included)}` : `Included: ${included}`;
@@ -883,6 +921,41 @@ export default function GameFormatPoolsScreen({ navigation, route }) {
                                         onPress={() => {
                                             dirtyRef.current = true;
                                             setBbMode(o.k);
+                                        }}
+                                        disabled={saving}
+                                        style={({ pressed }) => [
+                                            styles.payoutPill,
+                                            active ? styles.payoutPillActive : styles.payoutPillIdle,
+                                            pressed && !saving && styles.pressed,
+                                            saving && { opacity: 0.7 },
+                                        ]}
+                                    >
+                                        <Text style={active ? styles.payoutPillTextActive : styles.payoutPillTextIdle}>
+                                            {o.t}
+                                        </Text>
+                                    </Pressable>
+                                );
+                            })}
+                        </View>
+                    </View>
+                ) : null}
+
+                {type === "stableford" ? (
+                    <View style={styles.payoutPlacesRow}>
+                        <Text style={styles.payoutPlacesLabel}>Wager mode</Text>
+
+                        <View style={styles.payoutPlacesPills}>
+                            {[
+                                { k: "total_entry", t: "Total Entry" },
+                                { k: "per_point", t: "Dollar Per Point" },
+                            ].map((o) => {
+                                const active = stablefordMode === o.k;
+                                return (
+                                    <Pressable
+                                        key={`stablefordmode-${fk}-${o.k}`}
+                                        onPress={() => {
+                                            dirtyRef.current = true;
+                                            setStablefordModeByKey((prev) => ({ ...prev, [fk]: o.k }));
                                         }}
                                         disabled={saving}
                                         style={({ pressed }) => [

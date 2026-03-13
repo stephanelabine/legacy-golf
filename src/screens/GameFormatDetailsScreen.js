@@ -38,7 +38,6 @@ function isTeamVsTeamKey(key) {
     if (!k) return false;
     return k === TEAM_KEY || k === "teamvsteam" || k.includes("team_vs") || k.includes("team vs team");
 }
-
 function clampInt(n, min, max) {
     const v = Number(n);
     if (!Number.isFinite(v)) return min;

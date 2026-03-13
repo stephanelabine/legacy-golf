@@ -1231,30 +1231,40 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                 const snapBB = refBB ? await getDoc(refBB) : null;
                 const roundStateBB = snapBB && snapBB.exists() ? (snapBB.data() || null) : null;
 
-                const bbState =
-                    (roundStateBB?.wagers &&
-                        typeof roundStateBB.wagers === "object" &&
-                        roundStateBB.wagers?.birdieBuckets &&
-                        typeof roundStateBB.wagers.birdieBuckets === "object"
-                        ? roundStateBB.wagers.birdieBuckets
-                        : {}) || {};
+                const formatsSelectedBB = Array.isArray(roundStateBB?.formatsSelected) ? roundStateBB.formatsSelected : [];
+                const hasBirdieBuckets = formatsSelectedBB.some((x) => {
+                    const k = typeof x === "string" ? x : x?.key || x?.id || "";
+                    const n = typeof x === "string" ? x : x?.name || x?.label || x?.title || "";
+                    const s = `${String(k || "")} ${String(n || "")}`.toLowerCase();
+                    return s.includes("birdie") && s.includes("bucket");
+                });
 
-                const holeBB =
-                    (bbState?.holes && typeof bbState.holes === "object"
-                        ? bbState.holes[String(holeNumber)] || bbState.holes[holeNumber] || null
-                        : null) || null;
+                if (hasBirdieBuckets) {
+                    const bbState =
+                        (roundStateBB?.wagers &&
+                            typeof roundStateBB.wagers === "object" &&
+                            roundStateBB.wagers?.birdieBuckets &&
+                            typeof roundStateBB.wagers.birdieBuckets === "object"
+                            ? roundStateBB.wagers.birdieBuckets
+                            : {}) || {};
 
-                const winAmount = Number(holeBB?.win?.amount || 0);
-                const winnerName = String(holeBB?.win?.winnerName || "").trim();
-                const potNow = Number(bbState?.pot || 0);
+                    const holeBB =
+                        (bbState?.holes && typeof bbState.holes === "object"
+                            ? bbState.holes[String(holeNumber)] || bbState.holes[holeNumber] || null
+                            : null) || null;
 
-                birdieBucketsSplash = {
-                    winLine:
-                        winAmount > 0 && winnerName
-                            ? `${winnerName} won $${String(Math.round(winAmount))}`
-                            : "",
-                    potLine: `Current Pot: $${String(Math.round(potNow))}`,
-                };
+                    const winAmount = Number(holeBB?.win?.amount || 0);
+                    const winnerName = String(holeBB?.win?.winnerName || "").trim();
+                    const potNow = Number(bbState?.pot || 0);
+
+                    birdieBucketsSplash = {
+                        winLine:
+                            winAmount > 0 && winnerName
+                                ? `${winnerName} won $${String(Math.round(winAmount))}`
+                                : "",
+                        potLine: `Current Pot: $${String(Math.round(potNow))}`,
+                    };
+                }
             } catch {
                 birdieBucketsSplash = null;
             }

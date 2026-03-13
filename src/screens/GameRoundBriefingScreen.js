@@ -225,11 +225,21 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
                 if (
                     type === "match_play" ||
                     type === "deuce_pot" ||
-                    type === "putting_contest" ||
-                    type === "stableford"
+                    type === "putting_contest"
                 ) {
                     const fee = Number(pool?.entryFee);
                     if (Number.isFinite(fee) && fee > 0) owes[pid] += fee;
+                } else if (type === "stableford") {
+                    const wagerMode = String(pool?.wagerMode || "").trim().toLowerCase();
+
+                    // Stableford Total Entry is an upfront buy-in.
+                    if (wagerMode === "total_entry") {
+                        const fee = Number(pool?.entryFee);
+                        if (Number.isFinite(fee) && fee > 0) owes[pid] += fee;
+                    }
+
+                    // Stableford Dollar Per Point is not an upfront buy-in,
+                    // so it should not appear as a fixed pre-round amount here.
                 } else if (type === "birdie_buckets") {
                     // Birdie Buckets is event-driven and should not count
                     // as an upfront buy-in on the round briefing screen.
@@ -295,20 +305,31 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
         return "";
     }, [players]);
 
+    const hasStablefordPerPoint = useMemo(() => {
+        return formats.some((f) => {
+            const fk = getKey(f);
+            if (!fk) return false;
+            if (detectFormatType(f) !== "stableford") return false;
+
+            const pool = safeObj(formatPools?.[fk]);
+            return String(pool?.wagerMode || "").trim().toLowerCase() === "per_point";
+        });
+    }, [formats, formatPools]);
+
     const yourEstimatedBuyIn = useMemo(() => {
         const uid = String(auth?.currentUser?.uid || "").trim();
         const isShared = String(roundId || "").startsWith("sr_");
 
         if (uid) {
             const direct = Number(perPlayerOwes?.[uid] || 0);
-            if (Number.isFinite(direct) && direct >= 0) return direct;
+            if (Number.isFinite(direct) && direct > 0) return direct;
 
             // sometimes playerId maps to uid inside players array
             for (let i = 0; i < players.length; i++) {
                 const pid = playerId(players[i], i);
                 if (pid === uid) {
                     const v = Number(perPlayerOwes?.[pid] || 0);
-                    return Number.isFinite(v) ? v : 0;
+                    if (Number.isFinite(v) && v > 0) return v;
                 }
             }
 
@@ -319,7 +340,7 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
                     if (puid && puid === uid) {
                         const pid = playerId(players[i], i);
                         const v = Number(perPlayerOwes?.[pid] || 0);
-                        return Number.isFinite(v) ? v : 0;
+                        if (Number.isFinite(v) && v > 0) return v;
                     }
                 }
             }
@@ -329,11 +350,13 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
         if (players.length === 1) {
             const pid = playerId(players[0], 0);
             const v = Number(perPlayerOwes?.[pid] || 0);
-            return Number.isFinite(v) ? v : 0;
+            if (Number.isFinite(v) && v > 0) return v;
         }
 
-        return null;
-    }, [players, perPlayerOwes, roundId]);
+        if (hasStablefordPerPoint) return "deferred";
+
+        return 0;
+    }, [players, perPlayerOwes, roundId, hasStablefordPerPoint]);
 
     const styles = useMemo(() => {
         const softBorder = isDark ? "rgba(255,255,255,0.14)" : "rgba(10,15,26,0.12)";
@@ -490,10 +513,16 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
                 <View style={styles.highlightCard}>
                     <Text style={styles.highlightTitle}>Your estimated buy-in</Text>
                     <Text style={styles.highlightValue}>
-                        {yourEstimatedBuyIn === null ? "—" : yourEstimatedBuyIn > 0 ? money(yourEstimatedBuyIn) : "$0"}
+                        {yourEstimatedBuyIn === "deferred"
+                            ? "TBD"
+                            : yourEstimatedBuyIn > 0
+                                ? money(yourEstimatedBuyIn)
+                                : "$0"}
                     </Text>
                     <Text style={styles.highlightSub}>
-                        This is based on selected holes, per-player fees, exclusions, and an estimated maximum skins exposure (value-per-skin × holes played).
+                        {hasStablefordPerPoint
+                            ? "Once the round is complete, point totals will be calculated and the dollar-per-point value will be settled accordingly."
+                            : "Each player's contribution for the entire format. Most points wins."}
                     </Text>
                 </View>
 
@@ -536,7 +565,9 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
                             return (
                                 <View key={`${pid}_${idx}`} style={[styles.row, { paddingVertical: 10 }]}>
                                     <Text style={styles.label}>{nm}</Text>
-                                    <Text style={styles.value}>{owes > 0 ? money(owes) : "$0"}</Text>
+                                    <Text style={styles.value}>
+                                        {owes > 0 ? money(owes) : hasStablefordPerPoint ? "TBD" : "$0"}
+                                    </Text>
                                 </View>
                             );
                         })

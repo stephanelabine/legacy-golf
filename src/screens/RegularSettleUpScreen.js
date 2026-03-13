@@ -1122,6 +1122,137 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                 return;
             }
 
+            // Stableford
+            if (type === "stableford") {
+                const pools = getFormatPools(r) || {};
+                const stablePool = pools?.[formatKey] || {};
+
+                const modeRaw = String(
+                    stablePool?.wagerMode ??
+                    stablePool?.mode ??
+                    stablePool?.payoutMode ??
+                    stablePool?.stablefordMode ??
+                    ""
+                ).toLowerCase().trim();
+
+                const hasPerPointField =
+                    Number(stablePool?.amountPerPoint) > 0 ||
+                    Number(stablePool?.perPointValue) > 0 ||
+                    Number(stablePool?.pointValue) > 0;
+
+                const wagerMode =
+                    modeRaw.includes("point") || hasPerPointField
+                        ? "dollar_per_point"
+                        : "total_entry";
+
+                const ratePerPoint =
+                    Number(stablePool?.amountPerPoint) ||
+                    Number(stablePool?.perPointValue) ||
+                    Number(stablePool?.pointValue) ||
+                    Number(stablePool?.entryFee) ||
+                    0;
+
+                const totalEntry =
+                    Number(stablePool?.totalEntry) ||
+                    Number(stablePool?.buyIn) ||
+                    Number(stablePool?.buyInAmount) ||
+                    Number(stablePool?.entryFee) ||
+                    0;
+
+                const basis = String(r?.scoringMode || r?.scoring || "gross").toLowerCase();
+                const useNet = basis.includes("net");
+
+                const { playedHoles } = getPlayedHoles(r);
+                const holes = Array.isArray(playedHoles) ? playedHoles : [];
+                if (!holes.length) return;
+
+                const stableRows = includedIds.map((pid) => {
+                    const id = String(pid || "");
+                    const p = playersById?.[id] || {};
+                    let points = 0;
+
+                    holes.forEach((h) => {
+                        const score = netStrokesForHole(r, id, h, useNet, playersById);
+                        if (!Number.isFinite(score) || score <= 0) return;
+
+                        const parRaw =
+                            r?.holeMeta?.[String(h)]?.par ??
+                            r?.meta?.holeMeta?.[String(h)]?.par ??
+                            r?.holeMeta?.[h]?.par ??
+                            r?.meta?.holeMeta?.[h]?.par ??
+                            4;
+
+                        const par = Number(parRaw) || 4;
+                        const diff = score - par;
+
+                        let pts = 0;
+                        if (diff <= -3) pts = 5;
+                        else if (diff === -2) pts = 4;
+                        else if (diff === -1) pts = 3;
+                        else if (diff === 0) pts = 2;
+                        else if (diff === 1) pts = 1;
+                        else pts = 0;
+
+                        points += pts;
+                    });
+
+                    return {
+                        id,
+                        name: String(p?.name || "Player"),
+                        points,
+                    };
+                });
+
+                stableRows.sort((a, b) => b.points - a.points || a.name.localeCompare(b.name));
+                if (!stableRows.length) return;
+
+                if (wagerMode === "dollar_per_point") {
+                    const rate = Number(ratePerPoint || 0);
+                    if (!Number.isFinite(rate) || rate <= 0) return;
+
+                    for (let i = 0; i < stableRows.length; i++) {
+                        for (let j = i + 1; j < stableRows.length; j++) {
+                            const a = stableRows[i];
+                            const b = stableRows[j];
+                            const diff = Math.abs(Number(a.points) - Number(b.points));
+                            if (!diff) continue;
+
+                            const amt = diff * rate;
+                            if (!Number.isFinite(amt) || amt <= 0) continue;
+
+                            if (a.points > b.points) {
+                                addTransfer(b.id, a.id, amt);
+                            } else if (b.points > a.points) {
+                                addTransfer(a.id, b.id, amt);
+                            }
+                        }
+                    }
+
+                    return;
+                }
+
+                const buyInPerPlayer = Number(totalEntry || 0);
+                if (!Number.isFinite(buyInPerPlayer) || buyInPerPlayer <= 0) return;
+
+                const topPoints = Number(stableRows[0]?.points || 0);
+                const winners = stableRows.filter((x) => Number(x.points) === topPoints);
+                if (!winners.length) return;
+
+                const winnerIds = new Set(winners.map((x) => String(x.id)));
+                includedIds.forEach((pid) => {
+                    const payerId = String(pid || "");
+                    if (!payerId || winnerIds.has(payerId)) return;
+
+                    winners.forEach((w) => {
+                        const winnerId = String(w.id || "");
+                        if (!winnerId) return;
+                        addTransfer(payerId, winnerId, buyInPerPlayer / winners.length);
+                    });
+                });
+
+                return;
+            }
+
             // Unknown / other: washed
             return;
         });
@@ -1133,7 +1264,7 @@ export default function RegularSettleUpScreen({ navigation, route }) {
 
     const wonRows = useMemo(() => {
         const rows = players.map((p) => {
-            const won = Number(settleModel?.wonById?.[p.id] || 0);
+            const won = Number(settleModel?.netById?.[p.id] || 0);
             return { id: p.id, name: p.name, won };
         });
 
@@ -1216,7 +1347,7 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                         </View>
                     </View>
 
-                    <Text style={styles.sub}>Gross winnings by player across the selected formats before final net settlement.</Text>
+                    <Text style={styles.sub}>Final net results by player after all selected formats are balanced against round obligations.</Text>
 
                     <View style={styles.divider} />
 
@@ -1253,7 +1384,7 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                     ) : (
                         <>
                             <Text style={styles.sub}>
-                                Final payment instructions after netting each player’s gross winnings against their round obligations.
+                                Final payment instructions after netting all selected formats and round obligations.
                             </Text>
                             <View style={styles.divider} />
 

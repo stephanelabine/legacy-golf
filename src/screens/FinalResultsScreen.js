@@ -340,6 +340,9 @@ function getEntryFee(roundDoc, formatKey) {
       Number(p?.buyInAmount) ||
       Number(p?.amountPerHole) ||
       Number(p?.amountPerSkin) ||
+      Number(p?.amountPerPoint) ||
+      Number(p?.perPointValue) ||
+      Number(p?.pointValue) ||
       0;
     return Number.isFinite(fee) && fee > 0 ? fee : 0;
   }
@@ -348,6 +351,136 @@ function getEntryFee(roundDoc, formatKey) {
   const feeByKey = roundDoc?.feeByKey && typeof roundDoc.feeByKey === "object" ? roundDoc.feeByKey : null;
   const n = feeByKey ? Number(feeByKey?.[formatKey]) : 0;
   return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function getParForHole(roundRoot, holeNumber) {
+  const hm = roundRoot?.holeMeta ?? roundRoot?.meta?.holeMeta ?? null;
+  if (!hm) return 4;
+
+  const pickPar = (obj) => {
+    if (!obj || typeof obj !== "object") return 4;
+    const raw = obj.par ?? obj.Par ?? obj.PAR ?? 4;
+    const n = parseInt(String(raw ?? "").replace(/[^\d]/g, ""), 10);
+    return Number.isFinite(n) && n >= 3 && n <= 6 ? n : 4;
+  };
+
+  if (Array.isArray(hm)) return pickPar(hm[holeNumber - 1]);
+  return pickPar(hm?.[String(holeNumber)] ?? hm?.[holeNumber]);
+}
+
+function stablefordPointsForDiff(diff) {
+  if (diff <= -3) return 5; // albatross or better
+  if (diff === -2) return 4; // eagle
+  if (diff === -1) return 3; // birdie
+  if (diff === 0) return 2;  // par
+  if (diff === 1) return 1;  // bogey
+  return 0;                  // double bogey or worse
+}
+
+function getStablefordWagerConfig(roundDoc, formatKey) {
+  const pools = getFormatPools(roundDoc) || {};
+  const p = pools?.[formatKey] || {};
+
+  const modeRaw = String(
+    p?.wagerMode ??
+    p?.mode ??
+    p?.payoutMode ??
+    p?.stablefordMode ??
+    ""
+  ).toLowerCase().trim();
+
+  const hasPerPointField =
+    Number(p?.amountPerPoint) > 0 ||
+    Number(p?.perPointValue) > 0 ||
+    Number(p?.pointValue) > 0;
+
+  let wagerMode = "total_entry";
+  if (
+    modeRaw.includes("point") ||
+    modeRaw.includes("per_point") ||
+    modeRaw.includes("perpoint") ||
+    hasPerPointField
+  ) {
+    wagerMode = "dollar_per_point";
+  }
+
+  const totalEntry =
+    Number(p?.totalEntry) ||
+    Number(p?.buyIn) ||
+    Number(p?.buyInAmount) ||
+    Number(p?.entryFee) ||
+    0;
+
+  const perPoint =
+    Number(p?.amountPerPoint) ||
+    Number(p?.perPointValue) ||
+    Number(p?.pointValue) ||
+    Number(p?.entryFee) ||
+    0;
+
+  return {
+    wagerMode,
+    totalEntry: Number.isFinite(totalEntry) && totalEntry > 0 ? totalEntry : 0,
+    perPoint: Number.isFinite(perPoint) && perPoint > 0 ? perPoint : 0,
+  };
+}
+
+function computeStablefordRows(roundRoot, playersList, includedIds) {
+  const r = roundRoot || {};
+  const list = Array.isArray(playersList) ? playersList : [];
+  const includeSet =
+    Array.isArray(includedIds) && includedIds.length
+      ? new Set(includedIds.map((x) => String(x)))
+      : null;
+
+  const basis = String(r?.scoringMode || r?.scoring || "gross").toLowerCase();
+  const useNet = basis.includes("net");
+
+  const played =
+    Number(r?.holesCount ?? r?.meta?.holesCount) === 9
+      ? (String(r?.holesSide ?? r?.meta?.holesSide ?? "").toLowerCase().trim() === "back"
+        ? Array.from({ length: 9 }).map((_, i) => 10 + i)
+        : Array.from({ length: 9 }).map((_, i) => 1 + i))
+      : Array.from({ length: 18 }).map((_, i) => 1 + i);
+
+  const rows = list
+    .filter((p) => (includeSet ? includeSet.has(String(p.id)) : true))
+    .map((p) => {
+      let points = 0;
+
+      for (let i = 0; i < played.length; i++) {
+        const h = played[i];
+        const gross = readStroke(r, h, p.id);
+        if (!Number.isFinite(gross) || gross <= 0) continue;
+
+        let scoreForPoints = gross;
+
+        if (useNet) {
+          const hcp = parseHcp(p?.handicap);
+          const si = getStrokeIndex(r, h);
+          if (Number.isFinite(si) && Number.isFinite(hcp) && hcp > 0) {
+            const base = Math.floor(hcp / 18);
+            const extra = hcp % 18;
+            const getsExtra = si <= extra ? 1 : 0;
+            const received = base + getsExtra;
+            scoreForPoints = gross - received;
+          }
+        }
+
+        const par = getParForHole(r, h);
+        const diff = scoreForPoints - par;
+        points += stablefordPointsForDiff(diff);
+      }
+
+      return {
+        id: String(p.id),
+        name: String(p.name || "Player"),
+        points,
+      };
+    });
+
+  rows.sort((a, b) => b.points - a.points || a.name.localeCompare(b.name));
+  return rows;
 }
 
 export default function FinalResultsScreen({ navigation, route }) {
@@ -1100,6 +1233,84 @@ export default function FinalResultsScreen({ navigation, route }) {
       };
     }
 
+    if (type === "stableford") {
+      const stableRows = computeStablefordRows(round || {}, players, includedIds);
+      if (!stableRows.length) {
+        return {
+          headline: "No Stableford scores yet",
+          lines: ["Complete the round to compute Stableford payouts."],
+        };
+      }
+
+      const cfg = getStablefordWagerConfig(round || {}, formatKey);
+      const topPoints = Number(stableRows[0]?.points || 0);
+      const winners = stableRows.filter((x) => Number(x.points) === topPoints);
+
+      if (cfg.wagerMode === "dollar_per_point") {
+        const rate = cfg.perPoint;
+        if (!rate || rate <= 0) {
+          return {
+            headline: "No buy-in",
+            lines: ["Set a dollar-per-point value in Money Pools to compute payouts."],
+          };
+        }
+
+        const grossById = {};
+        stableRows.forEach((x) => {
+          grossById[String(x.id)] = 0;
+        });
+
+        for (let i = 0; i < stableRows.length; i++) {
+          for (let j = i + 1; j < stableRows.length; j++) {
+            const a = stableRows[i];
+            const b = stableRows[j];
+            const diff = Math.abs(Number(a.points) - Number(b.points));
+            if (!diff) continue;
+
+            const amt = diff * rate;
+            if (a.points > b.points) grossById[String(a.id)] += amt;
+            if (b.points > a.points) grossById[String(b.id)] += amt;
+          }
+        }
+
+        const topWinner = stableRows[0];
+        const topGross = Number(grossById[String(topWinner.id)] || 0);
+
+        return {
+          headline: `${money(topGross)} net`,
+          lines: [
+            `Wager mode: Dollar Per Point`,
+            `Value per point: ${money(rate)}`,
+            ...stableRows.map((x) => `${x.name}: ${x.points} pts`),
+          ],
+        };
+      }
+
+      const entry = cfg.totalEntry || buyIn;
+      if (!entry || entry <= 0) {
+        return {
+          headline: "No buy-in",
+          lines: ["Set a total-entry buy-in in Money Pools to compute payouts."],
+        };
+      }
+
+      const winnerCount = winners.length;
+      const collectiblePool = entry * Math.max(0, playersCount - winnerCount);
+      const eachWinnerNet = winnerCount > 0 ? collectiblePool / winnerCount : 0;
+
+      return {
+        headline: `${money(eachWinnerNet)} net`,
+        lines: [
+          `Wager mode: Total Entry`,
+          `Buy-in (per player): ${money(entry)}`,
+          `Players: ${playersCount}`,
+          `Pool total: ${money(entry * playersCount)}`,
+          `Net to winner${winnerCount > 1 ? "s" : ""}: ${money(eachWinnerNet)}`,
+          ...stableRows.map((x) => `${x.name}: ${x.points} pts`),
+        ],
+      };
+    }
+
     return {
       headline: `${money(poolTotal)} (winner)`,
       lines: [`Buy-in (per player): ${money(buyIn)}`, `Players: ${playersCount}`, `Pool total: ${money(poolTotal)}`],
@@ -1369,6 +1580,34 @@ export default function FinalResultsScreen({ navigation, route }) {
                           <Text style={styles.modalLine}>{line("Overall", overallR, totalBuyIn)}</Text>
                         </>
                       );
+                    })()}
+                  </View>
+                ) : type === "stableford" ? (
+                  <View style={{ width: "100%", gap: 10 }}>
+                    {(() => {
+                      const stableRows = computeStablefordRows(round || {}, players, includedIds);
+                      if (!stableRows.length) {
+                        return <Text style={styles.modalLine}>No Stableford scores recorded yet.</Text>;
+                      }
+
+                      return stableRows.map((entry, idx) => (
+                        <View key={`stableford-${entry.id}-${idx}`} style={styles.claimRow}>
+                          <Text style={styles.claimLeft}>{idx + 1}</Text>
+
+                          <View style={styles.claimMidBox}>
+                            <Text style={styles.claimMidName} numberOfLines={1}>
+                              {entry.name}
+                            </Text>
+                            <Text style={styles.claimMidNote} numberOfLines={1}>
+                              Stableford total
+                            </Text>
+                          </View>
+
+                          <View style={styles.matchPill}>
+                            <Text style={styles.matchPillText}>{entry.points} pts</Text>
+                          </View>
+                        </View>
+                      ));
                     })()}
                   </View>
                 ) : isAuto ? (
