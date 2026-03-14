@@ -325,7 +325,16 @@ function teeKeyFromParams(teeObj) {
   const raw =
     (teeObj && (teeObj.key || teeObj.color || teeObj.name || teeObj.label)) || "";
   const k = String(raw).toLowerCase().trim();
-  if (k.includes("gold")) return "gold";
+
+  if (
+    k.includes("tour") ||
+    k.includes("tips") ||
+    k.includes("championship") ||
+    k.includes("gold")
+  ) {
+    return "gold";
+  }
+
   if (k.includes("blue")) return "blue";
   if (k.includes("red")) return "red";
   if (k.includes("white")) return "white";
@@ -364,7 +373,7 @@ function buildHtml(initialCenter) {
       letter-spacing:.6px;
       transform:translate(-50%,-50%);
       white-space:nowrap;
-      pointer-events:none;
+      pointer-events:auto;
       box-shadow:0 10px 22px rgba(0,0,0,.35);
     }
     #lbl1,#lbl2{display:none}
@@ -393,6 +402,7 @@ function buildHtml(initialCenter) {
     let greenMid = null;     // {lon,lat}
     let userPt = null;       // {lon,lat}
     let tgtMarker = null;
+    let shotArmed = false;
 
     // Drive measurement state
     let teeOrigin = null;    // {lon,lat}
@@ -400,6 +410,37 @@ function buildHtml(initialCenter) {
 
     const lbl1 = document.getElementById("lbl1");
     const lbl2 = document.getElementById("lbl2");
+
+    function bindLabelTap(el, kind){
+      if (!el || el.__lgBound) return;
+      el.__lgBound = true;
+
+      el.addEventListener("click", () => {
+        try {
+          if(window.ReactNativeWebView){
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              cmd: "tapDistanceLabel",
+              kind
+            }));
+          }
+        } catch(_) {}
+      });
+
+      el.addEventListener("touchend", (e) => {
+        try { e.preventDefault(); e.stopPropagation(); } catch(_) {}
+        try {
+          if(window.ReactNativeWebView){
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              cmd: "tapDistanceLabel",
+              kind
+            }));
+          }
+        } catch(_) {}
+      }, { passive: false });
+    }
+
+    bindLabelTap(lbl1, "primary");
+    bindLabelTap(lbl2, "secondary");
 
     function toRad(v){ return (v*Math.PI)/180; }
     function haversineM(a,b){
@@ -547,11 +588,22 @@ function buildHtml(initialCenter) {
     }
 
     function updatePlannerUI(){
-      const plannerOk = plannerOn && userPt && tgt && greenMid;
+      const plannerOk = plannerOn && greenMid && (teeOrigin || userPt);
       const driveOk = plannerOn && teeOrigin && userPt;
 
+      let nearTee = false;
+      let teeToUserM = NaN;
+
+      if (teeOrigin && userPt) {
+        teeToUserM = haversineM(teeOrigin, userPt);
+        nearTee = isFinite(teeToUserM) && teeToUserM <= 5.5;
+      }
+
+      const passiveInPlay = !shotArmed && teeOrigin && userPt && isFinite(teeToUserM) && teeToUserM > 5.5;
+      const showDriveLine = !!(driveOk && shotArmed);
+
       lbl1.style.display = plannerOk ? "block" : "none";
-      lbl2.style.display = driveOk ? "block" : "none";
+      lbl2.style.display = "none";
 
       if(!plannerOn){
         if(tgtMarker){ try{ tgtMarker.remove(); }catch(_){ } tgtMarker=null; }
@@ -562,21 +614,33 @@ function buildHtml(initialCenter) {
         return;
       }
 
-      if(!plannerOk){
-        setPlannerLine(null,null,null);
+      if(tgt && !tgtMarker){
+        ensureTargetMarker();
+      }
+      if(tgtMarker && tgt){
+        tgtMarker.setLngLat([tgt.lon,tgt.lat]);
+      }
+
+      if (passiveInPlay && userPt && greenMid) {
+        setPlannerLine(userPt, greenMid, null);
+        lbl1.textContent = yds(haversineM(userPt, greenMid)) + " YDS";
+        posLabel(lbl1, userPt, greenMid);
+      } else if (teeOrigin && tgt && greenMid) {
+        setPlannerLine(teeOrigin, tgt, greenMid);
+        lbl1.textContent = yds(haversineM(teeOrigin, tgt)) + " YDS";
+        posLabel(lbl1, teeOrigin, tgt);
+
+        lbl2.style.display = "block";
+        lbl2.textContent = yds(haversineM(tgt, greenMid)) + " YDS";
+        posLabel(lbl2, tgt, greenMid);
+      } else if (userPt && greenMid) {
+        setPlannerLine(userPt, greenMid, null);
+        lbl1.textContent = yds(haversineM(userPt, greenMid)) + " YDS";
+        posLabel(lbl1, userPt, greenMid);
       } else {
-        if(tgt && !tgtMarker){
-          ensureTargetMarker();
-        }
-        if(tgtMarker && tgt){
-          tgtMarker.setLngLat([tgt.lon,tgt.lat]);
-        }
-
-        setPlannerLine(userPt, tgt, greenMid);
-
-        const d1 = haversineM(userPt, tgt);
-        lbl1.textContent = yds(d1) + " YDS";
-        posLabel(lbl1, userPt, tgt);
+        setPlannerLine(null,null,null);
+        lbl1.style.display = "none";
+        lbl2.style.display = "none";
       }
 
       if(!driveOk){
@@ -584,11 +648,12 @@ function buildHtml(initialCenter) {
         setDriveLine(null,null);
       } else {
         ensureTeeMarker();
-        setDriveLine(teeOrigin, userPt);
 
-        const d2 = haversineM(teeOrigin, userPt);
-        lbl2.textContent = yds(d2) + " YDS";
-        posLabel(lbl2, teeOrigin, userPt);
+        if (showDriveLine) {
+          setDriveLine(teeOrigin, userPt);
+        } else {
+          setDriveLine(null, null);
+        }
       }
     }
 
@@ -826,8 +891,10 @@ function buildHtml(initialCenter) {
       // Planner settings + green endpoint
       if(d.planner && typeof d.planner === "object"){
         plannerOn = d.planner.on !== false;
+        shotArmed = d.planner.shotArmed === true;
       } else {
         plannerOn = true;
+        shotArmed = false;
       }
 
       // Green MID endpoint for planner
@@ -976,6 +1043,8 @@ export default function HoleMapScreen({ navigation, route }) {
 
   const yardPos = useRef(new Animated.ValueXY({ x: 0, y: -120 })).current;
   const yardDockRef = useRef("right"); // "left" | "center" | "right"
+  const bullseyeScale = useRef(new Animated.Value(1)).current;
+  const bullseyeRotate = useRef(new Animated.Value(0)).current;
 
   const [yardStacked, setYardStacked] = useState(true);
 
@@ -1389,6 +1458,7 @@ export default function HoleMapScreen({ navigation, route }) {
         initTarget: shouldSendInitTarget
           ? { lon: fairwayMid.lon, lat: fairwayMid.lat }
           : null,
+        shotArmed: !!shotTrackingArmed,
       },
       teeOrigin:
         par && Number(par) > 3 && teePoint && Number.isFinite(teePoint?.lon) && Number.isFinite(teePoint?.lat)
@@ -1446,6 +1516,14 @@ export default function HoleMapScreen({ navigation, route }) {
     postPayload(false, plannerOn === true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plannerOn, plannerReady]);
+
+  useEffect(() => {
+    if (!plannerReady) return;
+    if (!webReady) return;
+    postPayload(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clubPickerOpen, pendingClubLabel, plannerReady, webReady]);
+
   function recenter() {
     if (!web.current || !webReady) return;
 
@@ -1474,6 +1552,8 @@ export default function HoleMapScreen({ navigation, route }) {
   const [clubPickerOpen, setClubPickerOpen] = useState(false);
   const [equipmentBag, setEquipmentBag] = useState([]);
   const [pendingClubLabel, setPendingClubLabel] = useState("");
+  const [bullseyeReady, setBullseyeReady] = useState(false);
+  const [shotTrackingArmed, setShotTrackingArmed] = useState(false);
 
   // Planner: target line + draggable target
   const [plannerOn, setPlannerOn] = useState(true);
@@ -1514,6 +1594,77 @@ export default function HoleMapScreen({ navigation, route }) {
 
     AsyncStorage.setItem(PLANNER_PREF_KEY, plannerOn ? "true" : "false").catch(() => { });
   }, [plannerOn, plannerReady]);
+
+  useEffect(() => {
+    const ready = !!pendingClubLabel;
+    setBullseyeReady(ready);
+
+    if (ready) {
+      setShotTrackingArmed(true);
+    }
+
+    if (!ready) {
+      bullseyeScale.stopAnimation();
+      bullseyeRotate.stopAnimation();
+      bullseyeScale.setValue(1);
+      bullseyeRotate.setValue(0);
+      return;
+    }
+
+    bullseyeScale.setValue(1);
+    bullseyeRotate.setValue(0);
+
+    Animated.sequence([
+      Animated.parallel([
+        Animated.timing(bullseyeScale, {
+          toValue: 1.12,
+          duration: 120,
+          useNativeDriver: true,
+        }),
+        Animated.timing(bullseyeRotate, {
+          toValue: 1,
+          duration: 120,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.parallel([
+        Animated.timing(bullseyeScale, {
+          toValue: 0.96,
+          duration: 110,
+          useNativeDriver: true,
+        }),
+        Animated.timing(bullseyeRotate, {
+          toValue: -1,
+          duration: 110,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.parallel([
+        Animated.timing(bullseyeScale, {
+          toValue: 1.08,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+        Animated.timing(bullseyeRotate, {
+          toValue: 0.75,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.parallel([
+        Animated.timing(bullseyeScale, {
+          toValue: 1,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+        Animated.timing(bullseyeRotate, {
+          toValue: 0,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+      ]),
+    ]).start();
+  }, [pendingClubLabel, bullseyeRotate, bullseyeScale]);
 
   useEffect(() => {
     let live = true;
@@ -1874,7 +2025,30 @@ export default function HoleMapScreen({ navigation, route }) {
             } catch {
               msg = null;
             }
-            if (msg?.cmd === "ready") setWebReady(true);
+
+            if (msg?.cmd === "ready") {
+              setWebReady(true);
+              return;
+            }
+
+            if (msg?.cmd === "tapDistanceLabel") {
+              if (!pendingClubLabel) return;
+
+              Alert.alert(
+                "Save shot",
+                `Save ${pendingClubLabel} distance from here?`,
+                [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Save",
+                    onPress: () => {
+                      setShotTrackingArmed(false);
+                      setPendingClubLabel("");
+                    },
+                  },
+                ]
+              );
+            }
           }}
         />
       </View>
@@ -2023,33 +2197,84 @@ export default function HoleMapScreen({ navigation, route }) {
         </Animated.View>
 
         <View style={styles.bottomActionRow}>
-          <Pressable
-            pointerEvents="auto"
-            onPress={() => {
-              if (!clubOptions.length) {
-                Alert.alert("No clubs found", "Add clubs in Equipment first.");
-                return;
-              }
+          {!pendingClubLabel ? (
+            <Pressable
+              pointerEvents="auto"
+              onPress={() => {
+                if (!clubOptions.length) {
+                  Alert.alert("No clubs found", "Add clubs in Equipment first.");
+                  return;
+                }
 
-              if (!myPlayer?.playerId) {
-                Alert.alert("Player not found", "Could not resolve your player for this round.");
-                return;
-              }
+                if (!myPlayer?.playerId) {
+                  Alert.alert("Player not found", "Could not resolve your player for this round.");
+                  return;
+                }
 
-              setClubPickerOpen((prev) => !prev);
-            }}
-            style={({ pressed }) => [styles.yardActionBtn, pendingClubLabel && styles.yardActionBtnActive, pressed && styles.pressed]}
-          >
-            <Image source={CLUB_ICON} style={styles.yardActionIconImg} resizeMode="contain" />
-          </Pressable>
-
-          <Pressable
-            pointerEvents="auto"
-            onPress={() => Alert.alert("Save shot", "Next step: save last shot from here.")}
-            style={({ pressed }) => [styles.yardActionBtn, styles.yardActionBtnAccent, pressed && styles.pressed]}
-          >
-            <Image source={BULLSEYE_ICON} style={styles.yardActionIconImg} resizeMode="contain" />
-          </Pressable>
+                setClubPickerOpen((prev) => !prev);
+              }}
+              style={({ pressed }) => [
+                styles.yardActionBtn,
+                styles.yardActionBtnLarge,
+                clubPickerOpen && styles.yardActionBtnOpen,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Image source={CLUB_ICON} style={styles.yardActionIconImgLarge} resizeMode="contain" />
+            </Pressable>
+          ) : (
+            <Animated.View
+              pointerEvents="box-none"
+              style={{
+                transform: [
+                  { scale: bullseyeScale },
+                  {
+                    rotate: bullseyeRotate.interpolate({
+                      inputRange: [-1, 0, 1],
+                      outputRange: ["-10deg", "0deg", "10deg"],
+                    }),
+                  },
+                ],
+              }}
+            >
+              <Pressable
+                pointerEvents="auto"
+                disabled={!bullseyeReady}
+                onPress={() =>
+                  Alert.alert(
+                    "Save shot",
+                    `Save ${pendingClubLabel || "shot"} distance from here?`,
+                    [
+                      { text: "Cancel", style: "cancel" },
+                      {
+                        text: "Save",
+                        onPress: () => {
+                          setShotTrackingArmed(false);
+                          setPendingClubLabel("");
+                        },
+                      },
+                    ]
+                  )
+                }
+                style={({ pressed }) => [
+                  styles.yardActionBtn,
+                  styles.yardActionBtnLarge,
+                  styles.yardActionBtnAccent,
+                  bullseyeReady ? styles.yardActionBtnReady : styles.yardActionBtnDisabled,
+                  pressed && bullseyeReady && styles.pressed,
+                ]}
+              >
+                <Image
+                  source={BULLSEYE_ICON}
+                  style={[styles.yardActionIconImgLarge, !bullseyeReady && styles.yardActionIconDisabled]}
+                  resizeMode="contain"
+                />
+                <View style={styles.bullseyeClubBadge}>
+                  <Text style={styles.bullseyeClubBadgeT}>{pendingClubLabel}</Text>
+                </View>
+              </Pressable>
+            </Animated.View>
+          )}
         </View>
 
         <Pressable
@@ -2499,9 +2724,25 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.22)",
   },
 
+  yardActionBtnLarge: {
+    width: 62,
+    height: 62,
+    borderRadius: 18,
+  },
+
+  yardActionBtnOpen: {
+    borderColor: "rgba(46,125,255,0.75)",
+    backgroundColor: "rgba(46,125,255,0.18)",
+  },
+
   yardActionBtnActive: {
-    borderColor: "rgba(242,201,76,0.85)",
-    backgroundColor: "rgba(242,201,76,0.16)",
+    borderColor: "rgba(242,201,76,0.92)",
+    backgroundColor: "rgba(242,201,76,0.20)",
+    shadowColor: "#F2C94C",
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 6,
   },
 
   yardActionBtnAccent: {
@@ -2509,11 +2750,68 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.24)",
   },
 
+  yardActionBtnReady: {
+    borderColor: "rgba(242,201,76,0.92)",
+    backgroundColor: "rgba(242,201,76,0.18)",
+    shadowColor: "#F2C94C",
+    shadowOpacity: 0.28,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 6,
+  },
+
+  yardActionBtnDisabled: {
+    backgroundColor: "rgba(20,26,36,0.72)",
+    borderColor: "rgba(255,255,255,0.12)",
+    opacity: 0.52,
+  },
+
   yardActionIconImg: {
     width: 30,
     height: 30,
   },
 
+  yardActionIconImgLarge: {
+    width: 38,
+    height: 38,
+  },
+
+  yardActionIconDisabled: {
+    opacity: 0.55,
+  },
+
+  bullseyeClubBadge: {
+    position: "absolute",
+    bottom: 4,
+    minWidth: 28,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: "rgba(0,0,0,0.72)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  bullseyeClubBadgeT: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.3,
+  },
+
+  selectedDotBadge: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 9,
+    height: 9,
+    borderRadius: 999,
+    backgroundColor: "#F2C94C",
+    borderWidth: 1,
+    borderColor: "#fff",
+  },
   yardClusterRow: {
     alignItems: "center",
     justifyContent: "center",
