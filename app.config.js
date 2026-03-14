@@ -19,7 +19,7 @@ module.exports = ({ config }) => {
   const existingPlugins = Array.isArray(config.plugins) ? config.plugins : [];
 
   // Ensure required native plugins are present (order not important)
-  const mustHave = ["expo-font", "@react-native-community/datetimepicker"];
+  const mustHave = ["expo-font", "@react-native-community/datetimepicker", "expo-video"];
 
   const plugins = mustHave.reduce((arr, p) => {
     if (arr.includes(p)) return arr;

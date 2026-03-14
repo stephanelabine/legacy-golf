@@ -8,6 +8,19 @@ const ROUTES = {
   HOME: "Home",
   QUICK_POST: "QuickPost",
   GAMES: "Games",
+  RYDER_CUP_INTRO: "RyderCupIntro",
+  RYDER_CUP_ORGANIZER: "RyderCupOrganizer",
+  RYDER_CUP_HUB_WELCOME: "RyderCupHubWelcome",
+  RYDER_CUP_CREATE_EVENT: "RyderCupCreateEvent",
+  RYDER_CUP_EVENT_OVERVIEW: "RyderCupEventOverview",
+  RYDER_CUP_SESSIONS: "RyderCupSessions",
+  RYDER_CUP_COURSES: "RyderCupCourses",
+  RYDER_CUP_TEES: "RyderCupTees",
+  RYDER_CUP_PLAYERS: "RyderCupPlayers",
+  RYDER_CUP_TEAMS: "RyderCupTeams",
+  RYDER_CUP_BRIEFING: "RyderCupBriefing",
+  RYDER_CUP_HUB: "RyderCupHub",
+  RYDER_CUP_STANDINGS: "RyderCupStandings",
   GAME_SETUP: "GameSetup",
   NEW_ROUND: "NewRound",
 
@@ -146,3 +159,4 @@ const ROUTES = {
 };
 
 export default ROUTES;
+

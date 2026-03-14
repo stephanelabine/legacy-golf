@@ -280,6 +280,15 @@ export default function GamesScreen({ navigation, route }) {
         return;
       }
 
+      if (selected.id === "ryder_cup") {
+        navigation.navigate(ROUTES.RYDER_CUP_INTRO, {
+          roundId: created.roundId,
+          gameId: selected.id,
+          gameTitle: selected.title,
+        });
+        return;
+      }
+
       navigation.navigate(ROUTES.GAME_SETUP, {
         roundId: created.roundId,
         gameId: selected.id,
@@ -435,13 +444,13 @@ export default function GamesScreen({ navigation, route }) {
       },
       cardRyderCupActive: {
         borderWidth: 2,
-        borderColor: "rgba(220,92,92,0.90)",
-        backgroundColor: "rgba(108,42,64,0.34)",
-        shadowColor: "rgba(220,92,92,0.42)",
-        shadowOpacity: 0.32,
-        shadowRadius: 18,
-        shadowOffset: { width: 0, height: 10 },
-        elevation: 8,
+        borderColor: "rgba(140,175,255,0.78)",
+        backgroundColor: "rgba(40,68,145,0.28)",
+        shadowColor: "rgba(94,126,214,0.48)",
+        shadowOpacity: 0.26,
+        shadowRadius: 14,
+        shadowOffset: { width: 0, height: 8 },
+        elevation: 6,
       },
 
       cardRyderContent: {

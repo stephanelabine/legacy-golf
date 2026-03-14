@@ -18,6 +18,19 @@ import SignupScreen from "../screens/SignupScreen";
 import HomeScreen from "../screens/HomeScreen";
 import QuickPostScreen from "../screens/QuickPostScreen";
 import GamesScreen from "../screens/GamesScreen";
+import RyderCupIntroScreen from "../screens/RyderCupIntroScreen";
+import RyderCupOrganizerScreen from "../screens/RyderCupOrganizerScreen";
+import RyderCupHubWelcomeScreen from "../screens/RyderCupHubWelcomeScreen";
+import RyderCupCreateEventScreen from "../screens/RyderCupCreateEventScreen";
+import RyderCupEventOverviewScreen from "../screens/RyderCupEventOverviewScreen";
+import RyderCupSessionsScreen from "../screens/RyderCupSessionsScreen";
+import RyderCupCoursesScreen from "../screens/RyderCupCoursesScreen";
+import RyderCupTeesScreen from "../screens/RyderCupTeesScreen";
+import RyderCupPlayersScreen from "../screens/RyderCupPlayersScreen";
+import RyderCupTeamsScreen from "../screens/RyderCupTeamsScreen";
+import RyderCupBriefingScreen from "../screens/RyderCupBriefingScreen";
+import RyderCupHubScreen from "../screens/RyderCupHubScreen";
+import RyderCupStandingsScreen from "../screens/RyderCupStandingsScreen";
 import GameSetupScreen from "../screens/GameSetupScreen";
 import NewRoundScreen from "../screens/NewRoundScreen";
 
@@ -176,9 +189,21 @@ export default function RootNavigator() {
           <Stack.Screen name={ROUTES.HOME} component={HomeScreen} />
           <Stack.Screen name={ROUTES.QUICK_POST} component={QuickPostScreen} />
           <Stack.Screen name={ROUTES.GAMES} component={GamesScreen} />
+          <Stack.Screen name={ROUTES.RYDER_CUP_INTRO} component={RyderCupIntroScreen} />
+          <Stack.Screen name={ROUTES.RYDER_CUP_ORGANIZER} component={RyderCupOrganizerScreen} />
+          <Stack.Screen name={ROUTES.RYDER_CUP_HUB_WELCOME} component={RyderCupHubWelcomeScreen} />
+          <Stack.Screen name={ROUTES.RYDER_CUP_CREATE_EVENT} component={RyderCupCreateEventScreen} />
+          <Stack.Screen name={ROUTES.RYDER_CUP_EVENT_OVERVIEW} component={RyderCupEventOverviewScreen} />
+          <Stack.Screen name={ROUTES.RYDER_CUP_SESSIONS} component={RyderCupSessionsScreen} />
+          <Stack.Screen name={ROUTES.RYDER_CUP_COURSES} component={RyderCupCoursesScreen} />
+          <Stack.Screen name={ROUTES.RYDER_CUP_TEES} component={RyderCupTeesScreen} />
+          <Stack.Screen name={ROUTES.RYDER_CUP_PLAYERS} component={RyderCupPlayersScreen} />
+          <Stack.Screen name={ROUTES.RYDER_CUP_TEAMS} component={RyderCupTeamsScreen} />
+          <Stack.Screen name={ROUTES.RYDER_CUP_BRIEFING} component={RyderCupBriefingScreen} />
+          <Stack.Screen name={ROUTES.RYDER_CUP_HUB} component={RyderCupHubScreen} />
+          <Stack.Screen name={ROUTES.RYDER_CUP_STANDINGS} component={RyderCupStandingsScreen} />
           <Stack.Screen name={ROUTES.GAME_SETUP} component={GameSetupScreen} />
           <Stack.Screen name={ROUTES.NEW_ROUND} component={NewRoundScreen} />
-
           <Stack.Screen name={ROUTES.TEE_SELECTION} component={TeeSelectionScreen} />
           <Stack.Screen name={ROUTES.PLAYER_SETUP} component={PlayerSetupScreen} />
           <Stack.Screen name={ROUTES.PLAYER_ENTRY} component={PlayerEntryScreen} />
