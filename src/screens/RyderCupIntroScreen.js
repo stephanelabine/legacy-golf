@@ -1,6 +1,15 @@
 // src/screens/RyderCupIntroScreen.js
-import React from "react";
-import { View, Text, StyleSheet, Pressable } from "react-native";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+    View,
+    Text,
+    StyleSheet,
+    Pressable,
+    Animated,
+    Easing,
+    Platform,
+    ImageBackground,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useEventListener } from "expo";
 import { useVideoPlayer, VideoView } from "expo-video";
@@ -9,15 +18,25 @@ import ROUTES from "../navigation/routes";
 import { useTheme } from "../theme/ThemeProvider";
 
 const RYDER_CUP_INTRO = require("../../assets/ryder-cup-intro.mp4");
+const RYDER_CUP_HERO = require("../../assets/ryder-cup-hero-image.png");
 
 export default function RyderCupIntroScreen({ navigation, route }) {
     const insets = useSafeAreaInsets();
-    const { scheme, theme } = useTheme();
+    const { scheme } = useTheme();
     const isDark = scheme === "dark";
 
     const roundId = route?.params?.roundId || null;
     const gameId = route?.params?.gameId || "ryder_cup";
     const gameTitle = route?.params?.gameTitle || "Ryder Cup";
+
+    const [showHero, setShowHero] = useState(false);
+    const [isFlipping, setIsFlipping] = useState(false);
+
+    const flipProgress = useRef(new Animated.Value(0)).current;
+    const heroOpacity = useRef(new Animated.Value(0)).current;
+    const heroScale = useRef(new Animated.Value(1.025)).current;
+    const cardOpacity = useRef(new Animated.Value(0)).current;
+    const cardTranslateX = useRef(new Animated.Value(-40)).current;
 
     const player = useVideoPlayer(RYDER_CUP_INTRO, (p) => {
         p.loop = false;
@@ -26,136 +45,372 @@ export default function RyderCupIntroScreen({ navigation, route }) {
     });
 
     function goNext() {
-        navigation.replace(ROUTES.GAME_SETUP, {
+        navigation.replace(ROUTES.RYDER_CUP_ORGANIZER, {
             roundId,
             gameId,
             gameTitle,
         });
     }
 
+    function beginHeroTransition() {
+        if (showHero || isFlipping) return;
+
+        setIsFlipping(true);
+
+        Animated.timing(flipProgress, {
+            toValue: 1,
+            duration: 760,
+            easing: Easing.inOut(Easing.cubic),
+            useNativeDriver: true,
+        }).start(({ finished }) => {
+            if (!finished) return;
+
+            setShowHero(true);
+            setIsFlipping(false);
+
+            heroOpacity.setValue(0);
+            heroScale.setValue(1.025);
+            cardOpacity.setValue(0);
+            cardTranslateX.setValue(-40);
+
+            Animated.parallel([
+                Animated.timing(heroOpacity, {
+                    toValue: 1,
+                    duration: 220,
+                    easing: Easing.out(Easing.quad),
+                    useNativeDriver: true,
+                }),
+                Animated.timing(heroScale, {
+                    toValue: 1,
+                    duration: 320,
+                    easing: Easing.out(Easing.cubic),
+                    useNativeDriver: true,
+                }),
+            ]).start();
+
+            Animated.sequence([
+                Animated.delay(110),
+                Animated.parallel([
+                    Animated.timing(cardOpacity, {
+                        toValue: 1,
+                        duration: 260,
+                        easing: Easing.out(Easing.quad),
+                        useNativeDriver: true,
+                    }),
+                    Animated.timing(cardTranslateX, {
+                        toValue: 0,
+                        duration: 340,
+                        easing: Easing.out(Easing.cubic),
+                        useNativeDriver: true,
+                    }),
+                ]),
+            ]).start();
+        });
+    }
+
     useEventListener(player, "playToEnd", () => {
-        goNext();
+        beginHeroTransition();
     });
 
     useEventListener(player, "statusChange", ({ status }) => {
         if (status === "error") {
-            goNext();
+            beginHeroTransition();
         }
     });
 
-    const styles = StyleSheet.create({
-        screen: {
-            flex: 1,
-            backgroundColor: "#000",
-        },
-
-        videoWrap: {
-            flex: 1,
-            backgroundColor: "#000",
-        },
-
-        video: {
-            flex: 1,
-            backgroundColor: "#000",
-        },
-
-        overlayTop: {
-            position: "absolute",
-            top: insets.top + 12,
-            left: 16,
-            right: 16,
-            flexDirection: "row",
-            justifyContent: "space-between",
-            alignItems: "center",
-        },
-
-        badge: {
-            paddingHorizontal: 12,
-            paddingVertical: 8,
-            borderRadius: 999,
-            backgroundColor: "rgba(10,15,26,0.62)",
-            borderWidth: 1,
-            borderColor: "rgba(255,255,255,0.18)",
-        },
-
-        badgeText: {
-            color: "#FFFFFF",
-            fontSize: 12,
-            fontWeight: "900",
-            letterSpacing: 1.2,
-            textTransform: "uppercase",
-        },
-
-        skipBtn: {
-            paddingHorizontal: 14,
-            paddingVertical: 10,
-            borderRadius: 999,
-            backgroundColor: isDark ? "rgba(255,255,255,0.14)" : "rgba(10,15,26,0.20)",
-            borderWidth: 1,
-            borderColor: "rgba(255,255,255,0.22)",
-        },
-
-        skipText: {
-            color: "#FFFFFF",
-            fontSize: 13,
-            fontWeight: "900",
-            letterSpacing: 0.3,
-        },
-
-        overlayBottom: {
-            position: "absolute",
-            left: 16,
-            right: 16,
-            bottom: insets.bottom + 18,
-            alignItems: "center",
-        },
-
-        titlePill: {
-            paddingHorizontal: 18,
-            paddingVertical: 12,
-            borderRadius: 999,
-            backgroundColor: "rgba(10,15,26,0.68)",
-            borderWidth: 1,
-            borderColor: "rgba(255,255,255,0.18)",
-        },
-
-        titleText: {
-            color: "#FFFFFF",
-            fontSize: 16,
-            fontWeight: "900",
-            letterSpacing: 1.4,
-            textTransform: "uppercase",
-        },
+    const videoRotateY = flipProgress.interpolate({
+        inputRange: [0, 1],
+        outputRange: ["0deg", "90deg"],
     });
+
+    const heroRotateY = flipProgress.interpolate({
+        inputRange: [0, 1],
+        outputRange: ["-90deg", "0deg"],
+    });
+
+    const videoOpacity = flipProgress.interpolate({
+        inputRange: [0, 0.45, 0.7, 1],
+        outputRange: [1, 1, 0.18, 0],
+    });
+
+    const heroFlipOpacity = flipProgress.interpolate({
+        inputRange: [0, 0.3, 0.55, 1],
+        outputRange: [0, 0.12, 0.85, 1],
+    });
+
+    const styles = useMemo(() => {
+        const gold = "rgba(232,194,92,1)";
+        const goldSoft = "rgba(232,194,92,0.82)";
+        const warmWhite = "rgba(255,248,230,0.98)";
+        const glassBg = isDark ? "rgba(7,14,24,0.48)" : "rgba(7,14,24,0.34)";
+        const glassInner = isDark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.10)";
+        const glassStroke = isDark ? "rgba(255,255,255,0.16)" : "rgba(255,255,255,0.18)";
+        const buttonBg = isDark ? "rgba(10,18,30,0.82)" : "rgba(10,18,30,0.72)";
+        const buttonStroke = "rgba(232,194,92,0.92)";
+
+        return StyleSheet.create({
+            screen: {
+                flex: 1,
+                backgroundColor: "#000",
+            },
+
+            absoluteFill: {
+                ...StyleSheet.absoluteFillObject,
+            },
+
+            videoPanel: {
+                ...StyleSheet.absoluteFillObject,
+                backgroundColor: "#000",
+                backfaceVisibility: "hidden",
+            },
+
+            video: {
+                ...StyleSheet.absoluteFillObject,
+                backgroundColor: "#000",
+                transform: [{ scale: .96 }],
+            },
+            heroPanel: {
+                ...StyleSheet.absoluteFillObject,
+                backgroundColor: "#000",
+                backfaceVisibility: "hidden",
+            },
+
+            heroImage: {
+                flex: 1,
+                justifyContent: "flex-end",
+            },
+
+            heroImageStyle: {
+                resizeMode: "cover",
+            },
+
+            heroOverlay: {
+                ...StyleSheet.absoluteFillObject,
+            },
+
+            topFade: {
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                height: "24%",
+                backgroundColor: "rgba(6,12,20,0.18)",
+            },
+
+            bottomFade: {
+                position: "absolute",
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: "42%",
+                backgroundColor: "rgba(6,12,20,0.26)",
+            },
+
+            leftBlueWash: {
+                position: "absolute",
+                left: 0,
+                top: "14%",
+                width: "44%",
+                height: "44%",
+                backgroundColor: "rgba(44,98,195,0.10)",
+            },
+
+            rightRedWash: {
+                position: "absolute",
+                right: 0,
+                top: "16%",
+                width: "36%",
+                height: "34%",
+                backgroundColor: "rgba(179,40,40,0.08)",
+            },
+
+            bottomGreenWash: {
+                position: "absolute",
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: "24%",
+                backgroundColor: "rgba(41,120,73,0.08)",
+            },
+
+            ctaWrap: {
+                paddingHorizontal: 18,
+                paddingBottom: Math.max(18, insets.bottom + 12),
+            },
+
+            ctaCard: {
+                borderRadius: 4,
+                borderWidth: 2,
+                borderColor: goldSoft,
+                backgroundColor: glassBg,
+                overflow: "hidden",
+                shadowColor: "#000",
+                shadowOpacity: 0.34,
+                shadowRadius: 18,
+                shadowOffset: { width: 0, height: 10 },
+                elevation: 10,
+            },
+
+            ctaCardInner: {
+                borderRadius: 2,
+                borderWidth: 1,
+                borderColor: glassStroke,
+                backgroundColor: glassInner,
+                paddingHorizontal: 18,
+                paddingTop: 20,
+                paddingBottom: 18,
+                alignItems: "center",
+            },
+
+            welcomeText: {
+                color: warmWhite,
+                fontSize: 15,
+                fontWeight: "800",
+                letterSpacing: 1.7,
+                textTransform: "uppercase",
+                textAlign: "center",
+                fontFamily: "Cinzel",
+            },
+
+            heroTitle: {
+                marginTop: 8,
+                color: gold,
+                fontSize: 29,
+                lineHeight: 36,
+                fontWeight: "900",
+                textAlign: "center",
+                fontFamily: "Cinzel",
+                textShadowColor: "rgba(0,0,0,0.58)",
+                textShadowOffset: { width: 0, height: 2 },
+                textShadowRadius: 7,
+            },
+
+            buttonOuter: {
+                marginTop: 18,
+                width: "100%",
+                borderRadius: 3,
+                borderWidth: 1.5,
+                borderColor: buttonStroke,
+                overflow: "hidden",
+                backgroundColor: "rgba(255,255,255,0.03)",
+            },
+
+            buttonInner: {
+                paddingVertical: 14,
+                paddingHorizontal: 14,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: buttonBg,
+                borderWidth: 1,
+                borderColor: "rgba(255,255,255,0.08)",
+            },
+
+            buttonText: {
+                color: "#FFFFFF",
+                fontSize: 16,
+                fontWeight: "900",
+                letterSpacing: 0.4,
+                textAlign: "center",
+                fontFamily: "Cinzel",
+            },
+
+            pressed: {
+                opacity: Platform.OS === "ios" ? 0.9 : 0.92,
+                transform: [{ scale: 0.992 }],
+            },
+        });
+    }, [insets.bottom, isDark]);
 
     return (
         <View style={styles.screen}>
-            <View style={styles.videoWrap}>
-                <VideoView
-                    player={player}
-                    style={styles.video}
-                    allowsFullscreen={false}
-                    allowsPictureInPicture={false}
-                    nativeControls={false}
-                    contentFit="contain"
-                />
-            </View>
+            {!showHero ? (
+                <>
+                    <Animated.View
+                        pointerEvents="none"
+                        style={[
+                            styles.videoPanel,
+                            {
+                                opacity: videoOpacity,
+                                transform: [{ perspective: 1400 }, { rotateY: videoRotateY }],
+                            },
+                        ]}
+                    >
+                        <VideoView
+                            player={player}
+                            style={styles.video}
+                            allowsFullscreen={false}
+                            allowsPictureInPicture={false}
+                            nativeControls={false}
+                            contentFit="cover"
+                        />
+                    </Animated.View>
 
-            <View style={styles.overlayTop}>
-                <View style={styles.badge}>
-                    <Text style={styles.badgeText}>Ryder Cup</Text>
-                </View>
+                    {isFlipping ? (
+                        <Animated.View
+                            pointerEvents="none"
+                            style={[
+                                styles.heroPanel,
+                                {
+                                    opacity: heroFlipOpacity,
+                                    transform: [{ perspective: 1400 }, { rotateY: heroRotateY }],
+                                },
+                            ]}
+                        >
+                            <ImageBackground source={RYDER_CUP_HERO} style={styles.heroImage} imageStyle={styles.heroImageStyle}>
+                                <View pointerEvents="none" style={styles.heroOverlay}>
+                                    <View style={styles.topFade} />
+                                    <View style={styles.bottomFade} />
+                                    <View style={styles.leftBlueWash} />
+                                    <View style={styles.rightRedWash} />
+                                    <View style={styles.bottomGreenWash} />
+                                </View>
+                            </ImageBackground>
+                        </Animated.View>
+                    ) : null}
+                </>
+            ) : (
+                <Animated.View
+                    style={[
+                        styles.heroPanel,
+                        {
+                            opacity: heroOpacity,
+                            transform: [{ scale: heroScale }],
+                        },
+                    ]}
+                >
+                    <ImageBackground source={RYDER_CUP_HERO} style={styles.heroImage} imageStyle={styles.heroImageStyle}>
+                        <View pointerEvents="none" style={styles.heroOverlay}>
+                            <View style={styles.topFade} />
+                            <View style={styles.bottomFade} />
+                            <View style={styles.leftBlueWash} />
+                            <View style={styles.rightRedWash} />
+                            <View style={styles.bottomGreenWash} />
+                        </View>
 
-                <Pressable onPress={goNext} style={({ pressed }) => [styles.skipBtn, pressed && { opacity: 0.9 }]}>
-                    <Text style={styles.skipText}>Skip Video</Text>
-                </Pressable>
-            </View>
+                        <View style={styles.ctaWrap}>
+                            <Animated.View
+                                style={{
+                                    opacity: cardOpacity,
+                                    transform: [{ translateX: cardTranslateX }],
+                                }}
+                            >
+                                <View style={styles.ctaCard}>
+                                    <View style={styles.ctaCardInner}>
+                                        <Text style={styles.welcomeText}>Welcome to the</Text>
+                                        <Text style={styles.heroTitle}>Ryder Cup Experience</Text>
 
-            <View style={styles.overlayBottom}>
-                <View style={styles.titlePill}>
-                    <Text style={styles.titleText}>Team Event Mode</Text>
-                </View>
-            </View>
+                                        <Pressable onPress={goNext} style={({ pressed }) => [styles.buttonOuter, pressed && styles.pressed]}>
+                                            <View style={styles.buttonInner}>
+                                                <Text style={styles.buttonText}>Click here to continue</Text>
+                                            </View>
+                                        </Pressable>
+                                    </View>
+                                </View>
+                            </Animated.View>
+                        </View>
+                    </ImageBackground>
+                </Animated.View>
+            )}
         </View>
     );
 }
