@@ -1333,6 +1333,12 @@ export default function HoleMapScreen({ navigation, route }) {
     return out;
   }, [user, green]);
 
+  const isNearSelectedTee = useMemo(() => {
+    if (!user || !teePoint) return false;
+    const meters = haversineMeters(user, teePoint);
+    return Number.isFinite(meters) && meters <= 5.5;
+  }, [user, teePoint]);
+
   const distVals = {
     front: green?.front ? yds(dist.f) : "—",
     middle: green?.middle ? yds(dist.m) : "—",
@@ -1517,13 +1523,6 @@ export default function HoleMapScreen({ navigation, route }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plannerOn, plannerReady]);
 
-  useEffect(() => {
-    if (!plannerReady) return;
-    if (!webReady) return;
-    postPayload(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clubPickerOpen, pendingClubLabel, plannerReady, webReady]);
-
   function recenter() {
     if (!web.current || !webReady) return;
 
@@ -1599,7 +1598,7 @@ export default function HoleMapScreen({ navigation, route }) {
     const ready = !!pendingClubLabel;
     setBullseyeReady(ready);
 
-    if (ready) {
+    if (ready && isNearSelectedTee) {
       setShotTrackingArmed(true);
     }
 
@@ -1664,7 +1663,7 @@ export default function HoleMapScreen({ navigation, route }) {
         }),
       ]),
     ]).start();
-  }, [pendingClubLabel, bullseyeRotate, bullseyeScale]);
+  }, [pendingClubLabel, isNearSelectedTee, bullseyeRotate, bullseyeScale]);
 
   useEffect(() => {
     let live = true;
