@@ -9,11 +9,12 @@ import {
   ScrollView,
   ActivityIndicator,
 } from "react-native";
-import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
+import { WebView } from "react-native-webview";
 import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import ScreenHeader from "../components/ScreenHeader";
+import { MAPBOX_TOKEN } from "../config/mapbox";
 import { loadCourseData } from "../storage/courseData";
 import * as RoundState from "../storage/roundState";
 
@@ -211,60 +212,277 @@ function buildNumberedHazards(arr, user, holeNumber) {
   }));
 }
 
-function getInitialRegion(points, fallbackCenter) {
-  const valid = (points || []).filter(Boolean);
+function buildHtml(initialCenter) {
+  const initLon = Number.isFinite(initialCenter?.lon) ? initialCenter.lon : -122.9;
+  const initLat = Number.isFinite(initialCenter?.lat) ? initialCenter.lat : 49.2;
 
-  if (!valid.length) {
-    if (fallbackCenter && Number.isFinite(fallbackCenter.lat) && Number.isFinite(fallbackCenter.lon)) {
-      return {
-        latitude: fallbackCenter.lat,
-        longitude: fallbackCenter.lon,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
-      };
+  return `<!doctype html><html><head>
+  <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no"/>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet"/>
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+  <style>
+    html,body,#map{margin:0;padding:0;height:100%;background:#000}
+
+    .dot{
+      width:14px;
+      height:14px;
+      border-radius:999px;
+      background:#2E86FF;
+      border:2px solid #fff;
+      box-shadow:0 8px 20px rgba(0,0,0,.35)
     }
 
-    return {
-      latitude: 49.2,
-      longitude: -122.9,
-      latitudeDelta: 0.02,
-      longitudeDelta: 0.02,
+    .hazWrap{
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      justify-content:center;
+      transform:translateY(-6px);
+    }
+
+    .hazCircle{
+      width:30px;
+      height:30px;
+      border-radius:999px;
+      background:rgba(8,8,10,0.94);
+      border:2px solid rgba(255,255,255,0.94);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      color:#fff;
+      font-weight:900;
+      font-size:12px;
+      line-height:12px;
+      box-shadow:0 10px 22px rgba(0,0,0,.34);
+    }
+
+    .hazPill{
+      margin-top:4px;
+      min-width:44px;
+      padding:4px 8px;
+      border-radius:999px;
+      background:rgba(0,0,0,0.72);
+      border:1px solid rgba(255,255,255,0.16);
+      color:#fff;
+      font-weight:900;
+      font-size:11px;
+      letter-spacing:.2px;
+      text-align:center;
+      box-shadow:0 10px 22px rgba(0,0,0,.34);
+    }
+  </style>
+  </head>
+  <body>
+    <div id="map"></div>
+
+  <script>
+    mapboxgl.accessToken="${MAPBOX_TOKEN}";
+    const map = new mapboxgl.Map({
+      container:"map",
+      style:"mapbox://styles/mapbox/satellite-streets-v12",
+      center:[${initLon},${initLat}],
+      zoom:17,
+      pitch: 0,
+      pitchWithRotate: false,
+      touchPitch: false
+    });
+
+    let userMarker = null;
+    let hazardMarkers = [];
+
+    const mk = (c) => {
+      const e = document.createElement("div");
+      e.className = c;
+      return e;
     };
-  }
 
-  if (valid.length === 1) {
-    return {
-      latitude: valid[0].lat,
-      longitude: valid[0].lon,
-      latitudeDelta: 0.01,
-      longitudeDelta: 0.01,
-    };
-  }
+    function clearHazards(){
+      hazardMarkers.forEach((m) => {
+        try { m.remove(); } catch(_) {}
+      });
+      hazardMarkers = [];
+    }
 
-  let minLat = valid[0].lat;
-  let maxLat = valid[0].lat;
-  let minLon = valid[0].lon;
-  let maxLon = valid[0].lon;
+    function renderHazards(items){
+      clearHazards();
 
-  valid.forEach((p) => {
-    minLat = Math.min(minLat, p.lat);
-    maxLat = Math.max(maxLat, p.lat);
-    minLon = Math.min(minLon, p.lon);
-    maxLon = Math.max(maxLon, p.lon);
-  });
+      (Array.isArray(items) ? items : []).forEach((h) => {
+        if (!h) return;
+        if (!isFinite(h.lon) || !isFinite(h.lat)) return;
 
-  return {
-    latitude: (minLat + maxLat) / 2,
-    longitude: (minLon + maxLon) / 2,
-    latitudeDelta: Math.max((maxLat - minLat) * 1.45, 0.006),
-    longitudeDelta: Math.max((maxLon - minLon) * 1.45, 0.006),
-  };
+        const wrap = document.createElement("div");
+        wrap.className = "hazWrap";
+
+        const circle = document.createElement("div");
+        circle.className = "hazCircle";
+        circle.textContent = String(h.number ?? "");
+
+        const pill = document.createElement("div");
+        pill.className = "hazPill";
+        pill.textContent = String(h.yards ?? "—");
+
+        wrap.appendChild(circle);
+        wrap.appendChild(pill);
+
+        const marker = new mapboxgl.Marker({
+          element: wrap,
+          anchor: "bottom"
+        })
+          .setLngLat([h.lon, h.lat])
+          .addTo(map);
+
+        hazardMarkers.push(marker);
+      });
+    }
+
+    function bearingDeg(a,b){
+      if(!a || !b) return null;
+      if(!isFinite(a.lon)||!isFinite(a.lat)||!isFinite(b.lon)||!isFinite(b.lat)) return null;
+      const φ1 = a.lat * Math.PI/180;
+      const φ2 = b.lat * Math.PI/180;
+      const Δλ = (b.lon - a.lon) * Math.PI/180;
+      const y = Math.sin(Δλ) * Math.cos(φ2);
+      const x = Math.cos(φ1)*Math.sin(φ2) - Math.sin(φ1)*Math.cos(φ2)*Math.cos(Δλ);
+      let θ = Math.atan2(y,x) * 180/Math.PI;
+      if(!isFinite(θ)) return null;
+      θ = (θ + 360) % 360;
+      return θ;
+    }
+
+    function frameHole(teeP, greenAim, points, bearing){
+      const valid = (points || []).filter(p => p && isFinite(p.lon) && isFinite(p.lat));
+      const offset = [-24, -24];
+
+      if(teeP && greenAim && isFinite(teeP.lon) && isFinite(teeP.lat) && isFinite(greenAim.lon) && isFinite(greenAim.lat)){
+        const midLon = (teeP.lon + greenAim.lon) / 2;
+        const midLat = (teeP.lat + greenAim.lat) / 2;
+
+        const dx = (greenAim.lon - teeP.lon) * 111320 * Math.cos(((teeP.lat + greenAim.lat)/2) * Math.PI/180);
+        const dy = (greenAim.lat - teeP.lat) * 110540;
+        const distM = Math.sqrt(dx*dx + dy*dy);
+
+        let z = 16.5;
+        if(distM > 420) z = 15.9;
+        else if(distM > 320) z = 16.1;
+        else if(distM > 220) z = 16.3;
+
+        z = Math.max(15.9, Math.min(17.1, z));
+
+        const opts = { center:[midLon, midLat], zoom:z, duration:520, offset };
+        if(isFinite(bearing)) opts.bearing = bearing;
+        map.easeTo(opts);
+        return;
+      }
+
+      if(valid.length === 1){
+        const opts = { center:[valid[0].lon, valid[0].lat], zoom:16.9, duration:450, offset };
+        if(isFinite(bearing)) opts.bearing = bearing;
+        map.easeTo(opts);
+        return;
+      }
+
+      if(valid.length >= 2){
+        let minLon=valid[0].lon, maxLon=valid[0].lon, minLat=valid[0].lat, maxLat=valid[0].lat;
+        valid.forEach((p)=>{
+          minLon=Math.min(minLon,p.lon); maxLon=Math.max(maxLon,p.lon);
+          minLat=Math.min(minLat,p.lat); maxLat=Math.max(maxLat,p.lat);
+        });
+
+        const padding = { top: 90, bottom: 90, left: 55, right: 55 };
+        const opts = { padding, duration:650, offset, maxZoom:18.6 };
+        if(isFinite(bearing)) opts.bearing = bearing;
+
+        map.fitBounds([[minLon,minLat],[maxLon,maxLat]], opts);
+      }
+    }
+
+    let lastKey = "";
+
+    function keyFrom(d){
+      const p = (x)=>x && isFinite(x.lon) && isFinite(x.lat) ? (x.lon.toFixed(6)+","+x.lat.toFixed(6)) : "";
+      return [
+        p(d.user),
+        p(d.center),
+        p(d.tee),
+        p(d.fairwayMid),
+        p(d.green?.front),
+        p(d.green?.middle),
+        p(d.green?.back),
+        JSON.stringify((d.hazards || []).map((h) => [h.number, h.lat, h.lon, h.yards]))
+      ].join("|");
+    }
+
+    function applyPayload(d){
+      if(d.user){
+        if(userMarker){
+          userMarker.setLngLat([d.user.lon,d.user.lat]);
+        } else {
+          userMarker = new mapboxgl.Marker({element:mk("dot")})
+            .setLngLat([d.user.lon,d.user.lat])
+            .addTo(map);
+        }
+      }
+
+      renderHazards(d.hazards || []);
+
+      const nextKey = keyFrom(d);
+      const changed = nextKey !== lastKey;
+
+      if(changed && d.fit){
+        const holePts = [d.tee, d.fairwayMid, d.green?.front, d.green?.middle, d.green?.back].filter(Boolean);
+        const teeP = d.tee || null;
+        const greenAim = d.green?.middle || d.green?.back || d.green?.front || null;
+        const brg = bearingDeg(teeP, greenAim);
+
+        if(holePts.length){
+          frameHole(teeP, greenAim, holePts, brg);
+        } else {
+          frameHole(null, null, [d.center].filter(Boolean), null);
+        }
+      }
+
+      if(d.cmd === "recenter"){
+        const holePts = [d.tee, d.fairwayMid, d.green?.front, d.green?.middle, d.green?.back].filter(Boolean);
+        const teeP = d.tee || null;
+        const greenAim = d.green?.middle || d.green?.back || d.green?.front || null;
+        const brg = bearingDeg(teeP, greenAim);
+
+        if(holePts.length){
+          frameHole(teeP, greenAim, holePts, brg);
+        } else {
+          frameHole(null, null, [d.center].filter(Boolean), null);
+        }
+      }
+
+      lastKey = nextKey;
+    }
+
+    function listen(handler){
+      window.addEventListener("message", handler);
+      document.addEventListener("message", handler);
+    }
+
+    map.on("load",()=>{
+      listen((e)=>{
+        let d=null;
+        try{ d=JSON.parse(e.data); }catch(_){}
+        if(!d) return;
+        applyPayload(d);
+      });
+
+      try{
+        if(window.ReactNativeWebView){
+          window.ReactNativeWebView.postMessage(JSON.stringify({ cmd:"ready" }));
+        }
+      }catch(_){}
+    });
+  </script></body></html>`;
 }
 
 export default function HazardsScreen({ navigation, route }) {
   const params = route?.params || {};
   const insets = useSafeAreaInsets();
-  const mapRef = useRef(null);
+  const web = useRef(null);
 
   const holeFromParams = Number.isFinite(Number(params?.hole))
     ? Number(params.hole)
@@ -286,23 +504,7 @@ export default function HazardsScreen({ navigation, route }) {
   const [courseData, setCourseData] = useState(null);
   const [user, setUser] = useState(null);
   const [infoOpen, setInfoOpen] = useState(false);
-  const fitHazardsMap = () => {
-    if (!mapRef.current || !framePoints.length) return;
-
-    const coords = framePoints.map((p) => ({
-      latitude: p.lat,
-      longitude: p.lon,
-    }));
-
-    try {
-      mapRef.current.fitToCoordinates(coords, {
-        edgePadding: { top: 110, right: 55, bottom: 120, left: 55 },
-        animated: true,
-      });
-    } catch {
-      // ignore
-    }
-  };
+  const [webReady, setWebReady] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -440,53 +642,103 @@ export default function HazardsScreen({ navigation, route }) {
     return buildNumberedHazards(holeGps?.hazards || [], user, holeFromParams);
   }, [holeGps?.hazards, user, holeFromParams]);
 
-  const framePoints = useMemo(() => {
-    const pts = [];
-
-    if (teePoint) {
-      pts.push(teePoint);
+  const initialCenter = useMemo(() => {
+    if (green?.middle && Number.isFinite(green.middle?.lat) && Number.isFinite(green.middle?.lon)) {
+      return { lon: green.middle.lon, lat: green.middle.lat };
     }
-
-    hazards.forEach((h) => {
-      pts.push({ lat: h.lat, lon: h.lon });
-    });
-
-    if (!teePoint) {
-      if (fairwayMid) pts.push(fairwayMid);
-      if (asPoint(green?.front)) pts.push(asPoint(green?.front));
-      if (asPoint(green?.middle)) pts.push(asPoint(green?.middle));
-      if (asPoint(green?.back)) pts.push(asPoint(green?.back));
+    if (teePoint && Number.isFinite(teePoint?.lat) && Number.isFinite(teePoint?.lon)) {
+      return { lon: teePoint.lon, lat: teePoint.lat };
     }
+    if (fairwayMid && Number.isFinite(fairwayMid?.lat) && Number.isFinite(fairwayMid?.lon)) {
+      return { lon: fairwayMid.lon, lat: fairwayMid.lat };
+    }
+    if (courseCenter && Number.isFinite(courseCenter?.lat) && Number.isFinite(courseCenter?.lon)) {
+      return { lon: courseCenter.lon, lat: courseCenter.lat };
+    }
+    return null;
+  }, [green, teePoint, fairwayMid, courseCenter]);
 
-    return pts;
-  }, [teePoint, fairwayMid, green, hazards]);
+  const postPayload = (fit = false) => {
+    if (!web.current || !webReady) return;
 
-  const initialRegion = useMemo(() => {
-    return getInitialRegion(framePoints, courseCenter);
-  }, [framePoints, courseCenter]);
+    const payload = {
+      cmd: fit ? "fit" : "update",
+      user: user ? { lon: user.lon, lat: user.lat } : null,
+      center: initialCenter,
+      tee: teePoint && Number.isFinite(teePoint?.lon) && Number.isFinite(teePoint?.lat) ? teePoint : null,
+      fairwayMid:
+        fairwayMid && Number.isFinite(fairwayMid?.lon) && Number.isFinite(fairwayMid?.lat)
+          ? fairwayMid
+          : null,
+      green: green
+        ? {
+          front: green.front || null,
+          middle: green.middle || null,
+          back: green.back || null,
+          left: green.left || null,
+          right: green.right || null,
+        }
+        : null,
+      hazards: hazards.map((h) => ({
+        id: h.id,
+        number: h.number,
+        typeKey: h.typeKey,
+        typeLabel: h.typeLabel,
+        lat: h.lat,
+        lon: h.lon,
+        yards: h.yards,
+      })),
+      fit,
+    };
+
+    web.current.postMessage(JSON.stringify(payload));
+  };
 
   useEffect(() => {
-    if (!mapRef.current) return;
-    if (!framePoints.length) return;
+    if (!webReady) return;
+    if (loading) return;
+    postPayload(true);
+  }, [webReady, loading, holeFromParams, courseData]);
 
-    const coords = framePoints.map((p) => ({
-      latitude: p.lat,
-      longitude: p.lon,
-    }));
+  useEffect(() => {
+    if (!webReady) return;
+    postPayload(false);
+  }, [webReady, user, hazards]);
 
-    const t = setTimeout(() => {
-      try {
-        mapRef.current?.fitToCoordinates(coords, {
-          edgePadding: { top: 110, right: 55, bottom: 120, left: 55 },
-          animated: true,
-        });
-      } catch {
-        // ignore
-      }
-    }, 250);
+  const recenter = () => {
+    if (!web.current || !webReady) return;
 
-    return () => clearTimeout(t);
-  }, [framePoints]);
+    web.current.postMessage(
+      JSON.stringify({
+        cmd: "recenter",
+        user: user ? { lon: user.lon, lat: user.lat } : null,
+        center: initialCenter,
+        tee: teePoint && Number.isFinite(teePoint?.lon) && Number.isFinite(teePoint?.lat) ? teePoint : null,
+        fairwayMid:
+          fairwayMid && Number.isFinite(fairwayMid?.lon) && Number.isFinite(fairwayMid?.lat)
+            ? fairwayMid
+            : null,
+        green: green
+          ? {
+            front: green.front || null,
+            middle: green.middle || null,
+            back: green.back || null,
+            left: green.left || null,
+            right: green.right || null,
+          }
+          : null,
+        hazards: hazards.map((h) => ({
+          id: h.id,
+          number: h.number,
+          typeKey: h.typeKey,
+          typeLabel: h.typeLabel,
+          lat: h.lat,
+          lon: h.lon,
+          yards: h.yards,
+        })),
+      })
+    );
+  };
 
   const subtitle = useMemo(() => {
     const parts = [];
@@ -506,51 +758,37 @@ export default function HazardsScreen({ navigation, route }) {
             <Text style={styles.centerStateText}>Loading hazards…</Text>
           </View>
         ) : (
-          <MapView
-            ref={mapRef}
-            provider={PROVIDER_GOOGLE}
-            style={styles.map}
-            initialRegion={initialRegion}
-            mapType="satellite"
-            showsCompass={false}
-            rotateEnabled={false}
-            pitchEnabled={false}
-            toolbarEnabled={false}
-          >
-            {user ? (
-              <Marker coordinate={{ latitude: user.lat, longitude: user.lon }} anchor={{ x: 0.5, y: 0.5 }}>
-                <View style={styles.userDot} />
-              </Marker>
-            ) : null}
+          <WebView
+            ref={web}
+            source={{ html: buildHtml(initialCenter) }}
+            style={styles.web}
+            onLoadStart={() => setWebReady(false)}
+            onMessage={(e) => {
+              let msg = null;
+              try {
+                msg = JSON.parse(e?.nativeEvent?.data || "");
+              } catch {
+                msg = null;
+              }
 
-            {hazards.map((h) => (
-              <Marker
-                key={h.id}
-                coordinate={{ latitude: h.lat, longitude: h.lon }}
-                anchor={{ x: 0.5, y: 1 }}
-              >
-                <View style={styles.hazardWrap}>
-                  <View style={styles.hazardMarker}>
-                    <Text style={styles.hazardMarkerT}>{h.number}</Text>
-                  </View>
-                  <View style={styles.hazardYardPill}>
-                    <Text style={styles.hazardYardPillT}>{h.yards}</Text>
-                  </View>
-                </View>
-              </Marker>
-            ))}
-          </MapView>
+              if (msg?.cmd === "ready") {
+                setWebReady(true);
+              }
+            }}
+          />
         )}
 
         {!loading && !hazards.length ? (
-          <View style={styles.emptyOverlay}>
-            <Text style={styles.emptyOverlayT}>No hazards mapped yet for this hole.</Text>
+          <View style={[styles.emptyTopNotice, { top: insets.top + 78 }]}>
+            <Text style={styles.emptyTopNoticeT}>This hole has no hazards listed</Text>
           </View>
         ) : null}
-
-        <></>
       </View>
-      <View pointerEvents="box-none" style={[styles.floatingRowDual, { top: insets.top + 78 }]}>
+
+      <View
+        pointerEvents="box-none"
+        style={[styles.floatingRowDual, { bottom: insets.bottom + 28 }]}
+      >
         <Pressable
           onPress={() => setInfoOpen(true)}
           style={({ pressed }) => [styles.floatBtnHalf, pressed && styles.pressed]}
@@ -559,7 +797,7 @@ export default function HazardsScreen({ navigation, route }) {
         </Pressable>
 
         <Pressable
-          onPress={fitHazardsMap}
+          onPress={recenter}
           style={({ pressed }) => [styles.floatBtnHalf, pressed && styles.pressed]}
         >
           <Text style={styles.floatBtnT}>Re-center</Text>
@@ -623,8 +861,9 @@ const styles = StyleSheet.create({
     position: "relative",
   },
 
-  map: {
+  web: {
     flex: 1,
+    backgroundColor: "#000",
   },
 
   centerState: {
@@ -639,75 +878,25 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
 
-  userDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 999,
-    backgroundColor: "#2E86FF",
-    borderWidth: 2,
-    borderColor: "#FFFFFF",
-  },
-
-  hazardWrap: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  hazardMarker: {
-    width: 30,
-    height: 30,
-    borderRadius: 999,
-    backgroundColor: "rgba(8,8,10,0.94)",
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.94)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  hazardMarkerT: {
-    color: WHITE,
-    fontSize: 12,
-    fontWeight: "900",
-  },
-
-  hazardYardPill: {
-    marginTop: 4,
-    minWidth: 44,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: "rgba(0,0,0,0.72)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.16)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  hazardYardPillT: {
-    color: WHITE,
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 0.2,
-  },
-
-  emptyOverlay: {
+  emptyTopNotice: {
     position: "absolute",
     left: 14,
     right: 14,
-    bottom: 20,
     borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: "rgba(0,0,0,0.62)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    backgroundColor: "rgba(0,0,0,0.58)",
+    borderWidth: 1.25,
+    borderColor: "rgba(46, 204, 113, 0.42)",
     alignItems: "center",
+    justifyContent: "center",
   },
 
-  emptyOverlayT: {
+  emptyTopNoticeT: {
     color: WHITE,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "900",
+    letterSpacing: 0.2,
     textAlign: "center",
   },
 
@@ -723,8 +912,8 @@ const styles = StyleSheet.create({
 
   floatBtnHalf: {
     flex: 1,
-    height: 44,
-    paddingHorizontal: 16,
+    height: 50,
+    paddingHorizontal: 18,
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
@@ -827,6 +1016,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 10,
   },
+
   hazardRowLeft: {
     flex: 1,
     flexDirection: "row",
