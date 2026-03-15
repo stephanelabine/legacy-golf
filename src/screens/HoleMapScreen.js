@@ -589,17 +589,30 @@ function buildHtml(initialCenter) {
 
     function updatePlannerUI(){
       const plannerOk = plannerOn && greenMid && (teeOrigin || userPt);
-      const driveOk = plannerOn && teeOrigin && userPt;
+      const driveOk = teeOrigin && userPt;
 
-      let nearTee = false;
       let teeToUserM = NaN;
+      let userToGreenM = NaN;
+      let userNearHoleArea = false;
 
       if (teeOrigin && userPt) {
         teeToUserM = haversineM(teeOrigin, userPt);
-        nearTee = isFinite(teeToUserM) && teeToUserM <= 5.5;
       }
 
-      const passiveInPlay = !shotArmed && teeOrigin && userPt && isFinite(teeToUserM) && teeToUserM > 5.5;
+      if (greenMid && userPt) {
+        userToGreenM = haversineM(userPt, greenMid);
+      }
+
+      userNearHoleArea =
+        !!(
+          userPt &&
+          (
+            (isFinite(teeToUserM) && teeToUserM <= 120) ||
+            (isFinite(userToGreenM) && userToGreenM <= 220)
+          )
+        );
+
+      const passiveInPlay = !!(!shotArmed && userNearHoleArea && isFinite(teeToUserM) && teeToUserM > 5.5);
       const showDriveLine = !!(driveOk && shotArmed);
 
       lbl1.style.display = plannerOk ? "block" : "none";
@@ -937,6 +950,23 @@ function buildHtml(initialCenter) {
       }
 
       if(d.cmd === "recenter"){
+        window.__lgRecenterMode = window.__lgRecenterMode || "hole";
+
+        if(window.__lgRecenterMode === "player"){
+          const holePts = [d.tee, d.fairwayMid, d.green?.front, d.green?.middle, d.green?.back].filter(Boolean);
+          const holeAim = d.green?.middle || d.green?.back || d.green?.front || null;
+          const holeBearing = d.tee && holeAim ? bearingDeg(d.tee, holeAim) : null;
+
+          if(holePts.length){
+            frameHole(d.tee || null, holeAim, holePts, holeBearing);
+          } else if(d.center){
+            frameHole(null, null, [d.center].filter(Boolean), null);
+          }
+
+          window.__lgRecenterMode = "hole";
+          return;
+        }
+
         const z = map.getZoom();
         const nextZ =
           (d.forceZoom === true) ? 18 :
@@ -944,8 +974,10 @@ function buildHtml(initialCenter) {
 
         if(d.at && isFinite(d.at[0]) && isFinite(d.at[1])){
           map.easeTo({ center:d.at, zoom:nextZ, duration:420 });
+          window.__lgRecenterMode = "player";
         } else if(d.user){
           map.easeTo({ center:[d.user.lon, d.user.lat], zoom:nextZ, duration:420 });
+          window.__lgRecenterMode = "player";
         }
         return;
       }
@@ -1530,6 +1562,33 @@ export default function HoleMapScreen({ navigation, route }) {
       cmd: "recenter",
       at: user ? [user.lon, user.lat] : null,
       user: user ? { lon: user.lon, lat: user.lat } : null,
+      center,
+      tee: teePoint && Number.isFinite(teePoint?.lon) && Number.isFinite(teePoint?.lat) ? teePoint : null,
+      fairwayMid:
+        fairwayMid && Number.isFinite(fairwayMid?.lon) && Number.isFinite(fairwayMid?.lat)
+          ? fairwayMid
+          : null,
+      green: green
+        ? {
+          front: green.front || null,
+          middle: green.middle || null,
+          back: green.back || null,
+          left: green.left || null,
+          right: green.right || null,
+        }
+        : null,
+      planner: {
+        on: plannerOn,
+        initTarget:
+          fairwayMid && Number.isFinite(fairwayMid?.lon) && Number.isFinite(fairwayMid?.lat)
+            ? { lon: fairwayMid.lon, lat: fairwayMid.lat }
+            : null,
+        shotArmed: !!shotTrackingArmed,
+      },
+      teeOrigin:
+        par && Number(par) > 3 && teePoint && Number.isFinite(teePoint?.lon) && Number.isFinite(teePoint?.lat)
+          ? { lon: teePoint.lon, lat: teePoint.lat }
+          : null,
       forceZoom: true,
     };
 
