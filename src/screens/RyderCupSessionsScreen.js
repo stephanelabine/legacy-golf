@@ -61,6 +61,27 @@ export default function RyderCupSessionsScreen({ navigation, route }) {
         session4Date !== "Select date" &&
         session5Date !== "Select date";
 
+    function canChooseType(sessionNumber, optionKey, currentValue) {
+        const selections = {
+            1: session1Type,
+            2: session2Type,
+            3: session3Type,
+        };
+
+        const nextSelections = {
+            ...selections,
+            [sessionNumber]: optionKey,
+        };
+
+        const foursomesCount = Object.values(nextSelections).filter((x) => x === "foursomes").length;
+        const fourBallCount = Object.values(nextSelections).filter((x) => x === "fourball").length;
+
+        if (foursomesCount > 2) return false;
+        if (fourBallCount > 2) return false;
+
+        return true;
+    }
+
     const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
     function cycleDate(current, sessionNumber) {
@@ -317,14 +338,20 @@ export default function RyderCupSessionsScreen({ navigation, route }) {
                 <View style={styles.optionRow}>
                     {SESSION_OPTIONS.map((option) => {
                         const on = selectedValue === option.key;
+                        const allowed = canChooseType(sessionNumber, option.key, selectedValue);
+
                         return (
                             <Pressable
                                 key={`${sessionNumber}-${option.key}`}
-                                onPress={() => setSelectedValue(option.key)}
+                                onPress={() => {
+                                    if (!allowed && !on) return;
+                                    setSelectedValue(option.key);
+                                }}
                                 style={({ pressed }) => [
                                     styles.optionBtn,
                                     on && styles.optionBtnOn,
-                                    pressed && { opacity: 0.92 },
+                                    !allowed && !on && { opacity: 0.38 },
+                                    pressed && allowed && { opacity: 0.92 },
                                 ]}
                             >
                                 <Text style={styles.optionText}>{option.label}</Text>

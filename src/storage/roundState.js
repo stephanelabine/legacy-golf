@@ -97,7 +97,10 @@ export async function createSetupRound(initial = {}) {
 
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
-
+    startedAt: nowMs(),
+    timestamp: nowMs(),
+    startedAt: nowMs(),
+    timestamp: nowMs(),
     // core
     gameId: initial?.gameId || null,
     gameTitle: initial?.gameTitle || null,

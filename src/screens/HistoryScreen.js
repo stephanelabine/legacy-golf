@@ -558,6 +558,22 @@ export default function HistoryScreen({ navigation }) {
     }
 
     const status = String(fsRound?.status || "").toLowerCase();
+    const entrySource = String(fsRound?.entrySource || fsRound?.mode || "").toLowerCase();
+
+    if (entrySource === "ryder_cup") {
+      navigation.navigate(ROUTES.RYDER_CUP_EVENT_OVERVIEW, {
+        roundId: rid,
+        eventId: String(fsRound?.eventId || "").trim(),
+        eventName: String(fsRound?.eventName || "").trim(),
+        inviteCode: String(fsRound?.inviteCode || "").trim(),
+        organizerName: String(fsRound?.organizerName || "").trim(),
+        organizerEmail: String(fsRound?.organizerEmail || "").trim(),
+        organizerPhone: String(fsRound?.organizerPhone || "").trim(),
+        organizerHandicap: String(fsRound?.organizerHandicap || "").trim(),
+        status: String(fsRound?.status || "setup").trim(),
+      });
+      return;
+    }
 
     if (status === "active" || status.includes("in_progress") || status.includes("progress")) {
       const params = buildHoleHubParamsFromRoundDoc(fsRound, rid);
@@ -697,6 +713,8 @@ export default function HistoryScreen({ navigation }) {
   function renderRowContent({
     courseName,
     dateText,
+    sourceLabel = "",
+    sourceKind = "regular",
     statusText,
     statusKind,
     rightPrimary,
@@ -714,6 +732,21 @@ export default function HistoryScreen({ navigation }) {
         ]}
       >
         <View style={{ flex: 1, minWidth: 0 }}>
+          {sourceLabel ? (
+            <View
+              style={[
+                styles.sourceChip,
+                sourceKind === "ryder_cup"
+                  ? styles.sourceChipRyder
+                  : sourceKind === "tournament"
+                    ? styles.sourceChipTournament
+                    : styles.sourceChipRegular,
+              ]}
+            >
+              <Text style={styles.sourceChipText}>{sourceLabel}</Text>
+            </View>
+          ) : null}
+
           <Text style={styles.course} numberOfLines={2}>
             {shortCourseTitle(courseName)}
           </Text>
@@ -868,7 +901,22 @@ export default function HistoryScreen({ navigation }) {
 
                   const holeNum = pickHoleNumberForDisplay(r, null);
 
-                  const isQuickPost = String(r?.entrySource || "").toLowerCase() === "quick_post";
+                  const entrySource = String(r?.entrySource || r?.mode || "").toLowerCase();
+                  const isQuickPost = entrySource === "quick_post";
+                  const isRyderCup = entrySource === "ryder_cup";
+                  const isTournament = entrySource === "tournament" || !!r?.tournamentId;
+
+                  const sourceLabel = isRyderCup
+                    ? "Ryder Cup Mode"
+                    : isTournament
+                      ? "Tournament Mode"
+                      : "";
+
+                  const sourceKind = isRyderCup
+                    ? "ryder_cup"
+                    : isTournament
+                      ? "tournament"
+                      : "regular";
 
                   const rightPrimary = holeNum ? `Hole ${holeNum}` : "Resume";
                   const rightSecondary = holesLabelAny(r || {});
@@ -896,6 +944,8 @@ export default function HistoryScreen({ navigation }) {
                         renderRowContent({
                           courseName,
                           dateText,
+                          sourceLabel,
+                          sourceKind,
                           statusText: completed && isQuickPost ? "Quick Post" : statusText,
                           statusKind: completed && isQuickPost ? "quick_post" : completed ? "complete" : status === "setup" ? "setup" : "in_progress",
                           rightPrimary,
@@ -934,7 +984,22 @@ export default function HistoryScreen({ navigation }) {
                   const grossFromTotal = Number(r?.grossTotal);
                   const gross = grossFromHoles || (Number.isFinite(grossFromTotal) && grossFromTotal > 0 ? grossFromTotal : 0);
 
-                  const isQuickPost = String(r?.entrySource || "").toLowerCase() === "quick_post";
+                  const entrySource = String(r?.entrySource || r?.mode || "").toLowerCase();
+                  const isQuickPost = entrySource === "quick_post";
+                  const isRyderCup = entrySource === "ryder_cup";
+                  const isTournament = entrySource === "tournament" || !!r?.tournamentId;
+
+                  const sourceLabel = isRyderCup
+                    ? "Ryder Cup Mode"
+                    : isTournament
+                      ? "Tournament Mode"
+                      : "";
+
+                  const sourceKind = isRyderCup
+                    ? "ryder_cup"
+                    : isTournament
+                      ? "tournament"
+                      : "regular";
 
                   const rightPrimary = gross ? String(gross) : "—";
                   const rightSecondary = holesLabelAny(r || {});
@@ -962,6 +1027,8 @@ export default function HistoryScreen({ navigation }) {
                         renderRowContent({
                           courseName,
                           dateText,
+                          sourceLabel,
+                          sourceKind,
                           statusText: completed && isQuickPost ? "Quick Post" : statusText,
                           statusKind: completed && isQuickPost ? "quick_post" : "complete",
                           rightPrimary,
@@ -1140,6 +1207,33 @@ const styles = StyleSheet.create({
     borderWidth: 0,
     borderColor: "transparent",
     backgroundColor: CARD,
+  },
+
+  sourceChip: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    marginBottom: 10,
+  },
+  sourceChipRegular: {
+    borderColor: "rgba(255,255,255,0.16)",
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+  sourceChipTournament: {
+    borderColor: "rgba(255, 210, 92, 0.78)",
+    backgroundColor: "rgba(255, 210, 92, 0.16)",
+  },
+  sourceChipRyder: {
+    borderColor: "rgba(140,175,255,0.78)",
+    backgroundColor: "rgba(46,125,255,0.18)",
+  },
+  sourceChipText: {
+    color: WHITE,
+    fontWeight: "900",
+    fontSize: 11,
+    letterSpacing: 0.6,
   },
 
   course: { color: WHITE, fontSize: 16, fontWeight: "900" },

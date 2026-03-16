@@ -30,13 +30,12 @@ export default function RyderCupIntroScreen({ navigation, route }) {
     const gameTitle = route?.params?.gameTitle || "Ryder Cup";
 
     const [showHero, setShowHero] = useState(false);
-    const [isFlipping, setIsFlipping] = useState(false);
 
-    const flipProgress = useRef(new Animated.Value(0)).current;
+    const videoOpacity = useRef(new Animated.Value(1)).current;
     const heroOpacity = useRef(new Animated.Value(0)).current;
-    const heroScale = useRef(new Animated.Value(1.025)).current;
+    const heroScale = useRef(new Animated.Value(1.01)).current;
     const cardOpacity = useRef(new Animated.Value(0)).current;
-    const cardTranslateX = useRef(new Animated.Value(-40)).current;
+    const cardTranslateY = useRef(new Animated.Value(18)).current;
 
     const player = useVideoPlayer(RYDER_CUP_INTRO, (p) => {
         p.loop = false;
@@ -53,59 +52,53 @@ export default function RyderCupIntroScreen({ navigation, route }) {
     }
 
     function beginHeroTransition() {
-        if (showHero || isFlipping) return;
+        if (showHero) return;
 
-        setIsFlipping(true);
+        setShowHero(true);
 
-        Animated.timing(flipProgress, {
-            toValue: 1,
-            duration: 760,
-            easing: Easing.inOut(Easing.cubic),
-            useNativeDriver: true,
-        }).start(({ finished }) => {
-            if (!finished) return;
+        heroOpacity.setValue(0);
+        heroScale.setValue(1.01);
+        cardOpacity.setValue(0);
+        cardTranslateY.setValue(18);
 
-            setShowHero(true);
-            setIsFlipping(false);
+        Animated.parallel([
+            Animated.timing(videoOpacity, {
+                toValue: 0,
+                duration: 180,
+                easing: Easing.out(Easing.quad),
+                useNativeDriver: true,
+            }),
+            Animated.timing(heroOpacity, {
+                toValue: 1,
+                duration: 220,
+                easing: Easing.out(Easing.quad),
+                useNativeDriver: true,
+            }),
+            Animated.timing(heroScale, {
+                toValue: 1,
+                duration: 320,
+                easing: Easing.out(Easing.cubic),
+                useNativeDriver: true,
+            }),
+        ]).start();
 
-            heroOpacity.setValue(0);
-            heroScale.setValue(1.025);
-            cardOpacity.setValue(0);
-            cardTranslateX.setValue(-40);
-
+        Animated.sequence([
+            Animated.delay(130),
             Animated.parallel([
-                Animated.timing(heroOpacity, {
+                Animated.timing(cardOpacity, {
                     toValue: 1,
-                    duration: 220,
+                    duration: 260,
                     easing: Easing.out(Easing.quad),
                     useNativeDriver: true,
                 }),
-                Animated.timing(heroScale, {
-                    toValue: 1,
+                Animated.timing(cardTranslateY, {
+                    toValue: 0,
                     duration: 320,
                     easing: Easing.out(Easing.cubic),
                     useNativeDriver: true,
                 }),
-            ]).start();
-
-            Animated.sequence([
-                Animated.delay(110),
-                Animated.parallel([
-                    Animated.timing(cardOpacity, {
-                        toValue: 1,
-                        duration: 260,
-                        easing: Easing.out(Easing.quad),
-                        useNativeDriver: true,
-                    }),
-                    Animated.timing(cardTranslateX, {
-                        toValue: 0,
-                        duration: 340,
-                        easing: Easing.out(Easing.cubic),
-                        useNativeDriver: true,
-                    }),
-                ]),
-            ]).start();
-        });
+            ]),
+        ]).start();
     }
 
     useEventListener(player, "playToEnd", () => {
@@ -116,26 +109,6 @@ export default function RyderCupIntroScreen({ navigation, route }) {
         if (status === "error") {
             beginHeroTransition();
         }
-    });
-
-    const videoRotateY = flipProgress.interpolate({
-        inputRange: [0, 1],
-        outputRange: ["0deg", "90deg"],
-    });
-
-    const heroRotateY = flipProgress.interpolate({
-        inputRange: [0, 1],
-        outputRange: ["-90deg", "0deg"],
-    });
-
-    const videoOpacity = flipProgress.interpolate({
-        inputRange: [0, 0.45, 0.7, 1],
-        outputRange: [1, 1, 0.18, 0],
-    });
-
-    const heroFlipOpacity = flipProgress.interpolate({
-        inputRange: [0, 0.3, 0.55, 1],
-        outputRange: [0, 0.12, 0.85, 1],
     });
 
     const styles = useMemo(() => {
@@ -167,7 +140,6 @@ export default function RyderCupIntroScreen({ navigation, route }) {
             video: {
                 ...StyleSheet.absoluteFillObject,
                 backgroundColor: "#000",
-                transform: [{ scale: .96 }],
             },
             heroPanel: {
                 ...StyleSheet.absoluteFillObject,
@@ -323,52 +295,26 @@ export default function RyderCupIntroScreen({ navigation, route }) {
 
     return (
         <View style={styles.screen}>
-            {!showHero ? (
-                <>
-                    <Animated.View
-                        pointerEvents="none"
-                        style={[
-                            styles.videoPanel,
-                            {
-                                opacity: videoOpacity,
-                                transform: [{ perspective: 1400 }, { rotateY: videoRotateY }],
-                            },
-                        ]}
-                    >
-                        <VideoView
-                            player={player}
-                            style={styles.video}
-                            allowsFullscreen={false}
-                            allowsPictureInPicture={false}
-                            nativeControls={false}
-                            contentFit="cover"
-                        />
-                    </Animated.View>
+            <Animated.View
+                pointerEvents={showHero ? "none" : "auto"}
+                style={[
+                    styles.videoPanel,
+                    {
+                        opacity: videoOpacity,
+                    },
+                ]}
+            >
+                <VideoView
+                    player={player}
+                    style={styles.video}
+                    allowsFullscreen={false}
+                    allowsPictureInPicture={false}
+                    nativeControls={false}
+                    contentFit="cover"
+                />
+            </Animated.View>
 
-                    {isFlipping ? (
-                        <Animated.View
-                            pointerEvents="none"
-                            style={[
-                                styles.heroPanel,
-                                {
-                                    opacity: heroFlipOpacity,
-                                    transform: [{ perspective: 1400 }, { rotateY: heroRotateY }],
-                                },
-                            ]}
-                        >
-                            <ImageBackground source={RYDER_CUP_HERO} style={styles.heroImage} imageStyle={styles.heroImageStyle}>
-                                <View pointerEvents="none" style={styles.heroOverlay}>
-                                    <View style={styles.topFade} />
-                                    <View style={styles.bottomFade} />
-                                    <View style={styles.leftBlueWash} />
-                                    <View style={styles.rightRedWash} />
-                                    <View style={styles.bottomGreenWash} />
-                                </View>
-                            </ImageBackground>
-                        </Animated.View>
-                    ) : null}
-                </>
-            ) : (
+            {showHero ? (
                 <Animated.View
                     style={[
                         styles.heroPanel,
@@ -391,7 +337,7 @@ export default function RyderCupIntroScreen({ navigation, route }) {
                             <Animated.View
                                 style={{
                                     opacity: cardOpacity,
-                                    transform: [{ translateX: cardTranslateX }],
+                                    transform: [{ translateY: cardTranslateY }],
                                 }}
                             >
                                 <View style={styles.ctaCard}>
@@ -410,7 +356,7 @@ export default function RyderCupIntroScreen({ navigation, route }) {
                         </View>
                     </ImageBackground>
                 </Animated.View>
-            )}
+            ) : null}
         </View>
     );
 }

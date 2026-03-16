@@ -1,108 +1,126 @@
 // src/screens/RyderCupOrganizerScreen.js
 import React, { useMemo, useState } from "react";
-import { View, Text, StyleSheet, TextInput, Pressable, KeyboardAvoidingView, Platform, ScrollView } from "react-native";
+import {
+    View,
+    Text,
+    StyleSheet,
+    Pressable,
+    Alert,
+    Platform,
+    ScrollView,
+    TextInput,
+    KeyboardAvoidingView,
+    Keyboard,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import { useTheme } from "../theme/ThemeProvider";
 
-export default function RyderCupOrganizerScreen({ navigation }) {
+function parseHandicap(v) {
+    const raw = String(v ?? "").trim();
+    if (!raw) return { ok: false, value: null };
+    const num = Number(raw);
+    if (!Number.isFinite(num)) return { ok: false, value: null };
+    const rounded = Math.round(num * 10) / 10;
+    return { ok: true, value: rounded };
+}
+
+export default function RyderCupOrganizerScreen({ navigation, route }) {
     const insets = useSafeAreaInsets();
     const { scheme, theme } = useTheme();
     const isDark = scheme === "dark";
 
-    const [organizerName, setOrganizerName] = useState("");
+    const [saving, setSaving] = useState(false);
+
+    const [name, setName] = useState("");
     const [email, setEmail] = useState("");
     const [phone, setPhone] = useState("");
     const [handicap, setHandicap] = useState("");
 
-    const canContinue =
-        organizerName.trim().length > 0 &&
-        email.trim().length > 0 &&
-        phone.trim().length > 0 &&
-        handicap.trim().length > 0;
-
     const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
     const styles = useMemo(() => {
+        const goldBorder = isDark ? "rgba(232,194,92,0.78)" : "rgba(232,194,92,0.84)";
+        const goldBg = isDark ? "rgba(232,194,92,0.10)" : "rgba(232,194,92,0.14)";
+
+        const cupBorder = isDark ? "rgba(60,120,255,0.52)" : "rgba(60,120,255,0.42)";
+        const cupBg = isDark ? "rgba(255,255,255,0.04)" : "rgba(10,15,26,0.04)";
+
+        const inkBtn = isDark ? "rgba(18,34,64,0.96)" : "rgba(10,15,26,0.92)";
+
         return StyleSheet.create({
-            screen: {
-                flex: 1,
-                backgroundColor: theme.bg,
-            },
+            screen: { flex: 1, backgroundColor: theme.bg },
+            content: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 210 },
 
-            content: {
-                paddingHorizontal: 16,
-                paddingTop: 10,
-                paddingBottom: 140,
-            },
-
-            heroCard: {
-                borderRadius: 20,
+            hero: {
+                borderRadius: 22,
                 padding: 18,
-                borderWidth: 1,
-                borderColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(10,15,26,0.10)",
-                backgroundColor: theme.card,
+                borderWidth: 1.5,
+                borderColor: goldBorder,
+                backgroundColor: goldBg,
+                marginBottom: 12,
             },
-
-            heroTitle: {
+            heroKicker: {
                 color: theme.text,
-                fontSize: 22,
+                fontSize: 12,
+                fontWeight: "900",
+                letterSpacing: 1.4,
+                opacity: 0.82,
+                textTransform: "uppercase",
+            },
+            heroTitle: {
+                marginTop: 10,
+                color: theme.text,
+                fontSize: 18,
                 fontWeight: "900",
             },
-
             heroSub: {
                 marginTop: 8,
                 color: theme.text,
                 opacity: 0.74,
-                fontSize: 14,
+                fontSize: 13,
                 fontWeight: "700",
-                lineHeight: 20,
+                lineHeight: 19,
             },
 
-            section: {
-                marginTop: 16,
-                borderRadius: 20,
-                padding: 16,
-                borderWidth: 1,
-                borderColor: theme.border,
+            card: {
+                borderRadius: 22,
+                padding: 14,
+                borderWidth: 2.5,
+                borderColor: cupBorder,
                 backgroundColor: theme.card2,
+                marginBottom: 12,
             },
-
-            sectionTitle: {
+            cardTitle: {
                 color: theme.text,
                 fontSize: 13,
                 fontWeight: "900",
-                letterSpacing: 1.1,
-                textTransform: "uppercase",
+                letterSpacing: 1.2,
                 opacity: 0.82,
+                textTransform: "uppercase",
             },
-
-            fieldBlock: {
-                marginTop: 14,
-            },
-
-            label: {
+            cardSub: {
+                marginTop: 8,
                 color: theme.text,
+                opacity: 0.72,
                 fontSize: 12,
-                fontWeight: "900",
-                letterSpacing: 0.5,
-                opacity: 0.82,
-                marginBottom: 8,
-                textTransform: "uppercase",
+                fontWeight: "800",
+                lineHeight: 17,
             },
 
             input: {
-                height: 54,
+                marginTop: 12,
+                height: 52,
                 borderRadius: 16,
+                paddingHorizontal: 14,
                 borderWidth: 1,
                 borderColor: theme.border,
-                backgroundColor: theme.card,
-                paddingHorizontal: 14,
+                backgroundColor: theme.bg,
                 color: theme.text,
                 fontSize: 15,
-                fontWeight: "700",
+                fontWeight: "800",
             },
 
             footer: {
@@ -111,150 +129,197 @@ export default function RyderCupOrganizerScreen({ navigation }) {
                 right: 0,
                 bottom: 0,
                 paddingHorizontal: 16,
-                paddingTop: 12,
                 paddingBottom: footerPad,
+                paddingTop: 12,
                 backgroundColor: theme.bg,
                 borderTopWidth: 1,
                 borderTopColor: theme.divider,
             },
-
             primaryBtn: {
                 height: 56,
                 borderRadius: 18,
                 alignItems: "center",
                 justifyContent: "center",
-                backgroundColor: canContinue
-                    ? (isDark ? "rgba(46,125,255,0.92)" : "rgba(10,15,26,0.92)")
-                    : (isDark ? "rgba(255,255,255,0.10)" : "rgba(10,15,26,0.08)"),
-                borderWidth: canContinue ? 0 : 1,
-                borderColor: canContinue ? "transparent" : theme.border,
+                backgroundColor: inkBtn,
+                borderWidth: 1.5,
+                borderColor: goldBorder,
             },
-
-            primaryBtnDisabled: {
-                opacity: 0.72,
-            },
-
+            primaryBtnDisabled: { opacity: 0.65 },
             primaryText: {
-                color: canContinue ? "#FFFFFF" : theme.text,
-                opacity: canContinue ? 1 : 0.48,
+                color: "#fff",
                 fontSize: 16,
                 fontWeight: "900",
-                letterSpacing: 0.3,
+                letterSpacing: 0.4,
             },
 
             pressed: {
-                opacity: 0.92,
+                opacity: Platform.OS === "ios" ? 0.88 : 0.9,
                 transform: [{ scale: 0.99 }],
             },
+
+            muted: {
+                color: theme.text,
+                opacity: 0.72,
+                fontSize: 12,
+                fontWeight: "800",
+                textAlign: "center",
+                marginTop: 10,
+            },
         });
-    }, [theme, isDark, footerPad, canContinue]);
+    }, [theme, isDark, footerPad]);
+
+    function handleExit() {
+        Alert.alert(
+            "Exit Ryder Cup?",
+            "Choose how you want to leave this setup.",
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Exit Without Saving",
+                    style: "destructive",
+                    onPress: () => navigation.navigate(ROUTES.HOME),
+                },
+                {
+                    text: "Save and Exit",
+                    onPress: () => navigation.navigate(ROUTES.HOME),
+                },
+            ]
+        );
+    }
 
     function onContinue() {
-        if (!canContinue) return;
+        const n = String(name || "").trim();
+        const e = String(email || "").trim();
+        const p = String(phone || "").trim();
+        const h = parseHandicap(handicap);
 
-        navigation.navigate(ROUTES.RYDER_CUP_HUB_WELCOME, {
-            organizerName: organizerName.trim(),
-            organizerEmail: email.trim(),
-            organizerPhone: phone.trim(),
-            organizerHandicap: handicap.trim(),
-        });
+        if (!n) {
+            Alert.alert("Organizer name", "Please enter your name.");
+            return;
+        }
+
+        if (!h.ok) {
+            Alert.alert("Handicap required", "Please enter a valid handicap (example: 12.4).");
+            return;
+        }
+
+        setSaving(true);
+
+        try {
+            Keyboard.dismiss();
+
+            navigation.navigate(ROUTES.RYDER_CUP_HUB_WELCOME, {
+                roundId: String(route?.params?.roundId || "").trim(),
+                organizerName: n,
+                organizerEmail: e,
+                organizerPhone: p,
+                organizerHandicap: String(h.value.toFixed(1)),
+            });
+        } finally {
+            setSaving(false);
+        }
     }
 
     return (
         <View style={styles.screen}>
             <ScreenHeader
                 navigation={navigation}
-                title="Ryder Cup"
-                subtitle="Set up the organizer profile for your event."
+                title="Organizer"
+                subtitle="Set your profile before entering the Ryder Cup hub."
+                rightLabel="Exit"
+                onRightPress={handleExit}
             />
 
             <KeyboardAvoidingView
+                behavior={Platform.OS === "ios" ? "padding" : "height"}
                 style={{ flex: 1 }}
-                behavior={Platform.OS === "ios" ? "padding" : undefined}
             >
                 <ScrollView
                     contentContainerStyle={styles.content}
                     showsVerticalScrollIndicator={false}
                     keyboardShouldPersistTaps="handled"
                 >
-                    <View style={styles.heroCard}>
-                        <Text style={styles.heroTitle}>Organizer Profile</Text>
+                    <View style={styles.hero}>
+                        <Text style={styles.heroKicker}>Ryder Cup profile</Text>
+                        <Text style={styles.heroTitle}>Tell us who’s running this Ryder Cup</Text>
                         <Text style={styles.heroSub}>
-                            Enter the host details for this Ryder Cup event. These details will follow the event as you build it.
+                            This becomes the host profile for the event and keeps setup, teams, and results clean
+                            from the start.
                         </Text>
                     </View>
 
-                    <View style={styles.section}>
-                        <Text style={styles.sectionTitle}>Organizer Details</Text>
+                    <View style={styles.card}>
+                        <Text style={styles.cardTitle}>Your details</Text>
+                        <Text style={styles.cardSub}>Name + handicap required. Email/phone recommended.</Text>
 
-                        <View style={styles.fieldBlock}>
-                            <Text style={styles.label}>Organizer Name</Text>
-                            <TextInput
-                                value={organizerName}
-                                onChangeText={setOrganizerName}
-                                placeholder="Enter organizer name"
-                                placeholderTextColor={isDark ? "rgba(255,255,255,0.34)" : "rgba(10,15,26,0.34)"}
-                                style={styles.input}
-                                returnKeyType="next"
-                            />
-                        </View>
+                        <TextInput
+                            value={name}
+                            onChangeText={setName}
+                            placeholder="Full name"
+                            placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+                            style={styles.input}
+                            autoCapitalize="words"
+                            autoCorrect={false}
+                            editable={!saving}
+                            returnKeyType="next"
+                        />
 
-                        <View style={styles.fieldBlock}>
-                            <Text style={styles.label}>Email</Text>
-                            <TextInput
-                                value={email}
-                                onChangeText={setEmail}
-                                placeholder="Enter email"
-                                placeholderTextColor={isDark ? "rgba(255,255,255,0.34)" : "rgba(10,15,26,0.34)"}
-                                style={styles.input}
-                                autoCapitalize="none"
-                                keyboardType="email-address"
-                                returnKeyType="next"
-                            />
-                        </View>
+                        <TextInput
+                            value={email}
+                            onChangeText={setEmail}
+                            placeholder="Email (recommended)"
+                            placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+                            style={styles.input}
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            keyboardType="email-address"
+                            editable={!saving}
+                            returnKeyType="next"
+                        />
 
-                        <View style={styles.fieldBlock}>
-                            <Text style={styles.label}>Phone Number</Text>
-                            <TextInput
-                                value={phone}
-                                onChangeText={setPhone}
-                                placeholder="Enter phone number"
-                                placeholderTextColor={isDark ? "rgba(255,255,255,0.34)" : "rgba(10,15,26,0.34)"}
-                                style={styles.input}
-                                keyboardType="phone-pad"
-                                returnKeyType="next"
-                            />
-                        </View>
+                        <TextInput
+                            value={phone}
+                            onChangeText={setPhone}
+                            placeholder="Phone (recommended)"
+                            placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+                            style={styles.input}
+                            keyboardType="phone-pad"
+                            editable={!saving}
+                            returnKeyType="next"
+                        />
 
-                        <View style={styles.fieldBlock}>
-                            <Text style={styles.label}>Handicap</Text>
-                            <TextInput
-                                value={handicap}
-                                onChangeText={setHandicap}
-                                placeholder="Enter organizer handicap"
-                                placeholderTextColor={isDark ? "rgba(255,255,255,0.34)" : "rgba(10,15,26,0.34)"}
-                                style={styles.input}
-                                keyboardType="decimal-pad"
-                                returnKeyType="done"
-                            />
-                        </View>
+                        <TextInput
+                            value={handicap}
+                            onChangeText={(s) => setHandicap(String(s || "").replace(/[^0-9.]/g, ""))}
+                            placeholder="Handicap (required) — example: 12.4"
+                            placeholderTextColor={isDark ? "rgba(255,255,255,0.35)" : "rgba(10,15,26,0.35)"}
+                            style={styles.input}
+                            keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
+                            editable={!saving}
+                            returnKeyType="done"
+                            onSubmitEditing={() => Keyboard.dismiss()}
+                        />
+
+                        <Text style={styles.muted}>Ryder Cup uses the same clean organizer-first setup flow.</Text>
                     </View>
                 </ScrollView>
-            </KeyboardAvoidingView>
 
-            <View style={styles.footer}>
-                <Pressable
-                    onPress={onContinue}
-                    disabled={!canContinue}
-                    style={({ pressed }) => [
-                        styles.primaryBtn,
-                        !canContinue && styles.primaryBtnDisabled,
-                        pressed && canContinue && styles.pressed,
-                    ]}
-                >
-                    <Text style={styles.primaryText}>Continue to Ryder Cup</Text>
-                </Pressable>
-            </View>
+                <View style={styles.footer}>
+                    <Pressable
+                        onPress={onContinue}
+                        disabled={saving}
+                        style={({ pressed }) => [
+                            styles.primaryBtn,
+                            saving && styles.primaryBtnDisabled,
+                            pressed && !saving && styles.pressed,
+                        ]}
+                    >
+                        <Text style={styles.primaryText}>
+                            {saving ? "Continuing..." : "Continue to Ryder Cup Hub"}
+                        </Text>
+                    </Pressable>
+                </View>
+            </KeyboardAvoidingView>
         </View>
     );
 }

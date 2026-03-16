@@ -1,6 +1,6 @@
 // src/screens/RyderCupHubWelcomeScreen.js
 import React, { useMemo } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView } from "react-native";
+import { View, Text, StyleSheet, Pressable, ScrollView, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import ROUTES from "../navigation/routes";
@@ -12,6 +12,7 @@ export default function RyderCupHubWelcomeScreen({ navigation, route }) {
     const { scheme, theme } = useTheme();
     const isDark = scheme === "dark";
 
+    const roundId = String(route?.params?.roundId || "").trim();
     const organizerName = String(route?.params?.organizerName || "").trim();
     const organizerEmail = String(route?.params?.organizerEmail || "").trim();
     const organizerPhone = String(route?.params?.organizerPhone || "").trim();
@@ -160,11 +161,31 @@ export default function RyderCupHubWelcomeScreen({ navigation, route }) {
 
     function onCreateEvent() {
         navigation.navigate(ROUTES.RYDER_CUP_CREATE_EVENT, {
+            roundId,
             organizerName,
             organizerEmail,
             organizerPhone,
             organizerHandicap,
         });
+    }
+
+    function handleExit() {
+        Alert.alert(
+            "Exit Ryder Cup?",
+            "Choose how you want to leave this setup.",
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Exit Without Saving",
+                    style: "destructive",
+                    onPress: () => navigation.navigate(ROUTES.HOME),
+                },
+                {
+                    text: "Save and Exit",
+                    onPress: () => navigation.navigate(ROUTES.HOME),
+                },
+            ]
+        );
     }
 
     return (
@@ -173,6 +194,8 @@ export default function RyderCupHubWelcomeScreen({ navigation, route }) {
                 navigation={navigation}
                 title="Ryder Cup Hub"
                 subtitle="Build and manage your official Ryder Cup event."
+                rightLabel="Exit"
+                onRightPress={handleExit}
             />
 
             <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>

@@ -1,11 +1,12 @@
 // src/screens/RyderCupCreateEventScreen.js
 import React, { useMemo, useState } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, TextInput } from "react-native";
+import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import { useTheme } from "../theme/ThemeProvider";
+import { updateActiveRound } from "../storage/roundState";
 
 function makeInviteCode() {
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -25,6 +26,7 @@ export default function RyderCupCreateEventScreen({ navigation, route }) {
     const { scheme, theme } = useTheme();
     const isDark = scheme === "dark";
 
+    const roundId = String(route?.params?.roundId || "").trim();
     const organizerName = String(route?.params?.organizerName || "").trim();
     const organizerEmail = String(route?.params?.organizerEmail || "").trim();
     const organizerPhone = String(route?.params?.organizerPhone || "").trim();
@@ -167,13 +169,62 @@ export default function RyderCupCreateEventScreen({ navigation, route }) {
         });
     }, [theme, isDark, footerPad, canContinue]);
 
-    function onCreateEvent() {
+    function handleExit() {
+        Alert.alert(
+            "Exit Ryder Cup?",
+            "Choose how you want to leave this setup.",
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Exit Without Saving",
+                    style: "destructive",
+                    onPress: () => navigation.navigate(ROUTES.HOME),
+                },
+                {
+                    text: "Save and Exit",
+                    onPress: () => navigation.navigate(ROUTES.HOME),
+                },
+            ]
+        );
+    }
+
+    async function onCreateEvent() {
         if (!canContinue) return;
+        if (!roundId) {
+            Alert.alert("Missing round", "No Ryder Cup round was created.");
+            return;
+        }
+
+        const nextEventId = makeEventId();
+        const nextInviteCode = makeInviteCode();
+        const nextEventName = eventName.trim();
+
+        const saved = await updateActiveRound(
+            {
+                mode: "ryder_cup",
+                entrySource: "ryder_cup",
+                eventId: nextEventId,
+                eventName: nextEventName,
+                inviteCode: nextInviteCode,
+                organizerName,
+                organizerEmail,
+                organizerPhone,
+                organizerHandicap,
+                status: "setup",
+            },
+            roundId
+        );
+
+        if (!saved) {
+            Alert.alert("Save failed", "Could not save this Ryder Cup event.");
+            return;
+        }
 
         navigation.navigate(ROUTES.RYDER_CUP_EVENT_OVERVIEW, {
-            eventId: makeEventId(),
-            eventName: eventName.trim(),
-            inviteCode: makeInviteCode(),
+            roundId,
+            eventId: nextEventId,
+            eventName: nextEventName,
+            inviteCode: nextInviteCode,
             organizerName,
             organizerEmail,
             organizerPhone,
@@ -188,6 +239,8 @@ export default function RyderCupCreateEventScreen({ navigation, route }) {
                 navigation={navigation}
                 title="Create Ryder Cup"
                 subtitle="Name your event and create the Ryder Cup shell."
+                rightLabel="Exit"
+                onRightPress={handleExit}
             />
 
             <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
