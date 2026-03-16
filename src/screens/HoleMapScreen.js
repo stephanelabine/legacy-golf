@@ -28,6 +28,7 @@ import { doc, getDoc } from "firebase/firestore";
 import ROUTES from "../navigation/routes";
 import { auth, db } from "../firebase/firebase";
 import { MAPBOX_TOKEN } from "../config/mapbox";
+import { getTeesForCourse } from "../services/tees";
 import { loadCourseData, saveCourseData } from "../storage/courseData";
 import { isAdmin as isAdminUser } from "../storage/courseDataRemote";
 import * as RoundState from "../storage/roundState";
@@ -322,23 +323,25 @@ function resolveMyPlayerFromRoster(roster) {
 }
 
 function teeKeyFromParams(teeObj) {
-  const raw =
-    (teeObj && (teeObj.key || teeObj.color || teeObj.name || teeObj.label)) || "";
-  const k = String(raw).toLowerCase().trim();
+  const rawCode = String(
+    teeObj?.code || teeObj?.key || teeObj?.color || ""
+  )
+    .trim()
+    .toUpperCase();
 
-  if (
-    k.includes("tour") ||
-    k.includes("tips") ||
-    k.includes("championship") ||
-    k.includes("gold")
-  ) {
-    return "gold";
+  if (rawCode) return rawCode;
+
+  const rawName = String(
+    teeObj?.name || teeObj?.label || ""
+  )
+    .trim()
+    .toUpperCase();
+
+  if (rawName) {
+    return rawName.replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "WHITE";
   }
 
-  if (k.includes("blue")) return "blue";
-  if (k.includes("red")) return "red";
-  if (k.includes("white")) return "white";
-  return "white";
+  return "WHITE";
 }
 
 function buildHtml(initialCenter) {
@@ -1032,6 +1035,66 @@ function buildHtml(initialCenter) {
 
 const PLANNER_PREF_KEY = "LEGACY_GOLF_PLANNER_ON";
 
+function makeHazardPoint(type, lat, lon, extras = {}) {
+  return {
+    type,
+    lat,
+    lon,
+    createdAt: Date.now(),
+    ...extras,
+  };
+}
+
+function normalizeHazardPoints(hazards) {
+  const arr = Array.isArray(hazards) ? hazards : [];
+
+  return arr
+    .flatMap((item, index) => {
+      if (!item || typeof item !== "object") return [];
+
+      if (Number.isFinite(item?.lat) && Number.isFinite(item?.lon)) {
+        return [
+          {
+            ...item,
+            hazardGroupId:
+              item?.hazardGroupId ??
+              item?.groupId ??
+              `legacy-${index}`,
+            pointRole: item?.pointRole ?? "point",
+          },
+        ];
+      }
+
+      const points = Array.isArray(item?.points) ? item.points : [];
+      const groupId =
+        item?.hazardGroupId ??
+        item?.groupId ??
+        `group-${index}`;
+
+      return points
+        .filter(
+          (pt) =>
+            pt &&
+            typeof pt === "object" &&
+            Number.isFinite(pt?.lat) &&
+            Number.isFinite(pt?.lon)
+        )
+        .map((pt, pointIndex) => ({
+          ...pt,
+          type: pt?.type || item?.type || "bunker",
+          hazardGroupId: pt?.hazardGroupId ?? groupId,
+          pointRole: pt?.pointRole ?? (pointIndex === 0 ? "start" : "point"),
+          createdAt: pt?.createdAt ?? item?.createdAt ?? Date.now(),
+        }));
+    })
+    .filter(
+      (pt) =>
+        pt &&
+        Number.isFinite(pt?.lat) &&
+        Number.isFinite(pt?.lon)
+    );
+}
+
 function hasAllGreenPoints(holeObj) {
   const g = holeObj?.green;
   return !!(g?.front && g?.middle && g?.back);
@@ -1322,7 +1385,7 @@ export default function HoleMapScreen({ navigation, route }) {
       ? savedGps.fairway.mid
       : null;
 
-  const hazardsArr = Array.isArray(savedGps?.hazards) ? savedGps.hazards : [];
+  const hazardsArr = normalizeHazardPoints(savedGps?.hazards);
 
   const center = useMemo(() => {
     if (courseCenter && Array.isArray(courseCenter) && courseCenter.length === 2) {
@@ -1612,6 +1675,7 @@ export default function HoleMapScreen({ navigation, route }) {
   const [pendingClubLabel, setPendingClubLabel] = useState("");
   const [bullseyeReady, setBullseyeReady] = useState(false);
   const [shotTrackingArmed, setShotTrackingArmed] = useState(false);
+  const [courseTees, setCourseTees] = useState([]);
 
   // Planner: target line + draggable target
   const [plannerOn, setPlannerOn] = useState(true);
@@ -1750,6 +1814,33 @@ export default function HoleMapScreen({ navigation, route }) {
       live = false;
     };
   }, []);
+
+  useEffect(() => {
+    let live = true;
+
+    (async () => {
+      if (!courseId) {
+        if (live) setCourseTees([]);
+        return;
+      }
+
+      try {
+        const nextTees = await getTeesForCourse(String(courseId), {
+          courseName,
+        });
+
+        if (!live) return;
+        setCourseTees(Array.isArray(nextTees) ? nextTees : []);
+      } catch {
+        if (!live) return;
+        setCourseTees([]);
+      }
+    })();
+
+    return () => {
+      live = false;
+    };
+  }, [courseId, courseName]);
 
   const clubOptions = useMemo(() => {
     return buildClubOptionsFromBag(equipmentBag);
@@ -1920,7 +2011,7 @@ export default function HoleMapScreen({ navigation, route }) {
     }
   }
 
-  async function addHazard(type) {
+  async function addHazard(type, pointRole = "point") {
     if (!admin) return;
     if (!courseId) {
       Alert.alert("Set point unavailable", "No courseId in route params.");
@@ -1938,11 +2029,20 @@ export default function HoleMapScreen({ navigation, route }) {
       const hKey = String(holeNumber);
       const holeObj = holes[hKey] && typeof holes[hKey] === "object" ? holes[hKey] : {};
 
-      const existingHaz = Array.isArray(holeObj.hazards) ? holeObj.hazards : [];
+      const existingHaz = normalizeHazardPoints(holeObj.hazards);
+      const lastHazard = existingHaz.length ? existingHaz[existingHaz.length - 1] : null;
+
+      const nextGroupId =
+        pointRole === "point" && lastHazard?.hazardGroupId && lastHazard?.type === type
+          ? lastHazard.hazardGroupId
+          : `haz-${Date.now()}`;
 
       const nextHaz = [
         ...existingHaz,
-        { type, lat: user.lat, lon: user.lon, createdAt: Date.now() },
+        makeHazardPoint(type, user.lat, user.lon, {
+          hazardGroupId: nextGroupId,
+          pointRole,
+        }),
       ];
 
       const nextHoleObj = { ...holeObj, hazards: nextHaz };
@@ -1962,7 +2062,12 @@ export default function HoleMapScreen({ navigation, route }) {
       if (ok) {
         await reloadCourseData();
         postPayload(true);
-        Alert.alert("Saved", `${type.toUpperCase()} hazard saved for Hole ${holeNumber}.`);
+        Alert.alert(
+          "Saved",
+          pointRole === "start"
+            ? `${type.toUpperCase()} hazard start saved for Hole ${holeNumber}.`
+            : `${type.toUpperCase()} hazard point saved for Hole ${holeNumber}.`
+        );
       }
     } finally {
       setSavingSetup(false);
@@ -1983,7 +2088,7 @@ export default function HoleMapScreen({ navigation, route }) {
       const hKey = String(holeNumber);
 
       const holeObj = holes[hKey] && typeof holes[hKey] === "object" ? holes[hKey] : {};
-      const existingHaz = Array.isArray(holeObj.hazards) ? holeObj.hazards : [];
+      const existingHaz = normalizeHazardPoints(holeObj.hazards);
       if (!existingHaz.length) return;
 
       const nextHaz = existingHaz.slice(0, -1);
@@ -2049,10 +2154,32 @@ export default function HoleMapScreen({ navigation, route }) {
     );
   }
 
-  const teeSetGold = !!(teePoints?.gold && Number.isFinite(teePoints?.gold?.lat) && Number.isFinite(teePoints?.gold?.lon));
-  const teeSetBlue = !!(teePoints?.blue && Number.isFinite(teePoints?.blue?.lat) && Number.isFinite(teePoints?.blue?.lon));
-  const teeSetWhite = !!(teePoints?.white && Number.isFinite(teePoints?.white?.lat) && Number.isFinite(teePoints?.white?.lon));
-  const teeSetRed = !!(teePoints?.red && Number.isFinite(teePoints?.red?.lat) && Number.isFinite(teePoints?.red?.lon));
+  const teeSetupItems = useMemo(() => {
+    const list = Array.isArray(courseTees) && courseTees.length
+      ? courseTees
+      : [
+        { name: "Gold", code: "GOLD" },
+        { name: "Blue", code: "BLUE" },
+        { name: "White", code: "WHITE" },
+        { name: "Red", code: "RED" },
+      ];
+
+    return list.map((tee) => {
+      const code = String(tee?.code || "").trim().toUpperCase();
+      const saved = !!(
+        code &&
+        teePoints?.[code] &&
+        Number.isFinite(teePoints?.[code]?.lat) &&
+        Number.isFinite(teePoints?.[code]?.lon)
+      );
+
+      return {
+        name: String(tee?.name || code || "Tee").trim(),
+        code,
+        saved,
+      };
+    });
+  }, [courseTees, teePoints]);
 
   const fwSet = !!(fairwayMid && Number.isFinite(fairwayMid?.lat) && Number.isFinite(fairwayMid?.lon));
 
@@ -2423,47 +2550,28 @@ export default function HoleMapScreen({ navigation, route }) {
 
                   <View style={styles.sectionTitleRow}>
                     <Text style={styles.sectionTitle}>Tee points</Text>
-                    <Text style={styles.sectionSub}>Gold / Blue / White / Red</Text>
+                    <Text style={styles.sectionSub}>
+                      {teeSetupItems.map((tee) => tee.name).join(" / ")}
+                    </Text>
                   </View>
 
-                  <View style={styles.setRow2}>
-                    <Pressable
-                      disabled={!canSet || savingSetup}
-                      onPress={() => setTeeColor("gold")}
-                      style={({ pressed }) => [styles.setBtn, pressed && styles.pressed, (!canSet || savingSetup) && { opacity: 0.45 }]}
-                    >
-                      <Text style={styles.setBtnT}>Set Tee (Gold)</Text>
-                      <Text style={styles.setBtnS}>{teeSetGold ? "Saved" : "Not set"}</Text>
-                    </Pressable>
-
-                    <Pressable
-                      disabled={!canSet || savingSetup}
-                      onPress={() => setTeeColor("blue")}
-                      style={({ pressed }) => [styles.setBtn, pressed && styles.pressed, (!canSet || savingSetup) && { opacity: 0.45 }]}
-                    >
-                      <Text style={styles.setBtnT}>Set Tee (Blue)</Text>
-                      <Text style={styles.setBtnS}>{teeSetBlue ? "Saved" : "Not set"}</Text>
-                    </Pressable>
-                  </View>
-
-                  <View style={styles.setRow2}>
-                    <Pressable
-                      disabled={!canSet || savingSetup}
-                      onPress={() => setTeeColor("white")}
-                      style={({ pressed }) => [styles.setBtn, pressed && styles.pressed, (!canSet || savingSetup) && { opacity: 0.45 }]}
-                    >
-                      <Text style={styles.setBtnT}>Set Tee (White)</Text>
-                      <Text style={styles.setBtnS}>{teeSetWhite ? "Saved" : "Not set"}</Text>
-                    </Pressable>
-
-                    <Pressable
-                      disabled={!canSet || savingSetup}
-                      onPress={() => setTeeColor("red")}
-                      style={({ pressed }) => [styles.setBtn, pressed && styles.pressed, (!canSet || savingSetup) && { opacity: 0.45 }]}
-                    >
-                      <Text style={styles.setBtnT}>Set Tee (Red)</Text>
-                      <Text style={styles.setBtnS}>{teeSetRed ? "Saved" : "Not set"}</Text>
-                    </Pressable>
+                  <View style={styles.teeSetupGrid}>
+                    {teeSetupItems.map((tee) => (
+                      <Pressable
+                        key={tee.code}
+                        disabled={!canSet || savingSetup || !tee.code}
+                        onPress={() => setTeeColor(tee.code)}
+                        style={({ pressed }) => [
+                          styles.setBtn,
+                          styles.teeSetupBtn,
+                          pressed && styles.pressed,
+                          (!canSet || savingSetup || !tee.code) && { opacity: 0.45 },
+                        ]}
+                      >
+                        <Text style={styles.setBtnT}>{`Set Tee (${tee.name})`}</Text>
+                        <Text style={styles.setBtnS}>{tee.saved ? "Saved" : "Not set"}</Text>
+                      </Pressable>
+                    ))}
                   </View>
 
                   <View style={styles.sectionTitleRow}>
@@ -2550,41 +2658,82 @@ export default function HoleMapScreen({ navigation, route }) {
                   <View style={styles.setRow}>
                     <Pressable
                       disabled={!canSet || savingSetup}
-                      onPress={() => addHazard("bunker")}
+                      onPress={() => addHazard("bunker", "start")}
                       style={({ pressed }) => [
                         styles.setBtn,
                         pressed && styles.pressed,
                         (!canSet || savingSetup) && { opacity: 0.45 },
                       ]}
                     >
-                      <Text style={styles.setBtnT}>Add Bunker</Text>
-                      <Text style={styles.setBtnS}>Adds a point</Text>
+                      <Text style={styles.setBtnT}>Start Bunker</Text>
+                      <Text style={styles.setBtnS}>Begins a bunker shape</Text>
                     </Pressable>
 
                     <Pressable
                       disabled={!canSet || savingSetup}
-                      onPress={() => addHazard("water")}
+                      onPress={() => addHazard("water", "start")}
                       style={({ pressed }) => [
                         styles.setBtn,
                         pressed && styles.pressed,
                         (!canSet || savingSetup) && { opacity: 0.45 },
                       ]}
                     >
-                      <Text style={styles.setBtnT}>Add Water</Text>
-                      <Text style={styles.setBtnS}>Adds a point</Text>
+                      <Text style={styles.setBtnT}>Start Water</Text>
+                      <Text style={styles.setBtnS}>Begins a water shape</Text>
                     </Pressable>
 
                     <Pressable
                       disabled={!canSet || savingSetup}
-                      onPress={() => addHazard("ob")}
+                      onPress={() => addHazard("ob", "start")}
                       style={({ pressed }) => [
                         styles.setBtn,
                         pressed && styles.pressed,
                         (!canSet || savingSetup) && { opacity: 0.45 },
                       ]}
                     >
-                      <Text style={styles.setBtnT}>Add OB</Text>
-                      <Text style={styles.setBtnS}>Adds a point</Text>
+                      <Text style={styles.setBtnT}>Start OB</Text>
+                      <Text style={styles.setBtnS}>Begins an OB shape</Text>
+                    </Pressable>
+                  </View>
+
+                  <View style={styles.setRow}>
+                    <Pressable
+                      disabled={!canSet || savingSetup}
+                      onPress={() => addHazard("bunker", "point")}
+                      style={({ pressed }) => [
+                        styles.setBtn,
+                        pressed && styles.pressed,
+                        (!canSet || savingSetup) && { opacity: 0.45 },
+                      ]}
+                    >
+                      <Text style={styles.setBtnT}>Add Bunker Point</Text>
+                      <Text style={styles.setBtnS}>Adds to current bunker</Text>
+                    </Pressable>
+
+                    <Pressable
+                      disabled={!canSet || savingSetup}
+                      onPress={() => addHazard("water", "point")}
+                      style={({ pressed }) => [
+                        styles.setBtn,
+                        pressed && styles.pressed,
+                        (!canSet || savingSetup) && { opacity: 0.45 },
+                      ]}
+                    >
+                      <Text style={styles.setBtnT}>Add Water Point</Text>
+                      <Text style={styles.setBtnS}>Adds to current water</Text>
+                    </Pressable>
+
+                    <Pressable
+                      disabled={!canSet || savingSetup}
+                      onPress={() => addHazard("ob", "point")}
+                      style={({ pressed }) => [
+                        styles.setBtn,
+                        pressed && styles.pressed,
+                        (!canSet || savingSetup) && { opacity: 0.45 },
+                      ]}
+                    >
+                      <Text style={styles.setBtnT}>Add OB Point</Text>
+                      <Text style={styles.setBtnS}>Adds to current OB</Text>
                     </Pressable>
                   </View>
 
@@ -3124,6 +3273,15 @@ const styles = StyleSheet.create({
 
   setRow: { flexDirection: "row", gap: 10 },
   setRow2: { flexDirection: "row", gap: 10, marginBottom: 10 },
+  teeSetupGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginBottom: 10,
+  },
+  teeSetupBtn: {
+    minWidth: "48%",
+  },
 
   setTeeBtn: {
     borderRadius: 18,
