@@ -469,7 +469,21 @@ export default function HistoryScreen({ navigation }) {
   const pendingItems = useMemo(() => {
     const merged = [];
 
-    if (activeFsRound?.roundId && !isRoundCompletedAnyShape(activeFsRound)) {
+    const activeGameId = String(activeFsRound?.gameId || "").trim().toLowerCase();
+    const hasSavedRyderCupPending = items.some((r) => {
+      if (isRoundCompletedAnyShape(r)) return false;
+      const entrySource = String(r?.entrySource || "").trim().toLowerCase();
+      const gameId = String(r?.gameId || "").trim().toLowerCase();
+      return entrySource === "ryder_cup" || gameId === "ryder_cup";
+    });
+
+    const shouldHideActiveRyderCupDuplicate =
+      activeFsRound?.roundId &&
+      !isRoundCompletedAnyShape(activeFsRound) &&
+      activeGameId === "ryder_cup" &&
+      hasSavedRyderCupPending;
+
+    if (activeFsRound?.roundId && !isRoundCompletedAnyShape(activeFsRound) && !shouldHideActiveRyderCupDuplicate) {
       merged.push(activeFsRound);
     }
 
@@ -554,6 +568,16 @@ export default function HistoryScreen({ navigation }) {
 
     if (isRoundCompletedAnyShape(fsRound)) {
       navigation.navigate({ name: ROUTES.FINAL_RESULTS, params: { roundId: rid } });
+      return;
+    }
+
+    const entrySource = String(fsRound?.entrySource || "").trim().toLowerCase();
+    const gameId = String(fsRound?.gameId || "").trim().toLowerCase();
+
+    if (entrySource === "ryder_cup" || gameId === "ryder_cup") {
+      navigation.navigate(ROUTES.RYDER_CUP_ORGANIZER, {
+        eventId: rid,
+      });
       return;
     }
 
@@ -699,6 +723,7 @@ export default function HistoryScreen({ navigation }) {
     dateText,
     statusText,
     statusKind,
+    typeText = "",
     rightPrimary,
     rightSecondary,
     onPress,
@@ -713,44 +738,56 @@ export default function HistoryScreen({ navigation }) {
           pressed && pressEnabled && styles.pressed,
         ]}
       >
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={styles.course} numberOfLines={2}>
-            {shortCourseTitle(courseName)}
-          </Text>
+        <View style={styles.rowMain}>
+          {typeText ? (
+            <View style={styles.typeRowGlobal}>
+              <View style={styles.typeChip}>
+                <Text style={styles.typeChipText}>{typeText}</Text>
+              </View>
+            </View>
+          ) : null}
 
-          <Text style={styles.date} numberOfLines={1}>
-            {dateText}
-          </Text>
+          <View style={styles.rowContent}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.course} numberOfLines={2}>
+                {shortCourseTitle(courseName) || "—"}
+              </Text>
 
-          <View style={styles.statusRow}>
-            <View
-              style={[
-                styles.statusChip,
-                statusKind === "quick_post"
-                  ? styles.statusChipQuickPost
-                  : statusKind === "complete"
-                    ? styles.statusChipComplete
-                    : statusKind === "setup"
-                      ? styles.statusChipSetup
-                      : styles.statusChipProgress,
-              ]}
-            >
-              <Text style={styles.statusText}>{statusText}</Text>
+              <Text style={styles.date} numberOfLines={1}>
+                {dateText}
+              </Text>
+
+              <View style={styles.statusRow}>
+                <View
+                  style={[
+                    styles.statusChip,
+                    statusKind === "quick_post"
+                      ? styles.statusChipQuickPost
+                      : statusKind === "complete"
+                        ? styles.statusChipComplete
+                        : statusKind === "setup"
+                          ? styles.statusChipSetup
+                          : styles.statusChipProgress,
+                  ]}
+                >
+                  <Text style={styles.statusText}>{statusText}</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.rightBox}>
+              <Text style={styles.rightPrimary} numberOfLines={1}>
+                {rightPrimary}
+              </Text>
+              <Text style={styles.rightSecondary} numberOfLines={1}>
+                {rightSecondary}
+              </Text>
+            </View>
+
+            <View style={styles.chev}>
+              <MaterialCommunityIcons name="chevron-right" size={22} color="rgba(255,255,255,0.60)" />
             </View>
           </View>
-        </View>
-
-        <View style={styles.rightBox}>
-          <Text style={styles.rightPrimary} numberOfLines={1}>
-            {rightPrimary}
-          </Text>
-          <Text style={styles.rightSecondary} numberOfLines={1}>
-            {rightSecondary}
-          </Text>
-        </View>
-
-        <View style={styles.chev}>
-          <MaterialCommunityIcons name="chevron-right" size={22} color="rgba(255,255,255,0.60)" />
         </View>
       </Pressable>
     );
@@ -783,6 +820,14 @@ export default function HistoryScreen({ navigation }) {
   })();
 
   const activeRightSecondary = holesLabelAny(activeFsRound || {});
+
+  console.log("HISTORY_DEBUG", {
+    activeFsRound,
+    rounds,
+    items,
+    pendingItems,
+    completedItems,
+  });
 
   return (
     <View style={[styles.screen, { paddingTop: headerPadTop }]}>
@@ -864,14 +909,17 @@ export default function HistoryScreen({ navigation }) {
 
                   const completed = isRoundCompletedAnyShape(r);
                   const status = String(r?.status || "").trim().toLowerCase();
+                  const entrySource = String(r?.entrySource || "").trim().toLowerCase();
+                  const gameId = String(r?.gameId || "").trim().toLowerCase();
+                  const isRyderCup = entrySource === "ryder_cup" || gameId === "ryder_cup";
                   const statusText = completed ? "Complete" : status === "setup" ? "In Setup" : "In Progress";
 
                   const holeNum = pickHoleNumberForDisplay(r, null);
 
-                  const isQuickPost = String(r?.entrySource || "").toLowerCase() === "quick_post";
+                  const isQuickPost = entrySource === "quick_post";
 
-                  const rightPrimary = holeNum ? `Hole ${holeNum}` : "Resume";
-                  const rightSecondary = holesLabelAny(r || {});
+                  const rightPrimary = isRyderCup ? "In Setup" : holeNum ? `Hole ${holeNum}` : "Resume";
+                  const rightSecondary = isRyderCup ? "Ryder Cup" : holesLabelAny(r || {});
                   const editLabel = "Enter";
 
                   return (
@@ -898,6 +946,7 @@ export default function HistoryScreen({ navigation }) {
                           dateText,
                           statusText: completed && isQuickPost ? "Quick Post" : statusText,
                           statusKind: completed && isQuickPost ? "quick_post" : completed ? "complete" : status === "setup" ? "setup" : "in_progress",
+                          typeText: isRyderCup ? "Ryder Cup Event" : "",
                           rightPrimary,
                           rightSecondary,
                           onPress: () => openRound(r),
@@ -1133,8 +1182,6 @@ const styles = StyleSheet.create({
   emptyText: { color: "rgba(255,255,255,0.65)", fontSize: 12, fontWeight: "800", textAlign: "center" },
 
   rowCard: {
-    flexDirection: "row",
-    alignItems: "center",
     borderRadius: 22,
     padding: 14,
     borderWidth: 0,
@@ -1142,7 +1189,38 @@ const styles = StyleSheet.create({
     backgroundColor: CARD,
   },
 
+  rowMain: {
+    width: "100%",
+  },
+
+  rowContent: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
   course: { color: WHITE, fontSize: 16, fontWeight: "900" },
+  typeRowGlobal: {
+    width: "100%",
+    marginTop: 2,
+    marginBottom: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  typeChip: {
+    alignSelf: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(46,204,113,0.70)",
+    backgroundColor: "rgba(46,204,113,0.16)",
+  },
+  typeChipText: {
+    color: WHITE,
+    fontWeight: "900",
+    fontSize: 10,
+    letterSpacing: 0.7,
+  },
   date: { marginTop: 6, color: "rgba(255,255,255,0.70)", fontSize: 12, fontWeight: "800" },
 
   statusRow: { marginTop: 8, flexDirection: "row", alignItems: "center" },
@@ -1171,8 +1249,8 @@ const styles = StyleSheet.create({
     gap: 6,
     marginLeft: 10,
   },
-  rightPrimary: { color: WHITE, fontSize: 18, fontWeight: "900" },
-  rightSecondary: { color: "rgba(255,255,255,0.62)", fontSize: 12, fontWeight: "900", letterSpacing: 0.3 },
+  rightPrimary: { color: WHITE, fontSize: 16, fontWeight: "900" },
+  rightSecondary: { color: "rgba(255,255,255,0.62)", fontSize: 11, fontWeight: "900", letterSpacing: 0.3 },
 
   chev: { width: 28, alignItems: "flex-end", justifyContent: "center", marginLeft: 8 },
 

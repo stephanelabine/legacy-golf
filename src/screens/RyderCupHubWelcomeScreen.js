@@ -1,6 +1,6 @@
 // src/screens/RyderCupHubWelcomeScreen.js
 import React, { useMemo } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView } from "react-native";
+import { View, Text, StyleSheet, Pressable, ScrollView, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import ROUTES from "../navigation/routes";
@@ -12,6 +12,7 @@ export default function RyderCupHubWelcomeScreen({ navigation, route }) {
     const { scheme, theme } = useTheme();
     const isDark = scheme === "dark";
 
+    const eventId = String(route?.params?.eventId || "").trim();
     const organizerName = String(route?.params?.organizerName || "").trim();
     const organizerEmail = String(route?.params?.organizerEmail || "").trim();
     const organizerPhone = String(route?.params?.organizerPhone || "").trim();
@@ -160,6 +161,7 @@ export default function RyderCupHubWelcomeScreen({ navigation, route }) {
 
     function onCreateEvent() {
         navigation.navigate(ROUTES.RYDER_CUP_CREATE_EVENT, {
+            eventId,
             organizerName,
             organizerEmail,
             organizerPhone,
@@ -167,12 +169,28 @@ export default function RyderCupHubWelcomeScreen({ navigation, route }) {
         });
     }
 
+    function onExitPress() {
+        Alert.alert("Exit Ryder Cup?", "What would you like to do?", [
+            { text: "Cancel", style: "cancel" },
+            {
+                text: "No Save - Exit",
+                style: "destructive",
+                onPress: () => navigation.navigate(ROUTES.HOME),
+            },
+            {
+                text: "Save and Exit",
+                onPress: () => navigation.navigate(ROUTES.HOME),
+            },
+        ]);
+    }
     return (
         <View style={styles.screen}>
             <ScreenHeader
                 navigation={navigation}
                 title="Ryder Cup Hub"
                 subtitle="Build and manage your official Ryder Cup event."
+                rightLabel="Exit"
+                onRightPress={onExitPress}
             />
 
             <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>

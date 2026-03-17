@@ -1,8 +1,11 @@
 // src/screens/RyderCupCreateEventScreen.js
-import React, { useMemo, useState } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, TextInput } from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+
+import { auth, db } from "../firebase/firebase";
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import { useTheme } from "../theme/ThemeProvider";
@@ -25,15 +28,43 @@ export default function RyderCupCreateEventScreen({ navigation, route }) {
     const { scheme, theme } = useTheme();
     const isDark = scheme === "dark";
 
+    const eventId = String(route?.params?.eventId || "ryder_cup_draft").trim();
     const organizerName = String(route?.params?.organizerName || "").trim();
     const organizerEmail = String(route?.params?.organizerEmail || "").trim();
     const organizerPhone = String(route?.params?.organizerPhone || "").trim();
     const organizerHandicap = String(route?.params?.organizerHandicap || "").trim();
 
     const [eventName, setEventName] = useState("");
+    const [savingDraft, setSavingDraft] = useState(false);
 
     const canContinue = eventName.trim().length > 0;
     const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
+
+    useEffect(() => {
+        let live = true;
+
+        async function loadEventDraft() {
+            const uid = auth?.currentUser?.uid;
+            if (!uid || !eventId) return;
+
+            try {
+                const ref = doc(db, "users", String(uid), "ryderCupEvents", String(eventId));
+                const snap = await getDoc(ref);
+
+                if (!live || !snap.exists()) return;
+
+                const data = snap.data() || {};
+                setEventName(String(data?.eventName || "").trim());
+            } catch {
+            }
+        }
+
+        loadEventDraft();
+
+        return () => {
+            live = false;
+        };
+    }, [eventId]);
 
     const styles = useMemo(() => {
         return StyleSheet.create({
@@ -167,11 +198,44 @@ export default function RyderCupCreateEventScreen({ navigation, route }) {
         });
     }, [theme, isDark, footerPad, canContinue]);
 
-    function onCreateEvent() {
+    async function saveEventDraft() {
+        const uid = auth?.currentUser?.uid;
+        if (!uid || !eventId) {
+            Alert.alert("Save failed", "Missing Ryder Cup event id.");
+            return false;
+        }
+
+        try {
+            setSavingDraft(true);
+
+            const ref = doc(db, "users", String(uid), "ryderCupEvents", String(eventId));
+
+            await setDoc(ref, {
+                eventId,
+                gameId: "ryder_cup",
+                entrySource: "ryder_cup",
+                status: "setup",
+                eventName: eventName.trim(),
+                updatedAt: serverTimestamp(),
+            }, { merge: true });
+
+            return true;
+        } catch {
+            Alert.alert("Save failed", "Could not save the Ryder Cup event.");
+            return false;
+        } finally {
+            setSavingDraft(false);
+        }
+    }
+
+    async function onCreateEvent() {
         if (!canContinue) return;
 
+        const ok = await saveEventDraft();
+        if (!ok) return;
+
         navigation.navigate(ROUTES.RYDER_CUP_EVENT_OVERVIEW, {
-            eventId: makeEventId(),
+            eventId,
             eventName: eventName.trim(),
             inviteCode: makeInviteCode(),
             organizerName,
@@ -182,12 +246,33 @@ export default function RyderCupCreateEventScreen({ navigation, route }) {
         });
     }
 
+    function onExitPress() {
+        Alert.alert("Exit Ryder Cup?", "What would you like to do?", [
+            { text: "Cancel", style: "cancel" },
+            {
+                text: "No Save - Exit",
+                style: "destructive",
+                onPress: () => navigation.navigate(ROUTES.HOME),
+            },
+            {
+                text: savingDraft ? "Saving..." : "Save and Exit",
+                onPress: async () => {
+                    const ok = await saveEventDraft();
+                    if (!ok) return;
+                    navigation.navigate(ROUTES.HOME);
+                },
+            },
+        ]);
+    }
+
     return (
         <View style={styles.screen}>
             <ScreenHeader
                 navigation={navigation}
                 title="Create Ryder Cup"
                 subtitle="Name your event and create the Ryder Cup shell."
+                rightLabel="Exit"
+                onRightPress={onExitPress}
             />
 
             <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>

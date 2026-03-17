@@ -1,21 +1,27 @@
 // src/screens/RyderCupOrganizerScreen.js
-import React, { useMemo, useState } from "react";
-import { View, Text, StyleSheet, TextInput, Pressable, KeyboardAvoidingView, Platform, ScrollView } from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { View, Text, StyleSheet, TextInput, Pressable, KeyboardAvoidingView, Platform, ScrollView, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 
+import { auth, db } from "../firebase/firebase";
+import { saveRound } from "../storage/rounds";
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
 import { useTheme } from "../theme/ThemeProvider";
 
-export default function RyderCupOrganizerScreen({ navigation }) {
+export default function RyderCupOrganizerScreen({ navigation, route }) {
     const insets = useSafeAreaInsets();
     const { scheme, theme } = useTheme();
     const isDark = scheme === "dark";
 
+    const eventId = String(route?.params?.eventId || "").trim();
     const [organizerName, setOrganizerName] = useState("");
     const [email, setEmail] = useState("");
     const [phone, setPhone] = useState("");
     const [handicap, setHandicap] = useState("");
+    const [loadingDraft, setLoadingDraft] = useState(true);
+    const [savingDraft, setSavingDraft] = useState(false);
 
     const canContinue =
         organizerName.trim().length > 0 &&
@@ -24,6 +30,42 @@ export default function RyderCupOrganizerScreen({ navigation }) {
         handicap.trim().length > 0;
 
     const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
+
+    useEffect(() => {
+        let live = true;
+
+        async function loadOrganizerDraft() {
+            const uid = auth?.currentUser?.uid;
+            if (!uid || !eventId) {
+                if (live) setLoadingDraft(false);
+                return;
+            }
+
+            try {
+                const ref = doc(db, "users", String(uid), "ryderCupEvents", String(eventId));
+                const snap = await getDoc(ref);
+
+                if (!live) return;
+
+                const data = snap.exists() ? snap.data() || {} : {};
+                const organizer = data?.organizer || {};
+
+                setOrganizerName(String(organizer?.name || "").trim());
+                setEmail(String(organizer?.email || "").trim());
+                setPhone(String(organizer?.phone || "").trim());
+                setHandicap(String(organizer?.handicap || "").trim());
+            } catch {
+            } finally {
+                if (live) setLoadingDraft(false);
+            }
+        }
+
+        loadOrganizerDraft();
+
+        return () => {
+            live = false;
+        };
+    }, [eventId]);
 
     const styles = useMemo(() => {
         return StyleSheet.create({
@@ -149,15 +191,96 @@ export default function RyderCupOrganizerScreen({ navigation }) {
         });
     }, [theme, isDark, footerPad, canContinue]);
 
-    function onContinue() {
+    async function saveOrganizerDraft() {
+        const uid = auth?.currentUser?.uid;
+        if (!uid) {
+            Alert.alert("Save failed", "You must be signed in to save this Ryder Cup organizer profile.");
+            return { ok: false, eventId: null };
+        }
+
+        const nextEventId = eventId || `rc_${Date.now()}`;
+
+        try {
+            setSavingDraft(true);
+
+            const ref = doc(db, "users", String(uid), "ryderCupEvents", String(nextEventId));
+
+            await setDoc(ref, {
+                eventId: nextEventId,
+                gameId: "ryder_cup",
+                entrySource: "ryder_cup",
+                status: "setup",
+                organizer: {
+                    name: organizerName.trim(),
+                    email: email.trim(),
+                    phone: phone.trim(),
+                    handicap: handicap.trim(),
+                },
+                updatedAt: serverTimestamp(),
+                createdAt: serverTimestamp(),
+            }, { merge: true });
+
+            await saveRound({
+                id: nextEventId,
+                roundId: nextEventId,
+                gameId: "ryder_cup",
+                gameTitle: "Ryder Cup",
+                entrySource: "ryder_cup",
+                status: "setup",
+                courseName: "",
+                teeName: "",
+                organizer: {
+                    name: organizerName.trim(),
+                    email: email.trim(),
+                    phone: phone.trim(),
+                    handicap: handicap.trim(),
+                },
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                playedAt: new Date().toISOString(),
+            });
+
+            return { ok: true, eventId: nextEventId };
+        } catch {
+            Alert.alert("Save failed", "Could not save the organizer profile.");
+            return { ok: false, eventId: null };
+        } finally {
+            setSavingDraft(false);
+        }
+    }
+
+    async function onContinue() {
         if (!canContinue) return;
 
+        const result = await saveOrganizerDraft();
+        if (!result?.ok || !result?.eventId) return;
+
         navigation.navigate(ROUTES.RYDER_CUP_HUB_WELCOME, {
+            eventId: result.eventId,
             organizerName: organizerName.trim(),
             organizerEmail: email.trim(),
             organizerPhone: phone.trim(),
             organizerHandicap: handicap.trim(),
         });
+    }
+
+    function onExitPress() {
+        Alert.alert("Exit Ryder Cup?", "What would you like to do?", [
+            { text: "Cancel", style: "cancel" },
+            {
+                text: "No Save - Exit",
+                style: "destructive",
+                onPress: () => navigation.navigate(ROUTES.HOME),
+            },
+            {
+                text: savingDraft ? "Saving..." : "Save and Exit",
+                onPress: async () => {
+                    const ok = await saveOrganizerDraft();
+                    if (!ok) return;
+                    navigation.navigate(ROUTES.HOME);
+                },
+            },
+        ]);
     }
 
     return (
@@ -166,6 +289,8 @@ export default function RyderCupOrganizerScreen({ navigation }) {
                 navigation={navigation}
                 title="Ryder Cup"
                 subtitle="Set up the organizer profile for your event."
+                rightLabel="Exit"
+                onRightPress={onExitPress}
             />
 
             <KeyboardAvoidingView
