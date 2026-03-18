@@ -38,11 +38,12 @@ function toCode(name, fallback = "TEE") {
   return s.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
-function makeTee(name, code, yardage = null) {
+function makeTee(name, code, yardage = null, holes = null) {
   return {
     name: String(name || "").trim(),
     code: String(code || "").trim(),
     yardage: safeNum(yardage),
+    holes: Array.isArray(holes) ? holes : [],
   };
 }
 
@@ -64,7 +65,7 @@ function normalizeTees(list) {
     if (seen.has(key)) continue;
     seen.add(key);
 
-    out.push(makeTee(name, code, yardage));
+    out.push(makeTee(name, code, yardage, Array.isArray(t?.holes) ? t.holes : []));
   }
 
   return out;
@@ -115,7 +116,7 @@ function parseTeesFromApiDetails(details) {
 
     if (!seen.has(code)) {
       seen.add(code);
-      out.push(makeTee(name, code, yardage));
+      out.push(makeTee(name, code, yardage, Array.isArray(t?.holes) ? t.holes : []));
     }
   }
 

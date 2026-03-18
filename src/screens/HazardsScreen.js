@@ -101,101 +101,62 @@ function hazardLabel(type) {
 }
 
 function buildNumberedHazards(arr, user, holeNumber, teePoint) {
-  const raw = [];
+  const rawPoints = Array.isArray(arr) ? arr : [];
+  const groups = new Map();
 
-  (Array.isArray(arr) ? arr : []).forEach((h) => {
+  rawPoints.forEach((h, index) => {
     const point = asPoint(h);
     if (!point) return;
 
     const typeKey = safeTrim(h?.type || "hazard").toLowerCase() || "hazard";
-    const meters = user ? haversineMeters(user, point) : NaN;
-    const teeMeters = teePoint ? haversineMeters(teePoint, point) : NaN;
+    const groupId =
+      safeTrim(h?.hazardGroupId || h?.groupId) || `legacy-${index}`;
 
-    raw.push({
-      typeKey,
-      typeLabel: hazardLabel(typeKey),
-      lat: point.lat,
-      lon: point.lon,
-      meters,
-      teeMeters,
-    });
-  });
-
-  if (!raw.length) return [];
-
-  let display = [];
-
-  if (Number(holeNumber) === 18) {
-    const bunkers = raw.filter((h) => h.typeKey === "bunker");
-    const waters = raw.filter((h) => h.typeKey === "water");
-    const obs = raw.filter((h) => h.typeKey === "ob");
-    const others = raw.filter(
-      (h) => h.typeKey !== "bunker" && h.typeKey !== "water" && h.typeKey !== "ob"
-    );
-
-    const pushSimpleSeries = (items, typeKey) => {
-      items.forEach((h) => {
-        display.push({
-          typeKey,
-          typeLabel: hazardLabel(typeKey),
-          lat: h.lat,
-          lon: h.lon,
-          meters: h.meters,
-          teeMeters: h.teeMeters,
-          yards: yds(h.meters),
-        });
-      });
-    };
-
-    pushSimpleSeries(bunkers, "bunker");
-    pushSimpleSeries(waters, "water");
-
-    if (obs.length) {
-      const sortedByLon = [...obs].sort((a, b) => a.lon - b.lon);
-      const sortedByLat = [...obs].sort((a, b) => b.lat - a.lat);
-
-      const left = sortedByLon[0];
-      const right = sortedByLon[sortedByLon.length - 1];
-      const back = sortedByLat[0];
-
-      const unique = [];
-      const seen = new Set();
-
-      [left, right, back].forEach((h) => {
-        if (!h) return;
-        const k = `${h.lat},${h.lon}`;
-        if (seen.has(k)) return;
-        seen.add(k);
-        unique.push(h);
-      });
-
-      unique.forEach((h) => {
-        display.push({
-          typeKey: "ob",
-          typeLabel: "OB",
-          lat: h.lat,
-          lon: h.lon,
-          meters: h.meters,
-          teeMeters: h.teeMeters,
-          yards: yds(h.meters),
-        });
+    if (!groups.has(groupId)) {
+      groups.set(groupId, {
+        groupId,
+        typeKey,
+        typeLabel: hazardLabel(typeKey),
+        points: [],
       });
     }
 
-    pushSimpleSeries(others, "hazard");
-  } else {
-    display = raw.map((h) => ({
-      typeKey: h.typeKey,
-      typeLabel: h.typeLabel,
-      lat: h.lat,
-      lon: h.lon,
-      meters: h.meters,
-      teeMeters: h.teeMeters,
-      yards: yds(h.meters),
-    }));
-  }
+    groups.get(groupId).points.push({
+      lat: point.lat,
+      lon: point.lon,
+    });
+  });
 
-  const sorted = [...display].sort((a, b) => {
+  const grouped = Array.from(groups.values())
+    .map((g) => {
+      const pts = Array.isArray(g.points) ? g.points : [];
+      if (!pts.length) return null;
+
+      const lat =
+        pts.reduce((sum, p) => sum + Number(p.lat || 0), 0) / pts.length;
+      const lon =
+        pts.reduce((sum, p) => sum + Number(p.lon || 0), 0) / pts.length;
+
+      const centerPoint = { lat, lon };
+      const meters = user ? haversineMeters(user, centerPoint) : NaN;
+      const teeMeters = teePoint ? haversineMeters(teePoint, centerPoint) : NaN;
+
+      return {
+        id: g.groupId,
+        groupId: g.groupId,
+        typeKey: g.typeKey,
+        typeLabel: g.typeLabel,
+        lat,
+        lon,
+        meters,
+        teeMeters,
+        yards: yds(meters),
+        pointCount: pts.length,
+      };
+    })
+    .filter(Boolean);
+
+  const sorted = [...grouped].sort((a, b) => {
     const aOk = Number.isFinite(a.teeMeters);
     const bOk = Number.isFinite(b.teeMeters);
 
@@ -206,7 +167,8 @@ function buildNumberedHazards(arr, user, holeNumber, teePoint) {
   });
 
   return sorted.map((h, idx) => ({
-    id: `${h.typeKey}-${idx + 1}-${h.lat}-${h.lon}`,
+    id: `${h.typeKey}-${h.groupId}-${idx + 1}`,
+    groupId: h.groupId,
     typeKey: h.typeKey,
     typeLabel: h.typeLabel,
     number: idx + 1,
@@ -215,6 +177,7 @@ function buildNumberedHazards(arr, user, holeNumber, teePoint) {
     meters: h.meters,
     teeMeters: h.teeMeters,
     yards: h.yards,
+    pointCount: h.pointCount,
   }));
 }
 
@@ -840,7 +803,9 @@ export default function HazardsScreen({ navigation, route }) {
 
                       <View>
                         <Text style={styles.hazardTypeT}>{h.typeLabel}</Text>
-                        <Text style={styles.hazardMetaT}>Marker {h.number}</Text>
+                        <Text style={styles.hazardMetaT}>
+                          {h.pointCount > 1 ? `${h.pointCount} points` : `Marker ${h.number}`}
+                        </Text>
                       </View>
                     </View>
 

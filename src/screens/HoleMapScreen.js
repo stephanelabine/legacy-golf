@@ -1400,8 +1400,41 @@ export default function HoleMapScreen({ navigation, route }) {
   }, [holeMetaParam, courseData]);
 
   const par = holeMeta?.[String(holeNumber)]?.par ?? null;
-  const si = holeMeta?.[String(holeNumber)]?.si ?? null;
 
+  const selectedTeeCode = useMemo(() => {
+    const raw =
+      teeObj?.code ||
+      teeObj?.key ||
+      teeObj?.color ||
+      teeObj?.name ||
+      "";
+    return String(raw).trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+  }, [teeObj]);
+
+  const currentHoleYardage = useMemo(() => {
+    const savedYardages =
+      holeMeta?.[String(holeNumber)]?.yardages &&
+        typeof holeMeta?.[String(holeNumber)]?.yardages === "object"
+        ? holeMeta[String(holeNumber)].yardages
+        : {};
+
+    const savedYardage = Number(savedYardages?.[selectedTeeCode]);
+    if (Number.isFinite(savedYardage) && savedYardage > 0) {
+      return Math.round(savedYardage);
+    }
+
+    const holes = Array.isArray(teeObj?.holes) ? teeObj.holes : [];
+    const hole = holes[holeNumber - 1] || null;
+    const y =
+      Number(hole?.yards) ||
+      Number(hole?.yardage) ||
+      Number(hole?.distance) ||
+      Number(hole?.length) ||
+      Number(hole?.raw?.yards) ||
+      null;
+
+    return Number.isFinite(y) && y > 0 ? Math.round(y) : null;
+  }, [holeMeta, selectedTeeCode, teeObj, holeNumber]);
   const savedGps = useMemo(() => {
     const gps = courseData?.gps;
     const hole = gps?.holes?.[String(holeNumber)] || null;
@@ -2214,14 +2247,32 @@ export default function HoleMapScreen({ navigation, route }) {
   const fwSet = !!(fairwayMid && Number.isFinite(fairwayMid?.lat) && Number.isFinite(fairwayMid?.lon));
 
   const hazCounts = useMemo(() => {
-    const out = { bunker: 0, water: 0, ob: 0, total: 0 };
-    hazardsArr.forEach((h) => {
+    const groups = new Map();
+
+    hazardsArr.forEach((h, index) => {
       if (!h || !h.type) return;
-      if (h.type === "bunker") out.bunker += 1;
-      if (h.type === "water") out.water += 1;
-      if (h.type === "ob") out.ob += 1;
+
+      const type = String(h.type || "").trim().toLowerCase();
+      const groupId =
+        String(h.hazardGroupId || h.groupId || `legacy-${index}`).trim() || `legacy-${index}`;
+
+      if (!groups.has(groupId)) {
+        groups.set(groupId, { type, count: 1 });
+      } else {
+        const prev = groups.get(groupId);
+        groups.set(groupId, { ...prev, count: prev.count + 1 });
+      }
+    });
+
+    const out = { bunker: 0, water: 0, ob: 0, total: 0 };
+
+    Array.from(groups.values()).forEach((g) => {
+      if (g.type === "bunker") out.bunker += 1;
+      if (g.type === "water") out.water += 1;
+      if (g.type === "ob") out.ob += 1;
       out.total += 1;
     });
+
     return out;
   }, [hazardsArr]);
 
@@ -2280,7 +2331,7 @@ export default function HoleMapScreen({ navigation, route }) {
           <Text style={styles.sub} numberOfLines={1}>
             Hole {holeNumber}
             {par ? ` • Par ${par}` : ""}
-            {si ? ` • SI ${si}` : ""}
+            {currentHoleYardage ? ` • ${currentHoleYardage} yards` : ""}
           </Text>
         </View>
 

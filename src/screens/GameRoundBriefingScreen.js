@@ -175,6 +175,7 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
     }, [roundDoc]);
 
     const courseName = String(roundDoc?.course?.name || roundDoc?.course?.title || "Course").trim();
+    const formattedCourseName = courseName.replace(/\s*[—-]\s*/g, "\n");
     const teeName = String(roundDoc?.tee?.name || roundDoc?.tee?.label || "Tee").trim();
 
     const scoring = String(roundDoc?.scoring || roundDoc?.scoringMode || "net").toLowerCase();
@@ -428,9 +429,28 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
                 borderColor: softBorder,
                 backgroundColor: softBg,
             },
-            factRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 8 },
-            factLabel: { color: theme.text, opacity: 0.75, fontSize: 12, fontWeight: "900", letterSpacing: 1.1, textTransform: "uppercase" },
-            factValue: { color: theme.text, fontSize: 13, fontWeight: "900" },
+            factRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 8 },
+            factLabel: {
+                width: 78,
+                color: theme.text,
+                opacity: 0.75,
+                fontSize: 12,
+                fontWeight: "900",
+                letterSpacing: 1.1,
+                textTransform: "uppercase",
+            },
+            factValueWrap: {
+                flex: 1,
+                alignItems: "flex-end",
+                justifyContent: "center",
+            },
+            factValue: {
+                color: theme.text,
+                fontSize: 13,
+                fontWeight: "900",
+                textAlign: "right",
+                maxWidth: "100%",
+            },
             factDivider: { height: 1, backgroundColor: softBorder },
 
             highlightCard: {
@@ -495,17 +515,29 @@ export default function GameRoundBriefingScreen({ navigation, route }) {
                     <View style={styles.factsBox}>
                         <View style={styles.factRow}>
                             <Text style={styles.factLabel}>Course</Text>
-                            <Text style={styles.factValue}>{courseName || "—"}</Text>
+                            <View style={styles.factValueWrap}>
+                                <Text style={styles.factValue}>
+                                    {formattedCourseName || "—"}
+                                </Text>
+                            </View>
                         </View>
                         <View style={styles.factDivider} />
                         <View style={styles.factRow}>
                             <Text style={styles.factLabel}>Tees</Text>
-                            <Text style={styles.factValue}>{teeName || "—"}</Text>
+                            <View style={styles.factValueWrap}>
+                                <Text style={styles.factValue} numberOfLines={1}>
+                                    {teeName || "—"}
+                                </Text>
+                            </View>
                         </View>
                         <View style={styles.factDivider} />
                         <View style={styles.factRow}>
                             <Text style={styles.factLabel}>Mode</Text>
-                            <Text style={styles.factValue}>{modeLabel}</Text>
+                            <View style={styles.factValueWrap}>
+                                <Text style={styles.factValue} numberOfLines={1}>
+                                    {modeLabel}
+                                </Text>
+                            </View>
                         </View>
                     </View>
                 </View>

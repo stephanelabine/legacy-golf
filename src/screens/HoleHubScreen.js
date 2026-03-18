@@ -855,34 +855,46 @@ export default function HoleHubScreen({ navigation, route }) {
   }, [courseCenterFromParams, activeRoot]);
 
   const holeMeta = useMemo(() => {
-    // Single source of truth (when available): Firestore round meta.holeMeta
-    // This must win over route params so new-round entry and history entry behave identically.
     const root = unwrapRound(activeSnap);
     const fromRound = root?.meta?.holeMeta;
+    const fromCourseData = courseData?.holeMeta;
+    const direct = params?.holeMeta;
 
-    if (fromRound && typeof fromRound === "object") {
-      // Normalize keys to strings "1".."18" and ensure numeric par/si
+    const source =
+      (fromRound && typeof fromRound === "object" && fromRound) ||
+      (fromCourseData && typeof fromCourseData === "object" && fromCourseData) ||
+      (direct && typeof direct === "object" && direct) ||
+      null;
+
+    if (source) {
       const out = {};
       for (let h = 1; h <= 18; h++) {
         const kStr = String(h);
-        const raw = fromRound[kStr] ?? fromRound[h];
+        const raw = source[kStr] ?? source[h] ?? {};
         const par = Number(raw?.par);
         const si = Number(raw?.si);
+        const rawYardages = raw?.yardages && typeof raw.yardages === "object" ? raw.yardages : {};
+
+        const yardages = {};
+        Object.keys(rawYardages).forEach((key) => {
+          const code = String(key || "").trim().toUpperCase();
+          const val = Number(rawYardages[key]);
+          if (code && Number.isFinite(val) && val > 0) {
+            yardages[code] = Math.round(val);
+          }
+        });
+
         out[kStr] = {
           par: Number.isFinite(par) ? par : (DEFAULT_PARS[h - 1] || 4),
           si: Number.isFinite(si) ? si : (DEFAULT_SI[h - 1] || h),
+          yardages,
         };
       }
       return out;
     }
 
-    // Fallback to nav param holeMeta (older entry paths)
-    const direct = params?.holeMeta;
-    if (direct && typeof direct === "object") return direct;
-
-    // Last resort
     return buildDefaultHoleMeta();
-  }, [activeSnap, params?.holeMeta]);
+  }, [activeSnap, courseData, params?.holeMeta]);
 
   // Ensure currentHole is always within the selected range.
   useEffect(() => {
@@ -900,6 +912,41 @@ export default function HoleHubScreen({ navigation, route }) {
   }, [params?.hole, startHole, endHole]);
 
   const par = holeMeta?.[String(currentHole)]?.par ?? 4;
+
+  const selectedTeeCode = useMemo(() => {
+    const raw =
+      teeParam?.code ||
+      teeParam?.key ||
+      teeParam?.color ||
+      teeParam?.name ||
+      "";
+    return String(raw).trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+  }, [teeParam]);
+
+  const currentHoleYardage = useMemo(() => {
+    const savedYardages =
+      holeMeta?.[String(currentHole)]?.yardages &&
+        typeof holeMeta?.[String(currentHole)]?.yardages === "object"
+        ? holeMeta[String(currentHole)].yardages
+        : {};
+
+    const savedYardage = Number(savedYardages?.[selectedTeeCode]);
+    if (Number.isFinite(savedYardage) && savedYardage > 0) {
+      return Math.round(savedYardage);
+    }
+
+    const holes = Array.isArray(teeParam?.holes) ? teeParam.holes : [];
+    const hole = holes[currentHole - 1] || null;
+    const y =
+      Number(hole?.yards) ||
+      Number(hole?.yardage) ||
+      Number(hole?.distance) ||
+      Number(hole?.length) ||
+      Number(hole?.raw?.yards) ||
+      null;
+
+    return Number.isFinite(y) && y > 0 ? Math.round(y) : null;
+  }, [holeMeta, selectedTeeCode, teeParam, currentHole]);
 
   const headerTitle = useMemo(() => shortCourseTitle(courseName), [courseName]);
 
@@ -1863,7 +1910,7 @@ export default function HoleHubScreen({ navigation, route }) {
       <ScreenHeader
         navigation={navigation}
         title={headerTitle}
-        subtitle={`${teeName} • Hole ${currentHole} • Par ${par}`}
+        subtitle={`${teeName} • Hole ${currentHole} • Par ${par}${currentHoleYardage ? ` • ${currentHoleYardage} yards` : ""}`}
         safeTop={false}
         leftLabel={currentHole <= startHole ? "Exit" : "Back"}
         onLeftPress={() => {
@@ -1957,6 +2004,9 @@ export default function HoleHubScreen({ navigation, route }) {
         </View>
 
         <Pressable onPress={() => openHoleMap(false)} style={styles.mapCard}>
+          <Text style={styles.mapEyebrow}>
+            Hole {currentHole} – {currentHoleYardage ? `${currentHoleYardage} yards` : "Yardage TBD"}
+          </Text>
           <Text style={styles.mapTitle}>Hole View</Text>
           <Text style={styles.mapSub}>Tap to open full-screen GPS</Text>
         </Pressable>
@@ -2145,6 +2195,13 @@ const styles = StyleSheet.create({
     backgroundColor: CARD,
     alignItems: "center",
     justifyContent: "center",
+  },
+  mapEyebrow: {
+    color: WHITE,
+    fontWeight: "900",
+    fontSize: 16,
+    marginBottom: 10,
+    letterSpacing: 0.2,
   },
   mapTitle: { color: WHITE, fontWeight: "900", fontSize: 18 },
   mapSub: { color: MUTED, marginTop: 8, fontWeight: "700", fontSize: 14 },

@@ -10,8 +10,6 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-  Keyboard,
-  TouchableWithoutFeedback,
   Alert,
   Modal,
   ActivityIndicator,
@@ -40,8 +38,36 @@ const RED = "#E74C3C";
 
 function defaultHoleMeta() {
   const meta = {};
-  for (let i = 1; i <= 18; i++) meta[String(i)] = { par: 4, si: i };
+  for (let i = 1; i <= 18; i++) meta[String(i)] = { par: 4, si: i, yardages: {} };
   return meta;
+}
+
+function normalizeHoleMeta(meta) {
+  const src = meta && typeof meta === "object" ? meta : {};
+  const out = {};
+
+  for (let i = 1; i <= 18; i++) {
+    const raw = src[String(i)] && typeof src[String(i)] === "object" ? src[String(i)] : {};
+    const yardagesRaw = raw?.yardages && typeof raw.yardages === "object" ? raw.yardages : {};
+
+    const nextYardages = {};
+    Object.keys(yardagesRaw).forEach((k) => {
+      const code = safeStr(k).trim().toUpperCase();
+      const val = yardagesRaw[k];
+      const num = Number(val);
+      if (code && Number.isFinite(num) && num > 0) {
+        nextYardages[code] = num;
+      }
+    });
+
+    out[String(i)] = {
+      par: raw?.par ?? 4,
+      si: raw?.si ?? i,
+      yardages: nextYardages,
+    };
+  }
+
+  return out;
 }
 
 function safeStr(x) {
@@ -104,7 +130,7 @@ export default function CourseDataScreen({ navigation, route }) {
 
   async function reload() {
     const saved = await loadCourseData(courseId);
-    if (saved?.holeMeta) setHoleMeta(saved.holeMeta);
+    if (saved?.holeMeta) setHoleMeta(normalizeHoleMeta(saved.holeMeta));
     else setHoleMeta(defaultHoleMeta());
 
     if (Array.isArray(saved?.tees)) setTees(normalizeTees(saved.tees));
@@ -117,7 +143,7 @@ export default function CourseDataScreen({ navigation, route }) {
       const saved = await loadCourseData(courseId);
       if (!live) return;
 
-      if (saved?.holeMeta) setHoleMeta(saved.holeMeta);
+      if (saved?.holeMeta) setHoleMeta(normalizeHoleMeta(saved.holeMeta));
       else setHoleMeta(defaultHoleMeta());
 
       if (Array.isArray(saved?.tees)) setTees(normalizeTees(saved.tees));
@@ -133,14 +159,27 @@ export default function CourseDataScreen({ navigation, route }) {
 
   const isHoleMetaValid = useMemo(() => {
     const siSet = new Set();
+
     for (let h = 1; h <= 18; h++) {
       const par = Number(holeMeta[String(h)]?.par);
       const si = Number(holeMeta[String(h)]?.si);
+      const yardages =
+        holeMeta[String(h)]?.yardages && typeof holeMeta[String(h)]?.yardages === "object"
+          ? holeMeta[String(h)].yardages
+          : {};
+
       if (![3, 4, 5].includes(par)) return false;
       if (!Number.isFinite(si) || si < 1 || si > 18) return false;
       if (siSet.has(si)) return false;
+
+      for (const code of Object.keys(yardages)) {
+        const val = Number(yardages[code]);
+        if (!Number.isFinite(val) || val <= 0) return false;
+      }
+
       siSet.add(si);
     }
+
     return true;
   }, [holeMeta]);
 
@@ -245,7 +284,7 @@ export default function CourseDataScreen({ navigation, route }) {
     }
 
     const patch = {
-      holeMeta,
+      holeMeta: normalizeHoleMeta(holeMeta),
       tees: normalizeTees(tees).map((t) => ({
         _id: safeStr(t?._id).trim(),
         name: safeStr(t?.name).trim(),
@@ -397,270 +436,314 @@ export default function CourseDataScreen({ navigation, route }) {
   }
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-      <SafeAreaView style={styles.safe}>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-          <View style={styles.header}>
-            <Text style={styles.title}>Course Data</Text>
-            <Text style={styles.sub}>{course.name}</Text>
-            <Text style={styles.sub2}>courseId: {courseId}</Text>
+    <SafeAreaView style={styles.safe}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Course Data</Text>
+          <Text style={styles.sub}>{course.name}</Text>
+          <Text style={styles.sub2}>courseId: {courseId}</Text>
 
-            {admin ? (
-              <>
-                <Pressable onPress={openRecover} style={({ pressed }) => [styles.recoverBtn, pressed && styles.pressed]}>
-                  <Text style={styles.recoverText}>Recover Local Data</Text>
-                </Pressable>
+          {admin ? (
+            <>
+              <Pressable onPress={openRecover} style={({ pressed }) => [styles.recoverBtn, pressed && styles.pressed]}>
+                <Text style={styles.recoverText}>Recover Local Data</Text>
+              </Pressable>
 
-                <Pressable
-                  onPress={onPublish}
-                  disabled={publishing}
-                  style={({ pressed }) => [styles.publishBtn, pressed && styles.pressed, publishing && { opacity: 0.6 }]}
-                >
-                  <Text style={styles.publishText}>{publishing ? "Publishing..." : "Publish to Cloud"}</Text>
-                </Pressable>
+              <Pressable
+                onPress={onPublish}
+                disabled={publishing}
+                style={({ pressed }) => [styles.publishBtn, pressed && styles.pressed, publishing && { opacity: 0.6 }]}
+              >
+                <Text style={styles.publishText}>{publishing ? "Publishing..." : "Publish to Cloud"}</Text>
+              </Pressable>
 
-                <Pressable onPress={onUnlockGreenPoints} style={({ pressed }) => [styles.publishBtn, pressed && styles.pressed]}>
-                  <Text style={styles.publishText}>Unlock Green Points</Text>
-                </Pressable>
+              <Pressable onPress={onUnlockGreenPoints} style={({ pressed }) => [styles.publishBtn, pressed && styles.pressed]}>
+                <Text style={styles.publishText}>Unlock Green Points</Text>
+              </Pressable>
 
-                <Pressable onPress={onWipeCourse} style={({ pressed }) => [styles.wipeBtn, pressed && styles.pressed]}>
-                  <Text style={styles.wipeText}>Wipe this course</Text>
-                </Pressable>
-              </>
-            ) : (
-              <View style={styles.readOnlyPill}>
-                <Text style={styles.readOnlyText}>Read-only (guests cannot edit course data)</Text>
-              </View>
-            )}
-          </View>
+              <Pressable onPress={onWipeCourse} style={({ pressed }) => [styles.wipeBtn, pressed && styles.pressed]}>
+                <Text style={styles.wipeText}>Wipe this course</Text>
+              </Pressable>
+            </>
+          ) : (
+            <View style={styles.readOnlyPill}>
+              <Text style={styles.readOnlyText}>Read-only (guests cannot edit course data)</Text>
+            </View>
+          )}
+        </View>
 
-          <ScrollView contentContainerStyle={{ paddingBottom: 140 }}>
-            {/* Tee Boxes Section */}
-            <View style={styles.sectionCard}>
-              <View style={styles.sectionTop}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.sectionTitle}>Tee Boxes</Text>
-                  <Text style={styles.sectionSub}>
-                    Optional. Add tee names + total yardage so Tee Selection shows yards.
-                  </Text>
-                </View>
-
-                {admin ? (
-                  <Pressable onPress={addTee} style={({ pressed }) => [styles.addBtn, pressed && styles.pressed]}>
-                    <Text style={styles.addBtnText}>Add Tee</Text>
-                  </Pressable>
-                ) : null}
+        <ScrollView
+          contentContainerStyle={{ paddingBottom: 140 }}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Tee Boxes Section */}
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionTop}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sectionTitle}>Tee Boxes</Text>
+                <Text style={styles.sectionSub}>
+                  Optional. Add tee names + total yardage so Tee Selection shows yards.
+                </Text>
               </View>
 
-              {tees.length === 0 ? (
-                <View style={{ paddingTop: 10 }}>
-                  <Text style={styles.emptyTeeText}>No tee boxes saved yet.</Text>
-                </View>
-              ) : (
-                tees.map((t, idx) => {
-                  const nameVal = safeStr(t?.name);
-                  const yardVal = t?.yardage === "" || t?.yardage == null ? "" : String(t.yardage);
-                  const codeVal = safeStr(t?.code || toCode(nameVal, "TEE"));
-
-                  return (
-                    <View key={safeStr(t?._id) || String(idx)} style={styles.teeRow}>
-                      <View style={styles.teeColName}>
-                        <Text style={styles.label}>Name</Text>
-                        <TextInput
-                          value={nameVal}
-                          editable={admin}
-                          onChangeText={(v) => updateTee(idx, "name", v)}
-                          style={[styles.input, !admin && { opacity: 0.85 }]}
-                          placeholder="Blue / White / Gold..."
-                          placeholderTextColor={MUTED}
-                        />
-                        <Text style={styles.codeLine} numberOfLines={1}>
-                          code: {codeVal}
-                        </Text>
-                      </View>
-
-                      <View style={styles.teeColYds}>
-                        <Text style={styles.label}>Total yds</Text>
-                        <TextInput
-                          value={yardVal}
-                          editable={admin}
-                          onChangeText={(v) => updateTee(idx, "yardage", v)}
-                          keyboardType="numeric"
-                          style={[styles.input, !admin && { opacity: 0.85 }]}
-                          placeholder="e.g. 6400"
-                          placeholderTextColor={MUTED}
-                        />
-                        {admin ? (
-                          <Pressable onPress={() => removeTee(idx)} style={({ pressed }) => [styles.removeBtn, pressed && styles.pressed]}>
-                            <Text style={styles.removeBtnText}>Remove</Text>
-                          </Pressable>
-                        ) : (
-                          <View style={{ height: 34 }} />
-                        )}
-                      </View>
-                    </View>
-                  );
-                })
-              )}
-
-              {!isTeesValid ? (
-                <View style={styles.warnPill}>
-                  <Text style={styles.warnText}>
-                    Tee boxes need: Name, unique code, and optional yardage (greater than 0).
-                  </Text>
-                </View>
+              {admin ? (
+                <Pressable onPress={addTee} style={({ pressed }) => [styles.addBtn, pressed && styles.pressed]}>
+                  <Text style={styles.addBtnText}>Add Tee</Text>
+                </Pressable>
               ) : null}
             </View>
 
-            {/* Hole Meta Section */}
-            <Text style={styles.sectionHeader}>Course Hole Data</Text>
+            {tees.length === 0 ? (
+              <View style={{ paddingTop: 10 }}>
+                <Text style={styles.emptyTeeText}>No tee boxes saved yet.</Text>
+              </View>
+            ) : (
+              tees.map((t, idx) => {
+                const nameVal = safeStr(t?.name);
+                const yardVal = t?.yardage === "" || t?.yardage == null ? "" : String(t.yardage);
+                const codeVal = safeStr(t?.code || toCode(nameVal, "TEE"));
 
-            {Array.from({ length: 18 }).map((_, i) => {
-              const h = i + 1;
-              const parVal = String(holeMeta[String(h)]?.par ?? "");
-              const siVal = String(holeMeta[String(h)]?.si ?? "");
-
-              return (
-                <View key={h} style={styles.rowCard}>
-                  <Text style={styles.holeLabel}>Hole {h}</Text>
-
-                  <View style={styles.rowInputs}>
-                    <View style={styles.field}>
-                      <Text style={styles.label}>Par</Text>
+                return (
+                  <View key={safeStr(t?._id) || String(idx)} style={styles.teeRow}>
+                    <View style={styles.teeColName}>
+                      <Text style={styles.label}>Name</Text>
                       <TextInput
-                        value={parVal}
+                        value={nameVal}
                         editable={admin}
-                        onChangeText={(v) => updateHole(h, "par", v)}
-                        keyboardType="numeric"
+                        onChangeText={(v) => updateTee(idx, "name", v)}
                         style={[styles.input, !admin && { opacity: 0.85 }]}
-                        placeholder="3/4/5"
+                        placeholder="Blue / White / Gold..."
                         placeholderTextColor={MUTED}
                       />
+                      <Text style={styles.codeLine} numberOfLines={1}>
+                        code: {codeVal}
+                      </Text>
                     </View>
 
-                    <View style={styles.field}>
-                      <Text style={styles.label}>Stroke Index</Text>
+                    <View style={styles.teeColYds}>
+                      <Text style={styles.label}>Total yds</Text>
                       <TextInput
-                        value={siVal}
+                        value={yardVal}
                         editable={admin}
-                        onChangeText={(v) => updateHole(h, "si", v)}
+                        onChangeText={(v) => updateTee(idx, "yardage", v)}
                         keyboardType="numeric"
                         style={[styles.input, !admin && { opacity: 0.85 }]}
-                        placeholder="1-18"
+                        placeholder="e.g. 6400"
                         placeholderTextColor={MUTED}
                       />
+                      {admin ? (
+                        <Pressable onPress={() => removeTee(idx)} style={({ pressed }) => [styles.removeBtn, pressed && styles.pressed]}>
+                          <Text style={styles.removeBtnText}>Remove</Text>
+                        </Pressable>
+                      ) : (
+                        <View style={{ height: 34 }} />
+                      )}
                     </View>
                   </View>
-                </View>
-              );
-            })}
+                );
+              })
+            )}
 
-            {!isHoleMetaValid ? (
-              <View style={[styles.warnPill, { marginHorizontal: 16, marginTop: 2 }]}>
+            {!isTeesValid ? (
+              <View style={styles.warnPill}>
                 <Text style={styles.warnText}>
-                  Pars must be 3/4/5 and Stroke Index must be 1-18 with no duplicates.
+                  Tee boxes need: Name, unique code, and optional yardage (greater than 0).
                 </Text>
               </View>
             ) : null}
-          </ScrollView>
-
-          <View style={styles.footer}>
-            <Pressable style={styles.orangeBtn} onPress={() => navigation.goBack()}>
-              <Text style={styles.orangeText}>Cancel</Text>
-            </Pressable>
-
-            {admin ? (
-              <Pressable style={[styles.greenBtn, !isValid && { opacity: 0.5 }]} onPress={onSave}>
-                <Text style={styles.greenText}>Save</Text>
-              </Pressable>
-            ) : null}
           </View>
 
-          <Modal visible={recoverOpen} transparent animationType="fade" onRequestClose={() => setRecoverOpen(false)}>
-            <View style={styles.modalBg}>
-              <View style={styles.modalCard}>
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>Recover Local Data</Text>
-                  <Pressable onPress={() => setRecoverOpen(false)} style={styles.modalClose}>
-                    <Text style={styles.modalCloseT}>Close</Text>
-                  </Pressable>
+          {/* Hole Meta Section */}
+          <Text style={styles.sectionHeader}>Course Hole Data</Text>
+
+          {Array.from({ length: 18 }).map((_, i) => {
+            const h = i + 1;
+            const parVal = String(holeMeta[String(h)]?.par ?? "");
+            const siVal = String(holeMeta[String(h)]?.si ?? "");
+
+            return (
+              <View key={h} style={styles.rowCard}>
+                <Text style={styles.holeLabel}>Hole {h}</Text>
+
+                <View style={styles.rowInputs}>
+                  <View style={styles.field}>
+                    <Text style={styles.label}>Par</Text>
+                    <TextInput
+                      value={parVal}
+                      editable={admin}
+                      onChangeText={(v) => updateHole(h, "par", v)}
+                      keyboardType="numeric"
+                      style={[styles.input, !admin && { opacity: 0.85 }]}
+                      placeholder="3/4/5"
+                      placeholderTextColor={MUTED}
+                    />
+                  </View>
+
+                  <View style={styles.field}>
+                    <Text style={styles.label}>Stroke Index</Text>
+                    <TextInput
+                      value={siVal}
+                      editable={admin}
+                      onChangeText={(v) => updateHole(h, "si", v)}
+                      keyboardType="numeric"
+                      style={[styles.input, !admin && { opacity: 0.85 }]}
+                      placeholder="1-18"
+                      placeholderTextColor={MUTED}
+                    />
+                  </View>
                 </View>
 
-                {recoverLoading ? (
-                  <View style={styles.modalLoading}>
-                    <ActivityIndicator />
-                    <Text style={styles.modalLoadingT}>Scanning local storage…</Text>
+                <View style={styles.holeYardagesBlock}>
+                  <Text style={styles.holeYardagesTitle}>Hole Yardages By Tee</Text>
+
+                  <View style={styles.holeYardagesGrid}>
+                    {normalizeTees(tees).length ? (
+                      normalizeTees(tees).map((tee) => {
+                        const code = safeStr(tee?.code).trim().toUpperCase();
+                        const yardageVal = String(holeMeta[String(h)]?.yardages?.[code] ?? "");
+
+                        return (
+                          <View key={`${h}_${code}`} style={styles.holeYardageField}>
+                            <Text style={styles.label}>{safeStr(tee?.name).trim() || code}</Text>
+                            <TextInput
+                              value={yardageVal}
+                              editable={admin}
+                              onChangeText={(v) =>
+                                setHoleMeta((prev) => ({
+                                  ...prev,
+                                  [String(h)]: {
+                                    ...prev[String(h)],
+                                    yardages: {
+                                      ...(prev[String(h)]?.yardages || {}),
+                                      [code]: v.replace(/[^0-9]/g, ""),
+                                    },
+                                  },
+                                }))
+                              }
+                              keyboardType="numeric"
+                              style={[styles.input, !admin && { opacity: 0.85 }]}
+                              placeholder="e.g. 342"
+                              placeholderTextColor={MUTED}
+                            />
+                          </View>
+                        );
+                      })
+                    ) : (
+                      <Text style={styles.emptyTeeText}>Add tee boxes above to enter per-tee hole yardages.</Text>
+                    )}
                   </View>
-                ) : (
-                  <>
-                    <Text style={styles.modalSub}>Select the entry that has your real Green Tee values (not SI 1-18).</Text>
-
-                    <ScrollView style={{ maxHeight: 340 }} contentContainerStyle={{ padding: 12, paddingTop: 8 }}>
-                      {recoverList.length === 0 ? (
-                        <Text style={{ color: "rgba(255,255,255,0.72)", fontWeight: "800" }}>
-                          No local course blobs found on this device.
-                        </Text>
-                      ) : (
-                        recoverList.map((it) => {
-                          const active = selectedRecover?.key === it.key;
-                          const si1 = it?.hole1?.si ?? "—";
-                          const par1 = it?.hole1?.par ?? "—";
-                          return (
-                            <Pressable
-                              key={it.key}
-                              onPress={() => setSelectedRecover(it)}
-                              style={({ pressed }) => [
-                                styles.recoverRow,
-                                active && styles.recoverRowActive,
-                                pressed && styles.pressed,
-                              ]}
-                            >
-                              <Text style={styles.recoverRowT} numberOfLines={1}>
-                                {it.courseId}
-                              </Text>
-                              <Text style={styles.recoverRowS}>
-                                Hole1: Par {String(par1)} • SI {String(si1)} • GPS holes: {String(it.gpsHolesCount)}
-                                {it.gpsLocked ? " • LOCKED" : ""}
-                              </Text>
-                            </Pressable>
-                          );
-                        })
-                      )}
-                    </ScrollView>
-
-                    <View style={styles.modalActions}>
-                      <Pressable
-                        disabled={!selectedRecover || recoverActing}
-                        onPress={useSelected}
-                        style={({ pressed }) => [
-                          styles.actionBtn,
-                          pressed && styles.pressed,
-                          (!selectedRecover || recoverActing) && { opacity: 0.45 },
-                        ]}
-                      >
-                        <Text style={styles.actionBtnT}>Use This Data</Text>
-                      </Pressable>
-
-                      <Pressable
-                        disabled={!selectedRecover || recoverActing}
-                        onPress={publishSelectedToCloud}
-                        style={({ pressed }) => [
-                          styles.actionBtn2,
-                          pressed && styles.pressed,
-                          (!selectedRecover || recoverActing) && { opacity: 0.45 },
-                        ]}
-                      >
-                        <Text style={styles.actionBtnT2}>Publish Selected to Cloud</Text>
-                      </Pressable>
-                    </View>
-                  </>
-                )}
+                </View>
               </View>
+            );
+          })}
+
+          {!isHoleMetaValid ? (
+            <View style={[styles.warnPill, { marginHorizontal: 16, marginTop: 2 }]}>
+              <Text style={styles.warnText}>
+                Pars must be 3/4/5, Stroke Index must be 1-18 with no duplicates, and per-tee hole yardages must be blank or greater than 0.
+              </Text>
             </View>
-          </Modal>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
-    </TouchableWithoutFeedback>
+          ) : null}
+        </ScrollView>
+
+        <View style={styles.footer}>
+          <Pressable style={styles.orangeBtn} onPress={() => navigation.goBack()}>
+            <Text style={styles.orangeText}>Cancel</Text>
+          </Pressable>
+
+          {admin ? (
+            <Pressable style={[styles.greenBtn, !isValid && { opacity: 0.5 }]} onPress={onSave}>
+              <Text style={styles.greenText}>Save</Text>
+            </Pressable>
+          ) : null}
+        </View>
+
+        <Modal visible={recoverOpen} transparent animationType="fade" onRequestClose={() => setRecoverOpen(false)}>
+          <View style={styles.modalBg}>
+            <View style={styles.modalCard}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Recover Local Data</Text>
+                <Pressable onPress={() => setRecoverOpen(false)} style={styles.modalClose}>
+                  <Text style={styles.modalCloseT}>Close</Text>
+                </Pressable>
+              </View>
+
+              {recoverLoading ? (
+                <View style={styles.modalLoading}>
+                  <ActivityIndicator />
+                  <Text style={styles.modalLoadingT}>Scanning local storage…</Text>
+                </View>
+              ) : (
+                <>
+                  <Text style={styles.modalSub}>Select the entry that has your real Green Tee values (not SI 1-18).</Text>
+
+                  <ScrollView style={{ maxHeight: 340 }} contentContainerStyle={{ padding: 12, paddingTop: 8 }}>
+                    {recoverList.length === 0 ? (
+                      <Text style={{ color: "rgba(255,255,255,0.72)", fontWeight: "800" }}>
+                        No local course blobs found on this device.
+                      </Text>
+                    ) : (
+                      recoverList.map((it) => {
+                        const active = selectedRecover?.key === it.key;
+                        const si1 = it?.hole1?.si ?? "—";
+                        const par1 = it?.hole1?.par ?? "—";
+                        return (
+                          <Pressable
+                            key={it.key}
+                            onPress={() => setSelectedRecover(it)}
+                            style={({ pressed }) => [
+                              styles.recoverRow,
+                              active && styles.recoverRowActive,
+                              pressed && styles.pressed,
+                            ]}
+                          >
+                            <Text style={styles.recoverRowT} numberOfLines={1}>
+                              {it.courseId}
+                            </Text>
+                            <Text style={styles.recoverRowS}>
+                              Hole1: Par {String(par1)} • SI {String(si1)} • GPS holes: {String(it.gpsHolesCount)}
+                              {it.gpsLocked ? " • LOCKED" : ""}
+                            </Text>
+                          </Pressable>
+                        );
+                      })
+                    )}
+                  </ScrollView>
+
+                  <View style={styles.modalActions}>
+                    <Pressable
+                      disabled={!selectedRecover || recoverActing}
+                      onPress={useSelected}
+                      style={({ pressed }) => [
+                        styles.actionBtn,
+                        pressed && styles.pressed,
+                        (!selectedRecover || recoverActing) && { opacity: 0.45 },
+                      ]}
+                    >
+                      <Text style={styles.actionBtnT}>Use This Data</Text>
+                    </Pressable>
+
+                    <Pressable
+                      disabled={!selectedRecover || recoverActing}
+                      onPress={publishSelectedToCloud}
+                      style={({ pressed }) => [
+                        styles.actionBtn2,
+                        pressed && styles.pressed,
+                        (!selectedRecover || recoverActing) && { opacity: 0.45 },
+                      ]}
+                    >
+                      <Text style={styles.actionBtnT2}>Publish Selected to Cloud</Text>
+                    </Pressable>
+                  </View>
+                </>
+              )}
+            </View>
+          </View>
+        </Modal>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
@@ -772,6 +855,22 @@ const styles = StyleSheet.create({
 
   rowInputs: { flexDirection: "row", gap: 12 },
   field: { flex: 1 },
+  holeYardagesBlock: { marginTop: 14 },
+  holeYardagesTitle: {
+    color: "rgba(255,255,255,0.80)",
+    fontWeight: "900",
+    fontSize: 12,
+    marginBottom: 10,
+    letterSpacing: 0.2,
+  },
+  holeYardagesGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  holeYardageField: {
+    width: "48%",
+  },
   label: { color: MUTED, fontWeight: "900", fontSize: 12, marginBottom: 6 },
 
   input: {

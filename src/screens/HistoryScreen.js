@@ -679,6 +679,36 @@ export default function HistoryScreen({ navigation }) {
       return;
     }
 
+    const status = String(localRound?.status || "").trim().toLowerCase();
+    const hasCourse = !!localRound?.course;
+    const hasTee = !!localRound?.tee;
+    const hasPlayers = Array.isArray(localRound?.players) && localRound.players.length > 0;
+
+    if (
+      (status === "active" || status.includes("in_progress") || status.includes("progress")) &&
+      hasCourse &&
+      hasTee &&
+      hasPlayers
+    ) {
+      try {
+        const patch = buildHydrationPatchFromLocal(localRound, rid);
+        await updateActiveRound(patch, rid);
+
+        const holeHubParams = buildHoleHubParamsFromRoundDoc(
+          {
+            ...localRound,
+            ...patch,
+          },
+          rid
+        );
+
+        if (holeHubParams) {
+          navigation.navigate(ROUTES.HOLE_HUB, holeHubParams);
+          return;
+        }
+      } catch { }
+    }
+
     await routeIntoRoundById(rid, localRound);
   }
 
