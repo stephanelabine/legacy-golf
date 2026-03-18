@@ -167,8 +167,7 @@ export default function NewRoundScreen({ navigation, route }) {
       const existing = await loadActiveRound(roundId);
       if (!alive) return;
 
-      const next = {
-        ...(existing || {}),
+      const patch = {
         startedAt: existing?.startedAt || new Date().toISOString(),
         gameId: incomingGameId ?? existing?.gameId ?? null,
         gameTitle: incomingGameTitle ?? existing?.gameTitle ?? null,
@@ -176,7 +175,7 @@ export default function NewRoundScreen({ navigation, route }) {
         wagers: incomingWagers ?? existing?.wagers ?? null,
       };
 
-      await saveActiveRound(next, roundId);
+      const next = await updateActiveRound(patch, roundId);
 
       if (__DEV__) {
         console.log("[LegacyGolf] Active round seeded on Select Course:", next);

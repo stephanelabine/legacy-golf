@@ -815,7 +815,12 @@ export default function HoleHubScreen({ navigation, route }) {
 
   const courseCenterFromParams = params.courseCenter ?? courseParam?.center ?? courseParam?.courseCenter ?? null;
 
-  const teeName = teeParam?.name ?? (typeof teeParam === "string" ? teeParam : "Tees");
+  const teeFromActive = activeRoot?.tee || null;
+
+  const teeName =
+    teeParam?.name ??
+    teeFromActive?.name ??
+    (typeof teeParam === "string" ? teeParam : "Tees");
 
   const [currentHole, setCurrentHole] = useState(params.hole || 1);
   const [courseData, setCourseData] = useState(null);
@@ -916,12 +921,16 @@ export default function HoleHubScreen({ navigation, route }) {
   const selectedTeeCode = useMemo(() => {
     const raw =
       teeParam?.code ||
+      teeFromActive?.code ||
       teeParam?.key ||
+      teeFromActive?.key ||
       teeParam?.color ||
+      teeFromActive?.color ||
       teeParam?.name ||
+      teeFromActive?.name ||
       "";
     return String(raw).trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_");
-  }, [teeParam]);
+  }, [teeParam, teeFromActive]);
 
   const currentHoleYardage = useMemo(() => {
     const savedYardages =

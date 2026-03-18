@@ -356,13 +356,59 @@ function buildHydrationPatchFromLocal(localRound, rid) {
 
   const { holesCount, holesSide } = deriveHoleRangeAny(localRound || {});
 
+  const holes =
+    localRound?.holes && typeof localRound.holes === "object"
+      ? localRound.holes
+      : undefined;
+
+  const wagers =
+    localRound?.wagers && typeof localRound.wagers === "object"
+      ? localRound.wagers
+      : undefined;
+
+  const skins =
+    localRound?.skins && typeof localRound.skins === "object"
+      ? localRound.skins
+      : undefined;
+
+  const nassau =
+    localRound?.nassau && typeof localRound.nassau === "object"
+      ? localRound.nassau
+      : undefined;
+
+  const hasHoleData =
+    !!holes &&
+    (Array.isArray(holes)
+      ? holes.length > 0
+      : Object.keys(holes).length > 0);
+
+  const rawStatus = String(localRound?.status || "").toLowerCase();
+
+  const derivedStatus = isRoundCompletedAnyShape(localRound)
+    ? "completed"
+    : rawStatus.includes("active")
+      ? "active"
+      : rawStatus.includes("progress") || rawStatus.includes("in_progress")
+        ? "in_progress"
+        : hasHoleData
+          ? "in_progress"
+          : "setup";
+
   const patch = {
     roundId: rid || localRound?.roundId || localRound?.id || null,
+
+    gameId: localRound?.gameId || null,
+    gameTitle: localRound?.gameTitle || null,
+    entrySource: localRound?.entrySource || localRound?.mode || null,
 
     course: course || null,
     tee: tee || null,
     players: players || null,
     holeMeta: holeMeta || null,
+    holes,
+    wagers,
+    skins,
+    nassau,
 
     courseName: courseName || null,
     teeName: teeName || null,
@@ -379,13 +425,7 @@ function buildHydrationPatchFromLocal(localRound, rid) {
     configByKey: localRound?.configByKey && typeof localRound.configByKey === "object" ? localRound.configByKey : undefined,
     feeByKey: localRound?.feeByKey && typeof localRound.feeByKey === "object" ? localRound.feeByKey : undefined,
 
-    status: String(localRound?.status || "setup").toLowerCase().includes("active")
-      ? "active"
-      : String(localRound?.status || "").toLowerCase().includes("progress")
-        ? "in_progress"
-        : String(localRound?.status || "").toLowerCase().includes("in_progress")
-          ? "in_progress"
-          : "setup",
+    status: derivedStatus,
   };
 
   Object.keys(patch).forEach((k) => {
@@ -591,28 +631,30 @@ export default function HistoryScreen({ navigation }) {
     const hasTee2 = !!fsRound?.tee;
     const hasPlayers2 = Array.isArray(fsRound?.players) && fsRound.players.length > 0;
 
-    const routes = [
-      { name: ROUTES.HISTORY },
-      { name: ROUTES.GAME_SETUP, params: { roundId: rid } },
-      { name: ROUTES.NEW_ROUND, params: { roundId: rid } },
-      { name: ROUTES.TEE_SELECTION, params: { roundId: rid } },
-      { name: ROUTES.PLAYER_ENTRY, params: { roundId: rid } },
-    ];
-
     if (!hasGame) {
-      navigation.reset({ index: 1, routes });
+      navigation.navigate(ROUTES.GAME_SETUP, { roundId: rid });
       return;
     }
     if (!hasCourse2) {
-      navigation.reset({ index: 2, routes });
+      navigation.navigate(ROUTES.NEW_ROUND, { roundId: rid });
       return;
     }
     if (!hasTee2) {
-      navigation.reset({ index: 3, routes });
+      navigation.navigate(ROUTES.TEE_SELECTION, {
+        roundId: rid,
+        course: fsRound?.course || null,
+      });
       return;
     }
     if (!hasPlayers2) {
-      navigation.reset({ index: 4, routes });
+      navigation.navigate(ROUTES.PLAYER_ENTRY, {
+        roundId: rid,
+        course: fsRound?.course || null,
+        tee: fsRound?.tee || null,
+        holeMeta: fsRound?.holeMeta ?? fsRound?.meta?.holeMeta ?? null,
+        scoring: fsRound?.scoring || fsRound?.scoringType || "net",
+        playerCount: fsRound?.playerCount || null,
+      });
       return;
     }
 
@@ -622,34 +664,30 @@ export default function HistoryScreen({ navigation }) {
     const poolsReady = fsRound?.poolsReady === true;
     const hasFees = !!selected.length && hasAnyFeeForSelectedFormats(fsRound);
 
-    routes.push({ name: ROUTES.GAME_FORMATS, params: { roundId: rid } });
-
     if (!selected.length) {
-      navigation.reset({ index: routes.length - 1, routes });
+      navigation.navigate(ROUTES.GAME_FORMATS, { roundId: rid });
       return;
     }
 
     if (needDetails) {
-      routes.push({ name: ROUTES.GAME_FORMAT_DETAILS, params: { roundId: rid } });
-      navigation.reset({ index: routes.length - 1, routes });
+      navigation.navigate(ROUTES.GAME_FORMAT_DETAILS, { roundId: rid });
       return;
     }
 
     if (hasFees) {
-      routes.push({ name: ROUTES.GAME_FORMAT_POOLS, params: { roundId: rid, gameId: fsRound?.gameId || null } });
-
       if (poolsReady) {
-        routes.push({ name: ROUTES.GAME_ROUND_BRIEFING, params: { roundId: rid } });
-        navigation.reset({ index: routes.length - 1, routes });
+        navigation.navigate(ROUTES.GAME_ROUND_BRIEFING, { roundId: rid });
         return;
       }
 
-      navigation.reset({ index: routes.length - 1, routes });
+      navigation.navigate(ROUTES.GAME_FORMAT_POOLS, {
+        roundId: rid,
+        gameId: fsRound?.gameId || null,
+      });
       return;
     }
 
-    routes.push({ name: ROUTES.GAME_ROUND_BRIEFING, params: { roundId: rid } });
-    navigation.reset({ index: routes.length - 1, routes });
+    navigation.navigate(ROUTES.GAME_ROUND_BRIEFING, { roundId: rid });
   }
 
   async function openActivePinned() {
@@ -673,6 +711,10 @@ export default function HistoryScreen({ navigation }) {
       return;
     }
 
+    try {
+      console.log("[HistoryScreen] openRound localRound =", JSON.stringify(localRound, null, 2));
+    } catch { }
+
     const completedLocal = isRoundCompletedAnyShape(localRound);
     if (completedLocal) {
       navigation.navigate({ name: ROUTES.FINAL_RESULTS, params: { roundId: rid } });
@@ -692,6 +734,10 @@ export default function HistoryScreen({ navigation }) {
     ) {
       try {
         const patch = buildHydrationPatchFromLocal(localRound, rid);
+        try {
+          console.log("[HistoryScreen] openRound hydration patch =", JSON.stringify(patch, null, 2));
+        } catch { }
+
         await updateActiveRound(patch, rid);
 
         const holeHubParams = buildHoleHubParamsFromRoundDoc(
