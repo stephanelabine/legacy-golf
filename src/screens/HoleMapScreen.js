@@ -344,6 +344,43 @@ function teeKeyFromParams(teeObj) {
   return "WHITE";
 }
 
+function legacyTeeKeyFromCode(code) {
+  const normalized = String(code || "").trim().toUpperCase();
+
+  if (normalized === "BLACK" || normalized === "GOLD") return "gold";
+  if (normalized === "BLUE") return "blue";
+  if (normalized === "WHITE") return "white";
+  if (normalized === "RED") return "red";
+  return normalized ? normalized.toLowerCase() : "";
+}
+
+function getSavedTeePoint(teePoints, code) {
+  if (!teePoints || typeof teePoints !== "object") return null;
+
+  const normalized = String(code || "").trim().toUpperCase();
+  const legacyKey = legacyTeeKeyFromCode(normalized);
+
+  const direct =
+    normalized &&
+      teePoints?.[normalized] &&
+      Number.isFinite(teePoints?.[normalized]?.lat) &&
+      Number.isFinite(teePoints?.[normalized]?.lon)
+      ? teePoints[normalized]
+      : null;
+
+  if (direct) return direct;
+
+  const legacy =
+    legacyKey &&
+      teePoints?.[legacyKey] &&
+      Number.isFinite(teePoints?.[legacyKey]?.lat) &&
+      Number.isFinite(teePoints?.[legacyKey]?.lon)
+      ? teePoints[legacyKey]
+      : null;
+
+  return legacy || null;
+}
+
 function buildHtml(initialCenter) {
   const initLon = Number.isFinite(initialCenter?.lon) ? initialCenter.lon : -122.9;
   const initLat = Number.isFinite(initialCenter?.lat) ? initialCenter.lat : 49.2;
@@ -1375,9 +1412,7 @@ export default function HoleMapScreen({ navigation, route }) {
 
   const teePoints = savedGps?.teePoints && typeof savedGps.teePoints === "object" ? savedGps.teePoints : null;
   const teePoint =
-    (teePoints && teePoints[teeKey] && Number.isFinite(teePoints[teeKey]?.lat) && Number.isFinite(teePoints[teeKey]?.lon)
-      ? teePoints[teeKey]
-      : null) ||
+    getSavedTeePoint(teePoints, teeKey) ||
     (savedGps?.tee && Number.isFinite(savedGps?.tee?.lat) && Number.isFinite(savedGps?.tee?.lon) ? savedGps.tee : null);
 
   const fairwayMid =
@@ -2166,12 +2201,7 @@ export default function HoleMapScreen({ navigation, route }) {
 
     return list.map((tee) => {
       const code = String(tee?.code || "").trim().toUpperCase();
-      const saved = !!(
-        code &&
-        teePoints?.[code] &&
-        Number.isFinite(teePoints?.[code]?.lat) &&
-        Number.isFinite(teePoints?.[code]?.lon)
-      );
+      const saved = !!getSavedTeePoint(teePoints, code);
 
       return {
         name: String(tee?.name || code || "Tee").trim(),

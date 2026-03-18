@@ -310,6 +310,33 @@ export default function CourseDataScreen({ navigation, route }) {
     }
   }
 
+  function onUnlockGreenPoints() {
+    if (!admin) return;
+
+    Alert.alert(
+      "Unlock green points?",
+      "This will turn off the course green lock so you can correct saved green points without wiping the course.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Unlock",
+          style: "destructive",
+          onPress: async () => {
+            const ok = await saveCourseData(courseId, { gpsLocked: false });
+            if (!ok) {
+              Alert.alert(
+                "Unlock failed",
+                "Could not unlock green points in cloud storage. Check login, Firestore write access, and the Expo logs."
+              );
+              return;
+            }
+            Alert.alert("Unlocked", "Green points are now editable again for this course.");
+          },
+        },
+      ]
+    );
+  }
+
   async function openRecover() {
     if (!admin) return;
 
@@ -390,6 +417,10 @@ export default function CourseDataScreen({ navigation, route }) {
                   style={({ pressed }) => [styles.publishBtn, pressed && styles.pressed, publishing && { opacity: 0.6 }]}
                 >
                   <Text style={styles.publishText}>{publishing ? "Publishing..." : "Publish to Cloud"}</Text>
+                </Pressable>
+
+                <Pressable onPress={onUnlockGreenPoints} style={({ pressed }) => [styles.publishBtn, pressed && styles.pressed]}>
+                  <Text style={styles.publishText}>Unlock Green Points</Text>
                 </Pressable>
 
                 <Pressable onPress={onWipeCourse} style={({ pressed }) => [styles.wipeBtn, pressed && styles.pressed]}>

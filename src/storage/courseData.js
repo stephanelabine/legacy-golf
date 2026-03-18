@@ -208,8 +208,12 @@ export async function saveCourseData(courseId, patchOrFull) {
   if (isAdmin()) {
     try {
       await writeCourseRemote(cid, next, { merge: false });
-    } catch {
-      // keep local even if remote fails
+    } catch (e) {
+      console.log("COURSE_DATA_REMOTE_WRITE_FAILED", {
+        courseId: cid,
+        message: e?.message || String(e),
+      });
+      return false;
     }
   }
 

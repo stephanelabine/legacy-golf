@@ -100,7 +100,7 @@ function hazardLabel(type) {
   return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "Hazard";
 }
 
-function buildNumberedHazards(arr, user, holeNumber) {
+function buildNumberedHazards(arr, user, holeNumber, teePoint) {
   const raw = [];
 
   (Array.isArray(arr) ? arr : []).forEach((h) => {
@@ -109,6 +109,7 @@ function buildNumberedHazards(arr, user, holeNumber) {
 
     const typeKey = safeTrim(h?.type || "hazard").toLowerCase() || "hazard";
     const meters = user ? haversineMeters(user, point) : NaN;
+    const teeMeters = teePoint ? haversineMeters(teePoint, point) : NaN;
 
     raw.push({
       typeKey,
@@ -116,6 +117,7 @@ function buildNumberedHazards(arr, user, holeNumber) {
       lat: point.lat,
       lon: point.lon,
       meters,
+      teeMeters,
     });
   });
 
@@ -139,6 +141,7 @@ function buildNumberedHazards(arr, user, holeNumber) {
           lat: h.lat,
           lon: h.lon,
           meters: h.meters,
+          teeMeters: h.teeMeters,
           yards: yds(h.meters),
         });
       });
@@ -173,6 +176,7 @@ function buildNumberedHazards(arr, user, holeNumber) {
           lat: h.lat,
           lon: h.lon,
           meters: h.meters,
+          teeMeters: h.teeMeters,
           yards: yds(h.meters),
         });
       });
@@ -186,15 +190,16 @@ function buildNumberedHazards(arr, user, holeNumber) {
       lat: h.lat,
       lon: h.lon,
       meters: h.meters,
+      teeMeters: h.teeMeters,
       yards: yds(h.meters),
     }));
   }
 
   const sorted = [...display].sort((a, b) => {
-    const aOk = Number.isFinite(a.meters);
-    const bOk = Number.isFinite(b.meters);
+    const aOk = Number.isFinite(a.teeMeters);
+    const bOk = Number.isFinite(b.teeMeters);
 
-    if (aOk && bOk) return a.meters - b.meters;
+    if (aOk && bOk) return a.teeMeters - b.teeMeters;
     if (aOk) return -1;
     if (bOk) return 1;
     return 0;
@@ -208,6 +213,7 @@ function buildNumberedHazards(arr, user, holeNumber) {
     lat: h.lat,
     lon: h.lon,
     meters: h.meters,
+    teeMeters: h.teeMeters,
     yards: h.yards,
   }));
 }
@@ -639,8 +645,8 @@ export default function HazardsScreen({ navigation, route }) {
   const fairwayMid = asPoint(holeGps?.fairway?.mid);
 
   const hazards = useMemo(() => {
-    return buildNumberedHazards(holeGps?.hazards || [], user, holeFromParams);
-  }, [holeGps?.hazards, user, holeFromParams]);
+    return buildNumberedHazards(holeGps?.hazards || [], user, holeFromParams, teePoint);
+  }, [holeGps?.hazards, user, holeFromParams, teePoint]);
 
   const initialCenter = useMemo(() => {
     if (green?.middle && Number.isFinite(green.middle?.lat) && Number.isFinite(green.middle?.lon)) {
