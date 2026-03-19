@@ -176,17 +176,18 @@ function isRoundCompletedAnyShape(r) {
 }
 
 function pickHoleNumberAny(r, fallback = null) {
-  const holeRaw = pickFirstNumber(r?.holeNumber, r?.currentHole, r?.hole, r?.lastHole, r?.resumeHole, r?.holeIndex);
-  let holeNumber = holeRaw;
-
-  if (holeNumber !== null && holeNumber >= 0 && holeNumber <= 17) {
-    const isIndex = r?.holeIndex !== undefined || holeNumber === 0;
-    if (isIndex) holeNumber = holeNumber + 1;
+  const directHole = pickFirstNumber(r?.holeNumber, r?.currentHole, r?.hole, r?.lastHole, r?.resumeHole);
+  if (Number.isFinite(directHole)) {
+    if (directHole < 1 || directHole > 18) return fallback;
+    return directHole;
   }
 
-  if (!Number.isFinite(holeNumber)) return fallback;
-  if (holeNumber < 1 || holeNumber > 18) return fallback;
-  return holeNumber;
+  const holeIndexRaw = Number(r?.holeIndex);
+  if (Number.isFinite(holeIndexRaw) && holeIndexRaw >= 0 && holeIndexRaw <= 17) {
+    return holeIndexRaw + 1;
+  }
+
+  return fallback;
 }
 
 function pickHoleNumberForDisplay(r, fallback = null) {
@@ -321,6 +322,7 @@ function buildHoleHubParamsFromRoundDoc(roundDoc, rid) {
   const { startHole, holesCount, holesSide } = deriveHoleRangeAny(roundDoc || {});
   const courseName = pickFirstString(roundDoc?.courseName, course?.name);
   const holeMeta = roundDoc?.holeMeta ?? roundDoc?.meta?.holeMeta ?? null;
+  const resumeHole = pickHoleNumberForDisplay(roundDoc, startHole);
 
   return {
     ...roundDoc,
@@ -332,8 +334,9 @@ function buildHoleHubParamsFromRoundDoc(roundDoc, rid) {
     holesCount,
     holesSide,
     startHole,
-    hole: startHole,
-    holeIndex: startHole - 1,
+    hole: resumeHole,
+    holeIndex: resumeHole - 1,
+    currentHole: resumeHole,
     courseName: courseName || course?.name,
     roundId: rid || roundDoc?.roundId || roundDoc?.id || null,
   };

@@ -13,6 +13,8 @@ import {
 import theme from "../theme";
 import ROUTES from "../navigation/routes";
 import ScreenHeader from "../components/ScreenHeader";
+import { auth, db } from "../firebase/firebase";
+import { doc, getDoc } from "firebase/firestore";
 import { loadActiveRound, updateActiveRound } from "../storage/roundState";
 
 function clampCount(n) {
@@ -123,6 +125,7 @@ export default function PlayerSetupScreen({ navigation, route }) {
 
   // Done should only be enabled when there is a valid draft that differs from the committed value.
   const canDone = hasValidDraft && isDirty;
+  const isSoloRound = Number(committedCount) === 1;
   // Continue still requires a committed value and no pending edits
   const canContinue = !!committedCount && !isDirty;
 
@@ -162,8 +165,86 @@ export default function PlayerSetupScreen({ navigation, route }) {
     if (!canContinue) return;
     Keyboard.dismiss();
 
+    const active = roundId ? await loadActiveRound(roundId) : null;
+
+    const uid = auth?.currentUser?.uid || null;
+    let profileName = "";
+    let profileNickname = "";
+    let profilePhone = "";
+    let profileEmail = "";
+    let profileHandicap = null;
+
+    if (uid) {
+      try {
+        const userSnap = await getDoc(doc(db, "users", String(uid)));
+        const userData = userSnap.exists() ? (userSnap.data() || {}) : {};
+
+        profileNickname = String(userData?.nickname || userData?.nickName || "").trim();
+        profileName = String(userData?.displayName || userData?.name || userData?.fullName || "").trim();
+        profilePhone = String(userData?.phone || "").trim();
+        profileEmail = String(userData?.email || auth?.currentUser?.email || "").trim();
+
+        const rawHandicap =
+          userData?.handicapManual ??
+          userData?.handicapIndex ??
+          userData?.handicap ??
+          null;
+
+        const parsedHandicap = Number(rawHandicap);
+        profileHandicap = Number.isFinite(parsedHandicap) ? parsedHandicap : null;
+      } catch { }
+    }
+
+    const firstNameFromProfile = String(profileName || "").trim().split(/\s+/).filter(Boolean)[0] || "";
+    const authFallback =
+      String(auth?.currentUser?.displayName || "").trim() ||
+      String((auth?.currentUser?.email || "").split("@")[0] || "").trim();
+
+    const soloPlayer = {
+      id: "me",
+      uid: active?.players?.[0]?.uid || uid,
+      name:
+        profileNickname ||
+        firstNameFromProfile ||
+        String(active?.players?.[0]?.name || "").trim() ||
+        authFallback ||
+        "Player 1",
+      handicap: Number(
+        active?.players?.[0]?.handicap ??
+        profileHandicap ??
+        0
+      ),
+      phone: active?.players?.[0]?.phone || profilePhone || "",
+      email: active?.players?.[0]?.email || profileEmail || auth?.currentUser?.email || "",
+      source: "me",
+      trackStats: true,
+    };
     // safety: ensure Firestore has the committed value before leaving
-    await persistPlayerCount(committedCount);
+    await updateActiveRound(
+      {
+        playerCount: committedCount,
+        ...(Number(committedCount) === 1 ? { players: [soloPlayer] } : {}),
+        updatedAt: Date.now(),
+      },
+      roundId
+    );
+
+    if (Number(committedCount) === 1) {
+      navigation.navigate(ROUTES.HOLE_HUB, {
+        ...params,
+        roundId,
+        course,
+        tee,
+        scoring,
+        playerCount: committedCount,
+        players: [soloPlayer],
+        hole: 1,
+        holeIndex: 0,
+        currentHole: 1,
+        startHole: 1,
+      });
+      return;
+    }
 
     navigation.navigate(ROUTES.PLAYER_ENTRY, {
       ...params,
@@ -174,7 +255,6 @@ export default function PlayerSetupScreen({ navigation, route }) {
       playerCount: committedCount,
     });
   }
-
   const courseName = course?.name || "Course";
   const teeName = tee?.name || "Tee";
   const teeYards = tee?.yardage ? `${tee.yardage} yds` : "";
@@ -255,7 +335,7 @@ export default function PlayerSetupScreen({ navigation, route }) {
               pressed && canContinue && styles.pressed,
             ]}
           >
-            <Text style={styles.ctaText}>Next: Add Players</Text>
+            <Text style={styles.ctaText}>{isSoloRound ? "Start Round" : "Next: Add Players"}</Text>
           </Pressable>
         </View>
       </SafeAreaView>

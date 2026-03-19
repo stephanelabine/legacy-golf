@@ -1520,26 +1520,29 @@ export default function HoleHubScreen({ navigation, route }) {
     setYardageOpen(false);
   }
 
-  function openScoreEntry(extra = {}) {
+  async function openScoreEntry(extra = {}) {
+    const liveActive = (await RoundState.loadActiveRound(roundId)) || activeRoot || null;
+
     const roster =
       (Array.isArray(players) && players.length ? players : null) ||
+      (Array.isArray(liveActive?.players) && liveActive.players.length ? liveActive.players : null) ||
       (Array.isArray(activeRoot?.players) && activeRoot.players.length ? activeRoot.players : null) ||
       [];
 
     navigation.navigate(ROUTES.SCORE_ENTRY, {
-      course: courseParam ?? activeRoot?.course ?? { name: courseName, id: courseId },
-      tee: teeParam ?? activeRoot?.tee ?? { name: teeName },
+      course: courseParam ?? liveActive?.course ?? activeRoot?.course ?? { name: courseName, id: courseId },
+      tee: teeParam ?? liveActive?.tee ?? activeRoot?.tee ?? { name: teeName },
       players: roster,
       hole: currentHole,
       holeMeta,
-      roundId: activeRoot?.id || activeRoot?.roundId || roundId || null,
+      roundId: liveActive?.id || liveActive?.roundId || activeRoot?.id || activeRoot?.roundId || roundId || null,
       courseName,
       teeName,
       courseCenter,
       courseId,
 
       // Always compute the format hole key for the CURRENT hole (so jumping back works correctly)
-      sideGameKey: sideGameKeyForHole(activeRoot, currentHole) || null,
+      sideGameKey: sideGameKeyForHole(liveActive || activeRoot, currentHole) || null,
 
       holesCount,
       holesSide,
@@ -1647,6 +1650,13 @@ export default function HoleHubScreen({ navigation, route }) {
         return { ok: false, roundId: null };
       }
 
+      const persistedResumeHole =
+        Number(active?.currentHole) ||
+        Number(active?.holeNumber) ||
+        Number(active?.hole) ||
+        (Number.isFinite(Number(active?.holeIndex)) ? Number(active.holeIndex) + 1 : null) ||
+        currentHole;
+
       const payload = {
         id,
         roundId: id,
@@ -1661,8 +1671,11 @@ export default function HoleHubScreen({ navigation, route }) {
         playedAt: active?.playedAt || active?.startedAt || new Date().toISOString(),
         startedAt: active?.startedAt || new Date().toISOString(),
         status: status || "in_progress",
-        currentHole,
-        lastHole: currentHole,
+        currentHole: persistedResumeHole,
+        holeNumber: persistedResumeHole,
+        hole: persistedResumeHole,
+        holeIndex: Math.max(0, Number(persistedResumeHole || 1) - 1),
+        lastHole: persistedResumeHole,
       };
 
       const ok = await saveRound(payload);

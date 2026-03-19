@@ -386,8 +386,13 @@ export default function GameScoreEntryScreen({ navigation, route }) {
     const par = holeMeta?.[String(holeNumber)]?.par ?? 4;
     const title = `HOLE ${holeNumber} • PAR ${par}`;
 
+    const [hydratedPlayers, setHydratedPlayers] = useState([]);
+
     const normalizedPlayers = useMemo(() => {
-        const list = Array.isArray(players) ? players : [];
+        const routePlayers = Array.isArray(players) ? players : [];
+        const fallbackPlayers = Array.isArray(hydratedPlayers) ? hydratedPlayers : [];
+        const list = routePlayers.length ? routePlayers : fallbackPlayers;
+
         return list.map((p, idx) => {
             const source = p?.source || null;
             return {
@@ -400,7 +405,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                 email: p?.email || null,
             };
         });
-    }, [players]);
+    }, [players, hydratedPlayers]);
 
     const playerRows = useMemo(() => {
         return normalizedPlayers
@@ -659,6 +664,11 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                     setBbActive(false);
                     setBbFormatKey(null);
                     setPuttingContestActive(false);
+                }
+
+                const savedRoundPlayers = Array.isArray(state?.players) ? state.players : [];
+                if (savedRoundPlayers.length) {
+                    setHydratedPlayers(savedRoundPlayers);
                 }
 
                 const savedHole = state?.holes?.[String(holeNumber)]?.players || null;
@@ -1786,6 +1796,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
     const [pickOpen, setPickOpen] = useState(false);
     const [pickPid, setPickPid] = useState("");
     const [pickField, setPickField] = useState("strokes"); // "strokes" | "putts"
+    const pickPidRef = useRef("");
 
     const STROKES = useMemo(() => Array.from({ length: 10 }, (_, i) => i + 1), []);
     const PUTTS = useMemo(() => Array.from({ length: 11 }, (_, i) => i), []);
@@ -1887,7 +1898,9 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
     const openPicker = (pid, field) => {
         Keyboard.dismiss();
-        setPickPid(String(pid));
+        const nextPid = String(pid || "");
+        pickPidRef.current = nextPid;
+        setPickPid(nextPid);
         setPickField(field);
         setPickOpen(true);
     };
@@ -1895,27 +1908,32 @@ export default function GameScoreEntryScreen({ navigation, route }) {
     const closePicker = () => {
         setPickOpen(false);
         setPickPid("");
+        pickPidRef.current = "";
     };
 
     const onTapNumber = (n) => {
-        if (!pickPid) {
+        const targetPid = String(pickPid || pickPidRef.current || "").trim();
+        if (!targetPid) {
             closePicker();
             return;
         }
-        if (pickField === "strokes") setPlayerField(pickPid, "strokes", Number(n));
-        if (pickField === "putts") setPlayerField(pickPid, "putts", Number(n));
-        if (pickField === "penalties") setPlayerField(pickPid, "penalties", Number(n));
-        if (pickField === "driveDistance") setPlayerField(pickPid, "driveDistance", Number(n));
+
+        if (pickField === "strokes") setPlayerField(targetPid, "strokes", Number(n));
+        if (pickField === "putts") setPlayerField(targetPid, "putts", Number(n));
+        if (pickField === "penalties") setPlayerField(targetPid, "penalties", Number(n));
+        if (pickField === "driveDistance") setPlayerField(targetPid, "driveDistance", Number(n));
         closePicker();
     };
 
     const onTapDriveDistanceNA = () => {
-        if (!pickPid) {
+        const targetPid = String(pickPid || pickPidRef.current || "").trim();
+        if (!targetPid) {
             closePicker();
             return;
         }
+
         if (pickField === "driveDistance") {
-            setPlayerField(pickPid, "driveDistance", "na");
+            setPlayerField(targetPid, "driveDistance", "na");
         }
         closePicker();
     };
