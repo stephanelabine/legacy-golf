@@ -2027,7 +2027,7 @@ export default function HoleHubScreen({ navigation, route }) {
 
         <Pressable onPress={() => openHoleMap(false)} style={styles.mapCard}>
           <Text style={styles.mapEyebrow}>
-            Hole {currentHole} – {currentHoleYardage ? `${currentHoleYardage} yards` : "Yardage TBD"}
+            Hole {currentHole} - Par {par} - {currentHoleYardage ? `${currentHoleYardage} yds` : "Yardage TBD"}
           </Text>
           <Text style={styles.mapTitle}>Hole View</Text>
           <Text style={styles.mapSub}>Tap to open full-screen GPS</Text>

@@ -2977,20 +2977,20 @@ const styles = StyleSheet.create({
   },
   yardPanel: {
     alignSelf: "center",
-    borderRadius: 18,
-    paddingVertical: 8,
-    paddingHorizontal: 8,
+    borderRadius: 14,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
     backgroundColor: "rgba(0,0,0,0.55)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.14)",
   },
 
   yardPanelWide: {
-    width: "92%",
+    width: "78%",
   },
 
   yardPanelStacked: {
-    width: 120,
+    width: 102,
   },
 
   yardActionRail: {
@@ -3173,25 +3173,25 @@ const styles = StyleSheet.create({
 
   yCol: {
     flex: 1,
-    minHeight: 92,
-    borderRadius: 16,
+    minHeight: 74,
+    borderRadius: 13,
     backgroundColor: "#2E7DFF",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
-    paddingVertical: 10,
-    paddingHorizontal: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
     alignItems: "center",
     justifyContent: "center",
   },
 
-  yLabelCol: { color: "rgba(255,255,255,0.78)", fontWeight: "900", fontSize: 11, letterSpacing: 0.8 },
-  yValCol: { marginTop: 6, color: "#fff", fontWeight: "900", fontSize: 22 },
+  yLabelCol: { color: "rgba(255,255,255,0.78)", fontWeight: "900", fontSize: 10, letterSpacing: 0.7 },
+  yValCol: { marginTop: 4, color: "#fff", fontWeight: "900", fontSize: 18 },
   yUnitCol: {
-    marginTop: 6,
+    marginTop: 4,
     color: "rgba(255,255,255,0.72)",
     fontWeight: "900",
-    letterSpacing: 1.1,
-    fontSize: 11,
+    letterSpacing: 1,
+    fontSize: 10,
   },
 
   yHint: {
