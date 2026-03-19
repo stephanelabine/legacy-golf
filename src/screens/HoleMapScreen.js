@@ -1174,48 +1174,70 @@ export default function HoleMapScreen({ navigation, route }) {
   const { width: screenW, height: screenH } = Dimensions.get("window");
 
   const yardPos = useRef(new Animated.ValueXY({ x: 0, y: -120 })).current;
-  const yardDockRef = useRef("right"); // "left" | "center" | "right"
   const bullseyeScale = useRef(new Animated.Value(1)).current;
   const bullseyeRotate = useRef(new Animated.Value(0)).current;
 
   const [yardStacked, setYardStacked] = useState(true);
+  const [yardDockMode, setYardDockMode] = useState("right");
+  const [plannerRowBottomY, setPlannerRowBottomY] = useState(null);
+  const [backHubTopY, setBackHubTopY] = useState(null);
 
-  // Default position: right-side resting slot for yardages
-  useEffect(() => {
-    const panelHalfW = 60; // stacked width 120
+  const getYardSnapTargets = React.useCallback(() => {
     const edgePad = 8;
-    const maxX = (screenW / 2) - panelHalfW - edgePad;
 
-    yardDockRef.current = "right";
-    setYardStacked(true);
-    yardPos.setValue({ x: maxX, y: 95 });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [screenW]);
+    const rightPanelHalfW = 39; // stacked picker width 78
+    const rightX = (screenW / 2) - rightPanelHalfW - edgePad;
 
-  useEffect(() => {
-    const panelHalfW = 60; // stacked width 120
-    const edgePad = 8;
-    const maxX = (screenW / 2) - panelHalfW - edgePad;
+    const fallbackRightY = -Math.max(120, Math.round(screenH * 0.22));
+    const bottomY = -8;
 
-    if (clubPickerOpen) {
-      yardDockRef.current = "right";
-      setYardStacked(true);
-      Animated.spring(yardPos, {
-        toValue: { x: maxX, y: 95 },
-        useNativeDriver: false,
-        speed: 18,
-        bounciness: 6,
-      }).start();
-      return;
+    let rightY = fallbackRightY;
+
+    if (Number.isFinite(plannerRowBottomY) && Number.isFinite(backHubTopY)) {
+      const gapCenterFromTop = plannerRowBottomY + ((backHubTopY - plannerRowBottomY) / 2);
+      const bottomWrapTopY = screenH - (insets.bottom + 40);
+      rightY = gapCenterFromTop - bottomWrapTopY + 34;
     }
 
+    const rightPickerY = rightY + 30;
+
+    return {
+      right: { x: rightX, y: rightY, stacked: true },
+      rightPicker: { x: rightX, y: rightPickerY, stacked: true },
+      bottom: { x: 0, y: bottomY, stacked: false },
+    };
+  }, [screenW, screenH, plannerRowBottomY, backHubTopY, insets.bottom]);
+
+  // Default resting slot: right-side centered between planner/back controls
+  useEffect(() => {
+    const targets = getYardSnapTargets();
+    const target = yardDockMode === "bottom"
+      ? targets.bottom
+      : (clubPickerOpen ? targets.rightPicker : targets.right);
+
+    const shouldStack = yardDockMode === "bottom" ? false : !!target.stacked;
+
+    setYardStacked(shouldStack);
+    yardPos.setValue({ x: target.x, y: target.y });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [getYardSnapTargets, yardDockMode, clubPickerOpen]);
+
+  useEffect(() => {
+    const targets = getYardSnapTargets();
+    const target = yardDockMode === "bottom"
+      ? targets.bottom
+      : (clubPickerOpen ? targets.rightPicker : targets.right);
+
+    const shouldStack = yardDockMode === "bottom" ? false : !!target.stacked;
+
+    setYardStacked(shouldStack);
     Animated.spring(yardPos, {
-      toValue: { x: maxX, y: 95 },
+      toValue: { x: target.x, y: target.y },
       useNativeDriver: false,
       speed: 18,
       bounciness: 6,
     }).start();
-  }, [clubPickerOpen, screenW, yardPos]);
+  }, [clubPickerOpen, getYardSnapTargets, yardPos, yardDockMode]);
 
   const didAutoCenterRef = useRef(false);
   const autoCenterWindowStartRef = useRef(0);
@@ -1515,12 +1537,13 @@ export default function HoleMapScreen({ navigation, route }) {
   const greenSetRight = !!(green?.right && Number.isFinite(green?.right?.lat) && Number.isFinite(green?.right?.lon));
 
   const yardPan = useMemo(() => {
-    const edgeSnap = 70; // px from edge to trigger left/right dock
-    const stackEdge = 95; // slightly deeper edge threshold to enable stacked layout
-
     return PanResponder.create({
       onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: (_evt, gesture) =>
+        Math.abs(gesture.dx) > 6 || Math.abs(gesture.dy) > 6,
+      onMoveShouldSetPanResponderCapture: (_evt, gesture) =>
+        Math.abs(gesture.dx) > 6 || Math.abs(gesture.dy) > 6,
 
       onPanResponderGrant: () => {
         yardPos.setOffset({ x: yardPos.x.__getValue(), y: yardPos.y.__getValue() });
@@ -1535,53 +1558,35 @@ export default function HoleMapScreen({ navigation, route }) {
       onPanResponderRelease: (_evt, gesture) => {
         yardPos.flattenOffset();
 
-        const currentX = yardPos.x.__getValue();
-        const absX = Math.abs(currentX);
+        const currentY = yardPos.y.__getValue();
+        const targets = getYardSnapTargets();
 
-        // Decide dock target
-        let dock = "center";
-        if (currentX < -(screenW / 2 - edgeSnap)) dock = "left";
-        if (currentX > (screenW / 2 - edgeSnap)) dock = "right";
+        const travelFromRight = currentY - targets.right.y;
+        const draggedFarEnoughDown = travelFromRight > 50;
+        const draggedDownGesture = gesture.dy > 24;
+        const droppedIntoBottomZone = currentY > (targets.right.y + targets.bottom.y) / 2;
 
-        // Stacked only when docked left/right
-        const shouldStack =
-          dock === "left"
-            ? currentX < -(screenW / 2 - stackEdge)
-            : dock === "right"
-              ? currentX > (screenW / 2 - stackEdge)
-              : false;
+        const shouldDockBottom =
+          draggedFarEnoughDown || draggedDownGesture || droppedIntoBottomZone;
 
-        yardDockRef.current = dock;
-        setYardStacked(!!shouldStack);
+        const nextDockMode = shouldDockBottom ? "bottom" : "right";
+        const nextTarget =
+          nextDockMode === "bottom"
+            ? targets.bottom
+            : (clubPickerOpen ? targets.rightPicker : targets.right);
 
-        // Snap positions
-        // Clamp X so panel never goes off-screen (wide vs stacked)
-        const isStack = !!shouldStack;
-        const panelHalfW = isStack ? 60 : (screenW * 0.92) / 2; // stacked width 120, wide width 92%
-        const edgePad = 8;
-        const maxX = (screenW / 2) - panelHalfW - edgePad;
+        setYardDockMode(nextDockMode);
+        setYardStacked(nextTarget.stacked);
 
-        const snapX =
-          dock === "left"
-            ? -maxX
-            : dock === "right"
-              ? maxX
-              : 0;
-
-        // Keep Y where user dropped it (float). Clamp so it stays on-screen.
-        // Negative Y moves up. Positive Y moves down.
-        const maxUp = -520;
-        const maxDown = 40;
-        const snapY = Math.max(maxUp, Math.min(maxDown, yardPos.y.__getValue()));
         Animated.spring(yardPos, {
-          toValue: { x: snapX, y: snapY },
+          toValue: { x: nextTarget.x, y: nextTarget.y },
           useNativeDriver: false,
           speed: 18,
           bounciness: 6,
         }).start();
       },
     });
-  }, [yardPos, screenW]);
+  }, [getYardSnapTargets, yardPos]);
 
   const postPayload = (fit = false, forceInitTarget = false, plannerOverride = null) => {
     if (!web.current || !webReady) return;
@@ -2341,7 +2346,14 @@ export default function HoleMapScreen({ navigation, route }) {
       </View>
 
       <View pointerEvents="box-none" style={[styles.topChipRowWrap, { top: insets.top + 74 }]}>
-        <View pointerEvents="box-none" style={styles.topChipRow}>
+        <View
+          pointerEvents="box-none"
+          style={styles.topChipRow}
+          onLayout={(e) => {
+            const { y, height } = e.nativeEvent.layout;
+            setPlannerRowBottomY(insets.top + 74 + y + height);
+          }}
+        >
           <Pressable
             onPress={recenter}
             style={({ pressed }) => [styles.gpsChipTop, pressed && styles.pressed]}
@@ -2387,7 +2399,8 @@ export default function HoleMapScreen({ navigation, route }) {
 
       <View pointerEvents="box-none" style={[styles.bottomWrap, { paddingBottom: insets.bottom + 40 }]}>
         <Animated.View
-          pointerEvents="box-none"
+          pointerEvents="auto"
+          collapsable={false}
           {...yardPan.panHandlers}
           style={[
             styles.yardPanelWrap,
@@ -2397,10 +2410,11 @@ export default function HoleMapScreen({ navigation, route }) {
           <View style={styles.yardClusterRow}>
             {clubPickerOpen ? (
               <View
-                pointerEvents="auto"
+                pointerEvents="box-none"
                 style={[
                   styles.inlineClubPanel,
                   yardStacked ? styles.inlineClubPanelStacked : styles.inlineClubPanelWide,
+                  !yardStacked && { width: Math.min(screenW - 44, 420) },
                 ]}
               >
                 <View style={[styles.inlineClubGrid, !yardStacked && styles.inlineClubGridWide]}>
@@ -2429,9 +2443,11 @@ export default function HoleMapScreen({ navigation, route }) {
               </View>
             ) : (
               <View
+                pointerEvents="box-none"
                 style={[
                   styles.yardPanel,
                   yardStacked ? styles.yardPanelStacked : styles.yardPanelWide,
+                  !yardStacked && { width: Math.min(screenW - 44, 420) },
                 ]}
               >
                 <View style={yardStacked ? styles.yColStackWrap : styles.yRow3}>
@@ -2546,6 +2562,11 @@ export default function HoleMapScreen({ navigation, route }) {
         <Pressable
           pointerEvents="auto"
           onPress={goToHoleHub}
+          onLayout={(e) => {
+            const { y } = e.nativeEvent.layout;
+            const bottomWrapTopY = screenH - (insets.bottom + 40);
+            setBackHubTopY(bottomWrapTopY + y);
+          }}
           style={({ pressed }) => [styles.backHubBtn, pressed && styles.pressed]}
         >
           <Text style={styles.backHubBtnT}>Back to Hole Hub</Text>
