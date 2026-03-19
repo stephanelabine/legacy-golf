@@ -714,10 +714,6 @@ export default function HistoryScreen({ navigation }) {
       return;
     }
 
-    try {
-      console.log("[HistoryScreen] openRound localRound =", JSON.stringify(localRound, null, 2));
-    } catch { }
-
     const completedLocal = isRoundCompletedAnyShape(localRound);
     if (completedLocal) {
       navigation.navigate({ name: ROUTES.FINAL_RESULTS, params: { roundId: rid } });
@@ -737,9 +733,6 @@ export default function HistoryScreen({ navigation }) {
     ) {
       try {
         const patch = buildHydrationPatchFromLocal(localRound, rid);
-        try {
-          console.log("[HistoryScreen] openRound hydration patch =", JSON.stringify(patch, null, 2));
-        } catch { }
 
         await updateActiveRound(patch, rid);
 
