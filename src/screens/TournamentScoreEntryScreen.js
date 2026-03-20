@@ -13,7 +13,7 @@ import {
     ScrollView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { doc, collection, onSnapshot, setDoc, updateDoc, serverTimestamp, query, orderBy, getDoc } from "firebase/firestore";
+import { doc, collection, onSnapshot, setDoc, serverTimestamp, query, orderBy } from "firebase/firestore";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 import { db, auth } from "../firebase/firebase";
@@ -562,14 +562,13 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
 
         const pid = String(claimPid);
         const name = String(claimName || "Player");
-        const rnKey = `r${String(roundNumber)}`;
 
         try {
-            // 1) Save the per-hole claim doc (formatClaims) — ScoreEntry reads this
             await setDoc(
                 claimRef,
                 {
                     tournamentId: String(tournamentId),
+                    roundKey: String(roundKey),
                     roundNumber: Number(roundNumber),
                     holeNumber: Number(holeNumber),
                     formatKey: String(sideGameKey),
@@ -583,57 +582,12 @@ export default function TournamentScoreEntryScreen({ navigation, route }) {
                 { merge: true }
             );
 
-            // 2) ALSO mirror into the format doc (claimsByRound) — Splash + payouts read this
-            const formatKey = String(sideGameKey || "");
-            const rnKeyLocal = `r${String(Number(roundNumber || 1))}`;
-            const formatRef = doc(db, "tournaments", String(tournamentId), "formats", formatKey);
-            const fieldPath = `claimsByRound.${rnKeyLocal}.${String(holeNumber)}`;
-
-            await setDoc(
-                formatRef,
-                {
-                    claimsByRound: {
-                        [rnKeyLocal]: {
-                            [String(holeNumber)]: {
-                                formatKey,
-                                claimedByPlayerId: pid,
-                                claimedByPlayerName: name,
-                                claimedAt: serverTimestamp(),
-                                status: "claimed",
-                                holeNumber: Number(holeNumber),
-                                roundKey: rnKeyLocal,
-                            },
-                        },
-                    },
-                    updatedAt: serverTimestamp(),
-                },
-                { merge: true }
-            );
-
-
-            try {
-                const checkSnap = await getDoc(formatRef);
-                const checkData = checkSnap.exists() ? (checkSnap.data() || {}) : null;
-                console.log("[FORMAT MIRROR CHECK]", {
-                    exists: checkSnap.exists(),
-                    formatId: formatKey,
-                    rnKeyLocal,
-                    holeNumber,
-                    atPath: checkData?.claimsByRound?.[rnKeyLocal]?.[String(holeNumber)] || null,
-                    topKeys: checkData ? Object.keys(checkData) : [],
-                });
-            } catch (e) {
-                console.log("[FORMAT MIRROR CHECK] read failed", e?.message || String(e));
-            }
-
-
-
             closeClaim();
             Alert.alert("Claim saved", `${claimTitle} claimed for ${name}.`);
         } catch {
             Alert.alert("Claim failed", "Could not save the claim. Please try again.");
         }
-    }, [claimRef, claimPid, claimName, tournamentId, roundNumber, holeNumber, sideGameKey, meUid, closeClaim, claimTitle]);
+    }, [claimRef, claimPid, claimName, tournamentId, roundKey, roundNumber, holeNumber, sideGameKey, meUid, closeClaim, claimTitle]);
 
 
     const onPressSaveNext = useCallback(async () => {

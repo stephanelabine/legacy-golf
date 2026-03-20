@@ -61,6 +61,33 @@ export default function TournamentTeamVsTeamPairingsOverviewScreen({ navigation,
 
   const teamVsTeam = tournament?.teamVsTeam || null;
 
+  const totalRounds = Math.max(
+    1,
+    Number(
+      route?.params?.totalRounds ??
+      route?.params?.roundsCount ??
+      route?.params?.numRounds ??
+      route?.params?.roundCount ??
+      tournament?.totalRounds ??
+      tournament?.roundsCount ??
+      tournament?.numRounds ??
+      tournament?.roundCount ??
+      tournament?.settings?.totalRounds ??
+      tournament?.settings?.roundsCount ??
+      tournament?.settings?.numRounds ??
+      tournament?.settings?.roundCount ??
+      tournament?.setup?.totalRounds ??
+      tournament?.setup?.roundsCount ??
+      tournament?.setup?.numRounds ??
+      tournament?.setup?.roundCount ??
+      tournament?.event?.totalRounds ??
+      tournament?.event?.roundsCount ??
+      tournament?.event?.numRounds ??
+      tournament?.event?.roundCount ??
+      1
+    ) || 1
+  );
+
   const teamAName = safeStr(teamVsTeam?.teamAName || "Team A");
   const teamBName = safeStr(teamVsTeam?.teamBName || "Team B");
 
@@ -89,6 +116,33 @@ export default function TournamentTeamVsTeamPairingsOverviewScreen({ navigation,
     const legacy = Array.isArray(teamVsTeam?.matchups) ? teamVsTeam.matchups : [];
     return { "1": { matchups: legacy } };
   }, [teamVsTeam]);
+
+  const totalRounds = Math.max(
+    1,
+    Number(
+      route?.params?.totalRounds ??
+      route?.params?.roundsCount ??
+      route?.params?.numRounds ??
+      route?.params?.roundCount ??
+      tournament?.totalRounds ??
+      tournament?.roundsCount ??
+      tournament?.numRounds ??
+      tournament?.roundCount ??
+      tournament?.settings?.totalRounds ??
+      tournament?.settings?.roundsCount ??
+      tournament?.settings?.numRounds ??
+      tournament?.settings?.roundCount ??
+      tournament?.setup?.totalRounds ??
+      tournament?.setup?.roundsCount ??
+      tournament?.setup?.numRounds ??
+      tournament?.setup?.roundCount ??
+      tournament?.event?.totalRounds ??
+      tournament?.event?.roundsCount ??
+      tournament?.event?.numRounds ??
+      tournament?.event?.roundCount ??
+      1
+    ) || 1
+  );
 
   const matchups = useMemo(() => {
     const bucket = byRound?.[String(activeRound)];
@@ -238,7 +292,7 @@ export default function TournamentTeamVsTeamPairingsOverviewScreen({ navigation,
           <Text style={styles.heroSub}>Quick view of who’s playing who.</Text>
 
           <View style={styles.roundTabs}>
-            {[1, 2, 3, 4].map((r) => {
+            {Array.from({ length: totalRounds }, (_, i) => i + 1).map((r) => {
               const active = r === activeRound;
               return (
                 <Pressable

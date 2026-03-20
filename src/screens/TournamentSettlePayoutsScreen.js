@@ -61,6 +61,10 @@ function detectFormatType(f) {
     return "generic";
 }
 
+function getKey(f) {
+    return String(f?.key || f?.id || f?.formatKey || "").trim();
+}
+
 function computeSettlementPairs(netByPlayer) {
     const creditors = [];
     const debtors = [];
@@ -117,35 +121,10 @@ export default function TournamentSettlePayoutsScreen({ navigation, route }) {
 
     const [formats, setFormats] = useState([]);
     const [scoresByPid, setScoresByPid] = useState({});
+    const [formatClaimsByKey, setFormatClaimsByKey] = useState({});
     const [roster, setRoster] = useState([]);
     const [members, setMembers] = useState([]);
     const [loading, setLoading] = useState(true);
-
-    React.useEffect(() => {
-        if (!__DEV__) return;
-
-        console.log("TSP DEBUG tournamentId:", tournamentId, "roundNumber:", roundNumber, "roundKey:", roundKey);
-        console.log("TSP DEBUG counts:", {
-            formats: Array.isArray(formats) ? formats.length : -1,
-            members: Array.isArray(members) ? members.length : -1,
-            roster: Array.isArray(roster) ? roster.length : -1,
-            scoresByPid: Object.keys(scoresByPid || {}).length,
-        });
-
-        const fmt = (Array.isArray(formats) ? formats : []).map((f) => ({
-            id: f?.id,
-            key: f?.key,
-            name: f?.name,
-            entryFee: f?.entryFee,
-            buyIn: f?.buyIn,
-            buyInAmount: f?.buyInAmount,
-            hasClaimsByRound: !!f?.claimsByRound,
-            claimsRounds: f?.claimsByRound ? Object.keys(f.claimsByRound) : [],
-            holesByRound: f?.config?.holesByRound || null,
-        }));
-
-        console.log("TSP DEBUG formats summary:", fmt);
-    }, [tournamentId, roundNumber, roundKey, formats, roster, members, scoresByPid]);
 
     useEffect(() => {
         if (!tournamentId) return;
@@ -156,6 +135,7 @@ export default function TournamentSettlePayoutsScreen({ navigation, route }) {
         let rUnsub = null;
         let mUnsub = null;
         let sUnsub = null;
+        let cUnsub = null;
 
         // keep it simple: first response from any snapshot drops loading
         const done = () => {
@@ -233,6 +213,38 @@ export default function TournamentSettlePayoutsScreen({ navigation, route }) {
                     done();
                 }
             );
+
+            const claimsRef = collection(db, "tournaments", tournamentId, "rounds", `r${String(roundNumber)}`, "formatClaims");
+            cUnsub = onSnapshot(
+                claimsRef,
+                (snap) => {
+                    const map = {};
+                    snap.forEach((d) => {
+                        const id = String(d.id || "");
+                        const m = id.match(/^(.*)_h(\d+)$/);
+                        if (!m) return;
+
+                        const rawKey = String(m[1] || "");
+                        const hole = String(Number(m[2] || 0));
+                        if (!hole || hole === "0") return;
+
+                        const k = normKey(rawKey);
+                        if (!k) return;
+
+                        if (!map[k]) map[k] = {};
+                        map[k][hole] = d.data() || {};
+                    });
+
+                    if (!alive) return;
+                    setFormatClaimsByKey(map);
+                    done();
+                },
+                () => {
+                    if (!alive) return;
+                    setFormatClaimsByKey({});
+                    done();
+                }
+            );
         } catch (e) {
             if (!alive) return;
             setLoading(false);
@@ -244,6 +256,7 @@ export default function TournamentSettlePayoutsScreen({ navigation, route }) {
             if (rUnsub) rUnsub();
             if (mUnsub) mUnsub();
             if (sUnsub) sUnsub();
+            if (cUnsub) cUnsub();
         };
     }, [tournamentId, roundNumber]);
 
@@ -474,12 +487,13 @@ export default function TournamentSettlePayoutsScreen({ navigation, route }) {
                 const events = officialHoles.length;
                 if (events <= 0) return;
 
-                const claimsByRound = f?.claimsByRound && typeof f.claimsByRound === "object" ? f.claimsByRound : {};
-                const roundClaims = claimsByRound?.[rk] && typeof claimsByRound[rk] === "object" ? claimsByRound[rk] : {};
+                const formatClaims = formatClaimsByKey?.[normKey(getKey(f))] && typeof formatClaimsByKey[normKey(getKey(f))] === "object"
+                    ? formatClaimsByKey[normKey(getKey(f))]
+                    : {};
 
                 let winners = 0;
                 officialHoles.forEach((h) => {
-                    const c = roundClaims?.[String(h)] || null;
+                    const c = formatClaims?.[String(h)] || null;
                     const winnerNm = resolveWinnerName(c);
                     if (winnerNm) winners += 1;
                 });
@@ -495,7 +509,7 @@ export default function TournamentSettlePayoutsScreen({ navigation, route }) {
                 const perWinnerEvent = pot / winners;
 
                 officialHoles.forEach((h) => {
-                    const c = roundClaims?.[String(h)] || null;
+                    const c = formatClaims?.[String(h)] || null;
                     const winnerNm = resolveWinnerName(c);
                     if (!winnerNm) return;
                     addWin(winnerNm, perWinnerEvent);
@@ -560,8 +574,7 @@ export default function TournamentSettlePayoutsScreen({ navigation, route }) {
         });
 
         return computeSettlementPairs(net);
-    }, [formats, scoresByPid, rosterCount, roundNumber, allPlayerNames, nameByPid]);
-
+    }, [formats, scoresByPid, formatClaimsByKey, rosterCount, roundNumber, allPlayerNames, nameByPid]);
     const goHomeAndFinish = useCallback(() => {
         navigation.navigate(ROUTES.HOME);
     }, [navigation]);

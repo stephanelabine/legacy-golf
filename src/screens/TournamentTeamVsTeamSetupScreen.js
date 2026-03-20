@@ -68,6 +68,14 @@ function sumHandicap(players) {
   return players.reduce((acc, p) => acc + getPlayerHandicap(p), 0);
 }
 
+function firstNonEmptyString(...vals) {
+  for (const v of vals) {
+    const s = String(v || "").trim();
+    if (s) return s;
+  }
+  return "";
+}
+
 function makeMatchups1v1(teamA, teamB) {
   const a = sortLowToHigh(teamA);
   const b = sortLowToHigh(teamB);
@@ -165,6 +173,7 @@ const TeamCard = memo(function TeamCard({
             disabled={locked}
             style={({ pressed }) => [
               styles.teamNamePress,
+              side === "A" ? styles.teamNamePressA : styles.teamNamePressB,
               locked ? styles.inputLocked : null,
               pressed && !locked ? styles.pressed : null,
             ]}
@@ -329,10 +338,29 @@ export default function TournamentTeamVsTeamSetupScreen({ navigation, route }) {
     if (!tournament) return;
 
     const saved = tournament?.teamVsTeam || tournament?.teamVTeam || null;
+    const savedFormat =
+      (Array.isArray(tournament?.formats) ? tournament.formats : []).find((f) => {
+        const key = String(f?.key || f?.id || "").toLowerCase();
+        const name = String(f?.name || "").toLowerCase();
+        return key.includes("team") || name.includes("team vs team") || name.includes("team versus team");
+      }) || null;
+
+    const savedAName = firstNonEmptyString(
+      saved?.teamAName,
+      savedFormat?.teamAName,
+      savedFormat?.config?.teamAName,
+      route?.params?.teamAName
+    );
+    const savedBName = firstNonEmptyString(
+      saved?.teamBName,
+      savedFormat?.teamBName,
+      savedFormat?.config?.teamBName,
+      route?.params?.teamBName
+    );
 
     if (saved && (Array.isArray(saved.teamA) || Array.isArray(saved.teamB))) {
-      setTeamAName(String(saved.teamAName || "Team A"));
-      setTeamBName(String(saved.teamBName || "Team B"));
+      setTeamAName(savedAName || "Team A");
+      setTeamBName(savedBName || "Team B");
 
       const savedA = Array.isArray(saved.teamA) ? saved.teamA : [];
       const savedB = Array.isArray(saved.teamB) ? saved.teamB : [];
@@ -382,12 +410,14 @@ export default function TournamentTeamVsTeamSetupScreen({ navigation, route }) {
 
     if (roster.length) {
       const { teamA: a, teamB: b } = balanceTeamsRandom(roster);
+      setTeamAName(savedAName || "Team A");
+      setTeamBName(savedBName || "Team B");
       setTeamA(a);
       setTeamB(b);
       setMatchups(makeMatchups1v1(a, b));
       setLocked(false);
     }
-  }, [tournament, roster]);
+  }, [tournament, roster, route?.params?.teamAName, route?.params?.teamBName]);
 
   const totals = useMemo(() => {
     return {
@@ -706,12 +736,19 @@ const styles = StyleSheet.create({
     width: "100%",
     paddingVertical: Platform.OS === "ios" ? 12 : 10,
     paddingHorizontal: 12,
-    borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.04)",
-    borderWidth: 1,
-    borderColor: "rgba(201,162,74,0.25)",
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1.5,
     alignItems: "center",
     justifyContent: "center",
+  },
+  teamNamePressA: {
+    backgroundColor: "rgba(46,125,255,0.18)",
+    borderColor: "rgba(90,160,255,0.46)",
+  },
+  teamNamePressB: {
+    backgroundColor: "rgba(20,96,196,0.20)",
+    borderColor: "rgba(110,182,255,0.42)",
   },
   teamNameText: {
     color: TEXT,

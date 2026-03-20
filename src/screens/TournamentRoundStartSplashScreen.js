@@ -83,16 +83,15 @@ export default function TournamentRoundStartSplashScreen({ navigation, route }) 
         shimmerLoop.start();
 
         const t = setTimeout(() => {
-            navigation.replace(ROUTES.TOURNAMENT_HOLE_VIEW, {
+            navigation.replace(ROUTES.HOLE_HUB, {
                 tournamentId,
                 roundNumber,
                 holeNumber,
+                hole: holeNumber,
 
-                // Only show overlay if a real sideGameKey exists and showFormatSplash true
                 sideGameKey,
                 showFormatSplash: true,
 
-                // Pass-through (so TournamentHoleView can forward to HoleMap without breaking)
                 course,
                 tee,
                 courseId,

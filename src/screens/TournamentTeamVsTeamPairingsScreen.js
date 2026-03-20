@@ -180,6 +180,7 @@ export default function TournamentTeamVsTeamPairingsScreen({ navigation, route }
 
   const [loading, setLoading] = useState(true);
   const [tournament, setTournament] = useState(null);
+  const [configuredRoundsCount, setConfiguredRoundsCount] = useState(0);
 
   const [activeRound, setActiveRound] = useState(1);
   const scrollRef = useRef(null);
@@ -221,8 +222,55 @@ export default function TournamentTeamVsTeamPairingsScreen({ navigation, route }
     return () => unsub();
   }, [tournamentId]);
 
+  useEffect(() => {
+    if (!tournamentId) {
+      setConfiguredRoundsCount(0);
+      return;
+    }
+
+    const roundsRef = collection(db, "tournaments", tournamentId, "rounds");
+    const unsub = onSnapshot(
+      roundsRef,
+      (snap) => {
+        setConfiguredRoundsCount(snap?.size || 0);
+      },
+      () => {
+        setConfiguredRoundsCount(0);
+      }
+    );
+
+    return () => unsub();
+  }, [tournamentId]);
+
   const teamVsTeam = tournament?.teamVsTeam || null;
 
+  const totalRounds = Math.max(
+    1,
+    Number(
+      configuredRoundsCount ||
+      route?.params?.totalRounds ||
+      route?.params?.roundsCount ||
+      route?.params?.numRounds ||
+      route?.params?.roundCount ||
+      tournament?.totalRounds ||
+      tournament?.roundsCount ||
+      tournament?.numRounds ||
+      tournament?.roundCount ||
+      tournament?.settings?.totalRounds ||
+      tournament?.settings?.roundsCount ||
+      tournament?.settings?.numRounds ||
+      tournament?.settings?.roundCount ||
+      tournament?.setup?.totalRounds ||
+      tournament?.setup?.roundsCount ||
+      tournament?.setup?.numRounds ||
+      tournament?.setup?.roundCount ||
+      tournament?.event?.totalRounds ||
+      tournament?.event?.roundsCount ||
+      tournament?.event?.numRounds ||
+      tournament?.event?.roundCount ||
+      1
+    ) || 1
+  );
   const teamAName = safeStr(teamVsTeam?.teamAName || "Team A");
   const teamBName = safeStr(teamVsTeam?.teamBName || "Team B");
 
@@ -249,15 +297,15 @@ export default function TournamentTeamVsTeamPairingsScreen({ navigation, route }
     return raw && typeof raw === "object" ? raw : null;
   }, [teamVsTeam]);
 
-  const [localByRound, setLocalByRound] = useState({ 1: [], 2: [], 3: [], 4: [] });
+  const [localByRound, setLocalByRound] = useState({});
 
   useEffect(() => {
     if (!teamVsTeam) return;
 
-    const next = { 1: [], 2: [], 3: [], 4: [] };
+    const next = {};
 
     if (savedByRound) {
-      for (const r of [1, 2, 3, 4]) {
+      for (let r = 1; r <= totalRounds; r += 1) {
         const bucket = savedByRound[String(r)];
         const matchups = Array.isArray(bucket?.matchups) ? bucket.matchups : [];
         next[r] = matchups.map((m) => ({
@@ -281,13 +329,13 @@ export default function TournamentTeamVsTeamPairingsScreen({ navigation, route }
         : makeRoundMatchups1v1(teamAList, teamBList, 1, tournamentId || "seed");
 
     next[1] = round1;
-    next[2] = makeRoundMatchups1v1(teamAList, teamBList, 2, tournamentId || "seed");
-    next[3] = makeRoundMatchups1v1(teamAList, teamBList, 3, tournamentId || "seed");
-    next[4] = [];
+
+    for (let r = 2; r <= totalRounds; r += 1) {
+      next[r] = r === 4 ? [] : makeRoundMatchups1v1(teamAList, teamBList, r, tournamentId || "seed");
+    }
 
     setLocalByRound(next);
-  }, [teamVsTeam, savedByRound, teamAList, teamBList, tournamentId]);
-
+  }, [teamVsTeam, savedByRound, teamAList, teamBList, tournamentId, totalRounds]);
   const activeMatchups = useMemo(() => {
     const rows = localByRound?.[activeRound] || [];
     return Array.isArray(rows) ? rows : [];
@@ -309,9 +357,9 @@ export default function TournamentTeamVsTeamPairingsScreen({ navigation, route }
 
   useEffect(() => {
     Keyboard.dismiss();
-    if (activeRound === 4) ensureRound4Placeholders();
+    if (activeRound === 4 && totalRounds >= 4) ensureRound4Placeholders();
     requestAnimationFrame(() => scrollRef.current?.scrollTo?.({ y: 0, animated: true }));
-  }, [activeRound]);
+  }, [activeRound, totalRounds]);
 
   const onRoundPress = (r) => {
     Keyboard.dismiss();
@@ -782,7 +830,7 @@ export default function TournamentTeamVsTeamPairingsScreen({ navigation, route }
             <Text style={styles.heroSub}>Round-by-round 1v1 matchups, grouped for the tee sheet.</Text>
 
             <View style={styles.roundTabs}>
-              {[1, 2, 3, 4].map((r) => {
+              {Array.from({ length: totalRounds }, (_, i) => i + 1).map((r) => {
                 const active = r === activeRound;
                 return (
                   <Pressable
@@ -802,7 +850,7 @@ export default function TournamentTeamVsTeamPairingsScreen({ navigation, route }
               })}
             </View>
 
-            {activeRound === 4 ? (
+            {activeRound === 4 && totalRounds >= 4 ? (
               <View style={styles.noteBadge}>
                 <Text style={styles.noteText}>Round 4 is organizer-set (not auto-generated).</Text>
               </View>

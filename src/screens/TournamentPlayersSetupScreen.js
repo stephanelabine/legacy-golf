@@ -319,16 +319,55 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
         backgroundColor: bronzeBg,
         marginBottom: 12,
       },
-      heroKicker: {
+      heroTopRow: {
+        flexDirection: "row",
+        alignItems: "flex-start",
+        justifyContent: "space-between",
+        gap: 14,
+      },
+      heroTextWrap: {
+        flex: 1,
+        minWidth: 0,
+      },
+      heroCountWrap: {
+        alignItems: "flex-end",
+        justifyContent: "flex-start",
+      },
+      heroCountLabel: {
         color: theme.text,
-        fontSize: 12,
+        fontSize: 11,
         fontWeight: "900",
-        letterSpacing: 1.4,
-        opacity: 0.78,
+        letterSpacing: 0.8,
+        opacity: 0.72,
         textTransform: "uppercase",
       },
-      heroTitle: { marginTop: 10, color: theme.text, fontSize: 18, fontWeight: "900" },
-      heroSub: { marginTop: 8, color: theme.text, opacity: 0.74, fontSize: 13, fontWeight: "700", lineHeight: 19 },
+      heroCountPill: {
+        marginTop: 8,
+        minWidth: 46,
+        height: 38,
+        paddingHorizontal: 12,
+        borderRadius: 999,
+        alignItems: "center",
+        justifyContent: "center",
+        borderWidth: 1,
+        borderColor: bronzeBorder,
+        backgroundColor: theme.card2,
+      },
+      heroCountValue: {
+        color: theme.text,
+        fontSize: 16,
+        fontWeight: "900",
+      },
+      heroKicker: {
+        color: theme.text,
+        fontSize: 11,
+        fontWeight: "900",
+        letterSpacing: 1.1,
+        opacity: 0.72,
+        textTransform: "uppercase",
+      },
+      heroTitle: { marginTop: 8, color: theme.text, fontSize: 18, fontWeight: "900" },
+      heroSub: { marginTop: 14, color: theme.text, opacity: 0.74, fontSize: 13, fontWeight: "700", lineHeight: 19 },
 
       playersCard: {
         borderRadius: 22,
@@ -1301,8 +1340,20 @@ export default function TournamentPlayersSetupScreen({ navigation, route }) {
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <View style={styles.hero}>
-          <Text style={styles.heroKicker}>Players</Text>
-          <Text style={styles.heroTitle}>{tournamentName}</Text>
+          <View style={styles.heroTopRow}>
+            <View style={styles.heroTextWrap}>
+              <Text style={styles.heroKicker}>Tournament Name</Text>
+              <Text style={styles.heroTitle}>{tournamentName}</Text>
+            </View>
+
+            <View style={styles.heroCountWrap}>
+              <Text style={styles.heroCountLabel}>Total Players</Text>
+              <View style={styles.heroCountPill}>
+                <Text style={styles.heroCountValue}>{playerCount}</Text>
+              </View>
+            </View>
+          </View>
+
           <Text style={styles.heroSub}>Add everyone playing today. Handicap is required so payouts and results stay clean.</Text>
         </View>
 
