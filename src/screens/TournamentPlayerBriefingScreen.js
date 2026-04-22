@@ -610,10 +610,14 @@ export default function TournamentPlayerBriefingScreen({ navigation, route }) {
                     onPress={() =>
                         navigation.navigate(ROUTES.TOURNAMENT_ROUND_START_SPLASH, {
                             tournamentId,
-                            devPreview: true,
-                            roundIndex: (Number(t?.activeRound) || 1) - 1,
-                            holeIndex: (Number(t?.startingHole) || 1) - 1,
-                            sideGameKey: "LONG_DRIVE",
+                            roundNumber: roundNum,
+                            holeNumber: Number(effectiveStartingHole) || 1,
+                            players: Array.isArray(myGroup?.playerIds)
+                                ? myGroup.playerIds
+                                    .map((pid) => playersById.get(String(pid)))
+                                    .filter(Boolean)
+                                : [],
+                            groupPlayerIds: Array.isArray(myGroup?.playerIds) ? myGroup.playerIds.map(String) : [],
                         })
                     }
                     style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}

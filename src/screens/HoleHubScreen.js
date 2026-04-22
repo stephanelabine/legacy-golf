@@ -815,13 +815,6 @@ export default function HoleHubScreen({ navigation, route }) {
 
   const courseCenterFromParams = params.courseCenter ?? courseParam?.center ?? courseParam?.courseCenter ?? null;
 
-  const teeFromActive = activeRoot?.tee || null;
-
-  const teeName =
-    teeParam?.name ??
-    teeFromActive?.name ??
-    (typeof teeParam === "string" ? teeParam : "Tees");
-
   const [currentHole, setCurrentHole] = useState(params.hole || 1);
   const [courseData, setCourseData] = useState(null);
   const [user, setUser] = useState(null);
@@ -829,6 +822,7 @@ export default function HoleHubScreen({ navigation, route }) {
   const [finishValidationBusy, setFinishValidationBusy] = useState(false);
 
   const activeRoot = useMemo(() => unwrapRound(activeSnap), [activeSnap]);
+  const teeFromActive = activeRoot?.tee || null;
   const roundId = params.roundId ?? activeRoot?.id ?? activeRoot?.roundId ?? null;
 
   const { startHole, endHole, holesCount, holesSide } = useMemo(() => {
@@ -854,6 +848,11 @@ export default function HoleHubScreen({ navigation, route }) {
     if (name) return name;
     return pickCourseNameAny(activeRoot, "Course");
   }, [courseNameFromParams, activeRoot]);
+
+  const teeName =
+    teeParam?.name ??
+    teeFromActive?.name ??
+    (typeof teeParam === "string" ? teeParam : "Tees");
 
   const courseCenter = useMemo(() => {
     return courseCenterFromParams ?? pickCourseCenterAny(activeRoot) ?? null;

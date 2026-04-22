@@ -117,33 +117,6 @@ export default function TournamentTeamVsTeamPairingsOverviewScreen({ navigation,
     return { "1": { matchups: legacy } };
   }, [teamVsTeam]);
 
-  const totalRounds = Math.max(
-    1,
-    Number(
-      route?.params?.totalRounds ??
-      route?.params?.roundsCount ??
-      route?.params?.numRounds ??
-      route?.params?.roundCount ??
-      tournament?.totalRounds ??
-      tournament?.roundsCount ??
-      tournament?.numRounds ??
-      tournament?.roundCount ??
-      tournament?.settings?.totalRounds ??
-      tournament?.settings?.roundsCount ??
-      tournament?.settings?.numRounds ??
-      tournament?.settings?.roundCount ??
-      tournament?.setup?.totalRounds ??
-      tournament?.setup?.roundsCount ??
-      tournament?.setup?.numRounds ??
-      tournament?.setup?.roundCount ??
-      tournament?.event?.totalRounds ??
-      tournament?.event?.roundsCount ??
-      tournament?.event?.numRounds ??
-      tournament?.event?.roundCount ??
-      1
-    ) || 1
-  );
-
   const matchups = useMemo(() => {
     const bucket = byRound?.[String(activeRound)];
     const rows = Array.isArray(bucket?.matchups) ? bucket.matchups : [];
