@@ -287,7 +287,7 @@ export default function NewRoundScreen({ navigation, route }) {
 
     all.sort((a, b) => Number(a.distanceKm) - Number(b.distanceKm));
 
-    const green = __DEV__ ? all.find((c) => isGreenTeeLocal(c)) : null;
+    const green = all.find((c) => isGreenTeeLocal(c)) || null;
 
     const nearby = all
       .filter((c) => !isGreenTeeLocal(c))
@@ -318,10 +318,9 @@ export default function NewRoundScreen({ navigation, route }) {
         const res = await searchCoursesUnified(qTrim, { limit: 60 });
         if (searchSeqRef.current !== seq) return;
 
-        // Option B: API-only results (no local fallback)
-        const apiOnly = (Array.isArray(res) ? res : []).filter((x) => String(x?.source || "") === "api");
+        const mergedResults = Array.isArray(res) ? res : [];
 
-        const enriched = apiOnly.map((it) => {
+        const enriched = mergedResults.map((it) => {
           const ll = getLatLngFromAny(it);
           const d = ll ? haversineKm(center, ll) : null;
           return { ...it, distanceKm: Number.isFinite(d) ? d : null };
@@ -345,8 +344,19 @@ export default function NewRoundScreen({ navigation, route }) {
 
   function tapCourse(item) {
     Keyboard.dismiss();
-    const preferApi = String(item?.source || "") === "api";
-    const normalized = normalizeSelectedCourse(item, { preferApi });
+
+    const rawName = norm(item?.name || item?.courseName || item?.course_name || item?.clubName || "");
+    const shouldUseGreenTeeLocal =
+      String(item?.source || "") === "api" &&
+      (rawName.includes("pagoda ridge") || rawName.includes("green tee"));
+
+    const greenTeeLocal = shouldUseGreenTeeLocal
+      ? (Array.isArray(COURSES_LOCAL) ? COURSES_LOCAL.find((c) => isGreenTeeLocal(c)) : null)
+      : null;
+
+    const chosen = greenTeeLocal || item;
+    const preferApi = String(chosen?.source || "") === "api";
+    const normalized = normalizeSelectedCourse(chosen, { preferApi });
 
     setSelectedCourse((prev) => {
       if (prev?.id === normalized.id) return null;
