@@ -418,6 +418,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
     }, [normalizedPlayers]);
 
     const [inputs, setInputs] = useState({});
+    const userEditedHoleRef = useRef({});
 
     // Birdie Buckets enforcement (regular games)
     const [bbActive, setBbActive] = useState(false);
@@ -622,6 +623,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
     // Load saved hole values from Firestore round doc (SOLO or SHARED)
     useEffect(() => {
+        userEditedHoleRef.current = {};
         let live = true;
 
         (async () => {
@@ -683,6 +685,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                     playerRows.forEach((p) => {
                         const pid = String(p._pid);
                         const saved = savedHole?.[String(pid)] || null;
+                        const wasEditedLocally = userEditedHoleRef.current?.[pid] === true;
 
                         const track =
                             typeof saved?.trackStats === "boolean"
@@ -702,15 +705,51 @@ export default function GameScoreEntryScreen({ navigation, route }) {
                                 ...defaultSelectedStats(),
                                 ...(roundSelectedStatsByPlayer?.[String(pid)] || saved?.selectedStats || next[pid]?.selectedStats || {}),
                             },
-                            strokes: saved ? (Number.isFinite(Number(sStrokes)) ? sStrokes : 0) : (next[pid]?.strokes ?? 0),
-                            putts: saved ? (Number.isFinite(Number(sPutts)) ? sPutts : 0) : (next[pid]?.putts ?? 0),
-                            _hasPuttsSaved: saved ? hasPutts : (next[pid]?._hasPuttsSaved ?? false),
-                            fairway: saved ? (saved?.fairway ?? next[pid]?.fairway ?? "na") : (next[pid]?.fairway ?? "na"),
-                            green: saved ? (saved?.green ?? next[pid]?.green ?? "na") : (next[pid]?.green ?? "na"),
-                            sandSave: saved ? (saved?.sandSave ?? next[pid]?.sandSave ?? "na") : (next[pid]?.sandSave ?? "na"),
-                            updown: saved ? (saved?.updown ?? next[pid]?.updown ?? "na") : (next[pid]?.updown ?? "na"),
-                            penalties: saved ? (saved?.penalties ?? next[pid]?.penalties ?? "") : (next[pid]?.penalties ?? ""),
-                            driveDistance: saved ? (saved?.driveDistance ?? next[pid]?.driveDistance ?? "") : (next[pid]?.driveDistance ?? ""),
+                            strokes: wasEditedLocally
+                                ? (next[pid]?.strokes ?? 0)
+                                : saved
+                                    ? (Number.isFinite(Number(sStrokes)) ? sStrokes : 0)
+                                    : (next[pid]?.strokes ?? 0),
+                            putts: wasEditedLocally
+                                ? (next[pid]?.putts ?? 0)
+                                : saved
+                                    ? (Number.isFinite(Number(sPutts)) ? sPutts : 0)
+                                    : (next[pid]?.putts ?? 0),
+                            _hasPuttsSaved: wasEditedLocally
+                                ? (next[pid]?._hasPuttsSaved ?? false)
+                                : saved
+                                    ? hasPutts
+                                    : (next[pid]?._hasPuttsSaved ?? false),
+                            fairway: wasEditedLocally
+                                ? (next[pid]?.fairway ?? "na")
+                                : saved
+                                    ? (saved?.fairway ?? next[pid]?.fairway ?? "na")
+                                    : (next[pid]?.fairway ?? "na"),
+                            green: wasEditedLocally
+                                ? (next[pid]?.green ?? "na")
+                                : saved
+                                    ? (saved?.green ?? next[pid]?.green ?? "na")
+                                    : (next[pid]?.green ?? "na"),
+                            sandSave: wasEditedLocally
+                                ? (next[pid]?.sandSave ?? "na")
+                                : saved
+                                    ? (saved?.sandSave ?? next[pid]?.sandSave ?? "na")
+                                    : (next[pid]?.sandSave ?? "na"),
+                            updown: wasEditedLocally
+                                ? (next[pid]?.updown ?? "na")
+                                : saved
+                                    ? (saved?.updown ?? next[pid]?.updown ?? "na")
+                                    : (next[pid]?.updown ?? "na"),
+                            penalties: wasEditedLocally
+                                ? (next[pid]?.penalties ?? "")
+                                : saved
+                                    ? (saved?.penalties ?? next[pid]?.penalties ?? "")
+                                    : (next[pid]?.penalties ?? ""),
+                            driveDistance: wasEditedLocally
+                                ? (next[pid]?.driveDistance ?? "")
+                                : saved
+                                    ? (saved?.driveDistance ?? next[pid]?.driveDistance ?? "")
+                                    : (next[pid]?.driveDistance ?? ""),
                         };
                     });
 
@@ -728,6 +767,8 @@ export default function GameScoreEntryScreen({ navigation, route }) {
 
     function setPlayerField(pid, field, value) {
         const id = String(pid);
+        userEditedHoleRef.current[id] = true;
+
         setInputs((prev) => {
             const next = { ...(prev || {}) };
             const cur = next[id] || {
@@ -1304,12 +1345,13 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             roundState = null;
         }
 
-        const isMatchPlay = String(roundState?.gameId || "").trim() === "match_play";
         const hasMatchSetup =
             !!(roundState?.matchPlay &&
                 typeof roundState.matchPlay === "object" &&
                 Array.isArray(roundState.matchPlay.matches) &&
                 roundState.matchPlay.matches.length);
+
+        const shouldShowMatchStatusSplash = hasMatchSetup;
 
         // Post-hole Skins splash (single, premium) + running totals (skins count + estimated $).
         let postHoleSplash = null;
@@ -1764,7 +1806,7 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             return;
         }
 
-        if (isMatchPlay && hasMatchSetup) {
+        if (shouldShowMatchStatusSplash) {
             goToHoleHub(nextHole, {
                 roundId: rid,
                 postHoleSplash,
@@ -1782,13 +1824,6 @@ export default function GameScoreEntryScreen({ navigation, route }) {
             postHoleSplash,
             birdieBucketsSplash,
             ...(shouldShowFrontNinePrompt ? { showFrontNineStatsPrompt: true } : {}),
-            ...(isMatchPlay && hasMatchSetup
-                ? {
-                    showMatchStatusSplash: true,
-                    matchStatusHoleCompleted: Number(holeNumber) || 1,
-                    matchStatusNextHole: Number(nextHole) || nextHole,
-                }
-                : {}),
         });
     }
 

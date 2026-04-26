@@ -702,7 +702,26 @@ export default function GameFormatDetailsScreen({ navigation, route }) {
             dirtyRef.current = false;
             setIsDirty(false);
 
+            const hasMatchFormat = formats.some((f) => {
+                const rawKey = String(getKey(f) || "").toLowerCase();
+                const rawName = String(f?.name || "").toLowerCase();
+                const s = `${rawKey} ${rawName}`;
+                return s.includes("match_play") || s.includes("matchplay") || (s.includes("match") && s.includes("play"));
+            });
+
+            const hasSavedMatchSetup =
+                roundDoc?.matchPlay &&
+                typeof roundDoc.matchPlay === "object" &&
+                Array.isArray(roundDoc?.matchPlay?.matches) &&
+                roundDoc.matchPlay.matches.length > 0;
+
             Alert.alert("Saved", "Format details saved.");
+
+            if (hasMatchFormat && !hasSavedMatchSetup) {
+                navigation.navigate(ROUTES.MATCH_SETUP, { ...(params || {}), roundId });
+                return;
+            }
+
             navigation.navigate(ROUTES.GAME_FORMAT_POOLS, { ...(params || {}), roundId });
 
         } catch (e) {

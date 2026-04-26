@@ -98,7 +98,16 @@ export default function MatchSetupScreen({ navigation, route }) {
 
     const gameId = String(roundDoc?.gameId || "");
     const gameTitle = String(roundDoc?.gameTitle || "Match Setup");
-    const isMatchPlay = gameId === "match_play";
+
+    const formatsSelected = Array.isArray(roundDoc?.formatsSelected) ? roundDoc.formatsSelected : [];
+    const hasMatchFormat = formatsSelected.some((f) => {
+        const rawKey = typeof f === "string" ? f : f?.key || f?.id || f?.type || "";
+        const rawName = typeof f === "string" ? f : f?.name || f?.label || f?.title || "";
+        const s = `${String(rawKey || "")} ${String(rawName || "")}`.toLowerCase();
+        return s.includes("match_play") || s.includes("matchplay") || (s.includes("match") && s.includes("play"));
+    });
+
+    const isMatchPlay = gameId === "match_play" || hasMatchFormat;
 
     const footerPad = Math.max(18, (insets?.bottom || 0) + 14);
 
@@ -171,7 +180,7 @@ export default function MatchSetupScreen({ navigation, route }) {
             return;
         }
         if (!isMatchPlay) {
-            Alert.alert("Not Match Play", "This setup is only for Match Play right now.");
+            Alert.alert("Match setup unavailable", "Match Play is not active for this round.");
             return;
         }
         if (!canSave) {
@@ -264,6 +273,26 @@ export default function MatchSetupScreen({ navigation, route }) {
                 },
                 { merge: true }
             );
+
+            const formatsSelected = Array.isArray(roundDoc?.formatsSelected) ? roundDoc.formatsSelected : [];
+            const cameFromDedicatedMatchGame = String(roundDoc?.gameId || "") === "match_play";
+            const hasOtherFormatsBesidesMatch = formatsSelected.some((f) => {
+                const rawKey = typeof f === "string" ? f : f?.key || f?.id || f?.type || "";
+                const rawName = typeof f === "string" ? f : f?.name || f?.label || f?.title || "";
+                const s = `${String(rawKey || "")} ${String(rawName || "")}`.toLowerCase();
+
+                const isMatch =
+                    s.includes("match_play") ||
+                    s.includes("matchplay") ||
+                    (s.includes("match") && s.includes("play"));
+
+                return !isMatch;
+            });
+
+            if (!cameFromDedicatedMatchGame || hasOtherFormatsBesidesMatch) {
+                navigation.replace(ROUTES.GAME_FORMAT_POOLS, { roundId });
+                return;
+            }
 
             navigation.replace(ROUTES.GAME_ROUND_BRIEFING, { roundId });
         } catch (e) {

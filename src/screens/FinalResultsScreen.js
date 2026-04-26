@@ -250,6 +250,7 @@ function detectFormatType(key, name) {
     s.includes("2ndshotkp") ||
     (s.includes("2nd") && s.includes("shot") && s.includes("kp"));
 
+  if (s.includes("matchplay") || (s.includes("match") && s.includes("play"))) return "matchplay";
   if (s.includes("nassau")) return "nassau";
   if (s.includes("skins")) return "skins";
   if (s.includes("stableford")) return "stableford";
@@ -272,6 +273,7 @@ function formatIconName(type) {
   if (type === "puttingcontest") return "golf";
   if (type === "deucepot") return "cash";
   if (type === "teamvsteam") return "account-group";
+  if (type === "matchplay") return "sword-cross";
   if (type === "nassau") return "trophy";
   if (type === "skins") return "star-four-points";
   if (type === "stableford") return "chart-line";
@@ -287,6 +289,7 @@ function formatDisplayTitle(type, rawName) {
   if (type === "deucepot") return "DEUCE POT";
   if (type === "puttingcontest") return "PUTTING CONTEST";
   if (type === "teamvsteam") return "TEAM VS TEAM";
+  if (type === "matchplay") return "MATCH PLAY";
   if (type === "nassau") return "NASSAU";
   if (type === "skins") return "SKINS";
   if (type === "stableford") return "STABLEFORD";
@@ -302,6 +305,7 @@ function formatTheme(type) {
   if (type === "deucepot") return { accent: "#FFCF5A", bg: "rgba(255,207,90,0.10)", border: "rgba(255,207,90,0.30)" };
   if (type === "puttingcontest") return { accent: "#FF7AC8", bg: "rgba(255,122,200,0.10)", border: "rgba(255,122,200,0.28)" };
   if (type === "teamvsteam") return { accent: "#69E6B4", bg: "rgba(105,230,180,0.10)", border: "rgba(105,230,180,0.28)" };
+  if (type === "matchplay") return { accent: "#FF9F5A", bg: "rgba(255,159,90,0.10)", border: "rgba(255,159,90,0.28)" };
 
   if (type === "nassau") return { accent: "#FFCF5A", bg: "rgba(255,207,90,0.10)", border: "rgba(255,207,90,0.30)" };
   if (type === "skins") return { accent: "#FFCF5A", bg: "rgba(255,207,90,0.10)", border: "rgba(255,207,90,0.30)" };
@@ -1346,7 +1350,12 @@ export default function FinalResultsScreen({ navigation, route }) {
     // payout per win = per-hole amount * (players - 1)
     const perWin = perHoleAmount > 0 ? perHoleAmount * Math.max(0, includedCount - 1) : 0;
 
-    const isAuto = type === "deucepot" || type === "puttingcontest" || type === "nassau" || type === "skins";
+    const isAuto =
+      type === "deucepot" ||
+      type === "puttingcontest" ||
+      type === "nassau" ||
+      type === "skins" ||
+      type === "matchplay";
 
     const isCarryDoc = (c) => {
       const s = String(c?.status || "").toLowerCase();
@@ -1580,6 +1589,247 @@ export default function FinalResultsScreen({ navigation, route }) {
                           <Text style={styles.modalLine}>{line("Overall", overallR, totalBuyIn)}</Text>
                         </>
                       );
+                    })()}
+                  </View>
+                ) : type === "matchplay" ? (
+                  <View style={{ width: "100%", gap: 10 }}>
+                    {(() => {
+                      const mp = round?.matchPlay && typeof round.matchPlay === "object" ? round.matchPlay : {};
+                      const matches = Array.isArray(mp?.matches) ? mp.matches : [];
+
+                      const playersList = Array.isArray(players) ? players : [];
+                      const playerMap = {};
+                      playersList.forEach((p, idx) => {
+                        const pid = String(p?.id ?? `p${idx + 1}`);
+                        const rawName = String(p?.name || `Player ${idx + 1}`).trim() || `Player ${idx + 1}`;
+                        const parts = rawName.split(/\s+/).filter(Boolean);
+                        const first = parts[0] || rawName;
+                        const lastInitial = parts.length > 1 ? String(parts[parts.length - 1]).slice(0, 1).toUpperCase() : "";
+                        playerMap[pid] = { first, lastInitial };
+                      });
+
+                      const nameCounts = {};
+                      Object.values(playerMap).forEach((x) => {
+                        const k = String(x?.first || "").toLowerCase();
+                        nameCounts[k] = (nameCounts[k] || 0) + 1;
+                      });
+
+                      const displayNameFor = (pid, fallback) => {
+                        const rec = playerMap[String(pid)] || null;
+                        if (!rec) return fallback;
+                        const dup = (nameCounts[String(rec.first || "").toLowerCase()] || 0) > 1;
+                        return dup && rec.lastInitial ? `${rec.first} ${rec.lastInitial}.` : rec.first;
+                      };
+
+                      const strokeIndexForHole = (holeNumber) => {
+                        const metaHole = round?.meta?.holeMeta && typeof round.meta.holeMeta === "object" ? round.meta.holeMeta : {};
+                        const holeMeta = round?.holeMeta && typeof round.holeMeta === "object" ? round.holeMeta : {};
+                        const row = metaHole?.[String(holeNumber)] || holeMeta?.[String(holeNumber)] || {};
+                        const raw =
+                          row?.si ??
+                          row?.strokeIndex ??
+                          row?.SI ??
+                          row?.handicap ??
+                          row?.hcp ??
+                          row?.hdcp ??
+                          row?.rank ??
+                          null;
+
+                        const n = parseInt(String(raw ?? "").replace(/[^\d]/g, ""), 10);
+                        return Number.isFinite(n) && n >= 1 && n <= 18 ? n : 99;
+                      };
+
+                      const holesCountRaw =
+                        Number(round?.holesCount) ||
+                        Number(round?.totalHoles) ||
+                        Number(round?.holesToPlay) ||
+                        Number(round?.holeCount) ||
+                        Number(round?.numHoles) ||
+                        18;
+
+                      const capCount = holesCountRaw === 9 ? 9 : 18;
+                      const modeRaw = String(round?.holesMode || round?.holesSelection || round?.holes || "").toLowerCase();
+                      const holesSide = String(round?.holesSide || "").toLowerCase();
+                      const isBack = holesSide === "back" || modeRaw.includes("back");
+                      const startHole = capCount === 9 && isBack ? 10 : 1;
+                      const endHole = Math.min(18, startHole + capCount - 1);
+
+                      const scoring = mp?.scoring && typeof mp.scoring === "object" ? mp.scoring : {};
+                      const typeRaw = String(mp?.type || "");
+                      const teamMode = String(scoring?.teamMode || "");
+                      const matchScoring = String(scoring?.matchScoring || "").toLowerCase() === "net" ? "net" : "gross";
+                      const handicapMethod = String(scoring?.handicapMethod || "").toLowerCase() === "full" ? "full" : "difference";
+
+                      const hcpById = {};
+                      playersList.forEach((p, idx) => {
+                        const pid = String(p?.id ?? `p${idx + 1}`);
+                        hcpById[pid] = parseHcp(
+                          p?.handicap ??
+                          p?.hcp ??
+                          p?.handicapIndex ??
+                          p?.index ??
+                          p?.courseHandicap ??
+                          p?.handicapStrokes ??
+                          p?.strokesHdcp ??
+                          0
+                        );
+                      });
+
+                      const sideHcp = (ids) => {
+                        const vals = (Array.isArray(ids) ? ids : [])
+                          .map((id) => Number(hcpById[String(id)] || 0))
+                          .filter((n) => Number.isFinite(n));
+                        if (!vals.length) return 0;
+                        return Math.min(...vals);
+                      };
+
+                      const buildSideStrokesByHole = (higherSideGets, diff) => {
+                        const strokes = {};
+                        for (let h = startHole; h <= endHole; h++) strokes[h] = 0;
+                        if (!higherSideGets || !Number.isFinite(diff) || diff <= 0) return strokes;
+
+                        const ranked = [];
+                        for (let h = startHole; h <= endHole; h++) ranked.push(h);
+                        ranked.sort((a, b) => strokeIndexForHole(a) - strokeIndexForHole(b));
+
+                        for (let k = 1; k <= diff; k++) {
+                          const idx = (k - 1) % ranked.length;
+                          const h = ranked[idx];
+                          strokes[h] = (strokes[h] || 0) + 1;
+                        }
+
+                        return strokes;
+                      };
+
+                      const bestBallSideScore = (holeNumber, ids, sideStrokeCount) => {
+                        const scores = (Array.isArray(ids) ? ids : [])
+                          .map((pid) => {
+                            const g = readStroke(round || {}, holeNumber, String(pid));
+                            if (!Number.isFinite(g) || g <= 0) return null;
+                            const net = Number(g) - Number(sideStrokeCount || 0);
+                            return Number.isFinite(net) ? net : null;
+                          })
+                          .filter((x) => Number.isFinite(x));
+
+                        if (!scores.length) return null;
+                        return Math.min(...scores);
+                      };
+
+                      const rows = matches.map((m, idx) => {
+                        const leftIds = Array.isArray(m?.leftIds) ? m.leftIds.map(String).filter(Boolean) : [];
+                        const rightIds = Array.isArray(m?.rightIds) ? m.rightIds.map(String).filter(Boolean) : [];
+
+                        let leftWins = 0;
+                        let rightWins = 0;
+                        let thru = 0;
+                        let clinchedLead = null;
+                        let clinchedHolesRemaining = null;
+
+                        const leftH = sideHcp(leftIds);
+                        const rightH = sideHcp(rightIds);
+
+                        let leftStrokesByHole = {};
+                        let rightStrokesByHole = {};
+
+                        if (matchScoring === "net") {
+                          if (handicapMethod === "full") {
+                            leftStrokesByHole = buildSideStrokesByHole(true, Math.max(0, Math.round(leftH)));
+                            rightStrokesByHole = buildSideStrokesByHole(true, Math.max(0, Math.round(rightH)));
+                          } else {
+                            const diff = Math.max(0, Math.round(Math.abs(leftH - rightH)));
+                            const leftGets = leftH > rightH;
+                            const rightGets = rightH > leftH;
+
+                            leftStrokesByHole = buildSideStrokesByHole(leftGets, diff);
+                            rightStrokesByHole = buildSideStrokesByHole(rightGets, diff);
+                          }
+                        } else {
+                          leftStrokesByHole = buildSideStrokesByHole(false, 0);
+                          rightStrokesByHole = buildSideStrokesByHole(false, 0);
+                        }
+
+                        for (let h = startHole; h <= endHole; h++) {
+                          let l = null;
+                          let r = null;
+
+                          const lStrokeAdj = matchScoring === "net" ? (leftStrokesByHole[h] || 0) : 0;
+                          const rStrokeAdj = matchScoring === "net" ? (rightStrokesByHole[h] || 0) : 0;
+
+                          if (typeRaw === "two_v_two" && teamMode === "best_ball") {
+                            l = matchScoring === "net" ? bestBallSideScore(h, leftIds, lStrokeAdj) : bestBallSideScore(h, leftIds, 0);
+                            r = matchScoring === "net" ? bestBallSideScore(h, rightIds, rStrokeAdj) : bestBallSideScore(h, rightIds, 0);
+                          } else {
+                            l = matchScoring === "net" ? bestBallSideScore(h, leftIds, lStrokeAdj) : bestBallSideScore(h, leftIds, 0);
+                            r = matchScoring === "net" ? bestBallSideScore(h, rightIds, rStrokeAdj) : bestBallSideScore(h, rightIds, 0);
+                          }
+
+                          if (!Number.isFinite(l) || !Number.isFinite(r)) continue;
+
+                          thru += 1;
+                          if (l < r) leftWins += 1;
+                          else if (r < l) rightWins += 1;
+
+                          const liveLead = leftWins - rightWins;
+                          const liveHolesRemaining = Math.max(0, endHole - (startHole + thru - 1));
+
+                          if (clinchedLead == null && Math.abs(liveLead) > liveHolesRemaining) {
+                            clinchedLead = liveLead;
+                            clinchedHolesRemaining = liveHolesRemaining;
+                            break;
+                          }
+                        }
+
+                        const lead = clinchedLead != null ? clinchedLead : (leftWins - rightWins);
+                        const holesRemaining = clinchedHolesRemaining != null
+                          ? clinchedHolesRemaining
+                          : Math.max(0, endHole - (startHole + thru - 1));
+
+                        const leftLabel = leftIds.length === 1
+                          ? displayNameFor(leftIds[0], "Left")
+                          : "Team A";
+                        const rightLabel = rightIds.length === 1
+                          ? displayNameFor(rightIds[0], "Right")
+                          : "Team B";
+
+                        let resultLine = "AS";
+                        if (Math.abs(lead) > holesRemaining) {
+                          const winnerLabel = lead > 0 ? leftLabel : rightLabel;
+                          resultLine = `${winnerLabel} won ${Math.abs(lead)} and ${holesRemaining}`;
+                        } else if (lead > 0) {
+                          resultLine = `${leftLabel} ${Math.abs(lead)} up`;
+                        } else if (lead < 0) {
+                          resultLine = `${rightLabel} ${Math.abs(lead)} up`;
+                        }
+
+                        return {
+                          id: String(m?.id || `match_${idx + 1}`),
+                          label: `${leftLabel} vs ${rightLabel}`,
+                          resultLine,
+                        };
+                      });
+
+                      if (!rows.length) {
+                        return <Text style={styles.modalLine}>No match play results available yet.</Text>;
+                      }
+
+                      return rows.map((entry) => (
+                        <View key={entry.id} style={styles.claimRow}>
+                          <Text style={styles.claimLeft}>Match</Text>
+
+                          <View style={styles.claimMidBox}>
+                            <Text style={styles.claimMidName} numberOfLines={1}>
+                              {entry.label}
+                            </Text>
+                            <Text style={styles.claimMidNote} numberOfLines={1}>
+                              {entry.resultLine}
+                            </Text>
+                          </View>
+
+                          <View style={styles.matchPill}>
+                            <Text style={styles.matchPillText}>RESULT</Text>
+                          </View>
+                        </View>
+                      ));
                     })()}
                   </View>
                 ) : type === "stableford" ? (

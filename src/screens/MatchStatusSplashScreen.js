@@ -237,6 +237,8 @@ function computeMatchState(roundDoc, matchPlay, playersList, holeMax) {
         let leftWins = 0;
         let rightWins = 0;
         let thru = 0;
+        let clinchedLead = null;
+        let clinchedHolesRemaining = null;
 
         const leftH = sideHcp(leftIds);
         const rightH = sideHcp(rightIds);
@@ -281,16 +283,35 @@ function computeMatchState(roundDoc, matchPlay, playersList, holeMax) {
             thru += 1;
             if (l < r) leftWins += 1;
             else if (r < l) rightWins += 1;
+
+            const liveLead = leftWins - rightWins;
+            const liveHolesRemaining = Math.max(0, holeCap - (startHole + thru - 1));
+
+            if (clinchedLead == null && Math.abs(liveLead) > liveHolesRemaining) {
+                clinchedLead = liveLead;
+                clinchedHolesRemaining = liveHolesRemaining;
+                break;
+            }
         }
 
-        const lead = leftWins - rightWins;
+        const lead = clinchedLead != null ? clinchedLead : (leftWins - rightWins);
 
         const leftLabel = leftIds.length === 1 ? resolveSingle(leftIds[0], "Left") : "Team A";
         const rightLabel = rightIds.length === 1 ? resolveSingle(rightIds[0], "Right") : "Team B";
 
+        const holesRemaining = clinchedHolesRemaining != null
+            ? clinchedHolesRemaining
+            : Math.max(0, holeCap - (startHole + thru - 1));
+
         let line = "AS";
-        if (lead > 0) line = `${leftLabel} ${Math.abs(lead)} up`;
-        if (lead < 0) line = `${rightLabel} ${Math.abs(lead)} up`;
+        if (Math.abs(lead) > holesRemaining) {
+            const winnerLabel = lead > 0 ? leftLabel : rightLabel;
+            line = `${winnerLabel} won ${Math.abs(lead)} and ${holesRemaining}`;
+        } else if (lead > 0) {
+            line = `${leftLabel} ${Math.abs(lead)} up`;
+        } else if (lead < 0) {
+            line = `${rightLabel} ${Math.abs(lead)} up`;
+        }
 
         const basisLabel = matchScoring === "net" ? "net" : "gross";
 
