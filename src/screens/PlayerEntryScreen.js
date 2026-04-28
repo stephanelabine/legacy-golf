@@ -709,11 +709,26 @@ export default function PlayerEntryScreen({ navigation, route }) {
       };
 
       const meFromSaved = saved.find((p) => p.id === "me");
+
+      // Player 1 profile values must not be overwritten by an older saved round snapshot.
+      // If the profile already loaded a real handicap/name into meFromPrev, keep it.
+      const prevHcp = Number(meFromPrev?.handicap);
+      const savedHcp = Number(meFromSaved?.handicap);
+
       const me = {
-        ...meFromPrev,
         ...(meFromSaved || {}),
+        ...meFromPrev,
         id: "me",
         uid: myUid || meFromSaved?.uid || meFromPrev?.uid || null,
+        name: String(meFromPrev?.name || "").trim()
+          ? meFromPrev.name
+          : meFromSaved?.name || "Me",
+        handicap:
+          Number.isFinite(prevHcp) && prevHcp > 0
+            ? prevHcp
+            : Number.isFinite(savedHcp)
+              ? savedHcp
+              : 0,
         source: "me",
         trackStats: true,
       };
