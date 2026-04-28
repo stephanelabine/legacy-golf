@@ -634,9 +634,11 @@ export default function ScorecardScreen({ navigation, route }) {
       return [];
     }
 
-    if (params?.holeMeta && typeof params.holeMeta === "object") return params.holeMeta;
+    // Regular rounds: Firestore/loaded round data must beat route params.
+    // TeeSelectionScreen writes the authoritative course pars/SI to meta.holeMeta.
     if (localRound?.meta?.holeMeta && typeof localRound.meta.holeMeta === "object") return localRound.meta.holeMeta;
     if (localRound?.holeMeta && typeof localRound.holeMeta === "object") return localRound.holeMeta;
+    if (params?.holeMeta && typeof params.holeMeta === "object") return params.holeMeta;
     if (params?.course?.holeMeta && typeof params.course.holeMeta === "object") return params.course.holeMeta;
 
     return [];
