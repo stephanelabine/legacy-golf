@@ -1062,18 +1062,16 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                 return;
             }
 
-            // Match Play: everybody-vs-everybody and pairwise settlement.
-            // Locked product rule:
-            // - the amount entered is each player's TOTAL contribution for the entire format
-            // - it is NOT the amount per head-to-head matchup
-            // - per-match value = buy-in per player / number of opponents
+            // Match Play: use the saved match setup when available.
+            // Product rule:
+            // - If round.matchPlay.matches exists, settle only those saved matches.
+            // - A 1v1 match affects only the two selected players.
+            // - The entered amount is the stake for each saved match.
+            // - Fallback to legacy everybody-vs-everybody only when no saved match setup exists.
             if (type === "matchplay") {
-                const buyInPerPlayer = fee > 0 ? fee : 0;
-                if (!buyInPerPlayer) return;
+                const matchStake = fee > 0 ? fee : 0;
+                if (!matchStake) return;
                 if (includedCount < 2) return;
-
-                const opponentsCount = Math.max(1, includedCount - 1);
-                const perMatchValue = buyInPerPlayer / opponentsCount;
 
                 const basis = String(r?.matchPlay?.scoring?.basis || r?.scoringMode || r?.scoring || "gross").toLowerCase();
                 const useNet = basis.includes("net");
@@ -1082,36 +1080,83 @@ export default function RegularSettleUpScreen({ navigation, route }) {
                 const holes = Array.isArray(playedHoles) ? playedHoles : [];
                 if (!holes.length) return;
 
+                const savedMatches = Array.isArray(r?.matchPlay?.matches) ? r.matchPlay.matches : [];
+
+                const scoreSide = (ids) => {
+                    const sideIds = Array.isArray(ids) ? ids.map((x) => String(x || "")).filter(Boolean) : [];
+                    if (!sideIds.length) return { total: 0, anyPlayed: false };
+
+                    let total = 0;
+                    let anyPlayed = false;
+
+                    holes.forEach((h) => {
+                        const scores = sideIds
+                            .map((pid) => netStrokesForHole(r, pid, h, useNet, playersById))
+                            .filter((v) => Number.isFinite(v) && v > 0);
+
+                        if (!scores.length) return;
+
+                        total += Math.min(...scores);
+                        anyPlayed = true;
+                    });
+
+                    return { total, anyPlayed };
+                };
+
+                if (savedMatches.length) {
+                    savedMatches.forEach((m) => {
+                        const leftIds = Array.isArray(m?.leftIds) ? m.leftIds.map(String).filter(Boolean) : [];
+                        const rightIds = Array.isArray(m?.rightIds) ? m.rightIds.map(String).filter(Boolean) : [];
+
+                        if (!leftIds.length || !rightIds.length) return;
+
+                        const left = scoreSide(leftIds);
+                        const right = scoreSide(rightIds);
+
+                        if (!left.anyPlayed || !right.anyPlayed) return;
+
+                        if (left.total < right.total) {
+                            rightIds.forEach((payerId) => {
+                                leftIds.forEach((winnerId) => {
+                                    addTransfer(payerId, winnerId, matchStake / leftIds.length);
+                                });
+                            });
+                            return;
+                        }
+
+                        if (right.total < left.total) {
+                            leftIds.forEach((payerId) => {
+                                rightIds.forEach((winnerId) => {
+                                    addTransfer(payerId, winnerId, matchStake / rightIds.length);
+                                });
+                            });
+                        }
+
+                        // Tie/push = no transfer
+                    });
+
+                    return;
+                }
+
+                // Legacy fallback: if no saved match setup exists, settle every included player head-to-head.
                 for (let i = 0; i < includedIds.length; i++) {
                     for (let j = i + 1; j < includedIds.length; j++) {
                         const aId = String(includedIds[i] || "");
                         const bId = String(includedIds[j] || "");
                         if (!aId || !bId || aId === bId) continue;
 
-                        let aTotal = 0;
-                        let bTotal = 0;
-                        let anyPlayed = false;
+                        const a = scoreSide([aId]);
+                        const b = scoreSide([bId]);
 
-                        holes.forEach((h) => {
-                            const aScore = netStrokesForHole(r, aId, h, useNet, playersById);
-                            const bScore = netStrokesForHole(r, bId, h, useNet, playersById);
+                        if (!a.anyPlayed || !b.anyPlayed) continue;
 
-                            if (aScore > 0 && bScore > 0) {
-                                aTotal += aScore;
-                                bTotal += bScore;
-                                anyPlayed = true;
-                            }
-                        });
-
-                        if (!anyPlayed) continue;
-
-                        if (aTotal < bTotal) {
-                            addTransfer(bId, aId, perMatchValue);
+                        if (a.total < b.total) {
+                            addTransfer(bId, aId, matchStake);
                             continue;
                         }
 
-                        if (bTotal < aTotal) {
-                            addTransfer(aId, bId, perMatchValue);
+                        if (b.total < a.total) {
+                            addTransfer(aId, bId, matchStake);
                             continue;
                         }
 
@@ -1121,7 +1166,6 @@ export default function RegularSettleUpScreen({ navigation, route }) {
 
                 return;
             }
-
             // Stableford
             if (type === "stableford") {
                 const pools = getFormatPools(r) || {};
