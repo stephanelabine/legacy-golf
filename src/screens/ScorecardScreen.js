@@ -346,20 +346,21 @@ export default function ScorecardScreen({ navigation, route }) {
         const activeState = await loadActiveRound();
         const activeRoot = unwrapRound(activeState);
 
-        // 1) if we have a saved roundId in params, try history first
+        // 1) Firestore/active round is the source of truth for live regular scorecards.
+        // Do not let an older saved history snapshot override corrected course pars/SI.
         if (wantedId) {
+          const activeId = String(activeRoot?.id || activeRoot?.roundId || "");
+
+          if (activeRoot && (activeId === wantedId || !activeId)) {
+            setLocalRound(activeRoot);
+            return;
+          }
+
           const saved = await getRoundById(wantedId);
           if (!live) return;
 
           if (saved) {
             setLocalRound(saved);
-            return;
-          }
-
-          // 2) fallback to active round (matches or best available)
-          const activeId = String(activeRoot?.id || activeRoot?.roundId || "");
-          if (activeRoot && (activeId === wantedId || !activeId)) {
-            setLocalRound(activeRoot);
             return;
           }
 

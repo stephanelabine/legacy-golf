@@ -80,6 +80,13 @@ async function readLocal() {
 
 export function subscribeBuddies(onChange) {
   const user = auth.currentUser;
+
+  readLocal()
+    .then((local) => {
+      if (Array.isArray(local) && local.length) onChange(local);
+    })
+    .catch(() => { });
+
   if (!user?.uid) {
     readLocal().then(onChange).catch(() => { });
     return () => { };
@@ -102,8 +109,21 @@ export function subscribeBuddies(onChange) {
       });
 
       const cleaned = dedupeAndSort(list);
-      await writeLocal(cleaned);
-      onChange(cleaned);
+
+      if (cleaned.length) {
+        await writeLocal(cleaned);
+        onChange(cleaned);
+        return;
+      }
+
+      const local = await readLocal();
+
+      if (Array.isArray(local) && local.length) {
+        onChange(local);
+        return;
+      }
+
+      onChange([]);
     },
     async () => {
       const local = await readLocal();
@@ -153,25 +173,24 @@ export async function saveBuddies(list) {
     return true;
   }
 
-  const snap = await getDocs(buddiesRef(user.uid));
-  const existingIds = new Set();
-  snap.forEach((d) => existingIds.add(d.id));
-
   const batch = writeBatch(db);
 
-  // upsert
+  // Launch-safe behavior:
+  // Upsert the buddies currently being saved, but do NOT mass-delete Firestore buddies
+  // that are missing from this screen list. A partial/empty screen list must never wipe
+  // the user's long-standing buddy database.
   for (const b of cleaned) {
     const ref = doc(db, "users", user.uid, "buddies", b.id);
     batch.set(ref, { ...b, updatedAt: serverTimestamp() }, { merge: true });
-    existingIds.delete(b.id);
-  }
-
-  // delete removed
-  for (const id of existingIds) {
-    batch.delete(doc(db, "users", user.uid, "buddies", id));
   }
 
   await batch.commit();
-  await writeLocal(cleaned);
+
+  // Keep local cache useful, but merge instead of replacing so a partial save does not
+  // erase cached buddies either.
+  const local = await readLocal();
+  const merged = dedupeAndSort([...(Array.isArray(local) ? local : []), ...cleaned]);
+  await writeLocal(merged);
+
   return true;
 }
