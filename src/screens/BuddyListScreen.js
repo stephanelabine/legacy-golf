@@ -19,7 +19,7 @@ import { Ionicons } from "@expo/vector-icons";
 import theme from "../theme";
 import ScreenHeader from "../components/ScreenHeader";
 import PremiumSwipeRow from "../components/PremiumSwipeRow";
-import { getBuddies, saveBuddies, subscribeBuddies } from "../storage/buddies";
+import { deleteBuddy, getBuddies, saveBuddies, subscribeBuddies } from "../storage/buddies";
 
 function makeId() {
   return `${Date.now()}-${Math.floor(Math.random() * 100000)}`;
@@ -246,6 +246,7 @@ export default function BuddyListScreen({ navigation }) {
 
   async function onDeleteConfirmed(id) {
     if (!id) return;
+
     const next = buddies.filter((b) => b.id !== id);
     const sorted = sortBuddies(next);
 
@@ -256,7 +257,14 @@ export default function BuddyListScreen({ navigation }) {
       return nextSet;
     });
 
-    await persist(sorted);
+    setSaving(true);
+    const ok = await deleteBuddy(id);
+    setSaving(false);
+
+    if (!ok) {
+      Alert.alert("Error", "Could not delete buddy.");
+      await loadOnce();
+    }
   }
 
   function toggleSelected(id) {
